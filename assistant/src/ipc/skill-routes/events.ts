@@ -23,8 +23,8 @@
  *
  * - `host.events.buildEvent` — deterministic helper. Params
  *   `{ message, conversationId? }`. Returns the `AssistantEvent` envelope a
- *   skill would otherwise construct via `DAEMON_INTERNAL_ASSISTANT_ID` —
- *   keeping event-id allocation and timestamp generation on the daemon side
+ *   skill would otherwise construct locally — keeping event-id allocation
+ *   and timestamp generation on the daemon side
  *   so skill processes do not drift on UUID / clock sources.
  */
 
@@ -32,9 +32,8 @@ import { z } from "zod";
 
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
-import type { SkillIpcStreamingRoute } from "../skill-server.js";
+import type { SkillIpcStreamingRoute } from "../skill-ipc-types.js";
 
 // ---------------------------------------------------------------------------
 // Param schemas
@@ -42,14 +41,13 @@ import type { SkillIpcStreamingRoute } from "../skill-server.js";
 
 /**
  * `AssistantEvent` wire shape accepted by `host.events.publish`. The
- * envelope fields (`id`, `assistantId`, `emittedAt`, `message`) are
- * required; `conversationId` is optional. The `message` payload is an
- * opaque JSON object — the daemon does not narrow it before handing it to
+ * envelope fields (`id`, `emittedAt`, `message`) are required;
+ * `conversationId` is optional. The `message` payload is an opaque JSON
+ * object — the daemon does not narrow it before handing it to
  * `assistantEventHub.publish`, matching the in-process hub contract.
  */
 const AssistantEventSchema = z.object({
   id: z.string().min(1),
-  assistantId: z.string().min(1),
   conversationId: z.string().optional(),
   emittedAt: z.string().min(1),
   message: z.record(z.string(), z.unknown()),
@@ -60,7 +58,6 @@ const PublishParams = z.object({
 });
 
 const FilterSchema = z.object({
-  assistantId: z.string().min(1),
   conversationId: z.string().optional(),
 });
 
@@ -90,11 +87,7 @@ async function handlePublish(
 
 function handleBuildEvent(params?: Record<string, unknown>): unknown {
   const { message, conversationId } = BuildEventParams.parse(params);
-  return buildAssistantEvent(
-    DAEMON_INTERNAL_ASSISTANT_ID,
-    message as never,
-    conversationId,
-  );
+  return buildAssistantEvent(message as never, conversationId);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,18 +104,14 @@ export const eventsStreamingRoutes: SkillIpcStreamingRoute[] = [
     method: "host.events.subscribe",
     handler: (stream, params) => {
       const { filter } = SubscribeParams.parse(params);
-      const subscription = assistantEventHub.subscribe(
+      const subscription = assistantEventHub.subscribe({
+        type: "process",
         filter,
-        (event) => {
+        callback: (event) => {
           stream.send(event);
         },
-        // The hub evicts the oldest subscriber when its cap fills. Without
-        // this callback the IPC stream would silently stop receiving events
-        // while the client still believed it was subscribed. Mirror the SSE
-        // route's behavior by tearing the stream down with a terminal error
-        // frame so the client can resubscribe.
-        { onEvict: () => stream.close("subscription evicted by hub cap") },
-      );
+        onEvict: () => stream.close("subscription evicted by hub cap"),
+      });
       return () => {
         subscription.dispose();
       };

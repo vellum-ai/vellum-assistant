@@ -9,6 +9,7 @@
 
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { addAppConversationId } from "../memory/app-store.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -26,7 +27,6 @@ const log = getLogger("tool-side-effects");
 
 export interface SideEffectContext {
   ctx: ToolSetupContext;
-  broadcastToAllClients?: (msg: ServerMessage) => void;
 }
 
 export type PostExecutionHook = (
@@ -51,11 +51,10 @@ export type PostExecutionHook = (
 function notifyAppChanged(
   ctx: ToolSetupContext,
   appId: string,
-  broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
   refreshSurfacesForApp(ctx, appId, opts);
-  broadcastToAllClients?.({ type: "app_files_changed", appId });
+  broadcastMessage({ type: "app_files_changed", appId });
   void updatePublishedAppDeployment(appId);
 }
 
@@ -80,142 +79,106 @@ function registerHook(
 // Broadcast app_files_changed when a new app is created so clients
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
 // Also kicks off async icon generation via Gemini.
-registerHook(
-  "app_create",
-  (_name, _input, result, { ctx, broadcastToAllClients }) => {
-    try {
-      const parsed = JSON.parse(result.content) as {
-        id?: string;
-        name?: string;
-        description?: string;
-      };
-      if (parsed.id) {
-        // Track conversation association (best-effort).
-        try {
-          addAppConversationId(parsed.id, ctx.conversationId);
-        } catch (err) {
-          log.warn(
-            { err, appId: parsed.id },
-            "Failed to track conversation ID on app_create",
-          );
-        }
-
-        // The apps directory may have just been created — ensure the
-        // filesystem watcher is running so subsequent file edits
-        // trigger live reload.
-        ensureAppSourceWatcher();
-
-        notifyAppChanged(ctx, parsed.id, broadcastToAllClients);
-
-        // Fire-and-forget: generate an app icon in the background.
-        // When complete, broadcast again so clients pick up the new icon.
-        if (parsed.name) {
-          void generateAppIcon(parsed.id, parsed.name, parsed.description)
-            .then(() => {
-              broadcastToAllClients?.({
-                type: "app_files_changed",
-                appId: parsed.id!,
-              });
-            })
-            .catch((err) => {
-              log.warn(
-                { err, appId: parsed.id },
-                "Background icon generation failed",
-              );
-            });
-        }
-      }
-    } catch {
-      // Result wasn't valid JSON — skip the broadcast.
-    }
-  },
-);
-
-// Broadcast app_files_changed when an icon is (re)generated so clients refresh.
-registerHook(
-  "app_generate_icon",
-  (_name, input, _result, { broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      broadcastToAllClients?.({ type: "app_files_changed", appId });
-    }
-  },
-);
-
-// Broadcast app_files_changed when an app is deleted so clients remove it
-// from their cached app lists.
-registerHook(
-  "app_delete",
-  (_name, input, _result, { broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      broadcastToAllClients?.({ type: "app_files_changed", appId });
-    }
-  },
-);
-
-// Trigger surface refresh + broadcast when an app is refreshed.
-registerHook(
-  "app_refresh",
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (!appId) return;
-
-    // Track conversation association (best-effort).
-    try {
-      addAppConversationId(appId, ctx.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, appId },
-        "Failed to track conversation ID on app_refresh",
-      );
-    }
-
-    notifyAppChanged(ctx, appId, broadcastToAllClients, { fileChange: true });
-  },
-);
-
-// Broadcast voice config changes to all connected clients so every window
-// picks up the updated UserDefaults value immediately.
-registerHook(
-  "voice_config_update",
-  (_name, input, _result, { broadcastToAllClients }) => {
-    const setting = input.setting as string | undefined;
-    if (!setting) return;
-
-    const SETTING_TO_KEY: Record<string, string> = {
-      activation_key: "pttActivationKey",
-      tts_voice_id: "ttsVoiceId",
-      tts_provider: "ttsProvider",
-      conversation_timeout: "voiceConversationTimeoutSeconds",
-      fish_audio_reference_id: "fishAudioReferenceId",
+registerHook("app_create", (_name, _input, result, { ctx }) => {
+  try {
+    const parsed = JSON.parse(result.content) as {
+      id?: string;
+      name?: string;
+      description?: string;
     };
-    const key = SETTING_TO_KEY[setting];
-    if (!key) return;
+    if (parsed.id) {
+      try {
+        addAppConversationId(parsed.id, ctx.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, appId: parsed.id },
+          "Failed to track conversation ID on app_create",
+        );
+      }
 
-    // Coerce the value to the correct type before broadcasting, matching
-    // the validation logic in the tool's execute method.
-    const raw = input.value;
-    let coerced: string | boolean | number = raw as string;
-    if (setting === "conversation_timeout") {
-      coerced = typeof raw === "number" ? raw : Number(raw);
-    } else if (setting === "tts_voice_id" && typeof raw === "string") {
-      coerced = raw.trim();
-    } else if (
-      setting === "fish_audio_reference_id" &&
-      typeof raw === "string"
-    ) {
-      coerced = raw.trim();
-    } else if (setting === "tts_provider" && typeof raw === "string") {
-      coerced = raw.trim();
+      ensureAppSourceWatcher();
+
+      notifyAppChanged(ctx, parsed.id);
+
+      if (parsed.name) {
+        void generateAppIcon(parsed.id, parsed.name, parsed.description)
+          .then(() => {
+            broadcastMessage({
+              type: "app_files_changed",
+              appId: parsed.id!,
+            });
+          })
+          .catch((err) => {
+            log.warn(
+              { err, appId: parsed.id },
+              "Background icon generation failed",
+            );
+          });
+      }
     }
-    broadcastToAllClients?.({
-      type: "client_settings_update",
-      key,
-      value: coerced,
-    } as unknown as ServerMessage);
-  },
-);
+  } catch {
+    // Result wasn't valid JSON — skip the broadcast.
+  }
+});
+
+registerHook("app_generate_icon", (_name, input) => {
+  const appId = input.app_id as string | undefined;
+  if (appId) {
+    broadcastMessage({ type: "app_files_changed", appId });
+  }
+});
+
+registerHook("app_delete", (_name, input) => {
+  const appId = input.app_id as string | undefined;
+  if (appId) {
+    broadcastMessage({ type: "app_files_changed", appId });
+  }
+});
+
+registerHook("app_refresh", (_name, input, _result, { ctx }) => {
+  const appId = input.app_id as string | undefined;
+  if (!appId) return;
+  try {
+    addAppConversationId(appId, ctx.conversationId);
+  } catch (err) {
+    log.warn({ err, appId }, "Failed to track conversation ID on app_refresh");
+  }
+  notifyAppChanged(ctx, appId, { fileChange: true });
+});
+
+registerHook("voice_config_update", (_name, input) => {
+  const setting = input.setting as string | undefined;
+  if (!setting) return;
+
+  const SETTING_TO_KEY: Record<string, string> = {
+    activation_key: "pttActivationKey",
+    tts_voice_id: "ttsVoiceId",
+    tts_provider: "ttsProvider",
+    conversation_timeout: "voiceConversationTimeoutSeconds",
+    fish_audio_reference_id: "fishAudioReferenceId",
+  };
+  const key = SETTING_TO_KEY[setting];
+  if (!key) return;
+
+  // Coerce the value to the correct type before broadcasting, matching
+  // the validation logic in the tool's execute method.
+  const raw = input.value;
+  let coerced: string | boolean | number = raw as string;
+  if (setting === "conversation_timeout") {
+    coerced = typeof raw === "number" ? raw : Number(raw);
+  } else if (setting === "tts_voice_id" && typeof raw === "string") {
+    coerced = raw.trim();
+  } else if (setting === "fish_audio_reference_id" && typeof raw === "string") {
+    coerced = raw.trim();
+  } else if (setting === "tts_provider" && typeof raw === "string") {
+    coerced = raw.trim();
+  }
+  broadcastMessage({
+    type: "client_settings_update",
+    key,
+    value: coerced,
+  } as unknown as ServerMessage);
+});
 
 // Dispatch pending Slack DM delivery when a CLI verification command
 // completes.  The CLI subprocess is sandboxed and cannot reach the

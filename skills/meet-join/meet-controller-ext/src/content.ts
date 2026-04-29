@@ -29,10 +29,7 @@ import type {
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
-import {
-  enqueueSendChat,
-  handleCameraToggle,
-} from "./handle-send-chat.js";
+import { enqueueSendChat, handleCameraToggle } from "./handle-send-chat.js";
 import { type ChatReader, startChatReader } from "./features/chat.js";
 import { runJoinFlow } from "./features/join.js";
 import {
@@ -391,4 +388,3 @@ async function handleJoin(
   // emit `joined` here so the daemon isn't left hanging.
   finalizeAdmission();
 }
-

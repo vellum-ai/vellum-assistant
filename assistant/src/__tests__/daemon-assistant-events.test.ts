@@ -33,11 +33,10 @@ describe("buildAssistantEvent", () => {
       conversationId: "sess_1",
       text: "hi",
     };
-    const event = buildAssistantEvent("ast_1", msg, "sess_1");
+    const event = buildAssistantEvent(msg, "sess_1");
 
     expect(typeof event.id).toBe("string");
     expect(event.id.length).toBeGreaterThan(0);
-    expect(event.assistantId).toBe("ast_1");
     expect(event.conversationId).toBe("sess_1");
     expect(event.message).toBe(msg);
     expect(typeof event.emittedAt).toBe("string");
@@ -46,14 +45,14 @@ describe("buildAssistantEvent", () => {
 
   test("generates unique ids for each call", () => {
     const msg: ServerMessage = { type: "pong" };
-    const a = buildAssistantEvent("ast", msg);
-    const b = buildAssistantEvent("ast", msg);
+    const a = buildAssistantEvent(msg);
+    const b = buildAssistantEvent(msg);
     expect(a.id).not.toBe(b.id);
   });
 
   test("conversationId is undefined when omitted", () => {
     const msg: ServerMessage = { type: "pong" };
-    const event = buildAssistantEvent("ast", msg);
+    const event = buildAssistantEvent(msg);
     expect(event.conversationId).toBeUndefined();
   });
 });
@@ -65,8 +64,11 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_test" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
 
     const msg: ServerMessage = {
@@ -74,11 +76,10 @@ describe("daemon send → one mirrored assistant event", () => {
       conversationId: "sess_a",
       text: "hello",
     };
-    const event = buildAssistantEvent("ast_test", msg, "sess_a");
+    const event = buildAssistantEvent(msg, "sess_a");
     await hub.publish(event);
 
     expect(received).toHaveLength(1);
-    expect(received[0].assistantId).toBe("ast_test");
     expect(received[0].conversationId).toBe("sess_a");
     expect(received[0].message.type).toBe("assistant_text_delta");
   });
@@ -87,12 +88,15 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_test" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
 
     const msg: ServerMessage = { type: "pong" }; // no conversationId field
-    const event = buildAssistantEvent("ast_test", msg, "sess_explicit");
+    const event = buildAssistantEvent(msg, "sess_explicit");
 
     await hub.publish(event);
 
@@ -107,11 +111,17 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     const received: AssistantEvent[] = [];
 
     // Two subscribers (simulating two wire clients)
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
 
     // Simulate broadcast: server calls publishAssistantEvent once
@@ -119,7 +129,7 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
       type: "message_complete",
       conversationId: "sess_b",
     };
-    const event = buildAssistantEvent("ast_bc", msg, "sess_b");
+    const event = buildAssistantEvent(msg, "sess_b");
     await hub.publish(event);
 
     // Both hub subscribers receive it (fanout), but only ONE event was published
@@ -130,8 +140,11 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     const hub = new AssistantEventHub();
     const publishedEvents: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
-      publishedEvents.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        publishedEvents.push(e);
+      },
     });
 
     const msgA: ServerMessage = {
@@ -145,8 +158,8 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     };
 
     // Simulate: one broadcast + one single send
-    await hub.publish(buildAssistantEvent("ast_bc", msgA, "s1"));
-    await hub.publish(buildAssistantEvent("ast_bc", msgB, "s1"));
+    await hub.publish(buildAssistantEvent(msgA, "s1"));
+    await hub.publish(buildAssistantEvent(msgB, "s1"));
 
     expect(publishedEvents).toHaveLength(2);
     expect(publishedEvents[0].message.type).toBe("assistant_text_delta");

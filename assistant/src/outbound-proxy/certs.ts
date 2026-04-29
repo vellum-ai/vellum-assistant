@@ -270,13 +270,6 @@ export async function ensureCombinedCABundle(
 }
 
 /**
- * Return the path to the combined CA bundle for use as SSL_CERT_FILE.
- */
-export function getCombinedCAPath(dataDir: string): string {
-  return join(dataDir, "proxy-ca", COMBINED_CA_FILENAME);
-}
-
-/**
  * Return the path to the local CA cert for use as NODE_EXTRA_CA_CERTS.
  */
 export function getCAPath(dataDir: string): string {

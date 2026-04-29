@@ -354,6 +354,7 @@ function makeLazyRunner(fakeBotRef: { current: FakeBotServer | null }) {
     }),
     stop: mock(async () => {}),
     remove: mock(async () => {}),
+    wait: mock(() => new Promise(() => {})),
     inspect: mock(async () => ({ Id: "container-avatar-e2e" })),
     logs: mock(async () => ""),
   };

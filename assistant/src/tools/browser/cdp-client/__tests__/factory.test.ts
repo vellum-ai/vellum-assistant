@@ -116,12 +116,21 @@ mock.module("../../../../util/logger.js", () => ({
 /** Mutable singleton proxy. Tests set this to control extension availability. */
 let mockSingletonProxy: HostBrowserProxy | null = null;
 
+/** Default proxy that reports unavailable — used when no test override is set. */
+const unavailableFallback: HostBrowserProxy = {
+  isAvailable: () => false,
+  request: () => Promise.reject(new Error("no extension")),
+  resolve: () => {},
+  hasPendingRequest: () => false,
+  dispose: () => {},
+} as unknown as HostBrowserProxy;
+
 mock.module("../../../../daemon/host-browser-proxy.js", () => ({
   HostBrowserProxy: {
     get instance() {
-      return mockSingletonProxy ?? undefined;
+      return mockSingletonProxy ?? unavailableFallback;
     },
-    resetInstanceForTests() {
+    reset() {
       mockSingletonProxy = null;
     },
   },
@@ -1084,27 +1093,26 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
 
     const candidates = buildCandidateList(ctx);
 
-    // Should only include local -- cdp-inspect is suppressed because extension
-    // transport is expected (registry-routed proxy) but temporarily unavailable.
-    expect(candidates.length).toBe(1);
-    expect(candidates[0].kind).toBe("local");
+    // Extension unavailable => cdp-inspect (desktop-auto) + local
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[1].kind).toBe("local");
   });
 
-  test("macOS turn with singleton proxy unavailable suppresses desktop-auto cdp-inspect", () => {
+  test("macOS turn with singleton proxy unavailable still includes desktop-auto cdp-inspect", () => {
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
-      conversationId: "macos-proxy-unavailable-inspect-suppressed",
+      conversationId: "macos-proxy-unavailable-inspect-allowed",
       transportInterface: "macos",
     });
 
     const candidates = buildCandidateList(ctx);
 
-    // When the singleton proxy exists but is temporarily unavailable,
-    // cdp-inspect is suppressed — the extension transport was expected
-    // and the disconnection is transient.
-    expect(candidates.length).toBe(1);
-    expect(candidates[0].kind).toBe("local");
+    // Extension unavailable => cdp-inspect (desktop-auto) + local
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[1].kind).toBe("local");
   });
 
   test("macOS turn with no proxy still includes desktop-auto cdp-inspect", () => {
@@ -1275,7 +1283,7 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[0].kind).toBe("local");
   });
 
-  test("macOS turn with registry-routed proxy unavailable routes to local without trying cdp-inspect", async () => {
+  test("macOS turn with registry-routed proxy unavailable still tries cdp-inspect (desktop-auto)", async () => {
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -1285,20 +1293,20 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
 
     const client = getCdpClient(ctx);
 
-    // Should go straight to local -- no cdp-inspect candidate inserted
-    // because the registry-routed extension was expected but is unavailable.
-    expect(client.kind).toBe("local");
+    // Extension unavailable no longer suppresses cdp-inspect — desktop-auto
+    // inserts it as a candidate and it succeeds.
+    expect(client.kind).toBe("cdp-inspect");
     const result = await client.send<{ ok: boolean; via: string }>(
       "Page.navigate",
     );
-    expect(result).toEqual({ ok: true, via: "local" });
-    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
-    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
     client.dispose();
   });
 
-  test("macOS turn with singleton proxy unavailable falls through to local (cdp-inspect suppressed)", async () => {
+  test("macOS turn with singleton proxy unavailable still tries cdp-inspect (desktop-auto)", async () => {
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -1308,16 +1316,16 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
 
     const client = getCdpClient(ctx);
 
-    // Singleton proxy unavailable suppresses cdp-inspect (extension was
-    // expected), so the factory falls through directly to local.
-    expect(client.kind).toBe("local");
+    // Extension unavailable no longer suppresses cdp-inspect — desktop-auto
+    // inserts it as a candidate and it succeeds.
+    expect(client.kind).toBe("cdp-inspect");
     const result = await client.send<{ ok: boolean; via: string }>(
       "Page.navigate",
     );
-    expect(result).toEqual({ ok: true, via: "local" });
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
-    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
-    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
     client.dispose();
   });
 
@@ -1449,7 +1457,7 @@ describe("pinned-mode selection", () => {
     } catch (err) {
       const cdpErr = err as CdpError;
       expect(cdpErr.code).toBe("transport_error");
-      expect(cdpErr.message).toContain("not connected");
+      expect(cdpErr.message).toContain("no active extension connection");
       expect(cdpErr.attemptDiagnostics![0].stage).toBe("candidate_selection");
     }
   });

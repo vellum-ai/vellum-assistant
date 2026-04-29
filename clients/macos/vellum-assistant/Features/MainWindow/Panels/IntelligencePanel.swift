@@ -16,6 +16,7 @@ struct IntelligencePanel: View {
     var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
+    @Binding var pendingTab: String?
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
@@ -23,7 +24,7 @@ struct IntelligencePanel: View {
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingTab: Binding<String?> = .constant(nil), pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -36,9 +37,10 @@ struct IntelligencePanel: View {
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
+        _pendingTab = pendingTab
         _pendingMemoryId = pendingMemoryId
         _pendingSkillId = pendingSkillId
-        _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
+        _selectedTab = State(initialValue: IntelligenceTab(rawValue: pendingTab.wrappedValue ?? initialTab ?? "") ?? .identity)
     }
 
     private enum IntelligenceTab: String, CaseIterable {
@@ -68,6 +70,12 @@ struct IntelligencePanel: View {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }
             }
         }
+        .onChange(of: pendingTab) {
+            applyPendingTab()
+        }
+        .onAppear {
+            applyPendingTab()
+        }
         .task {
             let info = await IdentityInfo.refreshCache()
             if let name = AssistantDisplayName.firstUserFacing(from: [info?.name]) {
@@ -82,6 +90,13 @@ struct IntelligencePanel: View {
                 }
             }
         }
+    }
+
+    private func applyPendingTab() {
+        guard let pendingTab,
+              let tab = IntelligenceTab(rawValue: pendingTab) else { return }
+        withAnimation(VAnimation.fast) { selectedTab = tab }
+        self.pendingTab = nil
     }
 
     // MARK: - Tab Content

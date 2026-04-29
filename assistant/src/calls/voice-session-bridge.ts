@@ -428,11 +428,7 @@ export async function startVoiceTurn(
         ? (msg as { conversationId: string }).conversationId
         : undefined;
     const resolvedConversationId = msgConversationId ?? opts.conversationId;
-    const event = buildAssistantEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
-      msg,
-      resolvedConversationId,
-    );
+    const event = buildAssistantEvent(msg, resolvedConversationId);
     hubChain = (async () => {
       await hubChain;
       try {
@@ -564,7 +560,6 @@ export async function startVoiceTurn(
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
       );
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
-      publishToHub(msg);
       return;
     }
     publishToHub(msg);

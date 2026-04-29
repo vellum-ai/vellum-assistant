@@ -476,7 +476,7 @@ function startOutboundVoice(
  * Deliver a verification Slack DM via the Slack Web API directly.
  * Returns a promise that resolves when the delivery attempt completes.
  */
-export async function deliverVerificationSlackAsync(
+async function deliverVerificationSlackAsync(
   userId: string,
   text: string,
   assistantId: string,

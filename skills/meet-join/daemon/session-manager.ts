@@ -143,10 +143,7 @@ import type {
   SpeakInput,
   VisemeListener,
 } from "./tts-bridge.js";
-import type {
-  StartTtsLipsyncArgs,
-  TtsLipsyncHandle,
-} from "./tts-lipsync.js";
+import type { StartTtsLipsyncArgs, TtsLipsyncHandle } from "./tts-lipsync.js";
 
 /**
  * Minimal structural overlay of the daemon's `ToolDefinition` used to
@@ -584,7 +581,6 @@ export interface MeetBargeInWatcherLike {
 /** Arguments passed to {@link MeetSessionManagerDeps.consentMonitorFactory}. */
 export interface MeetConsentMonitorFactoryArgs {
   meetingId: string;
-  assistantId: string;
   sessionManager: MeetSessionLeaver;
   config: { autoLeaveOnObjection: boolean; objectionKeywords: string[] };
 }
@@ -829,12 +825,10 @@ class MeetSessionManagerImpl {
   private deps: Required<MeetSessionManagerDeps>;
   private host: SkillHost;
   private log: Logger;
-  private internalAssistantId: string;
 
   constructor(host: SkillHost, deps: MeetSessionManagerDeps = {}) {
     this.host = host;
     this.log = host.logger.get("meet-session-manager");
-    this.internalAssistantId = host.identity.internalAssistantId;
     // The contract's `addMessage` returns `Promise<unknown>`; the bridge's
     // `InsertMessageFn` expects the narrower `{ id: string }` shape.
     // `DaemonSkillHost` wires the concrete `addMessage` (which returns the
@@ -845,54 +839,65 @@ class MeetSessionManagerImpl {
       deps.insertMessage ?? (host.memory.addMessage as InsertMessageFn);
     const resolveWorkspaceDir =
       deps.getWorkspaceDir ?? (() => host.platform.workspaceDir());
-    const dockerRunnerSubModule = resolveSubModuleFactory<
-      (host: SkillHost, resolveWorkspaceDir?: () => string) => DockerRunner
-    >(DOCKER_RUNNER_MODULE);
+    const dockerRunnerSubModule =
+      resolveSubModuleFactory<
+        (host: SkillHost, resolveWorkspaceDir?: () => string) => DockerRunner
+      >(DOCKER_RUNNER_MODULE);
     const audioIngestSubModule = resolveSubModuleFactory<
       (host: SkillHost) => () => MeetAudioIngest
     >(AUDIO_INGEST_SUB_MODULE);
     const consentMonitorSubModule = resolveSubModuleFactory<
-      (
-        host: SkillHost,
-      ) => (
+      (host: SkillHost) => (
         deps: Omit<MeetConsentMonitorDeps, "assistantId"> & {
           assistantId?: string;
         },
       ) => MeetConsentMonitor
     >("consent-monitor");
     const conversationBridgeSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (
-        args: BuildConversationBridgeArgs,
-      ) => MeetConversationBridge
-    >("conversation-bridge");
-    const storageWriterSubModule = resolveSubModuleFactory<
       (
         host: SkillHost,
-        resolveWorkspaceDir?: () => string,
-      ) => (meetingId: string) => MeetStorageWriter
-    >("storage-writer");
+      ) => (args: BuildConversationBridgeArgs) => MeetConversationBridge
+    >("conversation-bridge");
+    const storageWriterSubModule =
+      resolveSubModuleFactory<
+        (
+          host: SkillHost,
+          resolveWorkspaceDir?: () => string,
+        ) => (meetingId: string) => MeetStorageWriter
+      >("storage-writer");
     const chatOpportunityDetectorSubModule = resolveSubModuleFactory<
       (
         host: SkillHost,
-      ) => (deps: MeetChatOpportunityDetectorDeps) => MeetChatOpportunityDetector
+      ) => (
+        deps: MeetChatOpportunityDetectorDeps,
+      ) => MeetChatOpportunityDetector
     >("chat-opportunity-detector");
-    const ttsBridgeSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (args: MeetTtsBridgeArgs) => MeetTtsBridge
-    >("tts-bridge");
-    const ttsLipsyncSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (args: StartTtsLipsyncArgs) => TtsLipsyncHandle
-    >("tts-lipsync");
-    const bargeInWatcherSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (deps: MeetBargeInWatcherDeps) => MeetBargeInWatcher
-    >("barge-in-watcher");
+    const ttsBridgeSubModule =
+      resolveSubModuleFactory<
+        (host: SkillHost) => (args: MeetTtsBridgeArgs) => MeetTtsBridge
+      >("tts-bridge");
+    const ttsLipsyncSubModule =
+      resolveSubModuleFactory<
+        (host: SkillHost) => (args: StartTtsLipsyncArgs) => TtsLipsyncHandle
+      >("tts-lipsync");
+    const bargeInWatcherSubModule =
+      resolveSubModuleFactory<
+        (
+          host: SkillHost,
+        ) => (deps: MeetBargeInWatcherDeps) => MeetBargeInWatcher
+      >("barge-in-watcher");
 
     const dockerRunnerBuilder = (): DockerRunner =>
       dockerRunnerSubModule(host, resolveWorkspaceDir);
     const audioIngestBuilder = audioIngestSubModule(host);
     const consentMonitorBuilder = consentMonitorSubModule(host);
     const conversationBridgeBuilder = conversationBridgeSubModule(host);
-    const storageWriterBuilder = storageWriterSubModule(host, resolveWorkspaceDir);
-    const chatOpportunityDetectorBuilder = chatOpportunityDetectorSubModule(host);
+    const storageWriterBuilder = storageWriterSubModule(
+      host,
+      resolveWorkspaceDir,
+    );
+    const chatOpportunityDetectorBuilder =
+      chatOpportunityDetectorSubModule(host);
     const ttsBridgeBuilder = ttsBridgeSubModule(host);
     const ttsLipsyncBuilder = ttsLipsyncSubModule(host);
     const bargeInWatcherBuilder = bargeInWatcherSubModule(host);
@@ -914,7 +919,6 @@ class MeetSessionManagerImpl {
         ((args) =>
           consentMonitorBuilder({
             meetingId: args.meetingId,
-            assistantId: args.assistantId,
             sessionManager: args.sessionManager,
             config: args.config,
           })),
@@ -967,8 +971,7 @@ class MeetSessionManagerImpl {
             sessionManager: args.sessionManager,
           })),
       wakeAgent:
-        deps.wakeAgent ??
-        ((opts) => host.memory.wakeAgentForOpportunity(opts)),
+        deps.wakeAgent ?? ((opts) => host.memory.wakeAgentForOpportunity(opts)),
       resolveRuntimeMode:
         deps.resolveRuntimeMode ?? (() => host.platform.runtimeMode()),
       avatarDeviceExists: deps.avatarDeviceExists ?? existsSync,
@@ -1023,10 +1026,9 @@ class MeetSessionManagerImpl {
         createdBefore: daemonStartEpochSeconds,
         logger: reaperLog,
       }).catch((err: unknown) => {
-        reaperLog.warn(
-          "Startup orphan-reaper sweep threw — continuing",
-          { err },
-        );
+        reaperLog.warn("Startup orphan-reaper sweep threw — continuing", {
+          err,
+        });
       });
     }
   }
@@ -1134,12 +1136,7 @@ class MeetSessionManagerImpl {
     // "attempting to join …" state immediately. Await the publish so any
     // subscriber errors surface into the log stream before the container
     // spin-up (which takes seconds) begins.
-    await publishMeetEvent(
-      this.internalAssistantId,
-      meetingId,
-      "meet.joining",
-      { url },
-    );
+    await publishMeetEvent(meetingId, "meet.joining", { url });
 
     let meet: ReturnType<typeof getMeetConfig>;
     let workspaceDir: string;
@@ -1174,12 +1171,9 @@ class MeetSessionManagerImpl {
       // Best-effort cleanup: pendingBotTokens.delete is a no-op if the
       // set() line was never reached (e.g. getMeetConfig/mkdirSync threw).
       this.pendingBotTokens.delete(meetingId);
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
 
@@ -1187,12 +1181,9 @@ class MeetSessionManagerImpl {
       // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
       ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
     } catch (err) {
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       this.pendingBotTokens.delete(meetingId);
       throw err;
     }
@@ -1228,12 +1219,9 @@ class MeetSessionManagerImpl {
       );
     } catch (err) {
       this.pendingBotTokens.delete(meetingId);
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
 
@@ -1271,12 +1259,9 @@ class MeetSessionManagerImpl {
     } catch (err) {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
     // Guard the ready promise immediately so a rejection between here and
@@ -1392,18 +1377,19 @@ class MeetSessionManagerImpl {
           : {}),
       });
     } catch (err) {
-      this.log.error("Failed to spawn meet bot container", { err, meetingId, image: meet.containerImage });
+      this.log.error("Failed to spawn meet bot container", {
+        err,
+        meetingId,
+        image: meet.containerImage,
+      });
       // Tear down the concurrently-started audio ingest so we don't leak
       // a listening socket or a streaming STT session on the spawn-failure path.
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
 
@@ -1419,12 +1405,7 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail },
-      );
+      void publishMeetEvent(meetingId, "meet.error", { detail });
       throw new Error(detail);
     }
 
@@ -1436,19 +1417,19 @@ class MeetSessionManagerImpl {
     try {
       await audioIngestReady;
     } catch (err) {
-      this.log.error("Meet audio ingest failed to start — rolling back container", { err, meetingId, containerId: runResult.containerId });
+      this.log.error(
+        "Meet audio ingest failed to start — rolling back container",
+        { err, meetingId, containerId: runResult.containerId },
+      );
       await runner.stop(runResult.containerId).catch(() => {});
       await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
 
@@ -1460,7 +1441,6 @@ class MeetSessionManagerImpl {
     // `start()` below, after the session is in the map.
     const consentMonitor = this.deps.consentMonitorFactory({
       meetingId,
-      assistantId: this.internalAssistantId,
       sessionManager: this,
       config: {
         autoLeaveOnObjection: meet.autoLeaveOnObjection,
@@ -1522,7 +1502,10 @@ class MeetSessionManagerImpl {
                   source,
                 })
                 .catch((err) => {
-                  this.log.warn("MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity", { err, meetingId, conversationId, kind });
+                  this.log.warn(
+                    "MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity",
+                    { err, meetingId, conversationId, kind },
+                  );
                 });
             },
           })
@@ -1592,9 +1575,7 @@ class MeetSessionManagerImpl {
 
     // Fan `participant.change` / `speaker.change` / final transcript chunks
     // out as `meet.*` events on the assistant event hub.
-    session.eventUnsubscribes.push(
-      subscribeEventHubPublisher(this.internalAssistantId, meetingId),
-    );
+    session.eventUnsubscribes.push(subscribeEventHubPublisher(meetingId));
 
     // Watch for the bot's first `lifecycle: joined` so we can emit a
     // client-facing `meet.joined` at the precise moment the bot is live
@@ -1604,21 +1585,13 @@ class MeetSessionManagerImpl {
         if (event.type !== "lifecycle") return;
         if (event.state === "joined" && !session.joinedPublished) {
           session.joinedPublished = true;
-          void publishMeetEvent(
-            this.internalAssistantId,
-            meetingId,
-            "meet.joined",
-            {},
-          );
+          void publishMeetEvent(meetingId, "meet.joined", {});
           return;
         }
         if (event.state === "error") {
-          void publishMeetEvent(
-            this.internalAssistantId,
-            meetingId,
-            "meet.error",
-            { detail: event.detail ?? "unknown error" },
-          );
+          void publishMeetEvent(meetingId, "meet.error", {
+            detail: event.detail ?? "unknown error",
+          });
         }
       }),
     );
@@ -1630,7 +1603,10 @@ class MeetSessionManagerImpl {
       conversationBridge.subscribe();
       storageWriter.start();
     } catch (err) {
-      this.log.error("Bridge/writer subscribe failed — rolling back container and audio ingest", { err, meetingId, containerId: runResult.containerId });
+      this.log.error(
+        "Bridge/writer subscribe failed — rolling back container and audio ingest",
+        { err, meetingId, containerId: runResult.containerId },
+      );
       this.sessions.delete(meetingId);
       for (const unsubscribe of session.eventUnsubscribes) {
         try {
@@ -1649,12 +1625,9 @@ class MeetSessionManagerImpl {
       await runner.stop(runResult.containerId).catch(() => {});
       await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
-      void publishMeetEvent(
-        this.internalAssistantId,
-        meetingId,
-        "meet.error",
-        { detail: errorDetail(err) },
-      );
+      void publishMeetEvent(meetingId, "meet.error", {
+        detail: errorDetail(err),
+      });
       throw err;
     }
     const pcmSource: PcmSource = {
@@ -1666,7 +1639,10 @@ class MeetSessionManagerImpl {
       // A failure to spawn ffmpeg is non-fatal: the rest of the session
       // (transcripts, chat, participant events) remains functional. Log
       // and continue so a missing ffmpeg binary doesn't fail the join.
-      this.log.warn("MeetStorageWriter.startAudio failed — continuing without audio capture", { err, meetingId });
+      this.log.warn(
+        "MeetStorageWriter.startAudio failed — continuing without audio capture",
+        { err, meetingId },
+      );
     }
 
     // Now that the other subscribers and the session record are in place,
@@ -1687,7 +1663,10 @@ class MeetSessionManagerImpl {
     // with Bun's fake-timer harness for tests.
     session.timeoutHandle = setTimeout(() => {
       void this.leave(meetingId, "timeout").catch((err) => {
-        this.log.error("Error during max-meeting-minutes timeout cleanup", { err, meetingId });
+        this.log.error("Error during max-meeting-minutes timeout cleanup", {
+          err,
+          meetingId,
+        });
       });
     }, joinTimeoutMs);
 
@@ -1721,16 +1700,19 @@ class MeetSessionManagerImpl {
         );
       })
       .catch((err) => {
-        this.log.warn("Container-exit watcher errored — cannot observe bot container exit", { err, meetingId, containerId: runResult.containerId });
+        this.log.warn(
+          "Container-exit watcher errored — cannot observe bot container exit",
+          { err, meetingId, containerId: runResult.containerId },
+        );
       });
 
     this.log.info("Meet session joined", {
-        meetingId,
-        conversationId,
-        containerId: runResult.containerId,
-        botBaseUrl,
-        joinTimeoutMs,
-      });
+      meetingId,
+      conversationId,
+      containerId: runResult.containerId,
+      botBaseUrl,
+      joinTimeoutMs,
+    });
 
     return sessionView(session);
   }
@@ -1743,7 +1725,10 @@ class MeetSessionManagerImpl {
   async leave(meetingId: string, reason: string): Promise<void> {
     const session = this.sessions.get(meetingId);
     if (!session) {
-      this.log.debug("leave(): no active session — no-op", { meetingId, reason });
+      this.log.debug("leave(): no active session — no-op", {
+        meetingId,
+        reason,
+      });
       return;
     }
 
@@ -1764,7 +1749,10 @@ class MeetSessionManagerImpl {
     try {
       session.consentMonitor.stop();
     } catch (err) {
-      this.log.warn("MeetConsentMonitor.stop threw during leave — continuing teardown", { err, meetingId });
+      this.log.warn(
+        "MeetConsentMonitor.stop threw during leave — continuing teardown",
+        { err, meetingId },
+      );
     }
 
     // Dispose the chat-opportunity detector alongside the consent monitor
@@ -1773,7 +1761,10 @@ class MeetSessionManagerImpl {
     try {
       session.chatOpportunityDetector?.dispose();
     } catch (err) {
-      this.log.warn("MeetChatOpportunityDetector.dispose threw during leave — continuing teardown", { err, meetingId });
+      this.log.warn(
+        "MeetChatOpportunityDetector.dispose threw during leave — continuing teardown",
+        { err, meetingId },
+      );
     }
 
     // Stop the barge-in watcher before we cancel any in-flight TTS so the
@@ -1783,7 +1774,10 @@ class MeetSessionManagerImpl {
     try {
       session.bargeInWatcher.stop();
     } catch (err) {
-      this.log.warn("MeetBargeInWatcher.stop threw during leave — continuing teardown", { err, meetingId });
+      this.log.warn(
+        "MeetBargeInWatcher.stop threw during leave — continuing teardown",
+        { err, meetingId },
+      );
     }
 
     // Stop the TTS lip-sync forwarder BEFORE we cancel in-flight TTS so no
@@ -1794,7 +1788,10 @@ class MeetSessionManagerImpl {
     try {
       session.ttsLipsyncHandle.stop();
     } catch (err) {
-      this.log.warn("TtsLipsyncHandle.stop threw during leave — continuing teardown", { err, meetingId });
+      this.log.warn(
+        "TtsLipsyncHandle.stop threw during leave — continuing teardown",
+        { err, meetingId },
+      );
     }
 
     // Cancel any in-flight TTS streams so orphan playback doesn't try to
@@ -1804,7 +1801,10 @@ class MeetSessionManagerImpl {
     try {
       await session.ttsBridge.cancelAll();
     } catch (err) {
-      this.log.warn("MeetTtsBridge.cancelAll threw during leave — continuing teardown", { err, meetingId });
+      this.log.warn(
+        "MeetTtsBridge.cancelAll threw during leave — continuing teardown",
+        { err, meetingId },
+      );
     }
 
     // Immediately clear state so we don't re-enter this path via the timeout
@@ -1831,7 +1831,10 @@ class MeetSessionManagerImpl {
         detail: reason,
       });
     } catch (err) {
-      this.log.warn("Meet synthesized lifecycle:left dispatch threw during leave", { err, meetingId });
+      this.log.warn(
+        "Meet synthesized lifecycle:left dispatch threw during leave",
+        { err, meetingId },
+      );
     }
 
     // Stop the conversation bridge + storage writer before dropping the
@@ -1842,12 +1845,18 @@ class MeetSessionManagerImpl {
     try {
       session.conversationBridge.unsubscribe();
     } catch (err) {
-      this.log.warn("MeetConversationBridge.unsubscribe threw during leave", { err, meetingId });
+      this.log.warn("MeetConversationBridge.unsubscribe threw during leave", {
+        err,
+        meetingId,
+      });
     }
     try {
       await session.storageWriter.stop();
     } catch (err) {
-      this.log.warn("MeetStorageWriter.stop threw during leave", { err, meetingId });
+      this.log.warn("MeetStorageWriter.stop threw during leave", {
+        err,
+        meetingId,
+      });
     }
 
     // Tear down dispatcher subscribers BEFORE unregistering the router so no
@@ -1856,7 +1865,10 @@ class MeetSessionManagerImpl {
       try {
         unsubscribe();
       } catch (err) {
-        this.log.warn("Meet event subscriber unsubscribe threw during leave", { err, meetingId });
+        this.log.warn("Meet event subscriber unsubscribe threw during leave", {
+          err,
+          meetingId,
+        });
       }
     }
     session.eventUnsubscribes = [];
@@ -1872,21 +1884,32 @@ class MeetSessionManagerImpl {
       );
       gracefulOk = true;
     } catch (err) {
-      this.log.warn("Bot /leave failed or timed out — falling back to container stop", { err, meetingId, reason });
+      this.log.warn(
+        "Bot /leave failed or timed out — falling back to container stop",
+        { err, meetingId, reason },
+      );
     }
 
     if (!gracefulOk) {
       try {
         await runner.stop(session.containerId);
       } catch (err) {
-        this.log.warn("DockerRunner.stop failed — proceeding to remove", { err, meetingId, containerId: session.containerId });
+        this.log.warn("DockerRunner.stop failed — proceeding to remove", {
+          err,
+          meetingId,
+          containerId: session.containerId,
+        });
       }
     }
 
     try {
       await runner.remove(session.containerId);
     } catch (err) {
-      this.log.warn("DockerRunner.remove failed — container may leak", { err, meetingId, containerId: session.containerId });
+      this.log.warn("DockerRunner.remove failed — container may leak", {
+        err,
+        meetingId,
+        containerId: session.containerId,
+      });
     }
 
     // Tear down the audio-ingest after the container is gone — stopping it
@@ -1895,7 +1918,10 @@ class MeetSessionManagerImpl {
     try {
       await session.audioIngest.stop();
     } catch (err) {
-      this.log.warn("MeetAudioIngest.stop failed — socket or streaming STT session may leak", { err, meetingId });
+      this.log.warn(
+        "MeetAudioIngest.stop failed — socket or streaming STT session may leak",
+        { err, meetingId },
+      );
     }
 
     // Per-meeting proactive-chat summary. Emitted unconditionally on
@@ -1907,20 +1933,15 @@ class MeetSessionManagerImpl {
     const chatStats: ChatOpportunityDetectorStats | undefined =
       session.chatOpportunityDetector?.getStats();
 
-    void publishMeetEvent(
-      this.internalAssistantId,
-      meetingId,
-      "meet.left",
-      { reason },
-    );
+    void publishMeetEvent(meetingId, "meet.left", { reason });
 
     this.log.info("Meet session left", {
-        meetingId,
-        containerId: session.containerId,
-        reason,
-        gracefulOk,
-        chatOpportunityStats: chatStats,
-      });
+      meetingId,
+      containerId: session.containerId,
+      reason,
+      gracefulOk,
+      chatOpportunityStats: chatStats,
+    });
   }
 
   /**
@@ -1976,14 +1997,12 @@ class MeetSessionManagerImpl {
       ? `bot container exited unexpectedly (exitCode=${exitCode}, error=${engineError})`
       : `bot container exited unexpectedly (exitCode=${exitCode})`;
 
-    this.log.info("Meet bot container exited unexpectedly — tearing session down", { meetingId, containerId, exitCode, engineError });
-
-    void publishMeetEvent(
-      this.internalAssistantId,
-      meetingId,
-      "meet.error",
-      { detail },
+    this.log.info(
+      "Meet bot container exited unexpectedly — tearing session down",
+      { meetingId, containerId, exitCode, engineError },
     );
+
+    void publishMeetEvent(meetingId, "meet.error", { detail });
 
     // Claim the session before any awaits so a concurrent `leave()` call
     // (e.g. from a tool handler reacting to the `meet.error` we just
@@ -1994,27 +2013,42 @@ class MeetSessionManagerImpl {
     try {
       session.consentMonitor.stop();
     } catch (err) {
-      this.log.warn("MeetConsentMonitor.stop threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetConsentMonitor.stop threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
     try {
       session.chatOpportunityDetector?.dispose();
     } catch (err) {
-      this.log.warn("MeetChatOpportunityDetector.dispose threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetChatOpportunityDetector.dispose threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
     try {
       session.bargeInWatcher.stop();
     } catch (err) {
-      this.log.warn("MeetBargeInWatcher.stop threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetBargeInWatcher.stop threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
     try {
       session.ttsLipsyncHandle.stop();
     } catch (err) {
-      this.log.warn("TtsLipsyncHandle.stop threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "TtsLipsyncHandle.stop threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
     try {
       await session.ttsBridge.cancelAll();
     } catch (err) {
-      this.log.warn("MeetTtsBridge.cancelAll threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetTtsBridge.cancelAll threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
 
     if (session.timeoutHandle) {
@@ -2039,25 +2073,37 @@ class MeetSessionManagerImpl {
         detail: "container-exit",
       });
     } catch (err) {
-      this.log.warn("Meet synthesized lifecycle:left dispatch threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "Meet synthesized lifecycle:left dispatch threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
 
     try {
       session.conversationBridge.unsubscribe();
     } catch (err) {
-      this.log.warn("MeetConversationBridge.unsubscribe threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetConversationBridge.unsubscribe threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
     try {
       await session.storageWriter.stop();
     } catch (err) {
-      this.log.warn("MeetStorageWriter.stop threw during container-exit teardown", { err, meetingId });
+      this.log.warn(
+        "MeetStorageWriter.stop threw during container-exit teardown",
+        { err, meetingId },
+      );
     }
 
     for (const unsubscribe of session.eventUnsubscribes) {
       try {
         unsubscribe();
       } catch (err) {
-        this.log.warn("Meet event subscriber unsubscribe threw during container-exit teardown", { err, meetingId });
+        this.log.warn(
+          "Meet event subscriber unsubscribe threw during container-exit teardown",
+          { err, meetingId },
+        );
       }
     }
     session.eventUnsubscribes = [];
@@ -2070,13 +2116,19 @@ class MeetSessionManagerImpl {
     try {
       await runner.remove(containerId);
     } catch (err) {
-      this.log.warn("DockerRunner.remove failed during container-exit teardown — container may linger in `docker ps -a`", { err, meetingId, containerId });
+      this.log.warn(
+        "DockerRunner.remove failed during container-exit teardown — container may linger in `docker ps -a`",
+        { err, meetingId, containerId },
+      );
     }
 
     try {
       await session.audioIngest.stop();
     } catch (err) {
-      this.log.warn("MeetAudioIngest.stop failed during container-exit teardown — socket or streaming STT session may leak", { err, meetingId });
+      this.log.warn(
+        "MeetAudioIngest.stop failed during container-exit teardown — socket or streaming STT session may leak",
+        { err, meetingId },
+      );
     }
   }
 
@@ -2120,14 +2172,12 @@ class MeetSessionManagerImpl {
       meetingId,
     );
 
-    void publishMeetEvent(
-      this.internalAssistantId,
-      meetingId,
-      "meet.chat_sent",
-      { text },
-    );
+    void publishMeetEvent(meetingId, "meet.chat_sent", { text });
 
-    this.log.info("Meet chat message sent", { meetingId, textLength: text.length });
+    this.log.info("Meet chat message sent", {
+      meetingId,
+      textLength: text.length,
+    });
   }
 
   /**
@@ -2152,12 +2202,7 @@ class MeetSessionManagerImpl {
     const result = await session.ttsBridge.speak(input);
     const streamId = result.streamId;
 
-    void publishMeetEvent(
-      this.internalAssistantId,
-      meetingId,
-      "meet.speaking_started",
-      { streamId },
-    );
+    void publishMeetEvent(meetingId, "meet.speaking_started", { streamId });
 
     // Fire-and-forget completion publisher. `result.completion` resolves
     // when the outbound POST settles (either success, cancel, or error);
@@ -2165,12 +2210,10 @@ class MeetSessionManagerImpl {
     // finish from a rejected one and emit the matching reason.
     void result.completion
       .then(() => {
-        void publishMeetEvent(
-          this.internalAssistantId,
-          meetingId,
-          "meet.speaking_ended",
-          { streamId, reason: "completed" as const },
-        );
+        void publishMeetEvent(meetingId, "meet.speaking_ended", {
+          streamId,
+          reason: "completed" as const,
+        });
       })
       .catch((err) => {
         const isCancel =
@@ -2183,19 +2226,30 @@ class MeetSessionManagerImpl {
         // log at debug so they don't spam warn logs; genuine errors stay
         // at warn.
         if (isCancel) {
-          this.log.debug("MeetTtsBridge speak cancelled", { meetingId, streamId, reason });
+          this.log.debug("MeetTtsBridge speak cancelled", {
+            meetingId,
+            streamId,
+            reason,
+          });
         } else {
-          this.log.warn("MeetTtsBridge speak completion rejected", { err, meetingId, streamId, reason });
+          this.log.warn("MeetTtsBridge speak completion rejected", {
+            err,
+            meetingId,
+            streamId,
+            reason,
+          });
         }
-        void publishMeetEvent(
-          this.internalAssistantId,
-          meetingId,
-          "meet.speaking_ended",
-          { streamId, reason },
-        );
+        void publishMeetEvent(meetingId, "meet.speaking_ended", {
+          streamId,
+          reason,
+        });
       });
 
-    this.log.info("Meet TTS speak started", { meetingId, streamId, textLength: input.text.length });
+    this.log.info("Meet TTS speak started", {
+      meetingId,
+      streamId,
+      textLength: input.text.length,
+    });
 
     return { streamId };
   }
@@ -2323,7 +2377,11 @@ class MeetSessionManagerImpl {
     }));
     if (snapshot.length === 0) return;
 
-    this.log.info("MeetSessionManager: shutting down active sessions", { count: snapshot.length, reason, totalDeadlineMs });
+    this.log.info("MeetSessionManager: shutting down active sessions", {
+      count: snapshot.length,
+      reason,
+      totalDeadlineMs,
+    });
 
     // Fire all leaves in parallel. Track which have resolved so we can
     // identify stragglers after the deadline expires. `leave()` catches
@@ -2333,7 +2391,10 @@ class MeetSessionManagerImpl {
     const leaves = snapshot.map((entry) =>
       this.leave(entry.meetingId, reason)
         .catch((err) => {
-          this.log.warn("MeetSessionManager.shutdownAll: leave() rejected — continuing", { err, meetingId: entry.meetingId, reason });
+          this.log.warn(
+            "MeetSessionManager.shutdownAll: leave() rejected — continuing",
+            { err, meetingId: entry.meetingId, reason },
+          );
         })
         .finally(() => {
           resolved.add(entry.meetingId);
@@ -2351,11 +2412,14 @@ class MeetSessionManagerImpl {
 
     if (outcome === "timeout") {
       const stragglers = snapshot.filter((s) => !resolved.has(s.meetingId));
-      this.log.warn("MeetSessionManager.shutdownAll: deadline exceeded — force-stopping containers", {
+      this.log.warn(
+        "MeetSessionManager.shutdownAll: deadline exceeded — force-stopping containers",
+        {
           count: stragglers.length,
           reason,
           totalDeadlineMs,
-        });
+        },
+      );
       const runner = this.deps.dockerRunnerFactory();
       const forced = stragglers.map(async (entry) => {
         // The active session may or may not still be in the map — `leave()`
@@ -2419,23 +2483,37 @@ class MeetSessionManagerImpl {
         try {
           await runner.stop(entry.containerId);
         } catch (err) {
-          this.log.warn("MeetSessionManager.shutdownAll: runner.stop threw", { err, meetingId: entry.meetingId, containerId: entry.containerId });
+          this.log.warn("MeetSessionManager.shutdownAll: runner.stop threw", {
+            err,
+            meetingId: entry.meetingId,
+            containerId: entry.containerId,
+          });
         }
         try {
           await runner.remove(entry.containerId);
         } catch (err) {
-          this.log.warn("MeetSessionManager.shutdownAll: runner.remove threw", { err, meetingId: entry.meetingId, containerId: entry.containerId });
+          this.log.warn("MeetSessionManager.shutdownAll: runner.remove threw", {
+            err,
+            meetingId: entry.meetingId,
+            containerId: entry.containerId,
+          });
         }
         try {
           await entry.audioIngest.stop();
         } catch (err) {
-          this.log.warn("MeetSessionManager.shutdownAll: audioIngest.stop threw", { err, meetingId: entry.meetingId });
+          this.log.warn(
+            "MeetSessionManager.shutdownAll: audioIngest.stop threw",
+            { err, meetingId: entry.meetingId },
+          );
         }
       });
       await Promise.allSettled(forced);
     }
 
-    this.log.info("MeetSessionManager: active-session shutdown complete", { outcome, reason });
+    this.log.info("MeetSessionManager: active-session shutdown complete", {
+      outcome,
+      reason,
+    });
   }
 
   /**
@@ -2626,7 +2704,6 @@ function buildSessionManagerTestHost(): SkillHost {
     },
     identity: {
       getAssistantName: () => undefined,
-      internalAssistantId: "self",
     },
     platform: {
       workspaceDir: () => "/tmp/session-manager-test-workspace",

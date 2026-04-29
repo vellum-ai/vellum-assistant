@@ -44,10 +44,7 @@ import type {
 import type { ServerMessage } from "@vellumai/skill-host-contracts";
 import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 
-import {
-  InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
-} from "../../__tests__/build-test-host.js";
+import { InMemoryEventHub } from "../../__tests__/build-test-host.js";
 import {
   BARGE_IN_DEBOUNCE_MS,
   MeetBargeInWatcher,
@@ -337,9 +334,7 @@ function makeFakeDispatcher(): {
 const testHub = new InMemoryEventHub();
 
 function publishToHub(message: ServerMessage): Promise<void> {
-  return testHub.publish(
-    buildAssistantEvent(TEST_INTERNAL_ASSISTANT_ID, message),
-  );
+  return testHub.publish(buildAssistantEvent(message));
 }
 
 /**
@@ -376,22 +371,19 @@ function captureHub(): CapturedHub {
     predicate: (m: ServerMessage) => boolean;
     resolve: (m: ServerMessage) => void;
   }> = [];
-  const sub = testHub.subscribe(
-    { assistantId: TEST_INTERNAL_ASSISTANT_ID },
-    (event) => {
-      events.push(event.message);
-      // Snapshot so a resolver removing itself mid-iteration doesn't
-      // skip a sibling.
-      const snapshot = waiters.slice();
-      for (let i = snapshot.length - 1; i >= 0; i--) {
-        const w = snapshot[i]!;
-        if (w.predicate(event.message)) {
-          waiters.splice(waiters.indexOf(w), 1);
-          w.resolve(event.message);
-        }
+  const sub = testHub.subscribe({}, (event) => {
+    events.push(event.message);
+    // Snapshot so a resolver removing itself mid-iteration doesn't
+    // skip a sibling.
+    const snapshot = waiters.slice();
+    for (let i = snapshot.length - 1; i >= 0; i--) {
+      const w = snapshot[i]!;
+      if (w.predicate(event.message)) {
+        waiters.splice(waiters.indexOf(w), 1);
+        w.resolve(event.message);
       }
-    },
-  );
+    }
+  });
   return {
     events,
     waitFor: (predicate, timeoutMs = 1500) =>
@@ -562,8 +554,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
-      subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+      subscribeAssistantEvents: (cb) => testHub.subscribe({}, cb),
     });
     watcher.start();
 
@@ -667,8 +658,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
-      subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+      subscribeAssistantEvents: (cb) => testHub.subscribe({}, cb),
     });
     watcher.start();
 
@@ -780,8 +770,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
-      subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+      subscribeAssistantEvents: (cb) => testHub.subscribe({}, cb),
     });
     watcher.start();
 

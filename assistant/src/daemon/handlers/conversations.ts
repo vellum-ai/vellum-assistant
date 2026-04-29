@@ -1,22 +1,15 @@
 import { v4 as uuid } from "uuid";
 
 import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-} from "../../memory/canonical-guardian-store.js";
-import {
   clearAll,
   getConversation,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
-import { redactSecrets } from "../../security/secret-scanner.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
-import type { Conversation } from "../conversation.js";
 import {
   clearAllActiveConversations,
   conversationEntries,
@@ -26,123 +19,12 @@ import {
 } from "../conversation-store.js";
 import type {
   ConfirmationResponse,
-  SecretResponse,
   ServerMessage,
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
-import {
-  type HandlerContext,
-  log,
-  pendingStandaloneSecrets,
-} from "./shared.js";
+import { log } from "./shared.js";
 
-export function makeEventSender(params: {
-  ctx: HandlerContext;
-  conversation: Conversation;
-  conversationId: string;
-  sourceChannel: string;
-}): (event: ServerMessage) => void {
-  const { ctx, conversation, conversationId, sourceChannel } = params;
-
-  return (event: ServerMessage) => {
-    if (event.type === "confirmation_request") {
-      // ACP permission requests are handled by client-handler.ts — skip
-      // the normal registration and guardian request creation for them.
-      // The ACP handler registers its own entry with directResolve after
-      // this callback returns.
-      const isAcpPermission = "acpToolKind" in event && !!event.acpToolKind;
-
-      if (!isAcpPermission) {
-        pendingInteractions.register(event.requestId, {
-          conversation,
-          conversationId,
-          kind: "confirmation",
-          confirmationDetails: {
-            toolName: event.toolName,
-            input: event.input,
-            riskLevel: event.riskLevel,
-            executionTarget: event.executionTarget,
-            allowlistOptions: event.allowlistOptions,
-            scopeOptions: event.scopeOptions,
-            persistentDecisionsAllowed: event.persistentDecisionsAllowed,
-          },
-        });
-
-        try {
-          const trustContext = conversation.trustContext;
-          const inputRecord = event.input as Record<string, unknown>;
-          const activityRaw =
-            (typeof inputRecord.activity === "string"
-              ? inputRecord.activity
-              : undefined) ??
-            (typeof inputRecord.reason === "string"
-              ? inputRecord.reason
-              : undefined);
-          createCanonicalGuardianRequest({
-            id: event.requestId,
-            kind: "tool_approval",
-            sourceType: "desktop",
-            sourceChannel,
-            conversationId,
-            guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-            toolName: event.toolName,
-            commandPreview:
-              redactSecrets(summarizeToolInput(event.toolName, inputRecord)) ||
-              undefined,
-            riskLevel: event.riskLevel,
-            activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-            executionTarget: event.executionTarget,
-            status: "pending",
-            requestCode: generateCanonicalRequestCode(),
-            expiresAt: Date.now() + 5 * 60 * 1000,
-          });
-        } catch (err) {
-          log.debug(
-            { err, requestId: event.requestId, conversationId },
-            "Failed to create canonical request from local confirmation event",
-          );
-        }
-      }
-    } else if (event.type === "secret_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
-    } else if (event.type === "host_bash_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (event.type === "host_browser_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (event.type === "host_file_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (event.type === "host_cu_request") {
-      pendingInteractions.register(event.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_cu",
-      });
-    }
-
-    ctx.send(event);
-  };
-}
-
-export function handleConfirmationResponse(
-  msg: ConfirmationResponse,
-  ctx: HandlerContext,
-): void {
+export function handleConfirmationResponse(msg: ConfirmationResponse): void {
   // Route by requestId to the conversation that originated the prompt, not by
   // the current conversation binding which may have changed since the
   // request was issued (e.g. after a conversation switch).
@@ -150,7 +32,7 @@ export function handleConfirmationResponse(
 
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
-      ctx.touchConversation(conversationId);
+      touchConversation(conversationId);
       conversation.handleConfirmationResponse(
         msg.requestId,
         decision,
@@ -169,42 +51,6 @@ export function handleConfirmationResponse(
     "No conversation found with pending confirmation for requestId",
   );
 }
-
-export function handleSecretResponse(
-  msg: SecretResponse,
-  ctx: HandlerContext,
-): void {
-  // Check standalone (non-conversation) prompts first, since they use a dedicated
-  // requestId that won't collide with conversation prompts.
-  const standalone = pendingStandaloneSecrets.get(msg.requestId);
-  if (standalone) {
-    clearTimeout(standalone.timer);
-    pendingStandaloneSecrets.delete(msg.requestId);
-    standalone.resolve({
-      value: msg.value ?? null,
-      delivery: msg.delivery ?? "store",
-    });
-    pendingInteractions.resolve(msg.requestId);
-    return;
-  }
-
-  // Route by requestId to the conversation that originated the prompt, not by
-  // the current conversation binding which may have changed since the
-  // request was issued (e.g. after a conversation switch).
-  for (const [conversationId, conversation] of conversationEntries()) {
-    if (conversation.hasPendingSecret(msg.requestId)) {
-      ctx.touchConversation(conversationId);
-      conversation.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-  log.warn(
-    { requestId: msg.requestId },
-    "No conversation found with pending secret prompt for requestId",
-  );
-}
-
 /**
  * Clear all conversations and DB conversations. Returns the number of conversations cleared.
  */
@@ -222,9 +68,7 @@ export function clearAllConversations(): number {
  * Switch to an existing conversation. Returns conversation info on success,
  * or throws/returns an error result when the conversation is not found.
  */
-export async function switchConversation(
-  conversationId: string,
-): Promise<{
+export async function switchConversation(conversationId: string): Promise<{
   conversationId: string;
   title: string;
   conversationType: ReturnType<typeof normalizeConversationType>;
@@ -263,9 +107,7 @@ export function renameConversation(
 /**
  * Cancel generation for a conversation. Returns true if a conversation was found and cancelled.
  */
-export function cancelGeneration(
-  conversationId: string,
-): boolean {
+export function cancelGeneration(conversationId: string): boolean {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return false;

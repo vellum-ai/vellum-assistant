@@ -219,6 +219,11 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
+                    diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
+                    onReviewDiskUsage: {
+                        AppDelegate.shared?.showMainWindow()
+                        AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
+                    },
                     onOpenConversationApp: { artifact in
                         guard let appId = artifact.appId else { return }
                         NotificationCenter.default.post(
@@ -252,8 +257,9 @@ private struct ThreadWindowContentView: View {
                     conversationManager: conversationManager
                 )
                 .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-                // Required: AssistantProgressView reads this via @Environment
-                // and triggers a SwiftUI assertion crash if it's missing.
+                // ChatView reads AssistantFeatureFlagStore via optional
+                // @Environment — provide it so flag-gated UI works in
+                // pop-out thread windows.
                 .environment(assistantFeatureFlagStore)
                 .padding(.bottom, VSpacing.md)
             }

@@ -72,7 +72,7 @@ async function publishAndReadFrame(
     abortSignal: ac.signal,
   });
 
-  const event = buildAssistantEvent("self", message, conversationId);
+  const event = buildAssistantEvent(message, conversationId);
   await assistantEventHub.publish(event);
 
   const reader = stream.getReader();
@@ -322,7 +322,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
 
   // ── Envelope integrity ───────────────────────────────────────────────────
 
-  test("SSE envelope preserves assistantId and conversationId across all event types", async () => {
+  test("SSE envelope preserves conversationId across all event types", async () => {
     const conversationKey = "parity-envelope-check";
     const { conversationId } = getOrCreateConversation(conversationKey);
 
@@ -338,7 +338,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       type: "assistant_text_delta" as const,
       text: "envelope test",
     };
-    const published = buildAssistantEvent("self", msg, conversationId);
+    const published = buildAssistantEvent(msg, conversationId);
     await assistantEventHub.publish(published);
 
     const reader = stream.getReader();
@@ -358,7 +358,6 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
 
     // Envelope fields
     expect(received.id).toBe(published.id);
-    expect(received.assistantId).toBe("self");
     expect(received.conversationId).toBe(conversationId);
     expect(received.emittedAt).toBe(published.emittedAt);
     // SSE frame fields

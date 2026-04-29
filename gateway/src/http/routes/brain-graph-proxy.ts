@@ -2,7 +2,7 @@
  * Gateway proxy endpoints for the brain graph knowledge-graph visualizer.
  *
  * Exposes GET /v1/brain-graph and GET /v1/brain-graph-ui through the gateway
- * even when the broad runtime proxy is disabled.
+ * for dedicated auth handling.
  *
  * The brain-graph-ui endpoint proxies plain HTML from the daemon and injects
  * an auth token meta tag before returning the page to the client. The daemon

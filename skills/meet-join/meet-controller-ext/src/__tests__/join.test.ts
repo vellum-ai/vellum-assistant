@@ -806,7 +806,7 @@ describe("runJoinFlow (content-script port)", () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
     insertPostAdmissionToolbar(doc);
-    const { input, sendButton } = insertChatSurface(doc);
+    const { sendButton } = insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
     let sendClicks = 0;
@@ -828,8 +828,19 @@ describe("runJoinFlow (content-script port)", () => {
       restore();
     }
 
-    // The consent text made it into the composer textarea.
-    expect(input.value).toBe("Hi, Vellum is listening.");
+    // When onEvent is wired, sendChat drives the composer via xdotool
+    // (trusted_type event) rather than the synthetic `.value = ...` path,
+    // so assert the trusted_type event was emitted with the consent text.
+    const typedEvents = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "trusted_type",
+    );
+    expect(typedEvents).toHaveLength(1);
+    expect((typedEvents[0] as { text?: string }).text).toBe(
+      "Hi, Vellum is listening.",
+    );
     // The send button was clicked exactly once to submit the message.
     expect(sendClicks).toBe(1);
 

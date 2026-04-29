@@ -27,6 +27,7 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
+    @State private var systemResourcesDeepLinkRequested = false
 
 
     private var currentAssistant: LockfileAssistant? {
@@ -61,7 +62,7 @@ struct SettingsGeneralTab: View {
                     updateManager: updateManager
                 )
             }
-            if topology == .managed {
+            if shouldShowSystemResourcesSection {
                 systemResourcesSection
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
@@ -92,6 +93,10 @@ struct SettingsGeneralTab: View {
                 lockfileAssistants = assistants
                 await fetchHealthz()
             }
+            recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
+        }
+        .onChange(of: store.pendingSettingsGeneralSection) { _, section in
+            recordSystemResourcesDeepLinkIfNeeded(section)
         }
         .onChange(of: connectionManager?.isUpdateInProgress) { _, inProgress in
             isServiceGroupUpdateInProgress = inProgress ?? false
@@ -171,16 +176,46 @@ struct SettingsGeneralTab: View {
             healthz = DaemonHealthz()
         }
         healthzLoaded = true
+        systemResourcesDeepLinkRequested = false
     }
 
     // MARK: - System Resources
 
-    /// Resource usage card shown for platform-managed assistants. Mirrors the
-    /// disk/memory/CPU rows from the Developer tab so users on the platform can
-    /// see their assistant's resource consumption without enabling dev mode.
+    private var shouldShowSystemResourcesSection: Bool {
+        Self.shouldShowSystemResourcesSection(
+            topology: topology,
+            healthz: healthz,
+            pendingSection: store.pendingSettingsGeneralSection,
+            deepLinkRequestPending: systemResourcesDeepLinkRequested && !healthzLoaded
+        )
+    }
+
+    nonisolated static func shouldShowSystemResourcesSection(
+        topology: AssistantTopology,
+        healthz: DaemonHealthz?,
+        pendingSection: SettingsGeneralSection?,
+        deepLinkRequestPending: Bool = false
+    ) -> Bool {
+        topology == .managed || hasResourceMetrics(healthz) || pendingSection == .systemResources || deepLinkRequestPending
+    }
+
+    nonisolated static func hasResourceMetrics(_ healthz: DaemonHealthz?) -> Bool {
+        guard let healthz else { return false }
+        return healthz.disk != nil || healthz.memory != nil || healthz.cpu != nil
+    }
+
+    private func recordSystemResourcesDeepLinkIfNeeded(_ section: SettingsGeneralSection?) {
+        if section == .systemResources {
+            systemResourcesDeepLinkRequested = true
+        }
+    }
+
+    /// Resource usage card shown for any assistant that reports metrics. Mirrors
+    /// the disk/memory/CPU rows from the Developer tab so users can review disk
+    /// pressure without enabling dev mode.
     private var systemResourcesSection: some View {
         SettingsCard(
-            title: "System Resources",
+            title: "Storage & Resources",
             accessory: {
                 if isRefreshingHealthz {
                     ProgressView()
@@ -204,7 +239,7 @@ struct SettingsGeneralTab: View {
                     resourceBarRow(
                         label: "Disk Usage:",
                         ratio: disk.usedMb / max(disk.totalMb, 1),
-                        caption: "\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))",
+                        caption: "\(Self.formatMb(disk.usedMb)) used of \(Self.formatMb(disk.totalMb))",
                         accessibilityLabel: "Disk usage"
                     )
                 }
@@ -213,7 +248,7 @@ struct SettingsGeneralTab: View {
                     resourceBarRow(
                         label: "Memory:",
                         ratio: memory.currentMb / max(memory.maxMb, 1),
-                        caption: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))",
+                        caption: "\(Self.formatMb(memory.currentMb)) / \(Self.formatMb(memory.maxMb))",
                         accessibilityLabel: "Memory usage"
                     )
                 }
@@ -242,6 +277,7 @@ struct SettingsGeneralTab: View {
                 }
             }
         }
+        .id(SettingsGeneralSection.systemResources)
     }
 
     /// A resource row with a label on the left, a capsule usage bar, and a gray
@@ -278,7 +314,7 @@ struct SettingsGeneralTab: View {
         }
     }
 
-    private func formatMb(_ mb: Double) -> String {
+    nonisolated static func formatMb(_ mb: Double) -> String {
         if mb >= 1024 {
             return String(format: "%.1f GB", mb / 1024.0)
         }

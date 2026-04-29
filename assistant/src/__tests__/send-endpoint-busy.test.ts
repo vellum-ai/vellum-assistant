@@ -425,12 +425,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     // Subscribe on the module-level singleton that the route handler publishes to
     const { assistantEventHub: routeEventHub } =
       await import("../runtime/assistant-event-hub.js");
-    routeEventHub.subscribe(
-      { assistantId: "self" },
-      (event: AssistantEvent) => {
+    routeEventHub.subscribe({
+      type: "process",
+      callback: (event: AssistantEvent) => {
         publishedEvents.push(event);
       },
-    );
+    });
 
     const res = await fetch(messagesUrl(), {
       method: "POST",

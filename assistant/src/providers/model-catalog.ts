@@ -114,7 +114,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
     ],
-    defaultModel: "claude-sonnet-4-6",
+    defaultModel: "claude-opus-4-7",
     apiKeyUrl: "https://console.anthropic.com/settings/keys",
     apiKeyPlaceholder: "sk-ant-api03-...",
   },

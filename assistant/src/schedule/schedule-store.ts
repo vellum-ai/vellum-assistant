@@ -66,22 +66,6 @@ export function isValidCronExpression(expr: string): boolean {
   }
 }
 
-export function computeNextRunAt(
-  cronExpression: string,
-  timezone?: string | null,
-): number {
-  const cron = new Cron(cronExpression, {
-    timezone: timezone ?? undefined,
-  });
-  const next = cron.nextRun();
-  if (!next) {
-    throw new Error(
-      `Schedule expression "${cronExpression}" has no upcoming runs`,
-    );
-  }
-  return next.getTime();
-}
-
 export function createSchedule(params: {
   name: string;
   cronExpression?: string | null;

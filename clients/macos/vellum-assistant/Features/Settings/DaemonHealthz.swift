@@ -1,7 +1,7 @@
 import Foundation
 
 /// Health status response from the daemon's `/v1/health` endpoint.
-struct DaemonHealthz: Decodable {
+struct DaemonHealthz: Decodable, Sendable {
     let status: String
     let timestamp: String?
     let version: String?
@@ -19,19 +19,19 @@ struct DaemonHealthz: Decodable {
         self.cpu = cpu
     }
 
-    struct DiskInfo: Decodable {
+    struct DiskInfo: Decodable, Sendable {
         let path: String
         let totalMb: Double
         let usedMb: Double
         let freeMb: Double
     }
 
-    struct MemoryInfo: Decodable {
+    struct MemoryInfo: Decodable, Sendable {
         let currentMb: Double
         let maxMb: Double
     }
 
-    struct CpuInfo: Decodable {
+    struct CpuInfo: Decodable, Sendable {
         let currentPercent: Double
         let maxCores: Int
     }

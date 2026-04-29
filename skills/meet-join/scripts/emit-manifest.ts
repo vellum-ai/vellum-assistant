@@ -112,7 +112,6 @@ function buildCollectorHost(captured: Captured): SkillHost {
     },
     identity: {
       getAssistantName: () => undefined,
-      internalAssistantId: "manifest-emitter",
     },
     platform: {
       workspaceDir: () => "/manifest-emitter/workspace",
@@ -141,14 +140,15 @@ function buildCollectorHost(captured: Captured): SkillHost {
       secureKeys: { getProviderKey: async () => null },
     },
     memory: {
-      addMessage: (async () => ({ id: "manifest-emitter" })) as SkillHost["memory"]["addMessage"],
+      addMessage: (async () => ({
+        id: "manifest-emitter",
+      })) as SkillHost["memory"]["addMessage"],
       wakeAgentForOpportunity: async () => {},
     },
     events: {
       publish: async () => {},
       subscribe: () => ({ dispose: noop, active: false }),
-      buildEvent: () =>
-        ({}) as ReturnType<SkillHost["events"]["buildEvent"]>,
+      buildEvent: () => ({}) as ReturnType<SkillHost["events"]["buildEvent"]>,
     },
     registries: {
       registerTools: (provider) => {
@@ -267,9 +267,7 @@ async function listSkillSourceFiles(root: string): Promise<string[]> {
     }
   }
 
-  return results
-    .map((p) => relative(root, p).split("\\").join("/"))
-    .sort();
+  return results.map((p) => relative(root, p).split("\\").join("/")).sort();
 }
 
 /**
@@ -324,7 +322,8 @@ async function main(): Promise<void> {
   // not change the on-disk bytes unless the set itself changes.
   // Strict lexicographic (not localeCompare) keeps output identical
   // across locales.
-  const byKey = <T>(key: (t: T) => string) =>
+  const byKey =
+    <T>(key: (t: T) => string) =>
     (a: T, b: T): number => {
       const ak = key(a);
       const bk = key(b);
@@ -363,6 +362,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   // eslint-disable-next-line no-console -- CLI script failure diagnostics
-  console.error(err instanceof Error ? err.stack ?? err.message : err);
+  console.error(err instanceof Error ? (err.stack ?? err.message) : err);
   process.exit(1);
 });

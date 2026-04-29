@@ -100,7 +100,7 @@ export async function getModelInfo(): Promise<ModelInfo> {
 
 /**
  * Minimal interface for the side-effects needed by setModel / setImageGenModel.
- * Keeps the business logic decoupled from transport-specific HandlerContext.
+ * Keeps the business logic decoupled from transport-specific server context.
  */
 export interface ModelSetContext {
   suppressConfigReload: boolean;

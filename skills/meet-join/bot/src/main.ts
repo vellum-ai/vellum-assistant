@@ -921,7 +921,10 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // work without streaming audio, and a silent no-op would manifest
     // downstream as the daemon's 120s "bot did not connect" timeout.
     // ---------------------------------------------------------------------
-    if (env.daemonAudioPort === undefined || Number.isNaN(env.daemonAudioPort)) {
+    if (
+      env.daemonAudioPort === undefined ||
+      Number.isNaN(env.daemonAudioPort)
+    ) {
       await shutdown(
         "error",
         "DAEMON_AUDIO_PORT env var is missing or not a number",

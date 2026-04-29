@@ -3,7 +3,7 @@ import { z } from "zod";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
-export const ServiceModeSchema = z.enum(["managed", "your-own"]);
+const ServiceModeSchema = z.enum(["managed", "your-own"]);
 export type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [
@@ -15,9 +15,9 @@ export const VALID_INFERENCE_PROVIDERS = [
   "openrouter",
 ] as const;
 
-export const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
+const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 
-export const VALID_WEB_SEARCH_PROVIDERS = [
+const VALID_WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "brave",
   "inference-provider-native",
@@ -36,10 +36,10 @@ export type BaseService = z.infer<typeof BaseServiceSchema>;
  * legacy configs that still carry them have those keys stripped by
  * workspace migration `039-drop-legacy-llm-keys`.
  */
-export const InferenceServiceSchema = BaseServiceSchema;
+const InferenceServiceSchema = BaseServiceSchema;
 export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 
-export const ImageGenerationServiceSchema = BaseServiceSchema.extend({
+const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default("gemini-3.1-flash-image-preview"),
 });
@@ -47,7 +47,7 @@ export type ImageGenerationService = z.infer<
   typeof ImageGenerationServiceSchema
 >;
 
-export const WebSearchServiceSchema = BaseServiceSchema.extend({
+const WebSearchServiceSchema = BaseServiceSchema.extend({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),

@@ -5,7 +5,6 @@
  * configured port (default: 7821).
  */
 
-
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -264,23 +263,6 @@ export class RuntimeHttpServer {
       websocket: {
         open: (ws) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "browser-relay") {
-            // When the JWT sub resolved to a guardian principal at upgrade
-            // time, register this connection with the chrome-extension
-            // registry so host_browser_request frames can be routed to it.
-            if (data.guardianId) {
-              const now = Date.now();
-              getChromeExtensionRegistry().register({
-                id: data.connectionId,
-                guardianId: data.guardianId,
-                clientInstanceId: data.clientInstanceId,
-                ws,
-                connectedAt: now,
-                lastActiveAt: now,
-              });
-            }
-            return;
-          }
           if ("wsType" in data && data.wsType === "media-stream") {
             const msData = data as MediaStreamWebSocketData;
             log.info(
@@ -561,15 +543,6 @@ export class RuntimeHttpServer {
         },
         close: (ws, code, reason) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "browser-relay") {
-            // Always attempt to unregister — the registry uses connectionId
-            // as the key and no-ops if the entry is absent (e.g. when the
-            // connection was never registered because guardianId was
-            // undefined, or when it was superseded by a newer registration
-            // for the same guardian).
-            getChromeExtensionRegistry().unregister(data.connectionId);
-            return;
-          }
           if ("wsType" in data && data.wsType === "media-stream") {
             const msData = data as MediaStreamWebSocketData;
             log.info(
@@ -1443,5 +1416,4 @@ export class RuntimeHttpServer {
 
     return null;
   }
-
 }

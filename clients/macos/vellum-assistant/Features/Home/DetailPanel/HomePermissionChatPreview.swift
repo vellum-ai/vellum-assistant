@@ -58,6 +58,5 @@ struct HomePermissionChatPreview: View {
             )
         }
         .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }

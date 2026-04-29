@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
@@ -347,20 +347,6 @@ export function enqueueBackfillJob(force = false): string {
 
 export function enqueueRebuildIndexJob(): string {
   return enqueueMemoryJob("rebuild_index", {});
-}
-
-export function getRecentSegmentsForConversation(
-  conversationId: string,
-  limit: number,
-): Array<typeof memorySegments.$inferSelect> {
-  const db = getDb();
-  return db
-    .select()
-    .from(memorySegments)
-    .where(eq(memorySegments.conversationId, conversationId))
-    .orderBy(desc(memorySegments.createdAt))
-    .limit(limit)
-    .all();
 }
 
 function buildSegmentId(messageId: string, segmentIndex: number): string {

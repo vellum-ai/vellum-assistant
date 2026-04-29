@@ -173,7 +173,7 @@ export function canServiceRegistryBrowser(id: InterfaceId): boolean {
  *
  * Returns `true` for interfaces that should provision a `HostBrowserProxy`
  * with the SSE hub sender when a chrome-extension SSE client is present in
- * the ClientRegistry.
+ * the assistant event hub's client subscriber metadata.
  */
 export function canServiceSseBrowser(id: InterfaceId): boolean {
   return id === "web" || id === "chrome-extension" || id === "macos";

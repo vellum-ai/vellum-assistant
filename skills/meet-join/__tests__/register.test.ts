@@ -161,9 +161,7 @@ describe("meet-join register", () => {
     register(capture.host);
 
     const tools = capture.toolProviders.flatMap((p) => p());
-    const registeredNames = tools
-      .map((t: { name: string }) => t.name)
-      .sort();
+    const registeredNames = tools.map((t: { name: string }) => t.name).sort();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(registeredNames).toContain(expected);
     }

@@ -11,10 +11,13 @@ import {
   upsertContact,
 } from "../../contacts/contact-store.js";
 import type {
+  AssistantContactMetadata,
   ChannelPolicy,
   ChannelStatus,
+  ContactChannel,
   ContactRole,
   ContactType,
+  ContactWithChannels,
 } from "../../contacts/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
@@ -24,7 +27,86 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../../runtime/invite-service.js";
-import { writeOutput } from "../output.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
+
+// ---------------------------------------------------------------------------
+// Human-readable formatters
+// ---------------------------------------------------------------------------
+
+function formatChannelSummary(ch: ContactChannel): string {
+  const parts = [ch.type, ch.address];
+  if (ch.status !== "active") parts.push(`(${ch.status})`);
+  if (ch.policy !== "allow") parts.push(`[${ch.policy}]`);
+  return parts.join(" ");
+}
+
+function formatContactRow(c: ContactWithChannels): string {
+  const channels =
+    c.channels.length > 0
+      ? c.channels.map(formatChannelSummary).join(", ")
+      : "(no channels)";
+  return `${c.id}  ${c.displayName}  ${c.role}/${c.contactType}  ${channels}`;
+}
+
+function formatContactDetail(
+  c: ContactWithChannels,
+  assistantMeta?: AssistantContactMetadata,
+): string {
+  const lines: string[] = [];
+  lines.push(`ID:           ${c.id}`);
+  lines.push(`Display Name: ${c.displayName}`);
+  lines.push(`Role:         ${c.role}`);
+  lines.push(`Type:         ${c.contactType}`);
+  if (c.notes) lines.push(`Notes:        ${c.notes}`);
+  if (c.principalId) lines.push(`Principal:    ${c.principalId}`);
+  lines.push(`Created:      ${new Date(c.createdAt).toISOString()}`);
+  lines.push(`Updated:      ${new Date(c.updatedAt).toISOString()}`);
+  lines.push(`Interactions: ${c.interactionCount}`);
+  if (c.channels.length > 0) {
+    lines.push("");
+    lines.push("Channels:");
+    for (const ch of c.channels) {
+      const flags = [
+        ch.isPrimary ? "primary" : null,
+        ch.status !== "active" ? ch.status : null,
+        ch.policy !== "allow" ? ch.policy : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const suffix = flags ? `  (${flags})` : "";
+      lines.push(`  ${ch.id}  ${ch.type}  ${ch.address}${suffix}`);
+    }
+  }
+  if (assistantMeta?.metadata && "assistantId" in assistantMeta.metadata) {
+    lines.push("");
+    lines.push(
+      `Assistant:    ${assistantMeta.species} ${assistantMeta.metadata.assistantId}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatChannelDetail(ch: ContactChannel): string {
+  const lines: string[] = [];
+  lines.push(`ID:       ${ch.id}`);
+  lines.push(`Contact:  ${ch.contactId}`);
+  lines.push(`Type:     ${ch.type}`);
+  lines.push(`Address:  ${ch.address}`);
+  lines.push(`Status:   ${ch.status}`);
+  lines.push(`Policy:   ${ch.policy}`);
+  if (ch.isPrimary) lines.push(`Primary:  yes`);
+  if (ch.revokedReason) lines.push(`Revoked:  ${ch.revokedReason}`);
+  if (ch.blockedReason) lines.push(`Blocked:  ${ch.blockedReason}`);
+  return lines.join("\n");
+}
+
+function writeError(cmd: Command, message: string): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: false, error: message });
+  } else {
+    process.stderr.write(`Error: ${message}\n`);
+  }
+}
 
 export function registerContactsCommand(program: Command): void {
   const contacts = program
@@ -116,10 +198,19 @@ Examples:
               })
             : listContacts(effectiveLimit, role);
 
-          writeOutput(cmd, { ok: true, contacts: results });
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, contacts: results });
+          } else if (results.length === 0) {
+            process.stdout.write("No contacts found.\n");
+          } else {
+            for (const c of results) {
+              process.stdout.write(formatContactRow(c) + "\n");
+            }
+            process.stdout.write(`\n${results.length} contact(s)\n`);
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -147,7 +238,7 @@ Examples:
         getDb();
         const contact = getContact(id);
         if (!contact) {
-          writeOutput(cmd, { ok: false, error: "Contact not found" });
+          writeError(cmd, "Contact not found");
           process.exitCode = 1;
           return;
         }
@@ -155,14 +246,20 @@ Examples:
           contact.contactType === "assistant"
             ? getAssistantContactMetadata(contact.id)
             : undefined;
-        writeOutput(cmd, {
-          ok: true,
-          contact,
-          assistantMetadata: assistantMeta ?? undefined,
-        });
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, {
+            ok: true,
+            contact,
+            assistantMetadata: assistantMeta ?? undefined,
+          });
+        } else {
+          process.stdout.write(
+            formatContactDetail(contact, assistantMeta ?? undefined) + "\n",
+          );
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
+        writeError(cmd, message);
         process.exitCode = 1;
       }
     });
@@ -191,10 +288,18 @@ Examples:
         try {
           getDb();
           const contact = mergeContacts(keepId, mergeId);
-          writeOutput(cmd, { ok: true, contact });
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, contact });
+          } else {
+            process.stdout.write(
+              `Merged ${mergeId} into ${keepId}\n` +
+                formatContactDetail(contact) +
+                "\n",
+            );
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -256,18 +361,15 @@ Examples:
             try {
               channels = JSON.parse(opts.channels);
               if (!Array.isArray(channels)) {
-                writeOutput(cmd, {
-                  ok: false,
-                  error: "--channels must be a JSON array",
-                });
+                writeError(cmd, "--channels must be a JSON array");
                 process.exitCode = 1;
                 return;
               }
             } catch {
-              writeOutput(cmd, {
-                ok: false,
-                error: `Invalid JSON for --channels: ${opts.channels}`,
-              });
+              writeError(
+                cmd,
+                `Invalid JSON for --channels: ${opts.channels}`,
+              );
               process.exitCode = 1;
               return;
             }
@@ -292,10 +394,14 @@ Examples:
               | undefined,
           });
 
-          writeOutput(cmd, { ok: true, contact: result });
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, contact: result });
+          } else {
+            process.stdout.write(formatContactDetail(result) + "\n");
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -363,10 +469,10 @@ Examples:
       ) => {
         try {
           if (!opts.status && !opts.policy) {
-            writeOutput(cmd, {
-              ok: false,
-              error: "At least one of --status or --policy must be provided",
-            });
+            writeError(
+              cmd,
+              "At least one of --status or --policy must be provided",
+            );
             process.exitCode = 1;
             return;
           }
@@ -375,10 +481,7 @@ Examples:
 
           const existing = getChannelById(channelId);
           if (!existing) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Channel not found: ${channelId}`,
-            });
+            writeError(cmd, `Channel not found: ${channelId}`);
             process.exitCode = 1;
             return;
           }
@@ -406,10 +509,20 @@ Examples:
             blockedReason,
           });
 
-          writeOutput(cmd, { ok: true, channel: result });
+          if (!result) {
+            writeError(cmd, `Failed to update channel: ${channelId}`);
+            process.exitCode = 1;
+            return;
+          }
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, channel: result });
+          } else {
+            process.stdout.write(formatChannelDetail(result) + "\n");
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -463,14 +576,30 @@ Examples:
             sourceChannel: opts.sourceChannel,
             status: opts.status,
           });
-          if (result.ok) {
-            writeOutput(cmd, { ok: true, invites: result.data });
-          } else {
-            writeOutput(cmd, result);
+          if (!result.ok) {
+            writeError(cmd, (result as { error?: string }).error ?? "Failed");
+            process.exitCode = 1;
+            return;
           }
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, invites: result.data });
+          } else if (result.data.length === 0) {
+            process.stdout.write("No invites found.\n");
+          } else {
+              for (const inv of result.data) {
+                const parts = [
+                  inv.id,
+                  inv.sourceChannel,
+                  inv.status,
+                  inv.token ? `token:${inv.token}` : "",
+                ].filter(Boolean);
+                process.stdout.write(parts.join("  ") + "\n");
+              }
+              process.stdout.write(`\n${result.data.length} invite(s)\n`);
+            }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -539,10 +668,10 @@ Examples:
         try {
           const maxUses = opts.maxUses ? Number(opts.maxUses) : undefined;
           if (maxUses !== undefined && !Number.isFinite(maxUses)) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `--max-uses must be a number, got: ${opts.maxUses}`,
-            });
+            writeError(
+              cmd,
+              `--max-uses must be a number, got: ${opts.maxUses}`,
+            );
             process.exitCode = 1;
             return;
           }
@@ -550,10 +679,10 @@ Examples:
             ? Number(opts.expiresInMs)
             : undefined;
           if (expiresInMs !== undefined && !Number.isFinite(expiresInMs)) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `--expires-in-ms must be a number, got: ${opts.expiresInMs}`,
-            });
+            writeError(
+              cmd,
+              `--expires-in-ms must be a number, got: ${opts.expiresInMs}`,
+            );
             process.exitCode = 1;
             return;
           }
@@ -569,17 +698,26 @@ Examples:
             guardianName: opts.guardianName,
             contactId: opts.contactId,
           });
-          if (result.ok) {
-            writeOutput(cmd, { ok: true, invite: result.data });
-          } else {
-            writeOutput(cmd, result);
-          }
           if (!result.ok) {
+            writeError(
+              cmd,
+              (result as { error?: string }).error ?? "Failed",
+            );
             process.exitCode = 1;
+            return;
           }
+          if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, { ok: true, invite: result.data });
+            } else {
+              process.stdout.write(
+                `Created invite ${result.data.id} (${result.data.sourceChannel})\n`,
+              );
+              if (result.data.token)
+                process.stdout.write(`Token: ${result.data.token}\n`);
+            }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },
@@ -605,15 +743,22 @@ Examples:
       try {
         getDb();
         const result = revokeIngressInvite(inviteId);
-        if (result.ok) {
+        if (!result.ok) {
+          writeError(
+            cmd,
+            (result as { error?: string }).error ?? "Failed",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (shouldOutputJson(cmd)) {
           writeOutput(cmd, { ok: true, invite: result.data });
         } else {
-          writeOutput(cmd, result);
+          process.stdout.write(`Revoked invite ${inviteId}\n`);
         }
-        if (!result.ok) process.exitCode = 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
+        writeError(cmd, message);
         process.exitCode = 1;
       }
     });
@@ -666,11 +811,10 @@ Examples:
           getDb();
           if (opts.code) {
             if (!opts.callerExternalUserId) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  "--caller-external-user-id is required for voice code redemption",
-              });
+              writeError(
+                cmd,
+                "--caller-external-user-id is required for voice code redemption",
+              );
               process.exitCode = 1;
               return;
             }
@@ -681,16 +825,22 @@ Examples:
               ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
             });
             if (result.ok) {
-              writeOutput(cmd, {
-                ok: true,
-                type: result.type,
-                memberId: result.memberId,
-                ...(result.type === "redeemed"
-                  ? { inviteId: result.inviteId }
-                  : {}),
-              });
+              if (shouldOutputJson(cmd)) {
+                writeOutput(cmd, {
+                  ok: true,
+                  type: result.type,
+                  memberId: result.memberId,
+                  ...(result.type === "redeemed"
+                    ? { inviteId: result.inviteId }
+                    : {}),
+                });
+              } else {
+                process.stdout.write(
+                  `Redeemed (${result.type}), member: ${result.memberId}\n`,
+                );
+              }
             } else {
-              writeOutput(cmd, { ok: false, error: result.reason });
+              writeError(cmd, result.reason);
               process.exitCode = 1;
             }
           } else {
@@ -704,18 +854,23 @@ Examples:
                 ? { externalChatId: opts.externalChatId }
                 : {}),
             });
-            if (result.ok) {
+            if (!result.ok) {
+              writeError(
+                cmd,
+                (result as { error?: string }).error ?? "Failed",
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (shouldOutputJson(cmd)) {
               writeOutput(cmd, { ok: true, invite: result.data });
             } else {
-              writeOutput(cmd, result);
-            }
-            if (!result.ok) {
-              process.exitCode = 1;
+              process.stdout.write("Invite redeemed.\n");
             }
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
+          writeError(cmd, message);
           process.exitCode = 1;
         }
       },

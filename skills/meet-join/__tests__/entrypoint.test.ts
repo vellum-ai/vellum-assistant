@@ -103,9 +103,7 @@ mock.module("../tools/meet-speak-tool.js", () => ({
 }));
 
 // Pulled after mocks so the import resolves the stubbed module graph.
-const { parseEntrypointArgs, runEntrypoint } = await import(
-  "../entrypoint.js"
-);
+const { parseEntrypointArgs, runEntrypoint } = await import("../entrypoint.js");
 
 // ---------------------------------------------------------------------------
 // Stand-in IPC server
@@ -174,9 +172,6 @@ async function startStubServer(socketPath: string): Promise<StubServer> {
         // Bootstrap responses the client awaits during `connect()`.
         let result: unknown;
         switch (frame.method) {
-          case "host.identity.getInternalAssistantId":
-            result = "self";
-            break;
           case "host.identity.getAssistantName":
             result = null;
             break;
@@ -286,68 +281,60 @@ describe("runEntrypoint", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test(
-    "connects, drives register(), and exits 0 on skill.shutdown",
-    async () => {
-      const exitPromise = runEntrypoint({
-        socketPath,
-        skillId: "meet-join",
-      });
+  test("connects, drives register(), and exits 0 on skill.shutdown", async () => {
+    const exitPromise = runEntrypoint({
+      socketPath,
+      skillId: "meet-join",
+    });
 
-      // Give register() a moment to run and emit IPC frames. The client's
-      // sync-state bootstrap fires five RPCs before we observe anything
-      // skill-side, so wait for register_tools to land.
-      const deadline = Date.now() + 2_000;
-      while (Date.now() < deadline) {
-        if (
-          stub!.observed.some(
-            (f) => f.method === "host.registries.register_tools",
-          )
-        ) {
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 20));
-      }
-
-      // register_tools must have been called — that's the readiness
-      // signal the supervisor watches for. Tools may be empty here
-      // because the client's sync `host.config.isFeatureFlagEnabled`
-      // throws (the contract requires async feature-flag reads over
-      // IPC), and register.ts catches that and returns []. The frame
-      // arriving at all is what proves the entrypoint is alive.
-      const registerTools = stub!.observed.find(
-        (f) => f.method === "host.registries.register_tools",
-      );
-      expect(registerTools).toBeTruthy();
-
-      // The skill route registration is unconditional in register.ts.
-      expect(
+    // Give register() a moment to run and emit IPC frames. The client's
+    // sync-state bootstrap fires five RPCs before we observe anything
+    // skill-side, so wait for register_tools to land.
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      if (
         stub!.observed.some(
-          (f) => f.method === "host.registries.register_skill_route",
-        ),
-      ).toBe(true);
+          (f) => f.method === "host.registries.register_tools",
+        )
+      ) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
-      // Send a daemon-initiated `skill.shutdown` request. The entrypoint's
-      // installed handler resolves the exit trigger; runEntrypoint should
-      // return 0 once teardown completes. The handler returns no value,
-      // which the client wraps as a successful response with `result: null`.
-      await stub!.sendDaemonRequest("skill.shutdown");
+    // register_tools must have been called — that's the readiness
+    // signal the supervisor watches for. Tools may be empty here
+    // because the client's sync `host.config.isFeatureFlagEnabled`
+    // throws (the contract requires async feature-flag reads over
+    // IPC), and register.ts catches that and returns []. The frame
+    // arriving at all is what proves the entrypoint is alive.
+    const registerTools = stub!.observed.find(
+      (f) => f.method === "host.registries.register_tools",
+    );
+    expect(registerTools).toBeTruthy();
 
-      const code = await exitPromise;
-      expect(code).toBe(0);
-    },
-    10_000,
-  );
+    // The skill route registration is unconditional in register.ts.
+    expect(
+      stub!.observed.some(
+        (f) => f.method === "host.registries.register_skill_route",
+      ),
+    ).toBe(true);
 
-  test(
-    "exits 1 when the socket path doesn't exist",
-    async () => {
-      const code = await runEntrypoint({
-        socketPath: join(tempDir, "does-not-exist.sock"),
-        skillId: "meet-join",
-      });
-      expect(code).toBe(1);
-    },
-    10_000,
-  );
+    // Send a daemon-initiated `skill.shutdown` request. The entrypoint's
+    // installed handler resolves the exit trigger; runEntrypoint should
+    // return 0 once teardown completes. The handler returns no value,
+    // which the client wraps as a successful response with `result: null`.
+    await stub!.sendDaemonRequest("skill.shutdown");
+
+    const code = await exitPromise;
+    expect(code).toBe(0);
+  }, 10_000);
+
+  test("exits 1 when the socket path doesn't exist", async () => {
+    const code = await runEntrypoint({
+      socketPath: join(tempDir, "does-not-exist.sock"),
+      skillId: "meet-join",
+    });
+    expect(code).toBe(1);
+  }, 10_000);
 });

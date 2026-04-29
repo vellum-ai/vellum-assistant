@@ -54,13 +54,8 @@ import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
@@ -75,10 +70,12 @@ function resolveOrThrow(rawId: string): string {
   return id;
 }
 
-function publishListInvalidated(reason: ConversationListInvalidatedReason): void {
+function publishListInvalidated(
+  reason: ConversationListInvalidatedReason,
+): void {
   assistantEventHub
     .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+      buildAssistantEvent({
         type: "conversation_list_invalidated",
         reason,
       }),
@@ -191,8 +188,7 @@ function handleSetInferenceProfile({
   pathParams = {},
   body = {},
 }: RouteHandlerArgs) {
-  const resolvedId =
-    resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
   const conversation = getConversation(resolvedId);
   if (!conversation) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
@@ -200,12 +196,9 @@ function handleSetInferenceProfile({
 
   if (
     body.profile !== null &&
-    (typeof body.profile !== "string" ||
-      (body.profile as string).length === 0)
+    (typeof body.profile !== "string" || (body.profile as string).length === 0)
   ) {
-    throw new BadRequestError(
-      "profile must be a non-empty string or null",
-    );
+    throw new BadRequestError("profile must be a non-empty string or null");
   }
 
   const profile = body.profile as string | null;
@@ -223,7 +216,6 @@ function handleSetInferenceProfile({
     assistantEventHub
       .publish(
         buildAssistantEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
           {
             type: "conversation_inference_profile_updated",
             conversationId: resolvedId,
@@ -260,7 +252,6 @@ function handleRenameConversation({
   assistantEventHub
     .publish(
       buildAssistantEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
         {
           type: "conversation_title_updated",
           conversationId: pathParams.id!,
@@ -381,9 +372,7 @@ function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
 async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
   const result = await undoLastMessage(pathParams.id!);
   if (!result) {
-    throw new NotFoundError(
-      `No active conversation for ${pathParams.id}`,
-    );
+    throw new NotFoundError(`No active conversation for ${pathParams.id}`);
   }
   return {
     removedCount: result.removedCount,
@@ -396,11 +385,7 @@ async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(conversationId) ?? conversationId;
   let hubChain: Promise<void> = Promise.resolve();
   const sendEvent = (event: ServerMessage) => {
-    const ae = buildAssistantEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
-      event,
-      resolvedId,
-    );
+    const ae = buildAssistantEvent(event, resolvedId);
     hubChain = (async () => {
       await hubChain;
       try {
@@ -416,9 +401,7 @@ async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   try {
     const result = await regenerateResponse(conversationId, sendEvent);
     if (!result) {
-      throw new NotFoundError(
-        `No active conversation for ${pathParams.id}`,
-      );
+      throw new NotFoundError(`No active conversation for ${pathParams.id}`);
     }
     return undefined;
   } catch (err) {
@@ -566,8 +549,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "DELETE",
     policyKey: "conversations/clear-all",
     summary: "Clear all conversations",
-    description:
-      "Permanently delete ALL conversations, messages, and memory.",
+    description: "Permanently delete ALL conversations, messages, and memory.",
     tags: ["conversations"],
     responseStatus: "204",
     handler: handleClearAllConversations,
@@ -631,8 +613,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "conversations/cancel",
     summary: "Cancel generation",
-    description:
-      "Abort the in-progress assistant response for a conversation.",
+    description: "Abort the in-progress assistant response for a conversation.",
     tags: ["conversations"],
     pathParams: [{ name: "id" }],
     responseStatus: "202",
@@ -673,8 +654,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "conversations/reorder",
     summary: "Reorder conversations",
-    description:
-      "Batch-update display order and pin state for conversations.",
+    description: "Batch-update display order and pin state for conversations.",
     tags: ["conversations"],
     requestBody: z.object({
       updates: z

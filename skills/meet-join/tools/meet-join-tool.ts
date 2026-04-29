@@ -141,7 +141,10 @@ export function createMeetJoinTool(host: SkillHost): Tool {
       const rawTemplate = meetConfig.consentMessage;
       const assistantName =
         host.identity.getAssistantName() ?? DEFAULT_ASSISTANT_NAME;
-      const consentMessage = substituteAssistantName(rawTemplate, assistantName);
+      const consentMessage = substituteAssistantName(
+        rawTemplate,
+        assistantName,
+      );
 
       // 4. Generate a fresh meeting id. UUIDs give us the cryptographic
       //    uniqueness the session manager's per-meeting token resolver

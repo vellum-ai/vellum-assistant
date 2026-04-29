@@ -46,6 +46,28 @@ public struct BottomAlignedMinHeightLayout: Layout {
             proposal: ProposedViewSize(width: childSize.width, height: childSize.height)
         )
     }
+
+    // MARK: - Alignment (opt out of default cascade)
+
+    /// Returns `nil` to opt out of the default guide-merging cascade.
+    ///
+    /// The default `Layout` protocol implementation iterates every subview
+    /// and recursively queries their alignment guides — O(n × depth). When
+    /// this layout wraps the entire LazyVStack scroll content, the cascade
+    /// walks every visible cell, producing multi-second hangs.
+    ///
+    /// Returning `nil` tells ancestors "no explicit guide value; use default
+    /// positioning", which is correct because this layout positions its
+    /// child via `placeSubviews`, not alignment guides.
+    ///
+    /// Reference: [Layout.explicitAlignment](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-8ofeu)
+    public func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        nil
+    }
+
+    public func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        nil
+    }
 }
 
 extension View {

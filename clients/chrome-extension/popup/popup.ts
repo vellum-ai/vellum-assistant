@@ -244,15 +244,18 @@ function updateHealthDisplay(
 // ── Main screen mode-specific visibility ────────────────────────────
 
 function applyMainScreenMode(): void {
+  const signOutBtn = document.getElementById('btn-sign-out') as HTMLButtonElement;
   if (currentMode === 'cloud') {
     selfHostedSettings.style.display = 'none';
     assistantInfo.style.display = 'flex';
     sessionActions.style.display = 'flex';
+    signOutBtn.textContent = 'Sign out';
   } else {
     // self-hosted
     selfHostedSettings.style.display = 'block';
     assistantInfo.style.display = 'none';
-    sessionActions.style.display = 'none';
+    sessionActions.style.display = 'flex';
+    signOutBtn.textContent = 'Disconnect';
   }
 }
 
@@ -475,11 +478,18 @@ function selectAssistant(id: string, name: string, email?: string): void {
 // ── Sign out ────────────────────────────────────────────────────────
 
 document.getElementById('btn-sign-out')?.addEventListener('click', () => {
-  sendMessage({ type: 'cloud-logout' }, () => {
-    currentMode = null;
-    hideAssistantsError();
-    showScreen('welcome');
-  });
+  if (currentMode === 'self-hosted') {
+    sendMessage({ type: 'self-hosted-disconnect' }, () => {
+      currentMode = null;
+      showScreen('welcome');
+    });
+  } else {
+    sendMessage({ type: 'cloud-logout' }, () => {
+      currentMode = null;
+      hideAssistantsError();
+      showScreen('welcome');
+    });
+  }
 });
 
 document.getElementById('btn-retry-assistants')?.addEventListener('click', () => {

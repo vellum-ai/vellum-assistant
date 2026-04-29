@@ -49,6 +49,7 @@ done
 # Conservative by design; expand in a follow-up if this proves valuable.
 SCAN_DIRS=(
   "clients/macos/vellum-assistant/Features/Chat/"
+  "clients/macos/vellum-assistant/Features/Home/"
   "clients/macos/vellum-assistant/Features/MainWindow/"
 )
 

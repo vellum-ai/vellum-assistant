@@ -49,8 +49,6 @@ import {
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-const TEST_ASSISTANT_ID = "self";
-
 /**
  * Minimal stub host — only the facets the publisher actually reads are
  * wired up. The host's `events.publish` fans out to a local subscriber
@@ -92,7 +90,6 @@ function makeTestHost(): {
     },
     identity: {
       getAssistantName: () => undefined,
-      internalAssistantId: TEST_ASSISTANT_ID,
     },
     platform: {
       workspaceDir: () => "/tmp/test-workspace",
@@ -137,7 +134,7 @@ function makeTestHost(): {
       subscribe: (_filter, cb) =>
         subscribe(cb as (event: AssistantEvent) => void),
       buildEvent: (message: ServerMessage, conversationId?: string) =>
-        buildAssistantEvent(TEST_ASSISTANT_ID, message, conversationId),
+        buildAssistantEvent(message, conversationId),
     },
     registries: {
       registerTools: () => {
@@ -247,16 +244,12 @@ describe("publishMeetEvent", () => {
   test("wraps payload in a ServerMessage via buildAssistantEvent", async () => {
     const { received, dispose } = captureHub(harness);
     try {
-      await publishMeetEvent(
-        TEST_ASSISTANT_ID,
-        "m-pub-1",
-        "meet.joining",
-        { url: "https://meet.example.com/abc-def-ghi" },
-      );
+      await publishMeetEvent("m-pub-1", "meet.joining", {
+        url: "https://meet.example.com/abc-def-ghi",
+      });
 
       expect(received).toHaveLength(1);
       const event = received[0]!;
-      expect(event.assistantId).toBe(TEST_ASSISTANT_ID);
       expect(event.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );
@@ -281,7 +274,7 @@ describe("publishMeetEvent", () => {
     });
     try {
       await expect(
-        publishMeetEvent(TEST_ASSISTANT_ID, "m-pub-2", "meet.left", {
+        publishMeetEvent("m-pub-2", "meet.left", {
           reason: "user-requested",
         }),
       ).resolves.toBeUndefined();
@@ -303,7 +296,7 @@ describe("publishMeetEvent", () => {
     const { received, dispose } = captureHub(harness);
     try {
       for (const kind of kinds) {
-        await publishMeetEvent(TEST_ASSISTANT_ID, "m-kinds", kind, {});
+        await publishMeetEvent("m-kinds", kind, {});
       }
       expect(received.map((e) => (e.message as { type: string }).type)).toEqual(
         [...kinds],
@@ -417,7 +410,7 @@ describe("subscribeEventHubPublisher", () => {
   test("participant.change → meet.participant_changed with joined/left arrays", async () => {
     registerMeetingDispatcher("m-p");
     const { received, dispose } = captureHub(harness);
-    const unsub = subscribeEventHubPublisher(TEST_ASSISTANT_ID, "m-p");
+    const unsub = subscribeEventHubPublisher("m-p");
     try {
       const event = makeParticipantChange("m-p");
       getMeetSessionEventRouter().dispatch("m-p", event);
@@ -447,7 +440,7 @@ describe("subscribeEventHubPublisher", () => {
   test("speaker.change → meet.speaker_changed with id + name", async () => {
     registerMeetingDispatcher("m-s");
     const { received, dispose } = captureHub(harness);
-    const unsub = subscribeEventHubPublisher(TEST_ASSISTANT_ID, "m-s");
+    const unsub = subscribeEventHubPublisher("m-s");
     try {
       getMeetSessionEventRouter().dispatch("m-s", makeSpeakerChange("m-s"));
       await Promise.resolve();
@@ -472,7 +465,7 @@ describe("subscribeEventHubPublisher", () => {
   test("final transcript.chunk → meet.transcript_chunk; interims are dropped", async () => {
     registerMeetingDispatcher("m-t");
     const { received, dispose } = captureHub(harness);
-    const unsub = subscribeEventHubPublisher(TEST_ASSISTANT_ID, "m-t");
+    const unsub = subscribeEventHubPublisher("m-t");
     try {
       // Interim — should NOT publish.
       getMeetSessionEventRouter().dispatch(
@@ -518,7 +511,7 @@ describe("subscribeEventHubPublisher", () => {
     // lifecycle or we'd double-publish `meet.joined` etc.
     registerMeetingDispatcher("m-l");
     const { received, dispose } = captureHub(harness);
-    const unsub = subscribeEventHubPublisher(TEST_ASSISTANT_ID, "m-l");
+    const unsub = subscribeEventHubPublisher("m-l");
     try {
       getMeetSessionEventRouter().dispatch(
         "m-l",
@@ -539,7 +532,7 @@ describe("subscribeEventHubPublisher", () => {
   test("chat.inbound is dropped (not a meet.* event kind)", async () => {
     registerMeetingDispatcher("m-c");
     const { received, dispose } = captureHub(harness);
-    const unsub = subscribeEventHubPublisher(TEST_ASSISTANT_ID, "m-c");
+    const unsub = subscribeEventHubPublisher("m-c");
     try {
       getMeetSessionEventRouter().dispatch("m-c", {
         type: "chat.inbound",

@@ -36,7 +36,6 @@ import {
 } from "../../work-items/work-item-store.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   BadRequestError,
   ConflictError,
@@ -52,9 +51,7 @@ const log = getLogger("work-items-routes");
 // ---------------------------------------------------------------------------
 
 function publishEvent(msg: ServerMessage): void {
-  void assistantEventHub.publish(
-    buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
-  );
+  void assistantEventHub.publish(buildAssistantEvent(msg));
 }
 
 function broadcastWorkItemStatus(id: string): void {

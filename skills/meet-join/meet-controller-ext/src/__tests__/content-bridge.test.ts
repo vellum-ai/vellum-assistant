@@ -83,8 +83,7 @@ function installFakeChrome(): FakeChrome {
     runtimeListeners,
     tabResponses,
     emitFromContent(msg) {
-      for (const cb of runtimeListeners.slice())
-        cb(msg, undefined, () => {});
+      for (const cb of runtimeListeners.slice()) cb(msg, undefined, () => {});
     },
     runtime: {
       onMessage: {
@@ -166,198 +165,178 @@ describe("startContentBridge bot→content fan-out", () => {
     });
   });
 
-  test(
-    "pending join retry aborts when a later leave supersedes it",
-    async () => {
-      // A join fan-out is stuck retrying because no tab exists yet. Before
-      // the first retry fires, a leave arrives — the later message must
-      // cancel the stale join so we don't join a session the bot has
-      // already decided to leave.
-      //
-      // The join finds no tab (so it queues a retry). The leave finds a
-      // tab and delivers on its first attempt — that way only the join's
-      // retry behavior is under test and leave's own retry cadence can't
-      // leak into the assertion. We assert the invariant directly: the
-      // stale `join` frame must never reach `chrome.tabs.sendMessage`.
-      let tabsAvailable: chrome.tabs.Tab[] = [];
-      fake.tabs.query = async (q) => {
-        fake.queryCalls.push(q);
-        return tabsAvailable;
-      };
-      const join: BotToExtensionMessage = {
-        type: "join",
-        meetingUrl: "https://meet.google.com/abc-defg-hij",
-        displayName: "Bot",
-        consentMessage: "hello",
-      };
-      const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
-      port.emitFromBot(join);
-      await flushMicrotasks();
-      // Join queried once, no tabs — it's now sleeping 100ms before retry.
-      expect(fake.queryCalls.length).toBe(1);
-      // Now a tab exists and the leave supersedes the pending join.
-      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
-      port.emitFromBot(leave);
-      // Wait past the join's first retry delay (100ms) plus margin.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const byType = (t: string) =>
-        fake.sendMessageCalls.filter(
-          (c) => (c.msg as { type: string }).type === t,
-        );
-      // The stale join must not have been delivered.
-      expect(byType("join")).toHaveLength(0);
-      // Leave was delivered (this is the positive invariant — without it
-      // the test would pass if the bridge silently dropped everything).
-      expect(byType("leave").length).toBeGreaterThanOrEqual(1);
-    },
-    5_000,
-  );
-
-  test(
-    "two send_chat messages both deliver — neither supersedes the other",
-    async () => {
-      // send_chat is outside any superseding category, so a rapidly-issued
-      // pair must both reach the content script. Guard: before PR 27314's
-      // follow-up, the generation counter was bumped for every message,
-      // which silently aborted the first send_chat while it was sleeping
-      // between retries.
-      let tabsAvailable: chrome.tabs.Tab[] = [];
-      fake.tabs.query = async (q) => {
-        fake.queryCalls.push(q);
-        return tabsAvailable;
-      };
-      const first: BotToExtensionMessage = {
-        type: "send_chat",
-        text: "hello",
-        requestId: "req-1",
-      };
-      const second: BotToExtensionMessage = {
-        type: "send_chat",
-        text: "world",
-        requestId: "req-2",
-      };
-      // First send_chat: no tab yet, queues a retry.
-      port.emitFromBot(first);
-      await flushMicrotasks();
-      expect(fake.queryCalls.length).toBe(1);
-      // Second send_chat arrives before the first retry fires. A tab is
-      // now mounted so both should be able to deliver.
-      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
-      port.emitFromBot(second);
-      // Wait past the first's retry delay (100ms) plus margin.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const chatDeliveries = fake.sendMessageCalls.filter(
-        (c) => (c.msg as { type: string }).type === "send_chat",
+  test("pending join retry aborts when a later leave supersedes it", async () => {
+    // A join fan-out is stuck retrying because no tab exists yet. Before
+    // the first retry fires, a leave arrives — the later message must
+    // cancel the stale join so we don't join a session the bot has
+    // already decided to leave.
+    //
+    // The join finds no tab (so it queues a retry). The leave finds a
+    // tab and delivers on its first attempt — that way only the join's
+    // retry behavior is under test and leave's own retry cadence can't
+    // leak into the assertion. We assert the invariant directly: the
+    // stale `join` frame must never reach `chrome.tabs.sendMessage`.
+    let tabsAvailable: chrome.tabs.Tab[] = [];
+    fake.tabs.query = async (q) => {
+      fake.queryCalls.push(q);
+      return tabsAvailable;
+    };
+    const join: BotToExtensionMessage = {
+      type: "join",
+      meetingUrl: "https://meet.google.com/abc-defg-hij",
+      displayName: "Bot",
+      consentMessage: "hello",
+    };
+    const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
+    port.emitFromBot(join);
+    await flushMicrotasks();
+    // Join queried once, no tabs — it's now sleeping 100ms before retry.
+    expect(fake.queryCalls.length).toBe(1);
+    // Now a tab exists and the leave supersedes the pending join.
+    tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+    port.emitFromBot(leave);
+    // Wait past the join's first retry delay (100ms) plus margin.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const byType = (t: string) =>
+      fake.sendMessageCalls.filter(
+        (c) => (c.msg as { type: string }).type === t,
       );
-      expect(chatDeliveries).toHaveLength(2);
-      const deliveredIds = chatDeliveries.map(
-        (c) => (c.msg as { requestId: string }).requestId,
+    // The stale join must not have been delivered.
+    expect(byType("join")).toHaveLength(0);
+    // Leave was delivered (this is the positive invariant — without it
+    // the test would pass if the bridge silently dropped everything).
+    expect(byType("leave").length).toBeGreaterThanOrEqual(1);
+  }, 5_000);
+
+  test("two send_chat messages both deliver — neither supersedes the other", async () => {
+    // send_chat is outside any superseding category, so a rapidly-issued
+    // pair must both reach the content script. Guard: before PR 27314's
+    // follow-up, the generation counter was bumped for every message,
+    // which silently aborted the first send_chat while it was sleeping
+    // between retries.
+    let tabsAvailable: chrome.tabs.Tab[] = [];
+    fake.tabs.query = async (q) => {
+      fake.queryCalls.push(q);
+      return tabsAvailable;
+    };
+    const first: BotToExtensionMessage = {
+      type: "send_chat",
+      text: "hello",
+      requestId: "req-1",
+    };
+    const second: BotToExtensionMessage = {
+      type: "send_chat",
+      text: "world",
+      requestId: "req-2",
+    };
+    // First send_chat: no tab yet, queues a retry.
+    port.emitFromBot(first);
+    await flushMicrotasks();
+    expect(fake.queryCalls.length).toBe(1);
+    // Second send_chat arrives before the first retry fires. A tab is
+    // now mounted so both should be able to deliver.
+    tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+    port.emitFromBot(second);
+    // Wait past the first's retry delay (100ms) plus margin.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const chatDeliveries = fake.sendMessageCalls.filter(
+      (c) => (c.msg as { type: string }).type === "send_chat",
+    );
+    expect(chatDeliveries).toHaveLength(2);
+    const deliveredIds = chatDeliveries.map(
+      (c) => (c.msg as { requestId: string }).requestId,
+    );
+    expect(deliveredIds).toContain("req-1");
+    expect(deliveredIds).toContain("req-2");
+  }, 5_000);
+
+  test("pending send_chat retry aborts when a later leave arrives", async () => {
+    // A stale send_chat must not deliver into a new meeting's tab after a
+    // lifecycle transition. send_chat carries no meeting identifier to
+    // re-validate on receipt, so once `leave` (or `join`) fires, any
+    // pending send_chat retry from the prior session must be cancelled.
+    let tabsAvailable: chrome.tabs.Tab[] = [];
+    fake.tabs.query = async (q) => {
+      fake.queryCalls.push(q);
+      return tabsAvailable;
+    };
+    const chat: BotToExtensionMessage = {
+      type: "send_chat",
+      text: "stale message",
+      requestId: "req-stale",
+    };
+    const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
+    // send_chat finds no tab — queues a retry.
+    port.emitFromBot(chat);
+    await flushMicrotasks();
+    expect(fake.queryCalls.length).toBe(1);
+    // A tab is now available and `leave` fires, bumping the lifecycle
+    // counter and invalidating the pending send_chat retry.
+    tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+    port.emitFromBot(leave);
+    // Wait past the first retry delay (100ms) plus margin.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const byType = (t: string) =>
+      fake.sendMessageCalls.filter(
+        (c) => (c.msg as { type: string }).type === t,
       );
-      expect(deliveredIds).toContain("req-1");
-      expect(deliveredIds).toContain("req-2");
-    },
-    5_000,
-  );
+    // The stale send_chat must not have been delivered.
+    expect(byType("send_chat")).toHaveLength(0);
+    // Leave was delivered (positive invariant).
+    expect(byType("leave").length).toBeGreaterThanOrEqual(1);
+  }, 5_000);
 
-  test(
-    "pending send_chat retry aborts when a later leave arrives",
-    async () => {
-      // A stale send_chat must not deliver into a new meeting's tab after a
-      // lifecycle transition. send_chat carries no meeting identifier to
-      // re-validate on receipt, so once `leave` (or `join`) fires, any
-      // pending send_chat retry from the prior session must be cancelled.
-      let tabsAvailable: chrome.tabs.Tab[] = [];
-      fake.tabs.query = async (q) => {
-        fake.queryCalls.push(q);
-        return tabsAvailable;
-      };
-      const chat: BotToExtensionMessage = {
-        type: "send_chat",
-        text: "stale message",
-        requestId: "req-stale",
-      };
-      const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
-      // send_chat finds no tab — queues a retry.
-      port.emitFromBot(chat);
-      await flushMicrotasks();
-      expect(fake.queryCalls.length).toBe(1);
-      // A tab is now available and `leave` fires, bumping the lifecycle
-      // counter and invalidating the pending send_chat retry.
-      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
-      port.emitFromBot(leave);
-      // Wait past the first retry delay (100ms) plus margin.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const byType = (t: string) =>
-        fake.sendMessageCalls.filter(
-          (c) => (c.msg as { type: string }).type === t,
-        );
-      // The stale send_chat must not have been delivered.
-      expect(byType("send_chat")).toHaveLength(0);
-      // Leave was delivered (positive invariant).
-      expect(byType("leave").length).toBeGreaterThanOrEqual(1);
-    },
-    5_000,
-  );
+  test("pending camera.enable retry aborts when a later join arrives", async () => {
+    // Same meeting-transition protection for camera toggles: a pending
+    // camera.enable retry must not deliver into a new session's tab.
+    let tabsAvailable: chrome.tabs.Tab[] = [];
+    fake.tabs.query = async (q) => {
+      fake.queryCalls.push(q);
+      return tabsAvailable;
+    };
+    const enable: BotToExtensionMessage = { type: "camera.enable" };
+    const join: BotToExtensionMessage = {
+      type: "join",
+      meetingUrl: "https://meet.google.com/abc-defg-hij",
+      displayName: "Bot",
+      consentMessage: "hello",
+    };
+    port.emitFromBot(enable);
+    await flushMicrotasks();
+    expect(fake.queryCalls.length).toBe(1);
+    tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+    port.emitFromBot(join);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const byType = (t: string) =>
+      fake.sendMessageCalls.filter(
+        (c) => (c.msg as { type: string }).type === t,
+      );
+    expect(byType("camera.enable")).toHaveLength(0);
+    expect(byType("join").length).toBeGreaterThanOrEqual(1);
+  }, 5_000);
 
-  test(
-    "pending camera.enable retry aborts when a later join arrives",
-    async () => {
-      // Same meeting-transition protection for camera toggles: a pending
-      // camera.enable retry must not deliver into a new session's tab.
-      let tabsAvailable: chrome.tabs.Tab[] = [];
-      fake.tabs.query = async (q) => {
-        fake.queryCalls.push(q);
-        return tabsAvailable;
-      };
-      const enable: BotToExtensionMessage = { type: "camera.enable" };
-      const join: BotToExtensionMessage = {
-        type: "join",
-        meetingUrl: "https://meet.google.com/abc-defg-hij",
-        displayName: "Bot",
-        consentMessage: "hello",
-      };
-      port.emitFromBot(enable);
-      await flushMicrotasks();
-      expect(fake.queryCalls.length).toBe(1);
-      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
-      port.emitFromBot(join);
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const byType = (t: string) =>
-        fake.sendMessageCalls.filter(
-          (c) => (c.msg as { type: string }).type === t,
-        );
-      expect(byType("camera.enable")).toHaveLength(0);
-      expect(byType("join").length).toBeGreaterThanOrEqual(1);
-    },
-    5_000,
-  );
-
-  test(
-    "join retries when the only tab responds with {ok:false}",
-    async () => {
-      // Simulate a profile that has exactly one Meet tab open and that tab is
-      // not for the target meeting (e.g. a stray lobby tab). The content
-      // script rejects the join with {ok:false}. The bridge must NOT treat
-      // that as a successful delivery — otherwise a real tab that mounts a
-      // moment later never receives the join command.
-      fake.tabs.sendMessage = async (tabId, msg) => {
-        fake.sendMessageCalls.push({ tabId, msg });
-        return { ok: false, reason: "non-matching-tab" };
-      };
-      const join: BotToExtensionMessage = {
-        type: "join",
-        meetingUrl: "https://meet.google.com/abc-defg-hij",
-        displayName: "Bot",
-        consentMessage: "hello",
-      };
-      port.emitFromBot(join);
-      // Wait long enough for at least the first retry (100ms) to elapse.
-      await new Promise((resolve) => setTimeout(resolve, 180));
-      expect(fake.queryCalls.length).toBeGreaterThanOrEqual(2);
-      expect(fake.sendMessageCalls.length).toBeGreaterThanOrEqual(2);
-    },
-    5_000,
-  );
+  test("join retries when the only tab responds with {ok:false}", async () => {
+    // Simulate a profile that has exactly one Meet tab open and that tab is
+    // not for the target meeting (e.g. a stray lobby tab). The content
+    // script rejects the join with {ok:false}. The bridge must NOT treat
+    // that as a successful delivery — otherwise a real tab that mounts a
+    // moment later never receives the join command.
+    fake.tabs.sendMessage = async (tabId, msg) => {
+      fake.sendMessageCalls.push({ tabId, msg });
+      return { ok: false, reason: "non-matching-tab" };
+    };
+    const join: BotToExtensionMessage = {
+      type: "join",
+      meetingUrl: "https://meet.google.com/abc-defg-hij",
+      displayName: "Bot",
+      consentMessage: "hello",
+    };
+    port.emitFromBot(join);
+    // Wait long enough for at least the first retry (100ms) to elapse.
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    expect(fake.queryCalls.length).toBeGreaterThanOrEqual(2);
+    expect(fake.sendMessageCalls.length).toBeGreaterThanOrEqual(2);
+  }, 5_000);
 });
 
 describe("startContentBridge content→bot forwarding", () => {

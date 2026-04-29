@@ -7,10 +7,7 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
-import {
-  ensureVellumGuardianBinding,
-  findGuardianForChannelActor,
-} from "./auth/guardian-bootstrap.js";
+import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
@@ -156,6 +153,7 @@ import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
+import { runPostAssistantReady } from "./post-assistant-ready.js";
 
 const log = getLogger("main");
 
@@ -399,9 +397,7 @@ async function main() {
 
   const audioProxy = createAudioProxyHandler(config);
 
-  const handleRuntimeProxy = config.runtimeProxyEnabled
-    ? createRuntimeProxyHandler(config)
-    : null;
+  const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
   // Helper to reject when an integration isn't configured
   const requireConfigured = (
@@ -943,10 +939,10 @@ async function main() {
     },
 
     // ── Teleport-GCS migration (unified daemon-async flow) ──
-    // These are registered explicitly (not via the runtime-proxy catch-all)
-    // so local/docker teleport works whether or not `runtimeProxyEnabled`
-    // is set. The daemon returns 202 { job_id } on POST and cheap JSON on
-    // GET, so the gateway just transparently forwards without wrapping.
+    // Registered as explicit routes (not via the runtime-proxy catch-all)
+    // for dedicated auth and timeout handling. The daemon returns 202
+    // { job_id } on POST and cheap JSON on GET, so the gateway just
+    // transparently forwards without wrapping.
     {
       path: "/v1/migrations/export-to-gcs",
       method: "POST",
@@ -1243,16 +1239,13 @@ async function main() {
     },
   ];
 
-  // The runtime proxy catch-all is only added when the proxy is enabled.
-  // It must be last so that all specific routes are checked first.
-  if (handleRuntimeProxy) {
-    routes.push({
-      path: /^\//, // match everything
-      auth: "track-failures",
-      handler: (req, _params, getClientIp) =>
-        handleRuntimeProxy(req, getClientIp()),
-    });
-  }
+  // Runtime proxy catch-all — must be last so specific routes are checked first.
+  routes.push({
+    path: /^\//, // match everything
+    auth: "track-failures",
+    handler: (req, _params, getClientIp) =>
+      handleRuntimeProxy(req, getClientIp()),
+  });
 
   const router = createRouter(routes, {
     authRateLimiter,
@@ -1451,7 +1444,7 @@ async function main() {
         return undefined as unknown as Response;
       }
 
-      if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
+      if (url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
@@ -1523,17 +1516,12 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  // Ensure a vellum guardian binding exists so the identity system works
-  // without requiring a manual bootstrap step. Dual-writes to both the
-  // assistant and gateway DBs.
-  try {
-    ensureVellumGuardianBinding();
-  } catch (err) {
-    log.warn(
-      { err },
-      "Vellum guardian binding backfill failed — continuing startup",
-    );
-  }
+  // Deferred startup tasks that depend on the assistant runtime being
+  // ready (e.g. guardian binding backfill, data migrations that touch
+  // the assistant DB). Runs in the background — does not block startup.
+  runPostAssistantReady().catch((err) => {
+    log.error({ err }, "Post-assistant-ready lifecycle failed");
+  });
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();

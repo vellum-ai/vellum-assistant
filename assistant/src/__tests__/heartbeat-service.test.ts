@@ -108,13 +108,16 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 // Mock processMessage — HeartbeatService now imports it directly.
 // Tests override _testProcessMessage to capture / customize calls.
-let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+let _testProcessMessage:
+  | ((...args: unknown[]) => Promise<{ messageId: string }>)
+  | undefined;
 
 mock.module("../daemon/process-message.js", () => ({
   processMessage: async (...args: unknown[]) => {
     if (_testProcessMessage) return _testProcessMessage(...args);
     return { messageId: `mock-msg-${Date.now()}` };
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   resolveTurnChannel: () => "vellum",
   resolveTurnInterface: () => "vellum",
   makePendingInteractionRegistrar: () => () => {},
@@ -221,9 +224,7 @@ describe("HeartbeatService", () => {
   });
 
   function createService(overrides?: {
-    processMessage?: (
-      ...args: unknown[]
-    ) => Promise<{ messageId: string }>;
+    processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
     if (overrides?.processMessage) {

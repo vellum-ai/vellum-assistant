@@ -1,18 +1,17 @@
 /**
  * Mock Chrome extension test fixture.
  *
- * Opens a WebSocket to the runtime's `/v1/browser-relay` endpoint using a
- * caller-supplied JWT (so the upgrade handler registers the connection
- * under the guardianId encoded in the token), handles incoming
- * `host_browser_request` frames by calling a mock CDP proxy, and POSTs
+ * Subscribes to the runtime's `/events` SSE endpoint (registering in the
+ * client registry with `interfaceId: "chrome-extension"`), handles incoming
+ * `host_browser_request` events by calling a mock CDP proxy, and POSTs
  * the result back to `/v1/host-browser-result`.
  *
- * Used by e2e tests (PR 15/16) to exercise the full round-trip without
- * requiring a real Chrome browser or the real extension worker.
+ * Optionally opens a WebSocket to `/v1/browser-relay` for sending inbound
+ * frames (events, session-invalidation, keepalive) and for the WS result
+ * transport variant.
  *
- * The fixture is intentionally minimal — it does not implement heartbeats
- * or reconnect logic. It only needs to carry host_browser_request frames
- * end-to-end.
+ * Used by e2e tests to exercise the full round-trip without requiring a
+ * real Chrome browser or the real extension worker.
  */
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -73,13 +72,14 @@ export interface MockChromeExtensionOptions {
    *   - "http" (default): POST to `/v1/host-browser-result`.
    *   - "ws": send a `host_browser_result` frame back over the same
    *     `/v1/browser-relay` WebSocket that delivered the request.
-   *
-   * Both transports are expected to be fully functional in the runtime.
-   * The HTTP path is the legacy transport; the WS path was added so the
-   * extension can avoid an extra round-trip through the cloud ingress
-   * stack for each CDP command.
    */
   resultTransport?: "http" | "ws";
+  /**
+   * Separate JWT for SSE `/events` auth. When the primary `token` is a
+   * capability token (not a JWT), provide a real JWT here so the SSE
+   * endpoint accepts the connection.
+   */
+  sseToken?: string;
 }
 
 export interface MockChromeExtension {
@@ -172,9 +172,12 @@ export function createMockChromeExtension(
   const baseHttp = options.runtimeBaseUrl.replace(/\/$/, "");
   const wsBase = baseHttp.replace(/^http/i, "ws");
   const wsUrl = `${wsBase}/v1/browser-relay?token=${encodeURIComponent(options.token)}`;
+  const clientId = `mock-ext-${crypto.randomUUID()}`;
 
   let ws: WebSocket | null = null;
-  let connected = false;
+  let wsConnected = false;
+  let sseAbort: AbortController | null = null;
+  let sseConnected = false;
   let handler = options.cdpHandler ?? defaultCdpHandler;
   const receivedRequests: HostBrowserRequestFrame[] = [];
   const receivedCancels: HostBrowserCancelFrame[] = [];
@@ -197,9 +200,6 @@ export function createMockChromeExtension(
     } finally {
       inFlight.delete(frame.requestId);
     }
-    // If the request was aborted mid-flight, drop the result entirely
-    // (mirroring the production dispatcher, which doesn't POST a result
-    // for cancelled requests).
     if (abortCtl.signal.aborted) return;
 
     const body: HostBrowserResultBody = {
@@ -208,21 +208,12 @@ export function createMockChromeExtension(
       isError: result.isError,
     };
     if (resultTransport === "ws") {
-      // Send the result back over the same `/v1/browser-relay` socket
-      // that delivered the request. The runtime WS message handler
-      // parses `host_browser_result` frames and resolves the pending
-      // interaction via the same core resolver the HTTP endpoint uses.
       const sock = ws;
       if (sock && sock.readyState === WebSocket.OPEN) {
         try {
-          sock.send(
-            JSON.stringify({
-              type: "host_browser_result",
-              ...body,
-            }),
-          );
+          sock.send(JSON.stringify({ type: "host_browser_result", ...body }));
         } catch {
-          // Best-effort — mirrors the HTTP POST failure mode.
+          // best-effort
         }
       }
       return;
@@ -236,14 +227,13 @@ export function createMockChromeExtension(
         },
         body: JSON.stringify(body),
       });
-      // Consume the body so Bun doesn't leak the response handle.
       await res.body?.cancel();
     } catch {
-      // Best-effort — if the runtime has torn down the server, the POST
-      // will throw. Tests assert on proxy behaviour, not POST success.
+      // best-effort
     }
   }
 
+  /** Handle an incoming message (from SSE event or WS frame). */
   function handleMessage(raw: string): void {
     let parsed: unknown;
     try {
@@ -269,43 +259,92 @@ export function createMockChromeExtension(
       }
       return;
     }
-    // Ignore any other frames.
+  }
+
+  /** Start SSE connection to /events — registers in client registry and
+   *  receives outbound host_browser events from the event hub. */
+  async function startSse(): Promise<void> {
+    sseAbort = new AbortController();
+    const sseUrl = `${baseHttp}/v1/events`;
+    const res = await fetch(sseUrl, {
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${options.sseToken ?? options.token}`,
+        "X-Vellum-Client-Id": clientId,
+        "X-Vellum-Interface-Id": "chrome-extension",
+      },
+      signal: sseAbort.signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`SSE connect failed: ${res.status}`);
+    }
+    sseConnected = true;
+
+    // Read SSE stream in the background
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    void (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // Parse SSE frames: "data: ...\n\n"
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            const lines = part.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                // SSE data is JSON-encoded AssistantEvent; extract
+                // the message field
+                try {
+                  const event = JSON.parse(data) as {
+                    message?: unknown;
+                  };
+                  if (event.message) {
+                    handleMessage(JSON.stringify(event.message));
+                  }
+                } catch {
+                  // skip malformed SSE data
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // SSE stream ended (abort or server shutdown)
+      } finally {
+        sseConnected = false;
+      }
+    })();
+  }
+
+  /** Start the optional WS connection for sending inbound frames. */
+  async function startWs(): Promise<void> {
+    const wsOptions: { headers?: Record<string, string> } = {};
+    if (options.extraHandshakeHeaders) {
+      wsOptions.headers = options.extraHandshakeHeaders;
+    }
+    ws = new WebSocket(wsUrl, wsOptions as unknown as string | string[]);
+    ws.addEventListener("open", () => {
+      wsConnected = true;
+    });
+    ws.addEventListener("close", () => {
+      wsConnected = false;
+    });
   }
 
   return {
     async start() {
-      if (ws) return;
-      // Bun's `WebSocket` constructor accepts a second-argument options
-      // object with a `headers` field (a Bun-specific extension of the
-      // standard WebSocket API). We forward `extraHandshakeHeaders`
-      // through it so tests using service tokens can supply the
-      // `x-guardian-id` fallback expected by `/v1/browser-relay`.
-      //
-      // We cast through `unknown` because the DOM `WebSocket` type only
-      // knows about `(url, protocols)`. If this fixture is ever run in
-      // an environment that isn't Bun, the options object would be
-      // silently ignored — acceptable for a test fixture.
-      const wsOptions: { headers?: Record<string, string> } = {};
-      if (options.extraHandshakeHeaders) {
-        wsOptions.headers = options.extraHandshakeHeaders;
-      }
-      ws = new WebSocket(wsUrl, wsOptions as unknown as string | string[]);
-      ws.addEventListener("open", () => {
-        connected = true;
-      });
-      ws.addEventListener("message", (ev: MessageEvent) => {
-        const data = ev.data;
-        if (typeof data === "string") {
-          handleMessage(data);
-        } else if (data instanceof ArrayBuffer) {
-          handleMessage(new TextDecoder().decode(data));
-        }
-      });
-      ws.addEventListener("close", () => {
-        connected = false;
-      });
+      await startSse();
+      await startWs();
     },
     async stop() {
+      sseAbort?.abort();
+      sseAbort = null;
       const sock = ws;
       ws = null;
       if (sock) {
@@ -322,10 +361,10 @@ export function createMockChromeExtension(
     },
     async waitForConnection(timeoutMs = 2000) {
       const deadline = Date.now() + timeoutMs;
-      while (!connected) {
+      while (!sseConnected || !wsConnected) {
         if (Date.now() > deadline) {
           throw new Error(
-            `mock-chrome-extension: timed out waiting for WebSocket OPEN after ${timeoutMs}ms`,
+            `mock-chrome-extension: timed out waiting for connection (SSE=${sseConnected}, WS=${wsConnected}) after ${timeoutMs}ms`,
           );
         }
         await new Promise((r) => setTimeout(r, 10));
@@ -341,9 +380,12 @@ export function createMockChromeExtension(
       handler = next;
     },
     forceDisconnect() {
+      sseAbort?.abort();
+      sseAbort = null;
+      sseConnected = false;
       const sock = ws;
       ws = null;
-      connected = false;
+      wsConnected = false;
       if (sock) {
         try {
           sock.close(4000, "forced disconnect");

@@ -1,24 +1,3 @@
-import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
-import { type HandlerContext, log } from "./shared.js";
-
-/**
- * Send a client_settings_update message to all connected clients.
- * Used to push configuration changes (e.g. activation key) from the daemon
- * to macOS/iOS clients so they can apply settings immediately.
- */
-function broadcastClientSettingsUpdate(
-  key: string,
-  value: string,
-  ctx: HandlerContext,
-): void {
-  ctx.broadcast({
-    type: "client_settings_update",
-    key,
-    value,
-  });
-  log.info({ key, value }, "Broadcast client_settings_update");
-}
-
 // ── Activation key validation ────────────────────────────────────────
 
 const VALID_ACTIVATION_KEYS = ["fn", "ctrl", "fn_shift", "none"] as const;
@@ -191,25 +170,4 @@ export function normalizeActivationKey(
     ok: false,
     reason: `Invalid activation key "${input}". Valid values: fn (Fn/Globe key), ctrl (Control key), fn_shift (Fn+Shift), none (disable PTT), or a PTTActivator JSON object.`,
   };
-}
-
-/**
- * Process a voice configuration update request from a conversation or client.
- * Validates the activation key and broadcasts the change to all connected clients.
- */
-export function handleVoiceConfigUpdate(
-  msg: VoiceConfigUpdateRequest,
-  ctx: HandlerContext,
-): void {
-  const result = normalizeActivationKey(msg.activationKey);
-  if (!result.ok) {
-    log.warn({ input: msg.activationKey }, result.reason);
-    return;
-  }
-
-  broadcastClientSettingsUpdate("activationKey", result.value, ctx);
-  log.info(
-    { activationKey: result.value },
-    "Voice config updated: activation key",
-  );
 }

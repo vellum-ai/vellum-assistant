@@ -5,12 +5,11 @@
  * cache IPC routes (`cache/set`, `cache/get`, `cache/delete`).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
+import { existsSync, readFileSync } from "./cache-fs.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
 

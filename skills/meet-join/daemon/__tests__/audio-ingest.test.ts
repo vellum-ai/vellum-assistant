@@ -134,7 +134,8 @@ class FakeSocketConnection implements AudioIngestConnection {
  */
 class FakeAudioIngestServer implements AudioIngestServer {
   readonly port: number;
-  private connectionListeners: Array<(conn: AudioIngestConnection) => void> = [];
+  private connectionListeners: Array<(conn: AudioIngestConnection) => void> =
+    [];
   private errorListeners: Array<(err: Error) => void> = [];
   closed = false;
   closedPromiseResolved = false;
@@ -796,10 +797,7 @@ describe("MeetAudioIngest — auth handshake", () => {
 
   test("rejects a connection that flood-writes without ever sending a newline", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start(
-      "m-oversize",
-      TEST_BOT_TOKEN,
-    );
+    const { ready } = await setup.ingest.start("m-oversize", TEST_BOT_TOKEN);
     await flushMicrotasks();
 
     const bad = setup.server.connectBot({ authLine: null });
@@ -876,10 +874,7 @@ describe("MeetAudioIngest — auth handshake", () => {
 
   test("forwards PCM bytes that arrived in the same TCP segment as the handshake newline", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start(
-      "m-residual",
-      TEST_BOT_TOKEN,
-    );
+    const { ready } = await setup.ingest.start("m-residual", TEST_BOT_TOKEN);
     await flushMicrotasks();
 
     // Single segment: AUTH line + newline + 3 PCM bytes. The ingest must
@@ -894,7 +889,9 @@ describe("MeetAudioIngest — auth handshake", () => {
     await ready;
 
     expect(setup.session.audioChunks).toHaveLength(1);
-    expect(setup.session.audioChunks[0]).toEqual(Buffer.from([0xde, 0xad, 0xbe]));
+    expect(setup.session.audioChunks[0]).toEqual(
+      Buffer.from([0xde, 0xad, 0xbe]),
+    );
 
     await setup.ingest.stop();
   });
@@ -944,7 +941,6 @@ describe("createAudioIngest — default transcriber factory", () => {
       },
       identity: {
         getAssistantName: () => undefined,
-        internalAssistantId: "self",
       },
       platform: {
         workspaceDir: () => "",
@@ -964,8 +960,9 @@ describe("createAudioIngest — default transcriber factory", () => {
         stt: {
           listProviderIds: () => options.providerIds ?? ["deepgram"],
           supportsBoundary: () => true,
-          resolveStreamingTranscriber: (async (spec?: Record<string, unknown>) =>
-            options.resolver(spec)) as never,
+          resolveStreamingTranscriber: (async (
+            spec?: Record<string, unknown>,
+          ) => options.resolver(spec)) as never,
         },
         tts: {
           get: () => undefined,

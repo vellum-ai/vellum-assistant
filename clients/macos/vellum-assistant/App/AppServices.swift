@@ -4,7 +4,8 @@ import VellumAssistantShared
 /// that were previously declared directly on `AppDelegate`.
 @MainActor
 public final class AppServices {
-    public let connectionManager = GatewayConnectionManager()
+    public let connectionManager: GatewayConnectionManager
+    let diskPressureMonitor: DiskPressureMonitor
 
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
@@ -23,6 +24,16 @@ public final class AppServices {
         connectionManager: connectionManager,
         eventStreamClient: connectionManager.eventStreamClient
     )
+
+    public init() {
+        let connectionManager = GatewayConnectionManager()
+        self.connectionManager = connectionManager
+        diskPressureMonitor = DiskPressureMonitor(
+            isConnectedProvider: { [weak connectionManager] in
+                connectionManager?.isConnected ?? false
+            }
+        )
+    }
 
     /// Reconfigure the connection for a new assistant.
     func reconfigureConnection(conversationKey: String? = nil) {

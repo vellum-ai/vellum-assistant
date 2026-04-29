@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: ''
+      playwright_blocks_release:
+        description: 'Whether Playwright test failures should block the production release'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -1240,7 +1245,7 @@ jobs:
 
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1455,6 +1460,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
+            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -1670,6 +1676,7 @@ jobs:
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
 
           ED_KEY_FILE=$(mktemp)
           echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
@@ -1690,19 +1697,27 @@ jobs:
             SIZE=$(stat -f%z dist/vellum-assistant.zip)
           fi
 
-          REPO="vellum-ai/vellum-assistant"
+          REPO="${{ github.repository }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DOWNLOAD_URL="https://github.com/${REPO}/releases/download/staging-latest/vellum-assistant.zip"
+            TITLE="Vellum Staging"
+          else
+            DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/vellum-assistant.zip"
+            TITLE="Vellum"
+          fi
+
           FILENAME="appcast.xml"
           cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
-              <title>Vellum</title>
+              <title>${TITLE}</title>
               <item>
                 <title>${DISPLAY_VERSION}</title>
                 <sparkle:version>${BUILD_VERSION}</sparkle:version>
                 <sparkle:shortVersionString>${DISPLAY_VERSION}</sparkle:shortVersionString>
                 <enclosure
-                  url="https://github.com/${REPO}/releases/latest/download/vellum-assistant.zip"
+                  url="${DOWNLOAD_URL}"
                   sparkle:edSignature="${SIGNATURE}"
                   length="${SIZE}"
                   type="application/octet-stream" />
@@ -1710,7 +1725,7 @@ jobs:
             </channel>
           </rss>
           EOF
-          echo "Appcast generated for $REPO"
+          echo "Appcast generated for $REPO (staging=$IS_STAGING)"
 
       - name: Upload macOS build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -1875,6 +1890,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
+            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -2068,7 +2084,7 @@ jobs:
 
   release:
     needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2713,6 +2729,63 @@ jobs:
 
             sleep 30
           done
+
+  # ── Sparkle Rolling Release (Staging) ──────────────────────────────────
+  # Maintain a rolling `staging-latest` GitHub pre-release with the signed
+  # Sparkle ZIP + appcast so existing staging installs can self-update.
+
+  publish-sparkle-staging:
+    needs: [extract-version, build-macos-arm64]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' && needs.build-macos-arm64.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@<redacted type="High-Entropy Hex Token" /> # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Download macOS build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-build
+          path: macos-artifacts
+
+      - name: Update staging-latest rolling release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          TAG="staging-latest"
+          REPO="${{ github.repository }}"
+
+          ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
+          APPCAST=$(find macos-artifacts -name "appcast.xml" -type f | head -1)
+          DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
+
+          if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
+            echo "::warning::Sparkle artifacts not found, skipping rolling release"
+            exit 0
+          fi
+
+          # Delete existing release if present
+          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+
+          ASSETS=("$ZIP#vellum-assistant.zip" "$APPCAST#appcast.xml")
+          [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
+
+          gh release create "$TAG" \
+            "${ASSETS[@]}" \
+            --repo "$REPO" \
+            --title "Staging Build ${VERSION}" \
+            --notes "Rolling staging release for Sparkle auto-update. Version: ${VERSION}" \
+            --prerelease
+
+          echo "Updated staging-latest rolling release with ${VERSION}"
 
   notify-staging-dmg:
     name: Slack Notification (Staging DMG Ready)

@@ -84,7 +84,6 @@ async function startPair(): Promise<{
     skillId: "bidir-test",
   });
   // Stub the routes the contracts client prefetches at connect-time.
-  srv.registerMethod("host.identity.getInternalAssistantId", () => "self");
   srv.registerMethod("host.identity.getAssistantName", () => null);
   srv.registerMethod("host.platform.workspaceDir", () => "/tmp/workspace");
   srv.registerMethod("host.platform.vellumRoot", () => "/tmp/vellum");

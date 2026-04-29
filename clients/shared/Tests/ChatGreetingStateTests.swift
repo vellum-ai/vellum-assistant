@@ -79,6 +79,40 @@ final class ChatGreetingStateTests: XCTestCase {
         state.cancelAll()
     }
 
+    func testPollStopsAfterMaxIterations() async {
+        let starters = [
+            makeStarter(id: "s-1", label: "Starter 1"),
+        ]
+
+        let client = StubConversationStarterClient()
+        // Return "refreshing" indefinitely — the cap should stop polling.
+        client.responses = (0..<5).map { _ in
+            ConversationStartersResponse(
+                starters: starters,
+                total: starters.count,
+                status: "refreshing"
+            )
+        }
+
+        let state = ChatGreetingState(
+            conversationStarterClient: client,
+            conversationStarterPollIntervalNanoseconds: 10_000_000,
+            maxPollIterations: 3
+        )
+
+        state.fetchConversationStarters()
+
+        // Wait long enough for 3 poll intervals + initial fetch
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        // 1 initial + 3 polls = 4 fetches total (capped at 3 iterations)
+        XCTAssertEqual(client.fetchCallCount, 4)
+        XCTAssertFalse(state.conversationStartersLoading)
+        XCTAssertEqual(state.conversationStarters.map(\.id), ["s-1"])
+
+        state.cancelAll()
+    }
+
     func testRemoveConversationStarterOptimisticallyDeletesAndCallsClient() async {
         let starters = [
             makeStarter(id: "starter-1", label: "Starter 1"),

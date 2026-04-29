@@ -57,6 +57,11 @@ final class ConversationRestorer {
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
     private var invalidationRefetchTask: Task<Void, Never>?
+    /// Serial queue of conversation IDs awaiting reconnect history reload.
+    /// Processed one at a time by `reconnectHistoryDrainTask` to prevent N
+    /// simultaneous history reconstructions from saturating the main actor.
+    private var reconnectHistoryQueue: [String] = []
+    private var reconnectHistoryDrainTask: Task<Void, Never>?
     /// NotificationCenter observer token for `.daemonDidReconnect`. One-shot —
     /// removed after the first post fires the initial conversation list fetch.
     private var daemonReconnectObserver: NSObjectProtocol?
@@ -76,6 +81,7 @@ final class ConversationRestorer {
         disconnectObservationTask?.cancel()
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
+        reconnectHistoryDrainTask?.cancel()
         if let daemonReconnectObserver {
             NotificationCenter.default.removeObserver(daemonReconnectObserver)
         }
@@ -144,21 +150,24 @@ final class ConversationRestorer {
         }
 
         // Fetch conversation list on first connect using `.daemonDidReconnect`
-        // — the shared, main-actor-synchronous signal posted by
-        // `GatewayConnectionManager.setConnected(true)`.
+        // — the shared signal posted by `GatewayConnectionManager.setConnected(true)`.
         //
         // An `observationStream` on `isConnected` is inappropriate here:
         // `withObservationTracking` installation and `setConnected(true)`
         // are enqueued on the main actor in an unordered pair, so when the
         // transition lands before tracking is installed the `onChange`
         // callback never fires and the first-connect branch is silently
-        // skipped. `.daemonDidReconnect` is delivered synchronously from
-        // the write site, so it cannot be missed for this reason.
+        // skipped.
         //
-        // The synchronous `isConnected` guard covers the case where the
-        // daemon is already connected at observer-registration time; it is
-        // idempotent because `fetchConversationList` cancels any in-flight
-        // fetch before starting a new one.
+        // The notification is deferred to a separate main-actor turn to
+        // avoid a synchronous NotificationCenter cascade during property
+        // mutation. The synchronous `isConnected` guard below is the
+        // primary safety net — it covers the case where the daemon is
+        // already connected at observer-registration time. The deferred
+        // notification handles the case where connection completes after
+        // this code runs. Both paths are idempotent because
+        // `fetchConversationList` cancels any in-flight fetch before
+        // starting a new one.
         if connectionManager.isConnected {
             fetchConversationList()
         } else {
@@ -225,20 +234,45 @@ final class ConversationRestorer {
         }
     }
 
-    /// Request history re-fetch for a reconnect catch-up. Registers the conversationId
-    /// so the response is properly routed back via handleHistoryResponse.
+    /// Queue a reconnect history re-fetch. Requests are processed serially by
+    /// `drainReconnectHistoryQueue` to prevent N simultaneous history
+    /// reconstructions from saturating the main actor after a reconnect.
     func requestReconnectHistory(conversationId: String) {
         guard let delegate else { return }
-        // Find the conversation that owns this conversationId.
         guard let conversation = delegate.conversations.first(where: { $0.conversationId == conversationId }) else { return }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        Task { [weak self] in
-            guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
-            if let response {
-                self.handleHistoryResponse(response)
-            } else {
-                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+        guard !reconnectHistoryQueue.contains(conversationId) else { return }
+        reconnectHistoryQueue.append(conversationId)
+        drainReconnectHistoryQueue()
+    }
+
+    /// Process queued reconnect history requests one at a time. Yields between
+    /// each request so user-input events can interleave with heavy history loads.
+    private func drainReconnectHistoryQueue() {
+        guard reconnectHistoryDrainTask == nil else { return }
+        reconnectHistoryDrainTask = Task { [weak self] in
+            defer { self?.reconnectHistoryDrainTask = nil }
+            while let self, !Task.isCancelled, !self.reconnectHistoryQueue.isEmpty {
+                let conversationId = self.reconnectHistoryQueue.removeFirst()
+                // Restart the VM's latch timeout now that the fetch is actually
+                // beginning (may have waited in the queue behind other conversations).
+                if let localId = self.pendingHistoryByConversationId[conversationId] {
+                    self.delegate?.existingChatViewModel(for: localId)?.restartReconnectLatchTimeout()
+                }
+                let response = await self.conversationHistoryClient.fetchHistory(
+                    conversationId: conversationId,
+                    limit: 50,
+                    beforeTimestamp: nil,
+                    mode: "light",
+                    maxTextChars: nil,
+                    maxToolResultChars: 1000
+                )
+                if let response {
+                    self.handleHistoryResponse(response)
+                } else {
+                    self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                }
+                await Task.yield()
             }
         }
     }
@@ -450,22 +484,41 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
-        viewModel.populateFromHistory(
-            response.messages,
-            hasMore: response.hasMore,
-            oldestTimestamp: response.oldestTimestamp,
-            isPaginationLoad: isPaginationLoad
-        )
-
-        // Wire up the onLoadMoreHistory callback if not already set (e.g. for
-        // reconnect-restored conversations that didn't go through loadHistoryIfNeeded).
+        // Wire up the onLoadMoreHistory callback eagerly (independent of reconstruction).
         if viewModel.onLoadMoreHistory == nil {
             viewModel.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
             }
         }
 
-        log.info("Loaded \(response.messages.count) history messages for conversation \(localId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
+        // Offload the heavy reconstruction work (JSON size estimation, tool input
+        // formatting, image decoding) to a background thread. The nonisolated
+        // static method accesses no @MainActor state, so this is safe.
+        // Gate the VM before the detached task so streaming handlers suppress
+        // SSE deltas that arrive during reconstruction. Skip the gate for
+        // pagination loads — the pagination branch returns early without
+        // resetting the flag, which would permanently suppress all deltas.
+        if !isPaginationLoad {
+            viewModel.isLoadingHistory = true
+        }
+        let convId = viewModel.conversationId
+        let messages = response.messages
+        let hasMore = response.hasMore
+        let oldestTimestamp = response.oldestTimestamp
+        Task { @MainActor [weak viewModel] in
+            let result = await Task.detached(priority: .userInitiated) {
+                HistoryReconstructionService.reconstructMessages(from: messages, conversationId: convId)
+            }.value
+            guard let viewModel else { return }
+            viewModel.applyReconstructedHistory(
+                result,
+                hasMore: hasMore,
+                oldestTimestamp: oldestTimestamp,
+                isPaginationLoad: isPaginationLoad
+            )
+        }
+
+        log.info("Loaded \(response.messages.count) history messages for conversation \(localId) (hasMore: \(hasMore), isPagination: \(isPaginationLoad))")
     }
 
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {

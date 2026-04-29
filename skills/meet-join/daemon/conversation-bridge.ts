@@ -105,7 +105,6 @@ export type SubscribeToMeetingEventsFn = (
  * inject a recorder.
  */
 export type BuildEventFn = (
-  assistantId: string,
   message: ServerMessage,
   conversationId?: string,
 ) => AssistantEvent;
@@ -134,12 +133,6 @@ export interface MeetConversationBridgeDeps {
    * that wire a custom dispatcher get a resolver on the same stream.
    */
   resolver?: MeetSpeakerResolver;
-  /**
-   * Optional: override the assistant id on emitted interim events.
-   * Defaults to the host's internal assistant id when the factory is used,
-   * or `"self"` when the class is constructed directly (tests).
-   */
-  assistantId?: string;
   /**
    * Optional: structural logger. Defaults to a host-backed logger when the
    * factory is used, or a console-wrapping shim when the class is
@@ -186,7 +179,6 @@ export class MeetConversationBridge {
   private readonly subscribeFn: SubscribeToMeetingEventsFn;
   private readonly hub: AssistantEventPublisher | null;
   private readonly resolver: MeetSpeakerResolver;
-  private readonly assistantId: string;
   private readonly log: Logger;
   private readonly buildEvent: BuildEventFn;
   private unsubscribeFn: MeetEventUnsubscribe | null = null;
@@ -206,11 +198,6 @@ export class MeetConversationBridge {
         meetingId: deps.meetingId,
         subscribe: this.subscribeFn,
       });
-    // `"self"` is the literal value of `DAEMON_INTERNAL_ASSISTANT_ID`; the
-    // factory ordinarily supplies `host.identity.internalAssistantId`
-    // through the deps bag, but direct test construction keeps a
-    // matching fallback so interim events stay scoped consistently.
-    this.assistantId = deps.assistantId ?? "self";
     this.log = deps.log ?? consoleFallbackLogger;
     this.buildEvent = deps.buildEvent ?? buildAssistantEvent;
   }
@@ -244,13 +231,10 @@ export class MeetConversationBridge {
       try {
         this.unsubscribeFn();
       } catch (err) {
-        this.log.warn(
-          "MeetConversationBridge: dispatcher unsubscribe threw",
-          {
-            err,
-            meetingId: this.meetingId,
-          },
-        );
+        this.log.warn("MeetConversationBridge: dispatcher unsubscribe threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.unsubscribeFn = null;
     }
@@ -354,9 +338,7 @@ export class MeetConversationBridge {
     if (!this.hub) return;
 
     try {
-      await this.hub.publish(
-        this.buildEvent(this.assistantId, message, this.conversationId),
-      );
+      await this.hub.publish(this.buildEvent(message, this.conversationId));
     } catch (err) {
       this.log.warn("MeetConversationBridge: interim publish failed", {
         err,
@@ -457,11 +439,7 @@ export function createConversationBridge(
   host: SkillHost,
 ): ConversationBridgeBuilder {
   const log = host.logger.get("meet-conversation-bridge");
-  // `host.events.buildEvent` curries the internal assistant id; the bridge
-  // always publishes as the internal assistant, so we wrap the curried form
-  // in a builder whose `assistantId` argument is accepted but unused.
-  // Passing it through to `buildEvent` would re-curry the same constant.
-  const buildEvent: BuildEventFn = (_assistantId, message, conversationId) =>
+  const buildEvent: BuildEventFn = (message, conversationId) =>
     host.events.buildEvent(message, conversationId);
 
   return (args) =>
@@ -472,7 +450,6 @@ export function createConversationBridge(
       subscribeToMeetingEvents: args.subscribeToMeetingEvents,
       resolver: args.resolver,
       assistantEventHub: host.events,
-      assistantId: host.identity.internalAssistantId,
       log,
       buildEvent,
     });

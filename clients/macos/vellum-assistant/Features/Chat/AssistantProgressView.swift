@@ -7,8 +7,6 @@ import Dispatch
 /// Unified container that handles all tool progress states through a single component
 /// that smoothly morphs between phases.
 struct AssistantProgressView: View {
-    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
-
     let toolCalls: [ToolCallData]
     let isStreaming: Bool
     let hasText: Bool

@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
-import { runDataMigrations } from "./data-migrations/index.js";
 import * as schema from "./schema.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
 import { TrustRuleStore } from "./trust-rule-store.js";
@@ -111,9 +110,13 @@ function getDbPath(): string {
 }
 
 /**
- * Initialize the gateway database: open connection, push schema, run
- * data migrations. Must be called (and awaited) once at startup before
- * any code calls getGatewayDb().
+ * Initialize the gateway database: open connection, push schema, seed
+ * trust rules. Must be called (and awaited) once at startup before any
+ * code calls getGatewayDb().
+ *
+ * Data migrations run separately in the post-assistant-ready lifecycle
+ * (see post-assistant-ready.ts) because some migrations depend on the
+ * assistant DB, which may not exist yet at gateway startup.
  *
  * Uses drizzle-kit's pushSQLiteSchema to diff schema.ts against the
  * live database and apply any missing tables/columns/indexes. No
@@ -134,8 +137,6 @@ export async function initGatewayDb(): Promise<void> {
   if (statementsToExecute.length > 0) {
     await apply();
   }
-
-  runDataMigrations(getRawDb(db));
 
   const trustRuleStore = new TrustRuleStore(db);
   seedTrustRulesFromRegistry(trustRuleStore);

@@ -30,6 +30,14 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+// Capture broadcastMessage calls
+const broadcastedMessages: ServerMessage[] = [];
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: ServerMessage) => {
+    broadcastedMessages.push(msg);
+  },
+}));
+
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
 const mockConfig = {
   timeouts: { permissionTimeoutSec: 0.01 },
@@ -51,20 +59,17 @@ function logContainsValue(secret: string): boolean {
 
 describe("secret prompt log hygiene", () => {
   let prompter: InstanceType<typeof SecretPrompter>;
-  let sentMessages: ServerMessage[];
 
   beforeEach(() => {
     logCalls.length = 0;
-    sentMessages = [];
-    prompter = new SecretPrompter((msg) => {
-      sentMessages.push(msg);
-    });
+    broadcastedMessages.length = 0;
+    prompter = new SecretPrompter();
   });
 
   test("resolveSecret never logs the secret value", async () => {
     const secret = "sv42";
     const promise = prompter.prompt("myservice", "apikey", "API Key");
-    const requestId = (sentMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastedMessages[0] as SecretRequest).requestId;
     prompter.resolveSecret(requestId, secret, "store");
     const result = await promise;
 
@@ -105,7 +110,7 @@ describe("secret prompt log hygiene", () => {
 
   test("sent message contains value=undefined (value flows through event, not logs)", async () => {
     const promise = prompter.prompt("svc", "tok", "Token");
-    const msg = sentMessages[0] as SecretRequest & { value?: unknown };
+    const msg = broadcastedMessages[0] as SecretRequest & { value?: unknown };
     // The message should NOT contain a value field
     expect(msg.value).toBeUndefined();
     prompter.resolveSecret(msg.requestId, undefined);

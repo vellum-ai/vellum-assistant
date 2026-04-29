@@ -795,9 +795,9 @@ describe("runBot — extension message routing", () => {
 
     // Both xdotool invocations must have been attempted despite the
     // type failure, and the click must have completed.
-    expect(
-      handles.errors.some((m) => m.includes("trusted_type failed")),
-    ).toBe(true);
+    expect(handles.errors.some((m) => m.includes("trusted_type failed"))).toBe(
+      true,
+    );
     expect(
       handles.calls.some(
         (c) => c.kind === "xdotool.click" && c.x === 100 && c.y === 200,

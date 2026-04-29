@@ -23,7 +23,6 @@ import type { AssistantEvent } from "@vellumai/skill-host-contracts";
 import {
   buildTestHost,
   InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
 } from "../../__tests__/build-test-host.js";
 import type {
   ChatOpportunityDecision,
@@ -725,12 +724,9 @@ describe("MeetSessionManager max-minutes timeout", () => {
 describe("MeetSessionManager container-exit watcher", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
-    const sub = testHub.subscribe(
-      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
-      (event) => {
-        received.push(event);
-      },
-    );
+    const sub = testHub.subscribe({}, (event) => {
+      received.push(event);
+    });
     return { received, dispose: () => sub.dispose() };
   }
 
@@ -908,9 +904,7 @@ describe("MeetSessionManager container-exit watcher", () => {
       // (from the leave path) should have fired.
       const errors = received.filter((e) => e.message.type === "meet.error");
       expect(errors).toHaveLength(0);
-      const leftEvents = received.filter(
-        (e) => e.message.type === "meet.left",
-      );
+      const leftEvents = received.filter((e) => e.message.type === "meet.left");
       expect(leftEvents).toHaveLength(1);
     } finally {
       dispose();
@@ -1079,12 +1073,9 @@ describe("MeetSessionManager audio ingest wiring", () => {
 describe("MeetSessionManager event-hub lifecycle publication", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
-    const sub = testHub.subscribe(
-      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
-      (event) => {
-        received.push(event);
-      },
-    );
+    const sub = testHub.subscribe({}, (event) => {
+      received.push(event);
+    });
     return { received, dispose: () => sub.dispose() };
   }
 

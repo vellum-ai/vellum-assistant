@@ -7,7 +7,7 @@
  * - `host.events.publish` — publishes an event and verifies it reaches the
  *   daemon's `assistantEventHub` exactly as an in-process publish would.
  * - `host.events.buildEvent` — verifies deterministic envelope construction
- *   under `DAEMON_INTERNAL_ASSISTANT_ID`.
+ *   with the expected shape.
  * - `host.events.subscribe` — long-lived stream: confirms open ack, filtered
  *   delivery (match vs. mismatch), explicit close, and cleanup on client
  *   disconnect (including that the hub releases its subscription slot).
@@ -21,7 +21,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../runtime/assistant-scope.js";
 import { SkillIpcServer } from "../../skill-server.js";
 
 // ---------------------------------------------------------------------------
@@ -144,18 +143,17 @@ async function waitForSubscriberCount(
 describe("host.events.publish", () => {
   test("publish round-trip reaches assistantEventHub subscribers", async () => {
     const received: AssistantEvent[] = [];
-    const subscription = assistantEventHub.subscribe(
-      { assistantId: "test-asst" },
-      (evt) => {
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (evt) => {
         received.push(evt);
       },
-    );
+    });
 
     try {
       const client = await openClient();
       const event = {
         id: "evt-1",
-        assistantId: "test-asst",
         conversationId: "conv-1",
         emittedAt: new Date().toISOString(),
         message: { type: "test_message", foo: "bar" },
@@ -171,7 +169,6 @@ describe("host.events.publish", () => {
 
       expect(received).toHaveLength(1);
       expect(received[0]?.id).toBe("evt-1");
-      expect(received[0]?.assistantId).toBe("test-asst");
       expect((received[0]?.message as unknown as { foo: string }).foo).toBe(
         "bar",
       );
@@ -198,7 +195,7 @@ describe("host.events.publish", () => {
 });
 
 describe("host.events.buildEvent", () => {
-  test("returns an envelope attributed to DAEMON_INTERNAL_ASSISTANT_ID", async () => {
+  test("returns a well-formed event envelope", async () => {
     const client = await openClient();
     const conversationId = "conv-xyz";
     const message = { type: "assistant_text_delta", text: "hi" };
@@ -211,7 +208,6 @@ describe("host.events.buildEvent", () => {
     const frame = await client.nextFrame();
     expect("result" in frame).toBe(true);
     const built = (frame as { result: AssistantEvent }).result;
-    expect(built.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
     expect(built.conversationId).toBe(conversationId);
     expect(typeof built.id).toBe("string");
     expect(typeof built.emittedAt).toBe("string");
@@ -222,7 +218,7 @@ describe("host.events.buildEvent", () => {
 });
 
 describe("host.events.subscribe", () => {
-  test("opens ack, delivers matching events, filters non-matching", async () => {
+  test("opens ack, delivers matching events, filters non-matching conversations", async () => {
     const baseSubscribers = assistantEventHub.subscriberCount();
     const client = await openClient();
     client.send({
@@ -230,7 +226,6 @@ describe("host.events.subscribe", () => {
       method: "host.events.subscribe",
       params: {
         filter: {
-          assistantId: "asst-a",
           conversationId: "conv-a",
         },
       },
@@ -265,16 +260,7 @@ describe("host.events.subscribe", () => {
       message: { type: "t2" },
     } as never);
 
-    // Non-matching event on a different assistant.
-    await assistantEventHub.publish({
-      id: "e3",
-      assistantId: "asst-b",
-      conversationId: "conv-a",
-      emittedAt: new Date().toISOString(),
-      message: { type: "t3" },
-    } as never);
-
-    // Confirm no delivery frame arrives for the non-matching events by
+    // Confirm no delivery frame arrives for the non-matching event by
     // publishing another matching event and asserting ordering.
     await assistantEventHub.publish({
       id: "e4",
@@ -300,7 +286,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-2",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-close" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -324,7 +310,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-3",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-leak" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -352,7 +338,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-4",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-stop" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -371,7 +357,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-dup",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-dup" } },
+      params: { filter: {} },
     });
     const ack = await client.nextFrame();
     expect("result" in ack && ack.result).toEqual({ subscribed: true });
@@ -379,7 +365,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-dup",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-dup" } },
+      params: { filter: {} },
     });
     const err = await client.nextFrame();
     expect("error" in err && err.error).toContain("sub-dup");

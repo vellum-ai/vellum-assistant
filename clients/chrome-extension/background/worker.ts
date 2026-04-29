@@ -880,6 +880,9 @@ async function doConnect(options: ConnectOptions): Promise<void> {
 
   const userMode = await getStoredUserMode();
 
+  // Bail if the user disconnected while we were awaiting above.
+  if (!shouldConnect) return;
+
   if (userMode === 'cloud') {
     // Cloud mode: connect via SSE to the platform API.
     currentAuthProfile = 'vellum-cloud';
@@ -893,6 +896,7 @@ async function doConnect(options: ConnectOptions): Promise<void> {
     }
     const env = await getEffectiveEnvironment();
     const { apiBaseUrl } = cloudUrlsForEnvironment(env);
+    if (!shouldConnect) return;
     sseConnection = createSseConnection({
       kind: 'vellum-cloud',
       runtimeUrl: apiBaseUrl,
@@ -905,7 +909,9 @@ async function doConnect(options: ConnectOptions): Promise<void> {
     // Self-hosted: connect via WebSocket relay to the local gateway.
     currentAuthProfile = 'self-hosted';
     const rawMode = await buildSelfHostedRelayMode();
+    if (!shouldConnect) return;
     const mode = await connectPreflight(currentAuthProfile, rawMode, options);
+    if (!shouldConnect) return;
     const clientInstanceId = await getOrCreateClientInstanceId();
     relayConnection = createRelayConnection(mode, clientInstanceId);
     relayConnection.start();
@@ -1287,6 +1293,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       await setAutoConnect(false);
       await clearSession();
       await clearSelectedAssistant();
+      await clearStoredUserMode();
+      sendResponseFn({ ok: true });
+    })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
+  if (message.type === 'self-hosted-disconnect') {
+    (async () => {
+      shouldConnect = false;
+      disconnect();
+      setConnectionHealth('paused');
+      await setAutoConnect(false);
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
     })().catch(() => sendResponseFn({ ok: true }));

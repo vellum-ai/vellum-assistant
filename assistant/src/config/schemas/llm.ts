@@ -269,7 +269,7 @@ export type PricingOverride = z.infer<typeof PricingOverrideSchema>;
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
-  model: ModelSchema.default("claude-sonnet-4-6"),
+  model: ModelSchema.default("claude-opus-4-7"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
   speed: SpeedEnum.default("standard"),
@@ -306,7 +306,7 @@ export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
  * The resolver merges in the named profile (if any) before applying
  * call-site-level overrides.
  */
-export const LLMCallSiteConfig = LLMConfigFragment.extend({
+const LLMCallSiteConfig = LLMConfigFragment.extend({
   profile: z.string().min(1).optional(),
 });
 export type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;

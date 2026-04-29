@@ -20,28 +20,26 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
+  checkpointKey,
+  CK_BATCH,
+  CK_ITEM_COUNT,
+  CK_LAST_GEN_AT,
+  countActiveMemoryNodes,
+  getCheckpointValue,
+  parseCheckpointInt,
+  upsertCheckpoint,
+} from "../conversation-starter-checkpoints.js";
+import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../conversation-starter-validation.js";
 import { getDb } from "../db-connection.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { rawAll, rawGet } from "../raw-query.js";
-import {
-  conversationStarters,
-  memoryCheckpoints,
-  memoryGraphNodes,
-} from "../schema.js";
+import { rawAll } from "../raw-query.js";
+import { conversationStarters, memoryGraphNodes } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
-
-function checkpointKey(base: string, scopeId: string): string {
-  return `${base}:${scopeId}`;
-}
-
-const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
-const CK_BATCH = "conversation_starters:generation_batch";
-const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
@@ -97,13 +95,10 @@ function buildMemoryRollup(scopeId: string): string {
 }
 
 function buildNewItemsDiff(scopeId: string): string {
-  const db = getDb();
-  const checkpoint = db
-    .select({ value: memoryCheckpoints.value })
-    .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
-    .get();
-  const lastGenAt = checkpoint ? parseInt(checkpoint.value, 10) : 0;
+  const lastGenAt =
+    parseCheckpointInt(
+      getCheckpointValue(checkpointKey(CK_LAST_GEN_AT, scopeId)),
+    ) ?? 0;
 
   if (lastGenAt === 0) return ""; // No previous generation — skip diff
 
@@ -400,25 +395,27 @@ export async function generateConversationStartersJob(
   job: MemoryJob,
 ): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
+  const db = getDb();
+  const now = Date.now();
 
   const starters = await generateStarters(scopeId);
   if (starters.length === 0) {
     log.info({ scopeId }, "No conversation starters generated");
+
+    // Sync checkpoints so both `staleByAge` and `checkpointAhead` clear.
+    const totalActive = countActiveMemoryNodes(scopeId);
+    upsertCheckpoint(
+      checkpointKey(CK_ITEM_COUNT, scopeId),
+      String(totalActive),
+      now,
+    );
+    upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now), now);
     return;
   }
 
-  const db = getDb();
-  const now = Date.now();
-
   // Determine next batch number
-  const batchCheckpoint = db
-    .select({ value: memoryCheckpoints.value })
-    .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, checkpointKey(CK_BATCH, scopeId)))
-    .get();
-  const nextBatch = batchCheckpoint
-    ? parseInt(batchCheckpoint.value, 10) + 1
-    : 1;
+  const prevBatch = getCheckpointValue(checkpointKey(CK_BATCH, scopeId));
+  const nextBatch = prevBatch ? parseInt(prevBatch, 10) + 1 : 1;
 
   // Collect the memory types that informed this batch
   let sourceKinds = "";
@@ -444,7 +441,6 @@ export async function generateConversationStartersJob(
     .where(eq(conversationStarters.scopeId, scopeId))
     .run();
 
-  // Insert starters — all are chips
   for (const starter of starters) {
     db.insert(conversationStarters)
       .values({
@@ -461,27 +457,14 @@ export async function generateConversationStartersJob(
       .run();
   }
 
-  // Count active items for checkpoint
-  const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
-    scopeId,
+  const totalActive = countActiveMemoryNodes(scopeId);
+  upsertCheckpoint(
+    checkpointKey(CK_ITEM_COUNT, scopeId),
+    String(totalActive),
+    now,
   );
-  const totalActive = countRow?.c ?? 0;
-
-  // Update all three checkpoints
-  const upsertCheckpoint = (key: string, value: string) => {
-    db.insert(memoryCheckpoints)
-      .values({ key, value, updatedAt: now })
-      .onConflictDoUpdate({
-        target: memoryCheckpoints.key,
-        set: { value, updatedAt: now },
-      })
-      .run();
-  };
-
-  upsertCheckpoint(checkpointKey(CK_ITEM_COUNT, scopeId), String(totalActive));
-  upsertCheckpoint(checkpointKey(CK_BATCH, scopeId), String(nextBatch));
-  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now));
+  upsertCheckpoint(checkpointKey(CK_BATCH, scopeId), String(nextBatch), now);
+  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now), now);
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },

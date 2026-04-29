@@ -18,8 +18,6 @@ import {
   test,
 } from "bun:test";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-
 // ─── assistantEventHub mock ────────────────────────────────────────────
 // We spy on `publish` so the SSE-publish test can assert the writer
 // fires a `home_feed_updated` event with the correct `newItemCount`.
@@ -651,14 +649,12 @@ describe("feed-writer", () => {
       // Inspect the LAST publish — it reflects the final on-disk state.
       const lastCall = publishSpy.mock.calls[publishSpy.mock.calls.length - 1]!;
       const event = lastCall[0] as {
-        assistantId: string;
         message: {
           type: string;
           updatedAt: string;
           newItemCount: number;
         };
       };
-      expect(event.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
       expect(event.message.type).toBe("home_feed_updated");
       expect(event.message.newItemCount).toBe(2);
       expect(Number.isNaN(Date.parse(event.message.updatedAt))).toBe(false);

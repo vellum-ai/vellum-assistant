@@ -870,6 +870,13 @@ jobs:
           COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
 
+      - name: Compute build version
+        id: version
+        run: |
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Build version: $BUILD_VERSION"
+
       - name: Build macOS app
         timeout-minutes: 20
         run: |
@@ -877,8 +884,11 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           BUNDLE_DISPLAY_NAME="Vellum Dev" \
           DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           VELLUM_ENVIRONMENT=dev \
+          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
+          SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/dev-latest/appcast.xml" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release 2>&1 | while IFS= read -r line; do
@@ -999,6 +1009,81 @@ jobs:
           done
           xcrun stapler validate "build/vellum-assistant-dev.dmg"
 
+      - name: Build ZIP for Sparkle auto-update
+        run: |
+          cd dist
+          ditto -c -k --keepParent "Vellum Dev.app" vellum-assistant-dev.zip
+          echo "Sparkle ZIP created:"
+          ls -lh vellum-assistant-dev.zip
+
+      - name: Cache Homebrew Sparkle
+        id: cache-sparkle
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            /usr/local/Caskroom/sparkle
+            /opt/homebrew/Caskroom/sparkle
+          key: sparkle-v1-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install Sparkle sign_update tool
+        run: |
+          if [ "${{ steps.cache-sparkle.outputs.cache-hit }}" != "true" ]; then
+            brew install sparkle
+          fi
+          SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
+          if [ -z "$SPARKLE_BIN" ]; then
+            SPARKLE_BIN=$(find /usr/local/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
+          fi
+          echo "Found sign_update at: $SPARKLE_BIN"
+          echo "$(dirname "$SPARKLE_BIN")" >> "$GITHUB_PATH"
+
+      - name: Generate appcast.xml
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+
+          ED_KEY_FILE=$(mktemp)
+          echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
+          SIGN_OUTPUT=$(sign_update dist/vellum-assistant-dev.zip --ed-key-file "$ED_KEY_FILE") || {
+            echo "sign_update failed with exit code $?"
+            rm -f "$ED_KEY_FILE"
+            exit 1
+          }
+          rm -f "$ED_KEY_FILE"
+          echo "sign_update output: ${SIGN_OUTPUT:0:40}..."
+          SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+          SIZE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+          if [ -z "$SIGNATURE" ]; then
+            echo "ERROR: Failed to parse edSignature from sign_update output"
+            exit 1
+          fi
+          if [ -z "$SIZE" ]; then
+            SIZE=$(stat -f%z dist/vellum-assistant-dev.zip)
+          fi
+
+          REPO="${{ github.repository }}"
+          cat > dist/appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Vellum Dev</title>
+              <item>
+                <title>${VERSION}</title>
+                <sparkle:version>${BUILD_VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <enclosure
+                  url="https://github.com/${REPO}/releases/download/dev-latest/vellum-assistant-dev.zip"
+                  sparkle:edSignature="${SIGNATURE}"
+                  length="${SIZE}"
+                  type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+          echo "Dev appcast generated (version=$VERSION, build=$BUILD_VERSION)"
+
       - name: Upload DMG
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -1006,8 +1091,80 @@ jobs:
           path: clients/macos/build/vellum-assistant-dev.dmg
           retention-days: 30
 
+      - name: Upload Sparkle artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dev-sparkle
+          path: |
+            clients/macos/dist/vellum-assistant-dev.zip
+            clients/macos/dist/appcast.xml
+          retention-days: 30
+
       - name: Cleanup keychain
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+  # ── Sparkle Rolling Release ────────────────────────────────────────────
+  # Maintain a rolling `dev-latest` GitHub pre-release with the signed
+  # Sparkle ZIP + appcast so existing dev installs can self-update via
+  # Sparkle's standard appcast polling.
+
+  publish-sparkle:
+    needs: [compute-version, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@<redacted type="High-Entropy Hex Token" /> # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Download Sparkle artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-sparkle
+          path: sparkle-artifacts
+
+      - name: Download DMG
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-dmg
+          path: dmg-artifacts
+
+      - name: Update dev-latest rolling release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          TAG="dev-latest"
+          REPO="${{ github.repository }}"
+
+          ZIP=$(find sparkle-artifacts -name "*.zip" -type f | head -1)
+          APPCAST=$(find sparkle-artifacts -name "appcast.xml" -type f | head -1)
+          DMG=$(find dmg-artifacts -name "*.dmg" -type f | head -1)
+
+          if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
+            echo "::warning::Sparkle artifacts not found, skipping rolling release"
+            exit 0
+          fi
+
+          # Delete existing release if present (gh release upload --clobber
+          # doesn't update the release body/title).
+          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+
+          ASSETS=("$ZIP#vellum-assistant-dev.zip" "$APPCAST#appcast.xml")
+          [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant-dev.dmg")
+
+          gh release create "$TAG" \
+            "${ASSETS[@]}" \
+            --repo "$REPO" \
+            --title "Dev Build ${VERSION}" \
+            --notes "Rolling dev release for Sparkle auto-update. Version: ${VERSION}" \
+            --prerelease
+
+          echo "Updated dev-latest rolling release with ${VERSION}"

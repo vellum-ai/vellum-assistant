@@ -54,6 +54,7 @@ import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -277,7 +278,6 @@ export class Conversation {
     string,
     ReturnType<typeof setTimeout>
   >();
-  /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
     surfaceId: string;
@@ -346,7 +346,6 @@ export class Conversation {
     maxTokens: number,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    broadcastToAllClients?: (msg: ServerMessage) => void,
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
@@ -358,7 +357,6 @@ export class Conversation {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
-    this.broadcastToAllClients = broadcastToAllClients;
     this.memoryPolicy = memoryPolicy
       ? { ...memoryPolicy }
       : { ...DEFAULT_MEMORY_POLICY };
@@ -398,10 +396,7 @@ export class Conversation {
         );
       }
     });
-    this.secretPrompter = new SecretPrompter(
-      sendToClient,
-      broadcastToAllClients,
-    );
+    this.secretPrompter = new SecretPrompter();
 
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
@@ -433,7 +428,6 @@ export class Conversation {
       this.secretPrompter,
       this as ToolSetupContext,
       handleToolLifecycleEvent,
-      broadcastToAllClients,
     );
 
     const config = getConfig();
@@ -638,7 +632,6 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
@@ -747,12 +740,10 @@ export class Conversation {
     // cancellation instead of hanging forever. Emit dismiss notifications
     // to the client so surfaces don't remain visually active if the client
     // reconnects after dispose.
-    const emitDispose =
-      this.broadcastToAllClients ?? this.sendToClient.bind(this);
     for (const [surfaceId, entry] of this.pendingStandaloneSurfaces) {
       clearTimeout(entry.timer);
       try {
-        emitDispose({
+        broadcastMessage({
           type: "ui_surface_dismiss",
           conversationId: this.conversationId,
           surfaceId,

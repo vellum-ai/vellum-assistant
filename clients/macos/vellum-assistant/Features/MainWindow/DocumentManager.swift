@@ -10,6 +10,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Docum
 @MainActor
 @Observable
 final class DocumentManager {
+    deinit { autoSaveTask?.cancel() }
+
     var hasActiveDocument: Bool = false
     var title: String = "Untitled Document"
     var surfaceId: String?
@@ -50,12 +52,17 @@ final class DocumentManager {
     }
 
     func createDocument(surfaceId: String, conversationId: String, title: String, initialContent: String) {
+        if hasActiveDocument {
+            closeDocument()
+        }
         self.surfaceId = surfaceId
         self.conversationId = conversationId
         self.title = title
         self.initialContent = initialContent
         self.currentContent = initialContent
         self.wordCount = initialContent.split(whereSeparator: \.isWhitespace).count
+        self.isSaving = false
+        self.lastSaveError = nil
         self.hasActiveDocument = true
 
         // Persist initial content to the daemon so the document reaches the junction table
@@ -102,8 +109,6 @@ final class DocumentManager {
 
         coordinator.sendContentUpdate(markdown: markdown, mode: mode)
         log.info("Document updated: mode=\(mode), length=\(markdown.count)")
-
-        scheduleAutoSave()
     }
 
     /// Cancels any pending auto-save and schedules a new one 2 seconds from now.
@@ -125,6 +130,7 @@ final class DocumentManager {
     }
 
     func closeDocument() {
+        save()
         autoSaveTask?.cancel()
         autoSaveTask = nil
         hasActiveDocument = false
@@ -135,6 +141,8 @@ final class DocumentManager {
         wordCount = 0
         initialContent = ""
         pendingInitialContent = nil
+        isSaving = false
+        lastSaveError = nil
         log.info("Document closed")
     }
 
@@ -162,28 +170,29 @@ final class DocumentManager {
     func save() {
         guard let surfaceId = surfaceId,
               let conversationId = conversationId else {
-            log.warning("Cannot save: missing surfaceId or conversationId")
-            lastSaveError = "Cannot save: missing document information"
             return
         }
 
+        let titleToSave = title
         let contentToSave = currentContent ?? ""
+        let wordCountToSave = wordCount
+        let client = documentClient
         isSaving = true
         lastSaveError = nil
 
-        Task {
-            let response = await documentClient.saveDocument(
+        Task { [weak self] in
+            let response = await client.saveDocument(
                 surfaceId: surfaceId,
                 conversationId: conversationId,
-                title: title,
+                title: titleToSave,
                 content: contentToSave,
-                wordCount: wordCount
+                wordCount: wordCountToSave
             )
-            handleSaveResponse(
-                success: response?.success ?? false,
-                error: response?.error ?? (response == nil ? "Network error" : nil)
-            )
-            log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
+            let success = response?.success ?? false
+            let error = response?.error ?? (response == nil ? "Network error" : nil)
+            log.info("Document save completed: \(surfaceId) - \(wordCountToSave) words - success: \(success)")
+            guard let self, self.surfaceId == surfaceId else { return }
+            handleSaveResponse(success: success, error: error)
         }
     }
 

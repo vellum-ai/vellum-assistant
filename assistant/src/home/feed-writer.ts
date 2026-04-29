@@ -54,7 +54,6 @@ import { join } from "node:path";
 
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import {
@@ -457,7 +456,7 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
 function publishHomeFeedUpdated(updatedAt: string, newItemCount: number): void {
   assistantEventHub
     .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+      buildAssistantEvent({
         type: "home_feed_updated",
         updatedAt,
         newItemCount,

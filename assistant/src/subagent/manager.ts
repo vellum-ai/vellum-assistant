@@ -144,13 +144,6 @@ export class SubagentManager {
    */
   sharedRequestTimestamps: number[] = [];
 
-  /**
-   * Broadcast callback from the daemon server.
-   * Set by DaemonServer at startup so subagent conversations can broadcast
-   * to all connected clients (e.g. app_files_changed side-effects).
-   */
-  broadcastToAllClients?: (msg: ServerMessage) => void;
-
   // ── Spawn ───────────────────────────────────────────────────────────
 
   /**
@@ -310,7 +303,6 @@ export class SubagentManager {
       maxTokens,
       wrappedSendToClient,
       workingDir,
-      this.broadcastToAllClients, // forward parent's broadcast so tool side-effects (e.g. app_files_changed) reach all clients
       memoryPolicy,
       undefined, // sharedCesClient
       undefined, // speedOverride

@@ -12,7 +12,6 @@ describe("AssistantEvent shape", () => {
   test("accepts a minimal valid event", () => {
     const event: AssistantEvent = {
       id: "evt_001",
-      assistantId: "ast_123",
       emittedAt: "2026-02-18T21:20:00.000Z",
       message: {
         type: "assistant_text_delta",
@@ -22,7 +21,6 @@ describe("AssistantEvent shape", () => {
     };
 
     expect(event.id).toBe("evt_001");
-    expect(event.assistantId).toBe("ast_123");
     expect(event.conversationId).toBeUndefined();
     expect(event.emittedAt).toBe("2026-02-18T21:20:00.000Z");
     expect(event.message.type).toBe("assistant_text_delta");
@@ -31,7 +29,6 @@ describe("AssistantEvent shape", () => {
   test("accepts a full event with conversationId", () => {
     const event: AssistantEvent = {
       id: "evt_002",
-      assistantId: "ast_123",
       conversationId: "conv_456",
       emittedAt: "2026-02-18T21:20:00.000Z",
       message: {
@@ -50,7 +47,6 @@ describe("AssistantEvent shape", () => {
 describe("formatSseFrame", () => {
   const baseEvent: AssistantEvent = {
     id: "evt_003",
-    assistantId: "ast_abc",
     conversationId: "sess_xyz",
     emittedAt: "2026-02-18T00:00:00.000Z",
     message: {
@@ -80,7 +76,6 @@ describe("formatSseFrame", () => {
     ) as AssistantEvent;
 
     expect(parsed.id).toBe(baseEvent.id);
-    expect(parsed.assistantId).toBe(baseEvent.assistantId);
     expect(parsed.conversationId).toBe(baseEvent.conversationId);
     expect(parsed.emittedAt).toBe(baseEvent.emittedAt);
     expect(parsed.message.type).toBe("assistant_text_delta");

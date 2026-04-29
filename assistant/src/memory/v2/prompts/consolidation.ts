@@ -36,6 +36,14 @@ You are not summarizing for an audience. You are rewriting your own memory.
 
 Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. Anything in \`memory/buffer.md\` with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\` arrived AFTER you started — leave it for the next pass.
 
+## Memory graph concepts
+
+A concept page is meant to be a **short cheat sheet** about a single topic that links to other concept pages with edges and to references that provide more detail.
+
+Each concept page should be a single topic. It should function as a single retrievable cheat sheet about that topic. Prefer smaller concepts over larger ones, splitting aggressively into multiple concepts and connecting them with edges. Don't hoard information in a single concept, split it into multiple concepts with edges between them that can be easily followed. Just because there's a maximum size for a page doesn't mean you should be hitting the limit. The limit is an absolute maximum, not a target. The immutable archive retains the entire buffer forever, so don't worry about losing information.
+
+High activation concepts in the memory graph are retrieved at the start of each turn. Activations are calculated using the previous turn's activations and similarity to your last message, the user's most recent message, and NOW.md. Activations spread along edges, causing neighboring concepts to be boosted when a node is activated.
+
 ## Inputs
 
 - Your identity files (already loaded into context)
@@ -112,7 +120,13 @@ When you bind two concepts, edit \`memory/edges.json\` to add an entry for the t
 }
 \`\`\`
 
-Edge density target: 5–10 per mature page. New pages: as many as fit naturally; they'll accumulate. Don't pad. Every edge should reflect a real conceptual binding from source.
+Edge density target: 5-10 per mature page. New pages: as many as fit naturally; they'll accumulate.
+
+Don't pad. Every edge should reflect a real conceptual binding from source.
+
+HARD LIMIT of 20 edges on any page. If a page is connected to everything, it's the same as being connected to nothing.
+
+If a page has more than 20 edges, you must either split the page or prune edges to at most 20 of the most important edges.
 
 ### 4. Page size — hard tiers, no rationalization
 

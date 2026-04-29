@@ -2718,7 +2718,11 @@ export async function runAgentLoopImpl(
           errorCode: classified.code,
         },
       });
-      onEvent({ type: "error", message: classified.userMessage });
+      onEvent({
+        type: "error",
+        code: classified.code,
+        message: classified.userMessage,
+      });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
   } finally {

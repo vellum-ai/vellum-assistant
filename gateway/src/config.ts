@@ -23,7 +23,6 @@ export type GatewayConfig = {
   routingEntries: RoutingEntry[];
   runtimeInitialBackoffMs: number;
   runtimeMaxRetries: number;
-  runtimeProxyEnabled: boolean;
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
@@ -101,10 +100,6 @@ export function loadConfig(): GatewayConfig {
   // Env vars take precedence over workspace config values. This allows the
   // CLI to pass gateway settings directly via the process environment instead
   // of writing to the workspace config file.
-  const runtimeProxyEnabled =
-    process.env.RUNTIME_PROXY_ENABLED === "true" ||
-    gw.runtimeProxyEnabled === true ||
-    gw.runtimeProxyEnabled === "true";
   const runtimeProxyRequireAuth =
     process.env.RUNTIME_PROXY_REQUIRE_AUTH !== undefined
       ? process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false"
@@ -148,7 +143,6 @@ export function loadConfig(): GatewayConfig {
       unmappedPolicy,
       hasDefaultAssistant: !!defaultAssistantId,
       port,
-      runtimeProxyEnabled,
       runtimeProxyRequireAuth,
       trustProxy: false,
     },
@@ -173,7 +167,6 @@ export function loadConfig(): GatewayConfig {
     routingEntries,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyEnabled,
     runtimeProxyRequireAuth,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,

@@ -23,13 +23,8 @@ export type AssistantEvent = BaseAssistantEvent<ServerMessage>;
 
 /** Daemon-side wrapper preserving the original `ServerMessage`-typed signature. */
 export function buildAssistantEvent(
-  assistantId: string,
   message: ServerMessage,
   conversationId?: string,
 ): AssistantEvent {
-  return baseBuildAssistantEvent<ServerMessage>(
-    assistantId,
-    message,
-    conversationId,
-  );
+  return baseBuildAssistantEvent<ServerMessage>(message, conversationId);
 }

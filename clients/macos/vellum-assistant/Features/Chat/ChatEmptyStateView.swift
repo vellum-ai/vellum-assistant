@@ -39,6 +39,7 @@ struct ChatEmptyStateView: View {
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onRemoveStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var onCancelConversationStarterPoll: (() -> Void)? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
@@ -95,6 +96,7 @@ struct ChatEmptyStateView: View {
         .onDisappear {
             visible = false
             bounceTask?.cancel()
+            onCancelConversationStarterPoll?()
         }
         .task {
             guard !soulGreetingLoaded else { return }

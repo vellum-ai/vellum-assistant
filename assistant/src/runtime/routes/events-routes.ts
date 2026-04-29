@@ -11,30 +11,20 @@
  * that conversation. When omitted, subscribers receive events from ALL
  * conversations for this assistant (unfiltered).
  *
- * If the conversationKey has no server-side mapping yet (e.g. a client-
- * generated draft UUID that has not been sent a first message), this
- * handler eagerly materialises the conversation so the subscriber's
- * `filter.conversationId` matches the id under which the first turn's
- * scoped events (text deltas, tool calls, message_complete) will be
- * published by `handleSendMessage`. The `conversation_list_invalidated`
- * notification for other clients is driven by `handleSendMessage`'s
- * first-message check, so eager materialisation here is safe and does
- * not hide the first-message notification from other clients.
- *
  * Client registration:
  *   Clients may send `X-Vellum-Client-Id` and `X-Vellum-Interface-Id`
- *   request headers to register in the ClientRegistry on connect and
- *   automatically unregister on disconnect. When both headers are present,
- *   the client is registered immediately, touched on each heartbeat, and
- *   unregistered when the stream closes. When either header is missing,
- *   registration is skipped (backwards compat).
+ *   request headers. When both are present, the subscriber is registered
+ *   as a client in the event hub with derived capabilities. The hub
+ *   handles registration, touch (heartbeat), and unregistration (dispose).
  */
 
-import { parseInterfaceId } from "../../channels/types.js";
+import type { HostProxyCapability } from "../../channels/types.js";
+import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
+  AssistantEventCallback,
   AssistantEventFilter,
   AssistantEventSubscription,
 } from "../assistant-event-hub.js";
@@ -42,8 +32,6 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { getClientRegistry } from "../client-registry.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -64,8 +52,9 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
  *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
  *
- *   When both are present the client is registered in the ClientRegistry on
- *   connect and unregistered on disconnect.
+ *   When both are present, the subscriber is registered as a client in the
+ *   event hub with metadata (interfaceId, capabilities). The hub handles
+ *   lifecycle — dispose() unregisters the client automatically.
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -85,7 +74,7 @@ export function handleSubscribeAssistantEvents(
     throw new BadRequestError("conversationKey must not be empty");
   }
 
-  // ── Client registration from headers ──────────────────────────────────
+  // ── Client identity from headers ──────────────────────────────────────
   const rawClientId = headers?.["x-vellum-client-id"];
   const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const clientId = rawClientId?.trim() || null;
@@ -103,32 +92,23 @@ export function handleSubscribeAssistantEvents(
     );
   }
 
-  const registry = getClientRegistry();
-  if (clientId && interfaceId) {
-    registry.register({ clientId, interfaceId });
-    log.info(
-      { clientId, interfaceId },
-      "client registered via /events SSE connect",
-    );
-  }
-
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  const filter: AssistantEventFilter = {
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-  };
+  const ALL_CAPABILITIES: HostProxyCapability[] = [
+    "host_bash",
+    "host_file",
+    "host_cu",
+    "host_browser",
+  ];
+
+  const filter: AssistantEventFilter = {};
   if (conversationKey) {
-    // Eagerly resolve (and if necessary create) the conversation so the
-    // subscriber's filter matches the id under which first-turn scoped
-    // events will be published. The `conversation_list_invalidated`
-    // publish is driven by `handleSendMessage`'s first-message check,
-    // so eager materialisation here is safe and does not suppress the
-    // cross-client notification.
     const mapping = getOrCreateConversation(conversationKey);
     filter.conversationId = mapping.conversationId;
   }
+
   const encoder = new TextEncoder();
 
   // -- Eager subscribe --------------------------------------------------------
@@ -145,9 +125,6 @@ export function handleSubscribeAssistantEvents(
       clearInterval(heartbeatTimer);
       heartbeatTimer = null;
     }
-    if (clientId) {
-      registry.unregister(clientId);
-    }
     try {
       controllerRef?.close();
     } catch {
@@ -155,85 +132,76 @@ export function handleSubscribeAssistantEvents(
     }
   }
 
+  const callback: AssistantEventCallback = (event) => {
+    const controller = controllerRef;
+    if (!controller) return;
+    try {
+      if (controller.desiredSize != null && controller.desiredSize <= 0) {
+        sub.dispose();
+        cleanup();
+        return;
+      }
+      controller.enqueue(encoder.encode(formatSseFrame(event)));
+    } catch {
+      sub.dispose();
+      cleanup();
+    }
+  };
+
   try {
-    sub = hub.subscribe(
+    const subscriberBase = {
       filter,
-      (event) => {
-        const controller = controllerRef;
-        if (!controller) return;
-        try {
-          // Shed stalled consumers: desiredSize <= 0 means the 16-event buffer
-          // is full and the client isn't draining it.
-          if (controller.desiredSize != null && controller.desiredSize <= 0) {
-            sub.dispose();
-            cleanup();
-            return;
-          }
-          controller.enqueue(encoder.encode(formatSseFrame(event)));
-        } catch {
-          sub.dispose();
-          cleanup();
-        }
-      },
-      {
-        // Called by the hub when a newer connection evicts this one (capacity
-        // management: oldest subscriber out, newest in).
-        onEvict: cleanup,
-      },
-    );
+      callback,
+      onEvict: cleanup,
+    };
+
+    sub =
+      clientId && interfaceId
+        ? hub.subscribe({
+            ...subscriberBase,
+            type: "client" as const,
+            clientId,
+            interfaceId,
+            capabilities: ALL_CAPABILITIES.filter((cap) =>
+              supportsHostProxy(interfaceId, cap),
+            ),
+          })
+        : hub.subscribe({
+            ...subscriberBase,
+            type: "process" as const,
+          });
   } catch (err) {
     if (err instanceof RangeError) {
-      if (clientId) {
-        registry.unregister(clientId);
-      }
       throw new ServiceUnavailableError("Too many concurrent connections");
     }
     throw err;
   }
 
-  // Allow up to 16 queued frames before treating the consumer as stalled.
-  // This absorbs normal token-stream bursts without prematurely closing the
-  // connection, while still shedding genuinely slow clients.
   const stream = new ReadableStream<Uint8Array>(
     {
       start(controller) {
         controllerRef = controller;
 
-        // If the client already disconnected before start() ran, clean up
-        // immediately -- the abort event fires once and won't be re-dispatched.
         if (abortSignal?.aborted) {
           sub.dispose();
           cleanup();
           return;
         }
 
-        // Immediately enqueue a heartbeat comment so the HTTP status line and
-        // headers are flushed to the client without waiting for a real event.
-        // Without this, Bun may buffer the headers until the first data chunk
-        // arrives, causing clients (e.g. Python `requests`) to hang until the
-        // periodic heartbeat fires or an event is published.
         controller.enqueue(encoder.encode(formatSseHeartbeat()));
 
-        // Send a keep-alive comment on each interval to prevent proxies and
-        // load-balancers from treating idle connections as timed out.
         heartbeatTimer = setInterval(() => {
           try {
-            // Apply the same slow-consumer guard as the event path: stop
-            // feeding heartbeats into a queue the client is not draining.
             if (controller.desiredSize != null && controller.desiredSize <= 0) {
               sub.dispose();
               cleanup();
               return;
             }
-            // Touch the client on each heartbeat to keep it fresh in the
-            // registry. Without this, long-idle SSE connections would be
-            // evicted by the staleness sweep despite being connected.
             if (clientId) {
-              registry.touch(clientId);
+              hub.touchClient(clientId);
             }
             controller.enqueue(encoder.encode(formatSseHeartbeat()));
           } catch {
-            // Controller already closed (e.g. client disconnected).
             sub.dispose();
             cleanup();
           }

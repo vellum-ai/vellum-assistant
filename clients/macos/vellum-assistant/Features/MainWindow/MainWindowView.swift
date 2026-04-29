@@ -1,4 +1,3 @@
-import Combine
 import os
 import SwiftUI
 import VellumAssistantShared
@@ -52,10 +51,8 @@ struct MainWindowView: View {
     /// and panel width calculations without a synchronous GeometryReader.
     @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
-    @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
-    @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
     @AppStorage("themePreference") private var themePreference: String = "system"
-    @State private var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+    @State var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     let sidebarExpandedWidth: CGFloat = 240
     let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
@@ -167,10 +164,6 @@ struct MainWindowView: View {
         ))
     }
 
-    // MARK: - Layout Constants
-
-    /// Leading padding to account for macOS traffic light buttons (red/yellow/green).
-    /// In native fullscreen the traffic lights are hidden, so we use standard padding.
     var trafficLightPadding: CGFloat {
         isInFullscreen ? VSpacing.lg : 78
     }
@@ -443,9 +436,6 @@ struct MainWindowView: View {
                 }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
-            .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
-                systemIsDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
-            }
     }
 
     private var isSettingsOpen: Bool {
@@ -454,19 +444,7 @@ struct MainWindowView: View {
         return false
     }
 
-    private var sidebarTooltip: String {
-        let label = sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
-        guard !sidebarToggleShortcut.isEmpty else { return label }
-        let display = ShortcutHelper.displayString(for: sidebarToggleShortcut)
-        return "\(label) (\(display))"
-    }
-
-    private var homeTooltip: String {
-        guard !homeShortcut.isEmpty else { return "Home" }
-        return "Home (\(ShortcutHelper.displayString(for: homeShortcut)))"
-    }
-
-    /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    /// Assistant loading overlay shown during daemon startup.
     @ViewBuilder
     private var assistantLoadingOverlayIfNeeded: some View {
         if showAssistantLoading && !isSettingsOpen {
@@ -483,190 +461,15 @@ struct MainWindowView: View {
         }
     }
 
-    /// Top bar extracted to break up type-checker complexity.
-    private var topBarView: some View {
-        HStack(spacing: VSpacing.sm) {
-            if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost) {
-                    withAnimation(VAnimation.panel) {
-                        sidebarExpanded.toggle()
-                    }
-                }
-                .vTooltip(sidebarTooltip)
-
-                if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
-                    VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost) {
-                        windowState.showPanel(.home)
-                    }
-                    // Keyboard shortcut (default ⇧⌘H) is handled by the
-                    // configurable NSEvent monitor in
-                    // `AppDelegate+InputMonitors.registerHomeShortcutMonitor()`.
-                    // Users can remap or clear it from Settings → Keyboard
-                    // Shortcuts → Home.
-                    .overlay(alignment: .topTrailing) {
-                        // Red dot whenever HomeStore has observed a background
-                        // `relationshipStateUpdated` SSE event while the user
-                        // was off the Home panel. Cleared by PanelCoordinator
-                        // via `homeStore.markSeen()` when Home becomes active.
-                        if homeStore.hasUnseenChanges && windowState.selection != .panel(.home) {
-                            Circle()
-                                .fill(VColor.systemNegativeStrong)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 2, y: -2)
-                                .transition(.scale.combined(with: .opacity))
-                                .allowsHitTesting(false)
-                                .accessibilityLabel(Text("Unseen changes"))
-                        }
-                    }
-                    .vTooltip(homeTooltip)
-                }
-
-                VButton(
-                    label: "Coding Agents",
-                    iconOnly: VIcon.terminal.rawValue,
-                    style: .ghost,
-                    isActive: windowState.isRightSlotShowing(.acpSessions)
-                ) {
-                    windowState.toggleRightSlot(.acpSessions)
-                }
-                .vTooltip("Coding Agents")
-
-                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
-                    AppDelegate.shared?.toggleCommandPalette()
-                }
-                .vTooltip("Search (\u{2318}K)")
-
-                HStack(spacing: 0) {
-                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost) {
-                        windowState.navigateBack()
-                    }
-                    .disabled(!windowState.canGoBack)
-                    .opacity(windowState.canGoBack ? 1 : 0.35)
-                    .vTooltip("Back (\u{2318}[)")
-
-                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost) {
-                        windowState.navigateForward()
-                    }
-                    .disabled(!windowState.navigationHistory.canGoForward)
-                    .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
-                    .vTooltip("Forward (\u{2318}])")
-                }
-            }
-            WindowDragArea()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable || updateManager.isDeferredUpdateReady {
-                VButton(
-                    label: updateManager.isDeferredUpdateReady
-                        ? "Restart to update"
-                        : (connectionManager.versionMismatch ? "Compatibility update" : "Update"),
-                    style: updateManager.isDeferredUpdateReady ? .primary : (connectionManager.versionMismatch ? .outlined : .primary),
-                    size: .pill,
-                    tooltip: updateManager.isDeferredUpdateReady
-                        ? "Restart to install the latest version"
-                        : (connectionManager.versionMismatch
-                            ? "Your assistant version doesn't match this app"
-                            : "A new version is available")
-                ) {
-                    if updateManager.isDeferredUpdateReady {
-                        updateManager.installDeferredUpdateIfAvailable()
-                    } else if updateManager.isServiceGroupUpdateAvailable {
-                        // Service group update available (possibly with app update too)
-                        // — navigate to Settings where the upgrade flow also triggers
-                        // the app update dialog when the client is behind.
-                        settingsStore.pendingSettingsTab = .general
-                        windowState.selection = .panel(.settings)
-                    } else if updateManager.isUpdateAvailable {
-                        // App update only — show the native update dialog directly.
-                        updateManager.checkForUpdates()
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
-                .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
-                .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
-            }
-            if windowState.isConversationVisible {
-                ConversationArtifactsButton(
-                    artifacts: conversationManager.activeViewModel?.conversationArtifacts ?? [],
-                    onOpenApp: { artifact in
-                        guard let appId = artifact.appId else { return }
-                        Task {
-                            await AppsClient.openAppAndDispatchSurface(
-                                id: appId,
-                                connectionManager: connectionManager,
-                                eventStreamClient: eventStreamClient
-                            )
-                        }
-                    },
-                    onOpenDocument: { artifact in
-                        guard let surfaceId = artifact.surfaceId else { return }
-                        NotificationCenter.default.post(
-                            name: .openDocumentEditor,
-                            object: nil,
-                            userInfo: ["documentSurfaceId": surfaceId]
-                        )
-                    }
-                )
-            }
-        }
-        .padding(.leading, trafficLightPadding)
-        .padding(.trailing, VSpacing.lg)
-        .overlay {
-            if windowState.isConversationVisible {
-                ConversationTitleOverlay(
-                    conversationManager: conversationManager,
-                    windowState: windowState,
-                    sidebarExpanded: sidebarExpanded,
-                    sidebarExpandedWidth: sidebarExpandedWidth,
-                    sidebarCollapsedWidth: sidebarCollapsedWidth,
-                    isSettingsOpen: isSettingsOpen,
-                    onCopy: { copyActiveConversationToClipboard() },
-                    onForkConversation: {
-                        Task { await conversationManager.forkActiveConversation() }
-                    },
-                    onPin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.pinConversation(id: id)
-                    },
-                    onUnpin: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.unpinConversation(id: id)
-                    },
-                    onArchive: {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.archiveConversation(id: id)
-                    },
-                    onRename: { startRenameActiveConversation() },
-                    onOpenForkParent: { openForkParentConversation() },
-                    onAnalyzeConversation: {
-                        Task { await conversationManager.analyzeActiveConversation() }
-                    },
-                    onRefresh: {
-                        conversationManager.refreshActiveConversation()
-                    },
-                    onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
-                        guard let id = conversationManager.activeConversationId else { return }
-                        AppDelegate.shared?.threadWindowManager?.openThread(
-                            conversationLocalId: id,
-                            conversationManager: conversationManager
-                        )
-                    } : nil
-                )
-            }
-        }
-        .frame(height: 48)
-        .background(VColor.surfaceBase)
-    }
-
-    /// Core layout extracted to break up type-checker complexity.
+    /// Core layout with lifecycle modifiers and a single `.task` that
+    /// observes all NotificationCenter notifications concurrently.
     private var coreLayoutView: some View {
-        applyWorkspaceNotificationModifiers(
-            to: applyConversationSelectionModifiers(
-                to: applyLifecycleModifiers(
-                    to: coreLayoutDecoratedView
-                )
+        applyConversationSelectionModifiers(
+            to: applyLifecycleModifiers(
+                to: coreLayoutDecoratedView
             )
         )
+        .task { await observeNotifications() }
     }
 
     private var coreLayoutGeometryView: some View {
@@ -683,42 +486,53 @@ struct MainWindowView: View {
                 windowSize = newSize
             }
             .overlay(alignment: .top) {
-                MainWindowZoomIndicator(
-                    showZoomIndicator: zoomManager.showZoomIndicator,
-                    zoomPercentage: zoomManager.zoomPercentage
-                )
+                ObservationBoundaryView {
+                    MainWindowZoomIndicator(
+                        showZoomIndicator: zoomManager.showZoomIndicator,
+                        zoomPercentage: zoomManager.zoomPercentage
+                    )
+                }
             }
             .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
             .overlay(alignment: .top) {
-                MainWindowVersionMismatchBanner(
-                    connectionManager: connectionManager,
-                    updateManager: updateManager,
-                    settingsStore: settingsStore,
-                    windowState: windowState
-                )
+                ObservationBoundaryView {
+                    MainWindowVersionMismatchBanner(
+                        connectionManager: connectionManager,
+                        updateManager: updateManager,
+                        settingsStore: settingsStore,
+                        windowState: windowState
+                    )
+                }
             }
             .overlay(alignment: .top) {
-                MainWindowErrorOverlay(
-                    activeViewModel: conversationManager.activeViewModel,
-                    settingsStore: settingsStore,
-                    windowState: windowState
-                )
+                ObservationBoundaryView {
+                    MainWindowErrorOverlay(
+                        activeViewModel: conversationManager.activeViewModel,
+                        settingsStore: settingsStore,
+                        windowState: windowState
+                    )
+                }
             }
             .overlay(alignment: .bottom) {
-                MainWindowToastOverlay(windowState: windowState)
+                ObservationBoundaryView {
+                    MainWindowToastOverlay(windowState: windowState)
+                        .animation(VAnimation.standard, value: windowState.toastInfo != nil)
+                }
             }
-            .animation(VAnimation.standard, value: windowState.toastInfo != nil)
-            .overlay { JITPermissionView(manager: jitPermissionManager) }
-            .overlay { imageLightboxOverlay }
+            .overlay {
+                ObservationBoundaryView {
+                    JITPermissionView(manager: jitPermissionManager)
+                }
+            }
+            .overlay {
+                ObservationBoundaryView {
+                    if windowState.imageLightbox != nil {
+                        ImageLightboxOverlay(windowState: windowState)
+                            .transition(.opacity)
+                    }
+                }
+            }
             .animation(VAnimation.standard, value: windowState.imageLightbox != nil)
-    }
-
-    @ViewBuilder
-    private var imageLightboxOverlay: some View {
-        if windowState.imageLightbox != nil {
-            ImageLightboxOverlay(windowState: windowState)
-                .transition(.opacity)
-        }
     }
 
     @ViewBuilder
@@ -747,7 +561,21 @@ struct MainWindowView: View {
     @ViewBuilder
     private func coreLayoutBase(windowSize: CGSize) -> some View {
         VStack(spacing: 0) {
-            topBarView
+            TopBarView(
+                windowState: windowState,
+                conversationManager: conversationManager,
+                homeStore: homeStore,
+                updateManager: updateManager,
+                connectionManager: connectionManager,
+                eventStreamClient: eventStreamClient,
+                settingsStore: settingsStore,
+                isInFullscreen: isInFullscreen,
+                sidebarExpandedWidth: sidebarExpandedWidth,
+                sidebarCollapsedWidth: sidebarCollapsedWidth,
+                onCopyConversation: { copyActiveConversationToClipboard() },
+                onRenameConversation: { startRenameActiveConversation() },
+                onOpenForkParent: { openForkParentConversation() }
+            )
 
             // Main container: sidebar + content with uniform padding
             HStack(spacing: 0) {
@@ -760,14 +588,16 @@ struct MainWindowView: View {
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .animation(VAnimation.panel, value: isSettingsOpen)
 
-                chatContentView(windowSize: windowSize)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    .clipped()
-                    .animation(VAnimation.panel, value: sidebarExpanded)
-                    .animation(VAnimation.panel, value: isSettingsOpen)
-                    .overlay {
-                        assistantLoadingOverlayIfNeeded
-                    }
+                ObservationBoundaryView {
+                    chatContentView(windowSize: windowSize)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                        .clipped()
+                }
+                .animation(VAnimation.panel, value: sidebarExpanded)
+                .animation(VAnimation.panel, value: isSettingsOpen)
+                .overlay {
+                    assistantLoadingOverlayIfNeeded
+                }
             }
             .padding(16)
         }
@@ -826,11 +656,8 @@ struct ErrorToastOverlay: View {
 
 // MARK: - Assistant Loading Overlay Content
 
-/// Standalone view for the assistant loading overlay that shows either a
-/// platform URL mismatch error, a connection timeout error, or the default
-/// skeleton placeholder.
-/// Extracted from MainWindowView to reduce type-checker complexity in
-/// `coreLayoutView`.
+/// Assistant loading overlay that shows either a platform URL mismatch
+/// error, a connection timeout error, or the default skeleton placeholder.
 private struct AssistantLoadingOverlayContent: View {
     @Binding var timedOut: Bool
     let onRetry: () -> Void
@@ -921,11 +748,9 @@ private struct PlatformURLMismatchInfo {
 
 // MARK: - Conversation Title Overlay
 
-/// Standalone view that constructs `ConversationHeaderPresentation` in its
-/// own body, keeping `@Observable` reads of `hasNonEmptyMessage` and
-/// `latestPersistedTipDaemonMessageId` out of `MainWindowView`'s
-/// observation scope.
-private struct ConversationTitleOverlay: View {
+/// Conversation title and actions overlay displayed in the top bar when
+/// a conversation is active.
+struct ConversationTitleOverlay: View {
     let conversationManager: ConversationManager
     let windowState: MainWindowState
     let sidebarExpanded: Bool

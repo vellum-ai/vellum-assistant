@@ -44,6 +44,8 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
+    var diskPressureAlert: DiskPressureAlert? = nil
+    var onReviewDiskUsage: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
     var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
     var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
@@ -107,6 +109,8 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
+    @State private var diskPressureDismissalRefreshToken = 0
+    @State private var diskPressureDismissalRefreshTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
         viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
@@ -128,6 +132,13 @@ struct ChatView: View {
         return conversationManager.conversations.first(where: { $0.id == conversationId })
     }
 
+    private var visibleDiskPressureAlert: DiskPressureAlert? {
+        _ = diskPressureDismissalRefreshToken
+        guard let diskPressureAlert else { return nil }
+        guard !DiskPressureBannerDismissalStore.isDismissed(alertId: diskPressureAlert.id) else { return nil }
+        return diskPressureAlert
+    }
+
     var body: some View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
@@ -139,15 +150,16 @@ struct ChatView: View {
         // children (808pt fallback) or when rapid drag updates are batched.
         GeometryReader { proxy in
             ZStack {
-                mainContentStack(containerWidth: proxy.size.width)
-                    .background(alignment: .bottom) {
-                        chatBackground
-                    }
-                    .background(VColor.surfaceBase)
-                    .overlay(alignment: .bottom) {
-                        btwOverlay
-                    }
-                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+                ObservationBoundaryView {
+                    mainContentStack(containerWidth: proxy.size.width)
+                        .background(alignment: .bottom) {
+                            chatBackground
+                        }
+                        .background(VColor.surfaceBase)
+                }
+                .overlay(alignment: .bottom) {
+                    BtwOverlayView(viewModel: viewModel)
+                }
 
                 dropTargetOverlay
             }
@@ -222,8 +234,17 @@ struct ChatView: View {
                 showSkeleton = false
             }
         }
+        .onAppear {
+            scheduleDiskPressureDismissalRefresh()
+        }
+        .onChange(of: diskPressureAlert?.id) {
+            diskPressureDismissalRefreshToken += 1
+            scheduleDiskPressureDismissalRefresh()
+        }
         .onDisappear {
             removeDragEndMonitors()
+            diskPressureDismissalRefreshTask?.cancel()
+            diskPressureDismissalRefreshTask = nil
         }
     }
 
@@ -284,6 +305,7 @@ struct ChatView: View {
                     onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                     onRemoveStarter: { starter in viewModel.removeConversationStarter(starter) },
                     onFetchConversationStarters: { viewModel.fetchConversationStarters() },
+                    onCancelConversationStarterPoll: { viewModel.cancelConversationStarterPoll() },
                     showThresholdPicker: showThresholdPicker,
                     inferenceProfilePicker: inferenceProfilePicker
                 )
@@ -375,6 +397,18 @@ struct ChatView: View {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     CreditsExhaustedBanner(
                         onAddFunds: { onAddFunds?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let visibleDiskPressureAlert, let onReviewDiskUsage {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    DiskPressureBanner(
+                        alert: visibleDiskPressureAlert,
+                        onReviewDiskUsage: onReviewDiskUsage,
+                        onDismiss: { dismissDiskPressureAlert(visibleDiskPressureAlert) }
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
@@ -564,61 +598,12 @@ struct ChatView: View {
         }
     }
 
-    @Environment(\.colorScheme) private var colorScheme
-
     @ViewBuilder
     private var chatBackground: some View {
         EmptyView()
     }
 
-    @ViewBuilder
-    private var btwOverlay: some View {
-        if let btwText = viewModel.btwResponse {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack {
-                    Text("/btw")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Spacer()
-                    Button(action: { viewModel.dismissBtw() }) {
-                        VIconView(.x, size: 12)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss btw response")
-                }
 
-                if viewModel.btwLoading && btwText.isEmpty {
-                    Text("Thinking...")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                } else if !viewModel.btwLoading && btwText.isEmpty {
-                    Text("No response received.")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                } else {
-                    Text(btwText)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .textSelection(.enabled)
-                }
-
-                if !viewModel.btwLoading {
-                    Text("Press Escape to dismiss")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-            }
-            .padding(VSpacing.md)
-            .background(VColor.surfaceBase)
-            .cornerRadius(VRadius.md)
-            .vShadow(VShadow.sm)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
-            .layoutHangSignpost("chat.btwOverlay")
-        }
-    }
 
     // MARK: - Internal Drag Detection
 
@@ -693,6 +678,36 @@ struct ChatView: View {
         viewModel.sendMessage()
     }
 
+    private func dismissDiskPressureAlert(_ alert: DiskPressureAlert) {
+        DiskPressureBannerDismissalStore.dismiss(alertId: alert.id)
+        diskPressureDismissalRefreshToken += 1
+        scheduleDiskPressureDismissalRefresh()
+    }
+
+    private func scheduleDiskPressureDismissalRefresh() {
+        diskPressureDismissalRefreshTask?.cancel()
+        diskPressureDismissalRefreshTask = nil
+
+        guard let alert = diskPressureAlert,
+              let dismissedUntil = DiskPressureBannerDismissalStore.dismissedUntil(for: alert.id) else {
+            return
+        }
+
+        let delay = dismissedUntil.timeIntervalSinceNow
+        guard delay > 0 else {
+            diskPressureDismissalRefreshToken += 1
+            return
+        }
+
+        let nanoseconds = UInt64(delay * 1_000_000_000)
+        diskPressureDismissalRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            diskPressureDismissalRefreshToken += 1
+            scheduleDiskPressureDismissalRefresh()
+        }
+    }
+
     /// Presents an NSOpenPanel as a window-attached sheet for attaching files.
     private func presentFilePicker() {
         let panel = NSOpenPanel()
@@ -742,6 +757,68 @@ struct ChatView: View {
         let matches = searchMatches
         guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
         anchorMessageId = matches[currentMatchIndex]
+    }
+}
+
+// MARK: - BtwOverlayView
+
+/// "/btw" response overlay with its own observation scope.
+///
+/// As a standalone `View` struct, `@Observable` property reads
+/// (`btwResponse`, `btwLoading`) are tracked in this view's body
+/// rather than the parent's — narrowing the invalidation surface.
+private struct BtwOverlayView: View {
+    @Bindable var viewModel: ChatViewModel
+
+    var body: some View {
+        Group {
+            if let btwText = viewModel.btwResponse {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack {
+                        Text("/btw")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Spacer()
+                        Button(action: { viewModel.dismissBtw() }) {
+                            VIconView(.x, size: 12)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss btw response")
+                    }
+
+                    if viewModel.btwLoading && btwText.isEmpty {
+                        Text("Thinking...")
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentTertiary)
+                    } else if !viewModel.btwLoading && btwText.isEmpty {
+                        Text("No response received.")
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentTertiary)
+                    } else {
+                        Text(btwText)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                            .textSelection(.enabled)
+                    }
+
+                    if !viewModel.btwLoading {
+                        Text("Press Escape to dismiss")
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+                .padding(VSpacing.md)
+                .background(VColor.surfaceBase)
+                .cornerRadius(VRadius.md)
+                .vShadow(VShadow.sm)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .layoutHangSignpost("chat.btwOverlay")
+            }
+        }
+        .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
     }
 }
 

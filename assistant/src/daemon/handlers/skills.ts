@@ -31,6 +31,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -50,7 +51,6 @@ import {
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
-import type { SkillCategory } from "../../skills/category-inference.js";
 import { inferCategory } from "../../skills/category-inference.js";
 import {
   clawhubCheckUpdates,
@@ -81,36 +81,14 @@ import {
   type SkillAuditData,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import { getConfigWatcher } from "../config-watcher.js";
 import { maybeSeedMemoryV2Skills } from "../memory-v2-startup.js";
 import type {
   SkillDetailResponse,
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
-
-// Re-export for use by route layer and future consumers.
-export type { SkillCategory };
-export { inferCategory };
-import {
-  CONFIG_RELOAD_DEBOUNCE_MS,
-  ensureSkillEntry,
-  type HandlerContext,
-  log,
-} from "./shared.js";
-
-// ─── Shared context for standalone functions ─────────────────────────────────
-
-/**
- * Minimal context needed by the standalone skill business-logic functions.
- * HandlerContext satisfies this interface, but HTTP routes can also provide
- * a compatible object without coupling to handler internals.
- */
-export interface SkillOperationContext {
-  debounceTimers: HandlerContext["debounceTimers"];
-  setSuppressConfigReload(value: boolean): void;
-  updateConfigFingerprint(): void;
-  broadcast: HandlerContext["broadcast"];
-}
+import { CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, log } from "./shared.js";
 
 // ─── Provider chain for uninstalled skill file preview ───────────────────────
 // Ordered by priority: vellum first (most common and cheapest to check),
@@ -258,28 +236,25 @@ const LLM_DRAFT_TIMEOUT_MS = 15_000;
 // These are consumed by both the handlers below and the HTTP route layer.
 
 /** Helper: suppress config reload, save, debounce, and update fingerprint. */
-function saveConfigWithSuppression(
-  raw: Record<string, unknown>,
-  ctx: SkillOperationContext,
-): void {
-  ctx.setSuppressConfigReload(true);
+function saveConfigWithSuppression(raw: Record<string, unknown>): void {
+  getConfigWatcher().suppressConfigReload = true;
   try {
     saveRawConfig(raw);
   } catch (err) {
-    ctx.setSuppressConfigReload(false);
+    getConfigWatcher().suppressConfigReload = false;
     throw err;
   }
   invalidateConfigCache();
 
-  ctx.debounceTimers.schedule(
+  getConfigWatcher().timers.schedule(
     "__suppress_reset__",
     () => {
-      ctx.setSuppressConfigReload(false);
+      getConfigWatcher().suppressConfigReload = false;
     },
     CONFIG_RELOAD_DEBOUNCE_MS,
   );
 
-  ctx.updateConfigFingerprint();
+  getConfigWatcher().updateFingerprint();
 }
 
 /**
@@ -296,11 +271,7 @@ function saveConfigWithSuppression(
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-function postInstallSkill(
-  skillId: string,
-  _skillDir: string,
-  ctx: SkillOperationContext,
-): void {
+function postInstallSkill(skillId: string, _skillDir: string): void {
   // Reload skill catalog so the newly installed skill is picked up
   loadSkillCatalog();
 
@@ -308,8 +279,8 @@ function postInstallSkill(
   try {
     const raw = loadRawConfig();
     ensureSkillEntry(raw, skillId).enabled = true;
-    saveConfigWithSuppression(raw, ctx);
-    ctx.broadcast({
+    saveConfigWithSuppression(raw);
+    broadcastMessage({
       type: "skills_state_changed",
       name: skillId,
       state: "enabled",
@@ -413,7 +384,7 @@ function toSlimSkillResponse(
   }
 }
 
-export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
+export function listSkills(): SlimSkillResponse[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
@@ -431,10 +402,8 @@ export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
  * List installed skills merged with available catalog skills.
  * Installed skills take precedence when deduplicating by ID.
  */
-async function listSkillsWithCatalog(
-  ctx: SkillOperationContext,
-): Promise<SlimSkillResponse[]> {
-  const installed = listSkills(ctx);
+async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
+  const installed = listSkills();
   const installedIds = new Set(installed.map((s) => s.id));
 
   let catalogSkills: CatalogSkill[];
@@ -503,18 +472,15 @@ function originMatchesQuery(origin: string, query: string): boolean {
  * List skills with filtering, category counts, and sorting.
  * Calls listSkillsWithCatalog for the full merged list, then applies filters.
  */
-export async function listSkillsFiltered(
-  filter: SkillListFilter,
-  ctx: SkillOperationContext,
-): Promise<{
+export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
   skills: SlimSkillResponse[];
   categoryCounts: Record<string, number>;
   totalCount: number;
 }> {
   let skills =
     filter.includeCatalog !== false
-      ? await listSkillsWithCatalog(ctx)
-      : listSkills(ctx);
+      ? await listSkillsWithCatalog()
+      : listSkills();
 
   // Apply origin filter
   if (filter.origin) {
@@ -608,7 +574,6 @@ function findSkillById(
 
 export async function getSkill(
   skillId: string,
-  _ctx: SkillOperationContext,
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(skillId);
   if (!found) {
@@ -812,7 +777,6 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
 export async function getSkillFileContent(
   skillId: string,
   relativePath: string,
-  _ctx: SkillOperationContext,
 ): Promise<SkillFileContentResponse | { error: string; status: number }> {
   const sanitized = sanitizeRelativePath(relativePath);
   if (!sanitized) {
@@ -935,7 +899,6 @@ export async function getSkillFileContent(
 
 export async function getSkillFiles(
   skillId: string,
-  _ctx: SkillOperationContext,
 ): Promise<
   | { skill: SlimSkillResponse; files: SkillFileEntry[] }
   | { error: string; status: number }
@@ -976,13 +939,12 @@ export async function getSkillFiles(
 
 export function enableSkill(
   skillId: string,
-  ctx: SkillOperationContext,
 ): { success: true } | { success: false; error: string } {
   try {
     const raw = loadRawConfig();
     ensureSkillEntry(raw, skillId).enabled = true;
-    saveConfigWithSuppression(raw, ctx);
-    ctx.broadcast({
+    saveConfigWithSuppression(raw);
+    broadcastMessage({
       type: "skills_state_changed",
       name: skillId,
       state: "enabled",
@@ -1000,13 +962,12 @@ export function enableSkill(
 
 export function disableSkill(
   skillId: string,
-  ctx: SkillOperationContext,
 ): { success: true } | { success: false; error: string } {
   try {
     const raw = loadRawConfig();
     ensureSkillEntry(raw, skillId).enabled = false;
-    saveConfigWithSuppression(raw, ctx);
-    ctx.broadcast({
+    saveConfigWithSuppression(raw);
+    broadcastMessage({
       type: "skills_state_changed",
       name: skillId,
       state: "disabled",
@@ -1029,7 +990,6 @@ export function configureSkill(
     apiKey?: string;
     config?: Record<string, unknown>;
   },
-  ctx: SkillOperationContext,
 ): { success: true } | { success: false; error: string } {
   try {
     const raw = loadRawConfig();
@@ -1037,7 +997,7 @@ export function configureSkill(
     if (config.env) entry.env = config.env;
     if (config.apiKey !== undefined) entry.apiKey = config.apiKey;
     if (config.config) entry.config = config.config;
-    saveConfigWithSuppression(raw, ctx);
+    saveConfigWithSuppression(raw);
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1054,15 +1014,12 @@ function looksLikeSkillsShSlug(slug: string): boolean {
   return slug.split("/").length >= 3;
 }
 
-export async function installSkill(
-  spec: {
-    slug: string;
-    version?: string;
-    origin?: "clawhub" | "skillssh";
-    contactId?: string;
-  },
-  ctx: SkillOperationContext,
-): Promise<
+export async function installSkill(spec: {
+  slug: string;
+  version?: string;
+  origin?: "clawhub" | "skillssh";
+  contactId?: string;
+}): Promise<
   { success: true; skillId: string } | { success: false; error: string }
 > {
   try {
@@ -1095,8 +1052,8 @@ export async function installSkill(
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, spec.slug).enabled = true;
-        saveConfigWithSuppression(raw, ctx);
-        ctx.broadcast({
+        saveConfigWithSuppression(raw);
+        broadcastMessage({
           type: "skills_state_changed",
           name: spec.slug,
           state: "enabled",
@@ -1130,7 +1087,7 @@ export async function installSkill(
           );
 
           const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
-          postInstallSkill(spec.slug, skillDir, ctx);
+          postInstallSkill(spec.slug, skillDir);
           return { success: true, skillId: spec.slug };
         }
       } catch (err) {
@@ -1158,7 +1115,7 @@ export async function installSkill(
       );
 
       const skillDir = join(getWorkspaceSkillsDir(), resolved.skillSlug);
-      postInstallSkill(resolved.skillSlug, skillDir, ctx);
+      postInstallSkill(resolved.skillSlug, skillDir);
       return { success: true, skillId: resolved.skillSlug };
     }
 
@@ -1186,7 +1143,7 @@ export async function installSkill(
     }
     upsertSkillsIndex(skillId);
 
-    postInstallSkill(skillId, skillDir, ctx);
+    postInstallSkill(skillId, skillDir);
     return { success: true, skillId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1197,7 +1154,6 @@ export async function installSkill(
 
 export async function uninstallSkill(
   skillId: string,
-  ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   // Validate skill name to prevent path traversal while allowing namespaced slugs (org/name)
   const validNamespacedSlug =
@@ -1245,10 +1201,10 @@ export async function uninstallSkill(
     const entries = skills?.entries as Record<string, unknown> | undefined;
     if (entries?.[skillId]) {
       delete entries[skillId];
-      saveConfigWithSuppression(raw, ctx);
+      saveConfigWithSuppression(raw);
     }
 
-    ctx.broadcast({
+    broadcastMessage({
       type: "skills_state_changed",
       name: skillId,
       state: "uninstalled",
@@ -1264,7 +1220,6 @@ export async function uninstallSkill(
 
 export async function updateSkill(
   skillId: string,
-  _ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
     const result = await clawhubUpdate(skillId);
@@ -1281,9 +1236,7 @@ export async function updateSkill(
   }
 }
 
-export async function checkSkillUpdates(
-  _ctx: SkillOperationContext,
-): Promise<
+export async function checkSkillUpdates(): Promise<
   { success: true; data: unknown } | { success: false; error: string }
 > {
   try {
@@ -1298,7 +1251,6 @@ export async function checkSkillUpdates(
 
 export async function searchSkills(
   query: string,
-  _ctx: SkillOperationContext,
 ): Promise<
   | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
@@ -1461,7 +1413,6 @@ export async function searchSkills(
 
 export async function inspectSkill(
   skillId: string,
-  _ctx: SkillOperationContext,
 ): Promise<{ slug: string; data?: ClawhubInspectResult; error?: string }> {
   try {
     const result = await clawhubInspect(skillId);
@@ -1490,10 +1441,9 @@ export interface DraftResult {
   error?: string;
 }
 
-export async function draftSkill(
-  params: { sourceText: string },
-  _ctx: SkillOperationContext,
-): Promise<DraftResult> {
+export async function draftSkill(params: {
+  sourceText: string;
+}): Promise<DraftResult> {
   try {
     const warnings: string[] = [];
     const parsed = parseFrontmatter(params.sourceText);
@@ -1645,7 +1595,6 @@ export interface CreateSkillParams {
 
 export async function createSkill(
   params: CreateSkillParams,
-  ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
     const result = createManagedSkill({
@@ -1669,8 +1618,8 @@ export async function createSkill(
     try {
       const raw = loadRawConfig();
       ensureSkillEntry(raw, params.skillId).enabled = true;
-      saveConfigWithSuppression(raw, ctx);
-      ctx.broadcast({
+      saveConfigWithSuppression(raw);
+      broadcastMessage({
         type: "skills_state_changed",
         name: params.skillId,
         state: "enabled",

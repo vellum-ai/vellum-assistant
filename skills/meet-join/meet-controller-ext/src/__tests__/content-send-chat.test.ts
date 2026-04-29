@@ -414,10 +414,7 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     expect(results.length).toBe(2);
     const r0 = results[0]!;
     const r1 = results[1]!;
-    if (
-      r0.type === "send_chat_result" &&
-      r1.type === "send_chat_result"
-    ) {
+    if (r0.type === "send_chat_result" && r1.type === "send_chat_result") {
       expect(r0.requestId).toBe("req-a");
       expect(r0.ok).toBe(true);
       expect(r1.requestId).toBe("req-b");

@@ -688,15 +688,12 @@ export class MeetChatOpportunityDetector {
     this.lastEscalationAt = nowAfter;
     this.stats.escalationsFired += 1;
     if (opts.kind === "voice") this.stats.voiceWakesFired += 1;
-    this.log.info(
-      "MeetChatOpportunityDetector: firing opportunity callback",
-      {
-        event: "chat_opportunity.escalation.fired",
-        meetingId: this.meetingId,
-        kind: opts.kind,
-        ...opts.logContext,
-      },
-    );
+    this.log.info("MeetChatOpportunityDetector: firing opportunity callback", {
+      event: "chat_opportunity.escalation.fired",
+      meetingId: this.meetingId,
+      kind: opts.kind,
+      ...opts.logContext,
+    });
     try {
       this.onOpportunity({ reason: opts.reason, kind: opts.kind });
     } catch (err) {
@@ -742,11 +739,15 @@ export class MeetChatOpportunityDetector {
     // wake under group-meeting assumptions.
     if (!this.isOneOnOne() || !this.voiceConfig.enabled) return;
 
-    const snippet = trigger.length > 120 ? `${trigger.slice(0, 117)}...` : trigger;
+    const snippet =
+      trigger.length > 120 ? `${trigger.slice(0, 117)}...` : trigger;
     this.tryFireOpportunity({
       reason: `voice-turn: ${snippet}`,
       kind: "voice",
-      logContext: { triggerText: snippet, participantCount: this.participantCount },
+      logContext: {
+        triggerText: snippet,
+        participantCount: this.participantCount,
+      },
     });
   }
 
@@ -789,7 +790,4 @@ export function createChatOpportunityDetector(
     });
 }
 
-registerSubModule(
-  "chat-opportunity-detector",
-  createChatOpportunityDetector,
-);
+registerSubModule("chat-opportunity-detector", createChatOpportunityDetector);

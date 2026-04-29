@@ -11,14 +11,14 @@ import UIKit
 /// from daemon history-response payloads. The heavy work (JSON size estimation,
 /// tool-input formatting, surface mapping, image decoding) is decoupled from the
 /// view model so it can run from any isolation context.
-enum HistoryReconstructionService {
+public enum HistoryReconstructionService {
 
     // MARK: - Result type
 
     /// Result of reconstructing ChatMessages from history response items.
-    struct Result {
-        let messages: [ChatMessage]
-        let subagents: [SubagentInfo]
+    public struct Result {
+        public let messages: [ChatMessage]
+        public let subagents: [SubagentInfo]
     }
 
     // MARK: - Main entry point
@@ -27,7 +27,7 @@ enum HistoryReconstructionService {
     /// This method is nonisolated and accesses no @MainActor state, so it can
     /// be called from a background context. Images are decoded eagerly via
     /// `ToolCallData.decodeImage` and stored in `cachedImages` for display.
-    nonisolated static func reconstructMessages(
+    nonisolated public static func reconstructMessages(
         from historyMessages: [HistoryResponseMessage],
         conversationId: String?
     ) -> Result {

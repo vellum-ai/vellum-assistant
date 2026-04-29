@@ -58,61 +58,28 @@ mock.module("../config/loader.js", () => ({
 // ── Real imports (after mocks) ──────────────────────────────────────
 
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { mintToken } from "../runtime/auth/token-service.js";
 import {
   mintHostBrowserCapability,
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
 } from "../runtime/capability-tokens.js";
-import {
-  __resetChromeExtensionRegistryForTests,
-  getChromeExtensionRegistry,
-} from "../runtime/chrome-extension-registry.js";
+import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
-/**
- * Point `HostBrowserProxy.instance` at the test's proxy so the
- * `/v1/host-browser-result` handler can resolve results correctly.
- */
-let activeTestProxy: HostBrowserProxy | null = null;
-Object.defineProperty(HostBrowserProxy, "instance", {
-  get() {
-    return activeTestProxy ?? undefined;
-  },
-  configurable: true,
-});
-
-function createBoundProxy(
-  guardianId: string,
-  conversationId: string,
-): { proxy: HostBrowserProxy } {
-  const sendToClient = (msg: ServerMessage) => {
-    if ((msg as { type: string }).type === "host_browser_request") {
-      const requestId = (msg as { requestId: string }).requestId;
-      pendingInteractions.register(requestId, {
-        conversation: null,
-        conversationId,
-        kind: "host_browser",
-      });
-    }
-    const ok = getChromeExtensionRegistry().send(guardianId, msg);
-    if (!ok) {
-      throw new Error(
-        `chrome-extension host_browser send failed: no active connection for guardian ${guardianId}`,
-      );
-    }
-  };
-
-  const proxy = new HostBrowserProxy(sendToClient);
-  activeTestProxy = proxy;
-  return { proxy };
+function mintSseToken(guardianId: string): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: `actor:self:${guardianId}`,
+    scope_profile: "actor_client_v1",
+    policy_epoch: 1,
+    ttlSeconds: 3600,
+  });
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -123,16 +90,12 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
   let runtimeBaseUrl: string;
 
   beforeEach(async () => {
-    // Inject a deterministic secret so mintHostBrowserCapability works
-    // in-process without a live gateway.
     setCapabilityTokenSecretForTests(Buffer.alloc(32, 0xab));
 
-    // Each test gets a clean DB and a fresh registry so connection
-    // state doesn't leak between cases.
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
-    pendingInteractions.clear();
+    HostBrowserProxy.reset();
     __resetChromeExtensionRegistryForTests();
 
     port = 19600 + Math.floor(Math.random() * 200);
@@ -143,41 +106,28 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
 
   afterEach(async () => {
     await server?.stop();
-    pendingInteractions.clear();
+    HostBrowserProxy.reset();
     __resetChromeExtensionRegistryForTests();
     resetCapabilityTokenSecretForTests();
   });
 
   test("capability token round-trips Browser.getVersion over WS result transport", async () => {
     const guardianId = `self-hosted-guardian-${crypto.randomUUID()}`;
-
-    // Mint the capability token the chrome extension would have
-    // received from the native messaging pair flow. No JWT is minted
-    // anywhere in this test — the `/v1/browser-relay` upgrade handler
-    // must accept this token directly.
     const { token } = mintHostBrowserCapability(guardianId);
 
     const { createMockChromeExtension } =
       await import("./fixtures/mock-chrome-extension.js");
-    // WS result transport: the extension returns results over the same
-    // `/v1/browser-relay` WebSocket it received the request on. This
-    // is the canonical self-hosted return path when the socket is
-    // healthy.
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
     await mockExt.waitForConnection();
-
-    // Give the open handler a tick to register the connection in the
-    // ChromeExtensionRegistry. If the capability-token branch of the
-    // upgrade handler is broken, waitForRegistryEntry() will throw
-    // before the Browser.getVersion call runs.
     await waitForRegistryEntry(guardianId);
 
-    const { proxy } = createBoundProxy(guardianId, "conv-cap-happy-ws");
+    const proxy = HostBrowserProxy.instance;
 
     const result = await proxy.request(
       { cdpMethod: "Browser.getVersion" },
@@ -192,16 +142,10 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     expect(received[0].cdpMethod).toBe("Browser.getVersion");
     expect(received[0].conversationId).toBe("conv-cap-happy-ws");
 
-    proxy.dispose();
     await mockExt.stop();
   });
 
   test("capability token round-trips Browser.getVersion over HTTP POST fallback", async () => {
-    // HTTP result transport: the extension POSTs results back to
-    // `/v1/host-browser-result` with the same capability token used
-    // for the WS handshake. This exercises the capability-token-aware
-    // auth on the POST route and proves the HTTP fallback path
-    // resolves the pending interaction end-to-end.
     const guardianId = `self-hosted-guardian-${crypto.randomUUID()}`;
     const { token } = mintHostBrowserCapability(guardianId);
 
@@ -210,13 +154,14 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "http",
     });
     await mockExt.start();
     await mockExt.waitForConnection();
     await waitForRegistryEntry(guardianId);
 
-    const { proxy } = createBoundProxy(guardianId, "conv-cap-happy-http");
+    const proxy = HostBrowserProxy.instance;
 
     const result = await proxy.request(
       { cdpMethod: "Browser.getVersion" },
@@ -231,32 +176,26 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     expect(received[0].cdpMethod).toBe("Browser.getVersion");
     expect(received[0].conversationId).toBe("conv-cap-happy-http");
 
-    proxy.dispose();
     await mockExt.stop();
   });
 
   test("an invalid capability token is rejected with 401", async () => {
-    // Sanity check: the capability branch must not be a rubber stamp
-    // — a malformed token should still 401 the upgrade. If this ever
-    // starts passing on a junk token the self-hosted security
-    // posture has regressed.
     const { createMockChromeExtension } =
       await import("./fixtures/mock-chrome-extension.js");
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
-      token: "not-a-real-token.xxxxxxxxxxxxx",
+      token: "totally-bogus-not-a-real-token",
     });
-    await mockExt.start();
-    // The upgrade will fail; waitForConnection will time out. We
-    // intentionally give it a short window and swallow the timeout.
-    let connected = false;
+    let started = false;
     try {
+      await mockExt.start();
+      started = true;
       await mockExt.waitForConnection(500);
-      connected = true;
     } catch {
-      // expected
+      // expected — SSE or WS auth rejects the bad token
     }
-    expect(connected).toBe(false);
+    // The extension must not reach a fully-connected state.
+    expect(started).toBe(false);
     await mockExt.stop();
   });
 });
@@ -279,11 +218,12 @@ async function waitFor(
 }
 
 async function waitForRegistryEntry(
-  guardianId: string,
+  _guardianId: string,
   timeoutMs = 2000,
 ): Promise<void> {
   await waitFor(
-    () => getChromeExtensionRegistry().get(guardianId) !== undefined,
+    () =>
+      assistantEventHub.getMostRecentClientByCapability("host_browser") != null,
     timeoutMs,
   );
 }

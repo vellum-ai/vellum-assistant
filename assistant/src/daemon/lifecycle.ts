@@ -69,6 +69,7 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -797,7 +798,7 @@ export async function runDaemon(): Promise<void> {
 
     // Register the broadcast function for the notification signal pipeline's
     // macOS adapter so it can deliver notification_intent messages to clients.
-    registerBroadcastFn((msg) => server.broadcast(msg));
+    registerBroadcastFn((msg) => broadcastMessage(msg));
 
     const scheduler = startScheduler(
       async (conversationId, message, options) => {
@@ -884,7 +885,7 @@ export async function runDaemon(): Promise<void> {
         });
       },
       (info) => {
-        server.broadcast({
+        broadcastMessage({
           type: "schedule_conversation_created",
           conversationId: info.conversationId,
           scheduleJobId: info.scheduleJobId,
@@ -961,7 +962,7 @@ export async function runDaemon(): Promise<void> {
     });
     try {
       await runtimeHttp.start();
-      setRelayBroadcast((msg) => server.broadcast(msg));
+      setRelayBroadcast((msg) => broadcastMessage(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
           const conversation =
@@ -1201,9 +1202,9 @@ export async function runDaemon(): Promise<void> {
 
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
-      alerter: (alert) => server.broadcast(alert),
+      alerter: (alert) => broadcastMessage(alert),
       onConversationCreated: (info) =>
-        server.broadcast({
+        broadcastMessage({
           type: "heartbeat_conversation_created",
           conversationId: info.conversationId,
           title: info.title,

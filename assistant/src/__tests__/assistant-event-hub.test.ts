@@ -6,7 +6,6 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
   return {
     id: "evt_test",
-    assistantId: "ast_1",
     conversationId: "sess_1",
     emittedAt: "2026-02-18T00:00:00.000Z",
     message: {
@@ -25,8 +24,11 @@ describe("AssistantEventHub — fanout", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
     await hub.publish(makeEvent());
 
@@ -38,14 +40,23 @@ describe("AssistantEventHub — fanout", () => {
     const hub = new AssistantEventHub();
     const order: string[] = [];
 
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      order.push("first");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        order.push("first");
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      order.push("second");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        order.push("second");
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      order.push("third");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        order.push("third");
+      },
     });
 
     await hub.publish(makeEvent());
@@ -53,28 +64,24 @@ describe("AssistantEventHub — fanout", () => {
     expect(order).toEqual(["first", "second", "third"]);
   });
 
-  test("does not deliver event to subscriber for a different assistantId", async () => {
-    const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
-
-    hub.subscribe({ assistantId: "ast_OTHER" }, (e) => {
-      received.push(e);
-    });
-    await hub.publish(makeEvent({ assistantId: "ast_1" }));
-
-    expect(received).toHaveLength(0);
-  });
-
   test("conversationId filter further restricts delivery", async () => {
     const hub = new AssistantEventHub();
     const receivedA: AssistantEvent[] = [];
     const receivedB: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_A" }, (e) => {
-      receivedA.push(e);
+    hub.subscribe({
+      type: "process",
+      filter: { conversationId: "sess_A" },
+      callback: (e) => {
+        receivedA.push(e);
+      },
     });
-    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_B" }, (e) => {
-      receivedB.push(e);
+    hub.subscribe({
+      type: "process",
+      filter: { conversationId: "sess_B" },
+      callback: (e) => {
+        receivedB.push(e);
+      },
     });
 
     await hub.publish(makeEvent({ conversationId: "sess_A" }));
@@ -83,12 +90,15 @@ describe("AssistantEventHub — fanout", () => {
     expect(receivedB).toHaveLength(0);
   });
 
-  test("subscriber without conversationId filter receives all sessions for that assistant", async () => {
+  test("subscriber without conversationId filter receives all conversations", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
 
     await hub.publish(makeEvent({ conversationId: "sess_A" }));
@@ -103,13 +113,12 @@ describe("AssistantEventHub — fanout", () => {
     await expect(hub.publish(makeEvent())).resolves.toBeUndefined();
   });
 
-  test("hasSubscribersForEvent returns true for assistant-wide subscribers", () => {
+  test("hasSubscribersForEvent returns true for unscoped subscribers", () => {
     const hub = new AssistantEventHub();
-    hub.subscribe({ assistantId: "ast_1" }, () => {});
+    hub.subscribe({ type: "process", callback: () => {} });
 
     expect(
       hub.hasSubscribersForEvent({
-        assistantId: "ast_1",
         conversationId: "sess_A",
       }),
     ).toBe(true);
@@ -117,17 +126,19 @@ describe("AssistantEventHub — fanout", () => {
 
   test("hasSubscribersForEvent honors conversation scoping", () => {
     const hub = new AssistantEventHub();
-    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_A" }, () => {});
+    hub.subscribe({
+      type: "process",
+      filter: { conversationId: "sess_A" },
+      callback: () => {},
+    });
 
     expect(
       hub.hasSubscribersForEvent({
-        assistantId: "ast_1",
         conversationId: "sess_A",
       }),
     ).toBe(true);
     expect(
       hub.hasSubscribersForEvent({
-        assistantId: "ast_1",
         conversationId: "sess_B",
       }),
     ).toBe(false);
@@ -141,46 +152,49 @@ describe("AssistantEventHub — unsubscribe cleanup", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    const sub = hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received.push(e);
+    const s = hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
     await hub.publish(makeEvent());
     expect(received).toHaveLength(1);
 
-    sub.dispose();
+    s.dispose();
     await hub.publish(makeEvent());
     expect(received).toHaveLength(1); // no new events
   });
 
   test("dispose is idempotent", () => {
     const hub = new AssistantEventHub();
-    const sub = hub.subscribe({ assistantId: "ast_1" }, () => {});
+    const s = hub.subscribe({ type: "process", callback: () => {} });
 
-    sub.dispose();
-    sub.dispose(); // must not throw
-    expect(sub.active).toBe(false);
+    s.dispose();
+    s.dispose(); // must not throw
+    expect(s.active).toBe(false);
   });
 
   test("active reflects subscription state", () => {
     const hub = new AssistantEventHub();
-    const sub = hub.subscribe({ assistantId: "ast_1" }, () => {});
-    expect(sub.active).toBe(true);
+    const s = hub.subscribe({ type: "process", callback: () => {} });
+    expect(s.active).toBe(true);
 
-    sub.dispose();
-    expect(sub.active).toBe(false);
+    s.dispose();
+    expect(s.active).toBe(false);
   });
 
   test("subscriberCount reflects live subscriptions only", () => {
     const hub = new AssistantEventHub();
 
-    const sub1 = hub.subscribe({ assistantId: "ast_1" }, () => {});
-    const sub2 = hub.subscribe({ assistantId: "ast_1" }, () => {});
+    const s1 = hub.subscribe({ type: "process", callback: () => {} });
+    const s2 = hub.subscribe({ type: "process", callback: () => {} });
     expect(hub.subscriberCount()).toBe(2);
 
-    sub1.dispose();
+    s1.dispose();
     expect(hub.subscriberCount()).toBe(1);
 
-    sub2.dispose();
+    s2.dispose();
     expect(hub.subscriberCount()).toBe(0);
   });
 
@@ -189,14 +203,20 @@ describe("AssistantEventHub — unsubscribe cleanup", () => {
     const received1: AssistantEvent[] = [];
     const received2: AssistantEvent[] = [];
 
-    const sub1 = hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received1.push(e);
+    const s1 = hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received1.push(e);
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received2.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received2.push(e);
+      },
     });
 
-    sub1.dispose();
+    s1.dispose();
     await hub.publish(makeEvent());
 
     expect(received1).toHaveLength(0);
@@ -211,11 +231,17 @@ describe("AssistantEventHub — exception isolation", () => {
     const hub = new AssistantEventHub();
     let secondCalled = false;
 
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      throw new Error("subscriber boom");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        throw new Error("subscriber boom");
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      secondCalled = true;
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        secondCalled = true;
+      },
     });
 
     await expect(hub.publish(makeEvent())).rejects.toBeInstanceOf(
@@ -227,11 +253,17 @@ describe("AssistantEventHub — exception isolation", () => {
   test("all subscriber errors are collected into AggregateError", async () => {
     const hub = new AssistantEventHub();
 
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      throw new Error("err-1");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        throw new Error("err-1");
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      throw new Error("err-2");
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        throw new Error("err-2");
+      },
     });
 
     const caught = await hub.publish(makeEvent()).catch((e) => e);
@@ -244,11 +276,17 @@ describe("AssistantEventHub — exception isolation", () => {
     const hub = new AssistantEventHub();
     let syncRan = false;
 
-    hub.subscribe({ assistantId: "ast_1" }, async () => {
-      throw new Error("async-err");
+    hub.subscribe({
+      type: "process",
+      callback: async () => {
+        throw new Error("async-err");
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      syncRan = true;
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        syncRan = true;
+      },
     });
 
     const caught = await hub.publish(makeEvent()).catch((e) => e);
@@ -259,7 +297,7 @@ describe("AssistantEventHub — exception isolation", () => {
 
   test("publish resolves when all subscribers succeed", async () => {
     const hub = new AssistantEventHub();
-    hub.subscribe({ assistantId: "ast_1" }, () => {});
+    hub.subscribe({ type: "process", callback: () => {} });
     await expect(hub.publish(makeEvent())).resolves.toBeUndefined();
   });
 });
@@ -271,11 +309,16 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
     const hub = new AssistantEventHub();
     const lateReceived: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_1" }, () => {
-      // Add a new subscriber mid-fanout
-      hub.subscribe({ assistantId: "ast_1" }, (e) => {
-        lateReceived.push(e);
-      });
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        hub.subscribe({
+          type: "process",
+          callback: (e) => {
+            lateReceived.push(e);
+          },
+        });
+      },
     });
 
     await hub.publish(makeEvent());
@@ -287,14 +330,20 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
   test("subscriber that disposes itself mid-publish does not affect remaining subscribers", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
-    let sub: ReturnType<typeof hub.subscribe>;
+    let s: ReturnType<typeof hub.subscribe>;
 
     // eslint-disable-next-line prefer-const
-    sub = hub.subscribe({ assistantId: "ast_1" }, () => {
-      sub.dispose();
+    s = hub.subscribe({
+      type: "process",
+      callback: () => {
+        s.dispose();
+      },
     });
-    hub.subscribe({ assistantId: "ast_1" }, (e) => {
-      received.push(e);
+    hub.subscribe({
+      type: "process",
+      callback: (e) => {
+        received.push(e);
+      },
     });
 
     await hub.publish(makeEvent());

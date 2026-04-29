@@ -62,12 +62,6 @@ export function createDraft(opts: {
   return draft;
 }
 
-export function getDraft(platform: string, id: string): Draft | null {
-  const path = getDraftPath(platform, id);
-  if (!pathExists(path)) return null;
-  return JSON.parse(readFileSync(path, "utf-8")) as Draft;
-}
-
 export function listDrafts(platform: string): Draft[] {
   const dir = getDraftsDir(platform);
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));

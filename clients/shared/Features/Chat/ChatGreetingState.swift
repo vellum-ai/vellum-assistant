@@ -50,17 +50,20 @@ public final class ChatGreetingState {
     @ObservationIgnored private let btwClient: any BtwClientProtocol
     @ObservationIgnored private let conversationStarterClient: any ConversationStarterClientProtocol
     @ObservationIgnored private let conversationStarterPollIntervalNanoseconds: UInt64
+    @ObservationIgnored private let maxPollIterations: Int
 
     // MARK: - Init
 
     init(
         btwClient: any BtwClientProtocol = BtwClient(),
         conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient(),
-        conversationStarterPollIntervalNanoseconds: UInt64 = 3_000_000_000
+        conversationStarterPollIntervalNanoseconds: UInt64 = 3_000_000_000,
+        maxPollIterations: Int = 20
     ) {
         self.btwClient = btwClient
         self.conversationStarterClient = conversationStarterClient
         self.conversationStarterPollIntervalNanoseconds = conversationStarterPollIntervalNanoseconds
+        self.maxPollIterations = maxPollIterations
     }
 
     // MARK: - Empty-State Greeting Generation
@@ -118,7 +121,9 @@ public final class ChatGreetingState {
             guard !Task.isCancelled else { return }
 
             if self.applyConversationStarterResponse(response) {
-                while !Task.isCancelled {
+                var iterations = 0
+                while !Task.isCancelled && iterations < self.maxPollIterations {
+                    iterations += 1
                     try? await Task.sleep(nanoseconds: self.conversationStarterPollIntervalNanoseconds)
                     guard !Task.isCancelled else { return }
                     let poll = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
@@ -126,6 +131,9 @@ public final class ChatGreetingState {
                     if !self.applyConversationStarterResponse(poll) {
                         return
                     }
+                }
+                if iterations >= self.maxPollIterations {
+                    self.conversationStartersLoading = false
                 }
             }
         }
@@ -156,6 +164,13 @@ public final class ChatGreetingState {
         let shouldPoll = response?.status == "generating" || response?.status == "refreshing"
         conversationStartersLoading = shouldPoll
         return shouldPoll
+    }
+
+    /// Cancel the conversation starter poll task.
+    public func cancelConversationStarterPoll() {
+        conversationStarterPollTask?.cancel()
+        conversationStarterPollTask = nil
+        conversationStartersLoading = false
     }
 
     /// Cancel all in-flight tasks. Called from ChatViewModel's nonisolated deinit.

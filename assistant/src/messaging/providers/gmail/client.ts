@@ -3,12 +3,7 @@ import type {
   OAuthConnectionResponse,
 } from "../../../oauth/connection.js";
 import type {
-  GmailAttachment,
   GmailDraft,
-  GmailFilter,
-  GmailFilterAction,
-  GmailFilterCriteria,
-  GmailFiltersListResponse,
   GmailLabel,
   GmailLabelsListResponse,
   GmailMessage,
@@ -17,7 +12,6 @@ import type {
   GmailModifyRequest,
   GmailProfile,
   GmailThread,
-  GmailVacationSettings,
 } from "./types.js";
 
 const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
@@ -237,7 +231,7 @@ export async function listMessages(
 }
 
 /** Get a single message by ID. */
-export async function getMessage(
+async function getMessage(
   connection: OAuthConnection,
   messageId: string,
   format: GmailMessageFormat = "full",
@@ -591,17 +585,6 @@ export async function batchModifyMessages(
   });
 }
 
-/** Move a message to trash. */
-export async function trashMessage(
-  connection: OAuthConnection,
-  messageId: string,
-): Promise<GmailMessage> {
-  return request<GmailMessage>(connection, `/messages/${messageId}/trash`, {
-    method: "POST",
-    retryable: true,
-  });
-}
-
 /** List all labels. */
 export async function listLabels(
   connection: OAuthConnection,
@@ -659,17 +642,6 @@ export async function createDraftRaw(
   });
 }
 
-/** Send an existing draft by ID. */
-export async function sendDraft(
-  connection: OAuthConnection,
-  draftId: string,
-): Promise<GmailMessage> {
-  return request<GmailMessage>(connection, "/drafts/send", {
-    method: "POST",
-    body: JSON.stringify({ id: draftId }),
-  });
-}
-
 /** Send an email. */
 export async function sendMessage(
   connection: OAuthConnection,
@@ -706,96 +678,4 @@ export async function getProfile(
   connection: OAuthConnection,
 ): Promise<GmailProfile> {
   return request<GmailProfile>(connection, "/profile");
-}
-
-/** Get attachment data for a message. */
-export async function getAttachment(
-  connection: OAuthConnection,
-  messageId: string,
-  attachmentId: string,
-): Promise<GmailAttachment> {
-  return request<GmailAttachment>(
-    connection,
-    `/messages/${messageId}/attachments/${attachmentId}`,
-  );
-}
-
-/** Send an email with a pre-built raw MIME payload (for multipart/attachments). */
-export async function sendMessageRaw(
-  connection: OAuthConnection,
-  raw: string,
-  threadId?: string,
-): Promise<GmailMessage> {
-  const payload: Record<string, unknown> = { raw };
-  if (threadId) payload.threadId = threadId;
-  return request<GmailMessage>(connection, "/messages/send", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-/** Create a user label. */
-export async function createLabel(
-  connection: OAuthConnection,
-  name: string,
-  opts?: {
-    messageListVisibility?: "show" | "hide";
-    labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
-  },
-): Promise<GmailLabel> {
-  return request<GmailLabel>(connection, "/labels", {
-    method: "POST",
-    body: JSON.stringify({ name, ...opts }),
-  });
-}
-
-/** List all Gmail filters. */
-export async function listFilters(
-  connection: OAuthConnection,
-): Promise<GmailFilter[]> {
-  const resp = await request<GmailFiltersListResponse>(
-    connection,
-    "/settings/filters",
-  );
-  return resp.filter ?? [];
-}
-
-/** Create a Gmail filter. */
-export async function createFilter(
-  connection: OAuthConnection,
-  criteria: GmailFilterCriteria,
-  action: GmailFilterAction,
-): Promise<GmailFilter> {
-  return request<GmailFilter>(connection, "/settings/filters", {
-    method: "POST",
-    body: JSON.stringify({ criteria, action }),
-  });
-}
-
-/** Delete a Gmail filter. */
-export async function deleteFilter(
-  connection: OAuthConnection,
-  filterId: string,
-): Promise<void> {
-  await request<void>(connection, `/settings/filters/${filterId}`, {
-    method: "DELETE",
-  });
-}
-
-/** Get vacation auto-reply settings. */
-export async function getVacation(
-  connection: OAuthConnection,
-): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(connection, "/settings/vacation");
-}
-
-/** Update vacation auto-reply settings. */
-export async function updateVacation(
-  connection: OAuthConnection,
-  settings: GmailVacationSettings,
-): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(connection, "/settings/vacation", {
-    method: "PUT",
-    body: JSON.stringify(settings),
-  });
 }

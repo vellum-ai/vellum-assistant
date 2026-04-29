@@ -6,7 +6,6 @@ import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
-  resetCleanupScheduleThrottle as resetCleanupScheduleThrottleImpl,
 } from "./cleanup-schedule-state.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
@@ -493,16 +492,6 @@ async function processJob(
     }
   }
 }
-
-// ── Cleanup scheduling ─────────────────────────────────────────────
-
-/**
- * Re-export of the shared throttle-reset helper. The underlying state lives
- * in cleanup-schedule-state.ts so that lighter-weight callers (e.g.
- * ConfigWatcher) can reset it without pulling in jobs-worker's transitive
- * imports.
- */
-export const resetCleanupScheduleThrottle = resetCleanupScheduleThrottleImpl;
 
 /**
  * Enqueue periodic cleanup jobs using config-driven retention windows.

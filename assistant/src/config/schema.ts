@@ -25,10 +25,7 @@ export type {
   IngressRateLimitConfig,
   IngressWebhookConfig,
 } from "./schemas/ingress.js";
-export {
-  IngressConfigSchema,
-  IngressRateLimitConfigSchema,
-} from "./schemas/ingress.js";
+export { IngressConfigSchema } from "./schemas/ingress.js";
 export type { JournalConfig } from "./schemas/journal.js";
 export { JournalConfigSchema } from "./schemas/journal.js";
 export type {
@@ -75,11 +72,7 @@ export {
   MemorySummarizationConfigSchema,
 } from "./schemas/memory-processing.js";
 export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
-export {
-  MemoryDynamicBudgetConfigSchema,
-  MemoryInjectionConfigSchema,
-  MemoryRetrievalConfigSchema,
-} from "./schemas/memory-retrieval.js";
+export { MemoryRetrievalConfigSchema } from "./schemas/memory-retrieval.js";
 export type {
   MemoryEmbeddingsConfig,
   MemorySegmentationConfig,
@@ -112,14 +105,8 @@ export type {
   WebSearchService,
 } from "./schemas/services.js";
 export {
-  ImageGenerationServiceSchema,
-  InferenceServiceSchema,
-  ServiceModeSchema,
   ServicesSchema,
-  VALID_IMAGE_GEN_PROVIDERS,
   VALID_INFERENCE_PROVIDERS,
-  VALID_WEB_SEARCH_PROVIDERS,
-  WebSearchServiceSchema,
 } from "./schemas/services.js";
 export type {
   RemotePolicyConfig,
@@ -131,13 +118,8 @@ export type {
   SkillsLoadConfig,
 } from "./schemas/skills.js";
 export {
-  RemotePolicyConfigSchema,
-  RemoteProviderConfigSchema,
-  RemoteProvidersConfigSchema,
   SkillEntryConfigSchema,
   SkillsConfigSchema,
-  SkillsInstallConfigSchema,
-  SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
 export type { SttProviders, SttService } from "./schemas/stt.js";
 export {
@@ -158,10 +140,6 @@ export type {
   TtsService,
 } from "./schemas/tts.js";
 export {
-  TtsDeepgramProviderConfigSchema,
-  TtsElevenLabsProviderConfigSchema,
-  TtsFishAudioProviderConfigSchema,
-  TtsProvidersSchema,
   TtsServiceSchema,
   VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
 } from "./schemas/tts.js";

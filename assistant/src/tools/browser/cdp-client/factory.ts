@@ -188,13 +188,10 @@ export function buildPinnedCandidateList(
   switch (mode) {
     case "extension": {
       const hostBrowserProxy = HostBrowserProxy.instance;
-      if (!hostBrowserProxy || !hostBrowserProxy.isAvailable()) {
-        const reason = !hostBrowserProxy
-          ? "no active extension connection in registry"
-          : "host browser proxy exists but is not connected";
+      if (!hostBrowserProxy.isAvailable()) {
         throw new CdpError(
           "transport_error",
-          `Pinned mode "extension" unavailable: ${reason}`,
+          `Pinned mode "extension" unavailable: no active extension connection`,
           {
             attemptDiagnostics: [
               {
@@ -202,7 +199,7 @@ export function buildPinnedCandidateList(
                 inclusionReason: `pinned mode: extension`,
                 stage: "candidate_selection",
                 errorCode: "transport_error",
-                errorMessage: reason,
+                errorMessage: "no active extension connection",
               },
             ],
           },
@@ -294,10 +291,9 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
 
-  // 1. Extension -- preferred when an active extension connection exists
-  //    in the ChromeExtensionRegistry and the singleton proxy reports it
-  //    is connected.
-  if (hostBrowserProxy && hostBrowserProxy.isAvailable()) {
+  // 1. Extension -- preferred when the singleton proxy reports an active
+  //    extension connection is available.
+  if (hostBrowserProxy.isAvailable()) {
     candidates.push({
       kind: "extension",
       reason: "extension connected via registry singleton",
@@ -315,10 +311,10 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
         return { client, backend };
       },
     });
-  } else if (hostBrowserProxy) {
+  } else {
     log.debug(
       { conversationId },
-      "CDP factory: singleton proxy present but not available, skipping extension candidate",
+      "CDP factory: no active extension connection, skipping extension candidate",
     );
   }
 
@@ -348,52 +344,39 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
     context.transportInterface === "macos" &&
     cdpInspectConfig.desktopAuto.enabled
   ) {
-    // macOS desktop-auto: include cdp-inspect as a candidate unless:
-    // (a) the singleton proxy exists (extension is in the registry) but
-    //     is temporarily unavailable — the extension transport was
-    //     explicitly expected and the disconnection is transient, so
-    //     inserting cdp-inspect would cause a silent takeover.
-    // (b) the cooldown from a recent failure is still active.
-    //
-    // When no extension connection exists at all, cdp-inspect remains
-    // available as a fallback per the desktop-auto contract.
-    if (hostBrowserProxy && !hostBrowserProxy.isAvailable()) {
+    // macOS desktop-auto: include cdp-inspect as a candidate unless
+    // the cooldown from a recent failure is still active. The extension
+    // candidate is already first in the list, so it wins when connected.
+    const { cooldownMs } = cdpInspectConfig.desktopAuto;
+    if (isDesktopAutoCooldownActive(cooldownMs)) {
       log.debug(
-        { conversationId },
-        "CDP factory: desktop-auto cdp-inspect skipped (extension transport expected but temporarily unavailable)",
+        {
+          conversationId,
+          cooldownMs,
+          cooldownSince: _desktopAutoCooldownSince,
+        },
+        "CDP factory: desktop-auto cdp-inspect skipped (cooldown active)",
       );
     } else {
-      const { cooldownMs } = cdpInspectConfig.desktopAuto;
-      if (isDesktopAutoCooldownActive(cooldownMs)) {
-        log.debug(
-          {
-            conversationId,
-            cooldownMs,
-            cooldownSince: _desktopAutoCooldownSince,
-          },
-          "CDP factory: desktop-auto cdp-inspect skipped (cooldown active)",
-        );
-      } else {
-        candidates.push({
-          kind: "cdp-inspect",
-          reason: "desktopAuto: macOS turn, cdp-inspect auto-attempted",
-          create() {
-            const client = createCdpInspectClient(conversationId, {
-              host: cdpInspectConfig.host,
-              port: cdpInspectConfig.port,
-              discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
-              wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
-            });
-            const backend = createCdpInspectBackend({
-              isAvailable: () => true,
-              sendCdp: (command, signal) =>
-                dispatchThroughClient(client, command, signal),
-              dispose: () => client.dispose(),
-            });
-            return { client, backend };
-          },
-        });
-      }
+      candidates.push({
+        kind: "cdp-inspect",
+        reason: "desktopAuto: macOS turn, cdp-inspect auto-attempted",
+        create() {
+          const client = createCdpInspectClient(conversationId, {
+            host: cdpInspectConfig.host,
+            port: cdpInspectConfig.port,
+            discoveryTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+            wsConnectTimeoutMs: cdpInspectConfig.probeTimeoutMs,
+          });
+          const backend = createCdpInspectBackend({
+            isAvailable: () => true,
+            sendCdp: (command, signal) =>
+              dispatchThroughClient(client, command, signal),
+            dispose: () => client.dispose(),
+          });
+          return { client, backend };
+        },
+      });
     }
   }
 

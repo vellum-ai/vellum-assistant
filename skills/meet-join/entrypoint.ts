@@ -14,7 +14,7 @@
  *
  *   2. Construct `SkillHostClient({ socketPath, skillId })` and `await
  *      client.connect()`. The client prefetches sync state
- *      (`identity.internalAssistantId`, `platform.workspaceDir()`, etc.)
+ *      (`identity.getAssistantName()`, `platform.workspaceDir()`, etc.)
  *      so subsequent in-skill code reads cache hits, not RPC round-trips.
  *
  *   3. Import the skill's `register(host)` from `./register.js` and
@@ -265,7 +265,9 @@ async function watchSocketHealth(
       t.unref();
     });
     try {
-      await client.rawCall<string>("host.identity.getInternalAssistantId");
+      await client.rawCall<string | undefined>(
+        "host.identity.getAssistantName",
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (isConnectionClosureError(message)) {
@@ -341,7 +343,7 @@ if (import.meta.main) {
       // eslint-disable-next-line no-console -- top-level fatal
       console.error(
         `meet-host entrypoint: fatal error: ${
-          err instanceof Error ? err.stack ?? err.message : String(err)
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
         }`,
       );
       process.exit(1);

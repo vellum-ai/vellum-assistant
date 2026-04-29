@@ -50,7 +50,11 @@ import { getLogger } from "../util/logger.js";
 import type { IpcRequest, IpcResponse } from "./assistant-server.js";
 
 export type { SkillIpcRoute, SkillMethodHandler } from "./skill-ipc-types.js";
-import type { SkillMethodHandler } from "./skill-ipc-types.js";
+import type {
+  SkillIpcStream,
+  SkillIpcStreamingHandler,
+  SkillMethodHandler,
+} from "./skill-ipc-types.js";
 import {
   skillIpcRoutes,
   skillIpcStreamingRoutes,
@@ -82,28 +86,6 @@ const DEFAULT_SEND_REQUEST_TIMEOUT_MS = 30_000;
 const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD = "host.events.subscribe.close" as const;
 
 /** Stream handle passed to streaming-handler implementations. */
-export interface SkillIpcStream {
-  /** The original request id that opened this stream (used as the stream id). */
-  readonly id: string;
-  /**
-   * Send a delivery frame to the client. No-op after the stream has been
-   * closed (client disconnect, explicit close, or server shutdown).
-   */
-  send(payload: unknown): void;
-  /**
-   * Terminate the stream from the server side. Sends a final error frame to
-   * the client (if `errorMessage` is provided and the socket is still
-   * writable), invokes the handler-returned dispose, and unregisters the
-   * stream from the per-socket subscription map. Idempotent — subsequent
-   * calls are no-ops. Use from `onEvict`-style callbacks where the upstream
-   * source has decided to terminate the subscription, or to surface
-   * unrecoverable conditions like backpressure.
-   */
-  close(errorMessage?: string): void;
-  /** True until the stream has been disposed. */
-  readonly active: boolean;
-}
-
 /**
  * Maximum bytes Node may have queued in the socket's outbound buffer before
  * the next streaming `send` will close the stream with a backpressure error.
@@ -115,22 +97,7 @@ export interface SkillIpcStream {
  */
 const STREAM_BACKPRESSURE_BYTES = 1024 * 1024;
 
-/**
- * Handler signature for long-lived streaming methods (e.g.
- * `host.events.subscribe`). Runs synchronously with the opening request and
- * returns a dispose callback that the server invokes on client disconnect,
- * explicit close, or server shutdown.
- */
-export type SkillIpcStreamingHandler = (
-  stream: SkillIpcStream,
-  params?: Record<string, unknown>,
-) => () => void;
 
-/** Long-lived streaming route — method name + handler function. */
-export type SkillIpcStreamingRoute = {
-  method: string;
-  handler: SkillIpcStreamingHandler;
-};
 
 // ---------------------------------------------------------------------------
 // Per-connection context

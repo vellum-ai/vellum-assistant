@@ -12,6 +12,5 @@ struct HomePermissionDetailCard: View {
             .font(VFont.bodyMediumDefault)
             .foregroundStyle(VColor.contentSecondary)
             .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }

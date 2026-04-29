@@ -1,8 +1,8 @@
 /**
  * Unit tests for the /v1/host-browser-result route handler.
  *
- * Resolution goes through HostBrowserProxy.instance (singleton) rather
- * than per-conversation. The mock below controls what .instance returns.
+ * Resolution goes through HostBrowserProxy.instance (singleton). The
+ * mock below controls the proxy's pending request map and resolve spy.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -19,17 +19,20 @@ interface ResolveCall {
 }
 
 const resolveSpy: ResolveCall[] = [];
-let mockProxyAvailable = true;
+const pendingRequests = new Set<string>();
 
 mock.module("../daemon/host-browser-proxy.js", () => ({
   HostBrowserProxy: {
     get instance() {
-      if (!mockProxyAvailable) return undefined;
       return {
+        hasPendingRequest(requestId: string) {
+          return pendingRequests.has(requestId);
+        },
         resolve(
           requestId: string,
           response: { content: string; isError: boolean },
         ) {
+          pendingRequests.delete(requestId);
           resolveSpy.push({ requestId, response });
         },
       };
@@ -39,12 +42,7 @@ mock.module("../daemon/host-browser-proxy.js", () => ({
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/host-browser-routes.js";
 
 afterAll(() => {
@@ -59,19 +57,13 @@ const handleHostBrowserResult = ROUTES.find(
 
 describe("handleHostBrowserResult", () => {
   beforeEach(() => {
-    pendingInteractions.clear();
+    pendingRequests.clear();
     resolveSpy.length = 0;
-    mockProxyAvailable = true;
   });
 
-  test("happy path: resolves a pending host_browser interaction via singleton", async () => {
+  test("happy path: resolves a pending host_browser request via singleton", async () => {
     const requestId = "browser-req-happy";
-
-    pendingInteractions.register(requestId, {
-      conversation: null,
-      conversationId: "conv-1",
-      kind: "host_browser",
-    });
+    pendingRequests.add(requestId);
 
     const result = await handleHostBrowserResult({
       body: { requestId, content: "ok", isError: false },
@@ -82,8 +74,7 @@ describe("handleHostBrowserResult", () => {
     expect(resolveSpy[0].requestId).toBe(requestId);
     expect(resolveSpy[0].response).toEqual({ content: "ok", isError: false });
 
-    // Pending interaction should be consumed
-    expect(pendingInteractions.get(requestId)).toBeUndefined();
+    expect(pendingRequests.has(requestId)).toBe(false);
   });
 
   test("missing body: throws BadRequestError", () => {
@@ -108,34 +99,9 @@ describe("handleHostBrowserResult", () => {
     ).toThrow(NotFoundError);
   });
 
-  test("wrong kind: throws ConflictError with mismatch message", () => {
-    const requestId = "browser-req-wrong-kind";
-
-    pendingInteractions.register(requestId, {
-      conversation: null,
-      conversationId: "conv-1",
-      kind: "host_bash",
-    });
-
-    expect(() =>
-      handleHostBrowserResult({
-        body: { requestId, content: "x", isError: false },
-      }),
-    ).toThrow(ConflictError);
-
-    // Pending interaction should NOT have been consumed
-    expect(pendingInteractions.get(requestId)).toBeDefined();
-    expect(resolveSpy).toHaveLength(0);
-  });
-
   test("defaults: missing content/isError default to '' and false", async () => {
     const requestId = "browser-req-defaults";
-
-    pendingInteractions.register(requestId, {
-      conversation: null,
-      conversationId: "conv-1",
-      kind: "host_browser",
-    });
+    pendingRequests.add(requestId);
 
     const result = await handleHostBrowserResult({ body: { requestId } });
 

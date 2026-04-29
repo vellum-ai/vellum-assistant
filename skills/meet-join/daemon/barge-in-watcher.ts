@@ -250,10 +250,10 @@ export class MeetBargeInWatcher {
       try {
         this.hubSubscription.dispose();
       } catch (err) {
-        this.log.warn(
-          "MeetBargeInWatcher: assistant-event-hub dispose threw",
-          { err, meetingId: this.meetingId },
-        );
+        this.log.warn("MeetBargeInWatcher: assistant-event-hub dispose threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.hubSubscription = null;
     }
@@ -455,13 +455,12 @@ export function createBargeInWatcher(
   host: SkillHost,
 ): (deps: MeetBargeInWatcherDeps) => MeetBargeInWatcher {
   const logger = host.logger.get("meet-barge-in-watcher");
-  const assistantId = host.identity.internalAssistantId;
   return (deps) =>
     new MeetBargeInWatcher({
       ...deps,
       subscribeAssistantEvents:
         deps.subscribeAssistantEvents ??
-        ((cb) => host.events.subscribe({ assistantId }, cb)),
+        ((cb) => host.events.subscribe({}, cb)),
       logger: deps.logger ?? logger,
     });
 }

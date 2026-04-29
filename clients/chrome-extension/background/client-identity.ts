@@ -2,7 +2,7 @@
  * Stable per-install client identity for the Chrome extension.
  *
  * Generates a UUID on first access and persists it to
- * `chrome.storage.local` so the daemon's ClientRegistry can track this
+ * `chrome.storage.local` so the daemon's event hub can track this
  * extension across SSE/WebSocket reconnects and browser restarts.
  *
  * The persisted client ID is separate from the `clientInstanceId` used
@@ -49,7 +49,7 @@ export async function getClientId(): Promise<string> {
 
 /**
  * Headers that identify this Chrome extension client to the assistant daemon.
- * Attach to SSE streaming connections so the ClientRegistry can track
+ * Attach to SSE streaming connections so the event hub can track
  * connected clients and their capabilities.
  */
 export async function getClientRegistrationHeaders(): Promise<Record<string, string>> {

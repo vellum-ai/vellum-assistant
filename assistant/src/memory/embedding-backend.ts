@@ -20,7 +20,6 @@ import {
 } from "./embedding-types.js";
 
 export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
-export { embeddingInputContentHash, normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
 
@@ -635,10 +634,6 @@ export async function embedWithBackend(
     }
   }
   throw lastErr;
-}
-
-export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
-  log.warn({ err }, `Memory embeddings failed (${context})`);
 }
 
 async function selectFallbackBackends(

@@ -207,7 +207,7 @@ export function isDaemonRunning(): boolean {
   return true;
 }
 
-export async function getDaemonStatus(): Promise<{
+async function getDaemonStatus(): Promise<{
   running: boolean;
   pid?: number;
 }> {
@@ -287,7 +287,7 @@ function releaseStartupLock(): void {
 // NOTE: startDaemon() is the assistant-side daemon lifecycle manager.
 // It should eventually converge with cli/src/lib/local.ts::startLocalDaemon
 // which is the CLI-side equivalent.
-export async function startDaemon(): Promise<{
+async function startDaemon(): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
@@ -339,7 +339,7 @@ export async function startDaemon(): Promise<{
   }
 }
 
-export async function startDaemonLocked(): Promise<{
+async function startDaemonLocked(): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
@@ -446,74 +446,6 @@ export async function startDaemonLocked(): Promise<{
 export type StopResult =
   | { stopped: true }
   | { stopped: false; reason: "not_running" | "stop_failed" };
-
-export async function stopDaemon(): Promise<StopResult> {
-  const pid = readPid();
-  if (pid == null || !isProcessRunning(pid)) {
-    cleanupPidFile();
-    return { stopped: false, reason: "not_running" };
-  }
-
-  // Guard against stale PID reuse: if the PID has been recycled by the OS
-  // and now belongs to an unrelated process, clean up the PID file but
-  // never signal it.
-  if (!isVellumDaemonProcess(pid)) {
-    log.info(
-      { pid },
-      "PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only",
-    );
-    cleanupPidFile();
-    return { stopped: false, reason: "not_running" };
-  }
-
-  process.kill(pid, "SIGTERM");
-
-  const timeouts = readDaemonTimeouts();
-
-  // Wait for process to exit
-  const maxWait = timeouts.stopTimeoutMs;
-  const interval = 100;
-  let waited = 0;
-  while (waited < maxWait) {
-    if (!isProcessRunning(pid)) {
-      cleanupPidFile();
-      return { stopped: true };
-    }
-    await new Promise((r) => setTimeout(r, interval));
-    waited += interval;
-  }
-
-  // Force kill
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch (err) {
-    log.debug({ err, pid }, "SIGKILL failed, process already exited");
-  }
-
-  // Wait for the process to actually die after SIGKILL. Without this,
-  // startDaemon() can race with the dying process's shutdown handler.
-  const killMaxWait = timeouts.sigkillGracePeriodMs;
-  let killWaited = 0;
-  while (killWaited < killMaxWait && isProcessRunning(pid)) {
-    await new Promise((r) => setTimeout(r, 100));
-    killWaited += 100;
-  }
-
-  // Only clean up if the process has actually exited.
-  // If it's still alive after SIGKILL + timeout, preserve the PID file
-  // so isDaemonRunning() still reports true and prevents a duplicate
-  // daemon from being spawned.
-  if (!isProcessRunning(pid)) {
-    cleanupPidFile();
-    return { stopped: true };
-  }
-
-  log.warn(
-    { pid },
-    "Daemon process still running after SIGKILL + timeout, leaving PID file intact",
-  );
-  return { stopped: false, reason: "stop_failed" };
-}
 
 export async function ensureDaemonRunning(): Promise<void> {
   const status = await getDaemonStatus();

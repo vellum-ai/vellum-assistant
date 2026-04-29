@@ -944,15 +944,15 @@ describe("voice-session-bridge", () => {
       decision: string;
     }> = [];
     const publishedMessages: ServerMessage[] = [];
-    const subscription = assistantEventHub.subscribe(
-      {
-        assistantId: "self",
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: {
         conversationId: conversation.id,
       },
-      (event) => {
+      callback: (event) => {
         publishedMessages.push(event.message);
       },
-    );
+    });
 
     const session = {
       isProcessing: () => false,

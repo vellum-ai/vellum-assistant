@@ -181,7 +181,7 @@ async function runClawhub(
   const { mkdirSync } = await import("node:fs");
   mkdirSync(cwd, { recursive: true });
 
-  log.info({ args, cwd }, "Running clawhub command");
+  log.debug({ args, cwd }, "Running clawhub command");
 
   const proc = Bun.spawn(["npx", "clawhub", ...args], {
     cwd,
@@ -211,7 +211,7 @@ async function runClawhub(
 
   const exitCode = await proc.exited;
 
-  log.info(
+  log.debug(
     { exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },
     "clawhub command completed",
   );

@@ -101,7 +101,6 @@ function makeHost(): SkillHost {
     },
     identity: {
       getAssistantName: () => assistantNameValue,
-      internalAssistantId: "self",
     },
     platform: {
       workspaceDir: () => "/tmp/meet-join-tool-test-workspace",
