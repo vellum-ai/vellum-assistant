@@ -8,8 +8,8 @@ public struct AnyInsettableShape: InsettableShape {
     private let _inset: @Sendable (CGFloat) -> AnyInsettableShape
 
     public init<S: InsettableShape>(_ shape: S) {
-        _path = shape.path
-        _sizeThatFits = shape.sizeThatFits
+        _path = { shape.path(in: $0) }
+        _sizeThatFits = { shape.sizeThatFits($0) }
         _inset = { AnyInsettableShape(shape.inset(by: $0)) }
     }
 
