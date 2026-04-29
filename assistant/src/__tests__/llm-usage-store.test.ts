@@ -98,6 +98,26 @@ describe("recordUsageEvent", () => {
     expect(events[0].conversationId).toBe("c1");
   });
 
+  test("persists call-site and inference-profile attribution", () => {
+    const event = recordUsageEvent(
+      makeInput({
+        callSite: "mainAgent",
+        inferenceProfile: "balanced",
+        inferenceProfileSource: "conversation",
+      }),
+      pricedResult,
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(event.callSite).toBe("mainAgent");
+    expect(event.inferenceProfile).toBe("balanced");
+    expect(event.inferenceProfileSource).toBe("conversation");
+    expect(events[0].callSite).toBe("mainAgent");
+    expect(events[0].inferenceProfile).toBe("balanced");
+    expect(events[0].inferenceProfileSource).toBe("conversation");
+  });
+
   test("persists an unpriced event", () => {
     const input = makeInput({ provider: "ollama", model: "llama3" });
     const event = recordUsageEvent(input, unpricedResult);
@@ -126,8 +146,57 @@ describe("recordUsageEvent", () => {
     expect(events[0].conversationId).toBeNull();
     expect(events[0].runId).toBeNull();
     expect(events[0].requestId).toBeNull();
+    expect(events[0].callSite).toBeNull();
+    expect(events[0].inferenceProfile).toBeNull();
+    expect(events[0].inferenceProfileSource).toBeNull();
     expect(events[0].cacheCreationInputTokens).toBeNull();
     expect(events[0].cacheReadInputTokens).toBeNull();
+  });
+
+  test("reads old-shape rows with null attribution", () => {
+    const db = getDb();
+    db.run(/*sql*/ `
+      INSERT INTO llm_usage_events (
+        id,
+        created_at,
+        conversation_id,
+        run_id,
+        request_id,
+        actor,
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens,
+        cache_read_input_tokens,
+        estimated_cost_usd,
+        pricing_status,
+        llm_call_count,
+        metadata_json
+      ) VALUES (
+        'old-row',
+        1000,
+        NULL,
+        NULL,
+        NULL,
+        'main_agent',
+        'anthropic',
+        'claude-sonnet-4-20250514',
+        100,
+        50,
+        NULL,
+        NULL,
+        0.001,
+        'priced',
+        1,
+        NULL
+      )
+    `);
+
+    const [event] = listUsageEvents();
+    expect(event.callSite).toBeNull();
+    expect(event.inferenceProfile).toBeNull();
+    expect(event.inferenceProfileSource).toBeNull();
   });
 
   test("handles populated optional fields", () => {
@@ -999,6 +1068,20 @@ describe("queryUnreportedUsageEvents", () => {
     // Should return the earliest two due to ASC ordering
     expect(events[0].model).toBe("model-a");
     expect(events[1].model).toBe("model-b");
+  });
+
+  test("returns attribution fields for unreported usage events", () => {
+    insertEventAt(1000, {
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].callSite).toBe("mainAgent");
+    expect(events[0].inferenceProfile).toBe("balanced");
+    expect(events[0].inferenceProfileSource).toBe("active");
   });
 
   test("returns empty array when no events match", () => {

@@ -186,6 +186,7 @@ export {
   downMemoryV2ActivationLogs,
   migrateMemoryV2ActivationLogs,
 } from "./234-memory-v2-activation-logs.js";
+export { migrateLlmUsageAttribution } from "./235-llm-usage-attribution.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
