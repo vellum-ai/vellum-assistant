@@ -149,8 +149,7 @@ struct NameExchangeView: View {
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(isActive ? VColor.contentInset.opacity(0.8) : VColor.contentTertiary)
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
             .background(
                 RoundedRectangle(cornerRadius: VRadius.pill)
                     .fill(isActive ? VColor.primaryBase : (isHovered ? VColor.surfaceBase : VColor.surfaceLift))
@@ -182,8 +181,7 @@ struct NameExchangeView: View {
             Text(name)
                 .font(VFont.labelDefault)
                 .foregroundStyle(isActive ? VColor.contentInset : VColor.contentSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.pill)
                         .fill(isActive ? VColor.primaryBase : (hoveredSuggestion == name ? VColor.surfaceBase : VColor.surfaceLift))
