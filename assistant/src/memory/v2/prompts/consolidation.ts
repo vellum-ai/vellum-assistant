@@ -118,7 +118,13 @@ When you bind two concepts, edit \`memory/edges.json\` to add an entry for the t
 }
 \`\`\`
 
-Edge density target: 5–10 per mature page. New pages: as many as fit naturally; they'll accumulate. Don't pad. Every edge should reflect a real conceptual binding from source.
+Edge density target: 5-10 per mature page. New pages: as many as fit naturally; they'll accumulate.
+
+Don't pad. Every edge should reflect a real conceptual binding from source.
+
+HARD LIMIT of 20 edges on any page. If a page is connected to everything, it's the same as being connected to nothing.
+
+If a page has more than 20 edges, you must either split the page or prune edges to at most 20 of the most important edges.
 
 ### 4. Page size — hard tiers, no rationalization
 
