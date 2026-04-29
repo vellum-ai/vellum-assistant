@@ -71,18 +71,27 @@ import {
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { mintToken } from "../runtime/auth/token-service.js";
 import {
   mintHostBrowserCapability,
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
 } from "../runtime/capability-tokens.js";
-import {
-  __resetChromeExtensionRegistryForTests,
-  getChromeExtensionRegistry,
-} from "../runtime/chrome-extension-registry.js";
+import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
+import { getClientRegistry } from "../runtime/client-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
+
+function mintSseToken(guardianId: string): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: `actor:self:${guardianId}`,
+    scope_profile: "actor_client_v1",
+    policy_epoch: 1,
+    ttlSeconds: 3600,
+  });
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -102,11 +111,11 @@ async function waitFor(
 }
 
 async function waitForRegistryEntry(
-  guardianId: string,
+  _guardianId: string,
   timeoutMs = 2000,
 ): Promise<void> {
   await waitFor(
-    () => getChromeExtensionRegistry().get(guardianId) !== undefined,
+    () => getClientRegistry().getMostRecentByCapability("host_browser") != null,
     timeoutMs,
   );
 }
@@ -154,6 +163,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
@@ -195,6 +205,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
@@ -224,6 +235,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
@@ -301,19 +313,12 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
     await mockExt.waitForConnection();
     await waitForRegistryEntry(guardianId);
-
-    // Grab the initial timestamps so we can verify that keepalive
-    // bumps lastKeepaliveAt but NOT lastActiveAt (routing field).
-    const connBefore = getChromeExtensionRegistry().get(guardianId)!;
-    const lastActiveBefore = connBefore.lastActiveAt;
-
-    // Small delay to ensure Date.now() advances at least 1ms.
-    await new Promise((r) => setTimeout(r, 15));
 
     // Send a keepalive frame (the extension sends these periodically
     // to prevent the runtime from considering the connection stale).
@@ -321,17 +326,8 @@ describe("host_browser WS event + invalidation e2e", () => {
     // runtime should silently ignore (lenient validation).
     mockExt.sendRaw(JSON.stringify({ type: "keepalive", ts: Date.now() }));
 
-    // Wait for the touch to propagate — touch() updates
-    // lastKeepaliveAt (not lastActiveAt) to avoid routing interference.
-    await waitFor(() => {
-      const conn = getChromeExtensionRegistry().get(guardianId);
-      return conn !== undefined && (conn.lastKeepaliveAt ?? 0) > 0;
-    });
-
-    const connAfter = getChromeExtensionRegistry().get(guardianId)!;
-    expect(connAfter.lastKeepaliveAt).toBeGreaterThan(0);
-    // lastActiveAt must remain unchanged — keepalives must not affect routing.
-    expect(connAfter.lastActiveAt).toBe(lastActiveBefore);
+    // Small delay to let the keepalive frame process.
+    await new Promise((r) => setTimeout(r, 15));
 
     // Verify the socket is still alive by sending a normal host_browser_event
     // frame after the keepalive — if the socket had been torn down, this
@@ -356,6 +352,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
@@ -404,6 +401,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();

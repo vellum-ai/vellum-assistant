@@ -2,7 +2,6 @@ import { v4 as uuid } from "uuid";
 
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -72,13 +71,12 @@ export class HostBrowserProxy {
   }
 
   /**
-   * Publish a ServerMessage through the assistant event hub. Subscribers
-   * with matching filters (e.g. the chrome-extension WS handler) will
-   * receive and forward the message to their transport.
+   * Publish a ServerMessage through the assistant event hub.
    */
   private sendToExtension(msg: ServerMessage): void {
-    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg);
-    assistantEventHub.publish(event);
+    void assistantEventHub.publish(buildAssistantEvent(msg)).catch((err) => {
+      log.warn({ err }, "failed to publish host_browser event to hub");
+    });
   }
 
   request(

@@ -60,18 +60,27 @@ mock.module("../config/loader.js", () => ({
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { mintToken } from "../runtime/auth/token-service.js";
 import {
   mintHostBrowserCapability,
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
 } from "../runtime/capability-tokens.js";
-import {
-  __resetChromeExtensionRegistryForTests,
-  getChromeExtensionRegistry,
-} from "../runtime/chrome-extension-registry.js";
+import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
+import { getClientRegistry } from "../runtime/client-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
+
+function mintSseToken(guardianId: string): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: `actor:self:${guardianId}`,
+    scope_profile: "actor_client_v1",
+    policy_epoch: 1,
+    ttlSeconds: 3600,
+  });
+}
 
 // ── Tests ───────────────────────────────────────────────────────────
 
@@ -111,6 +120,7 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "ws",
     });
     await mockExt.start();
@@ -144,6 +154,7 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      sseToken: mintSseToken(guardianId),
       resultTransport: "http",
     });
     await mockExt.start();
@@ -173,17 +184,18 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
       await import("./fixtures/mock-chrome-extension.js");
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
-      token: "bogus-not-a-real-token",
+      token: "totally-bogus-not-a-real-token",
     });
-    await mockExt.start();
-    let connected = false;
+    let started = false;
     try {
+      await mockExt.start();
+      started = true;
       await mockExt.waitForConnection(500);
-      connected = true;
     } catch {
-      // expected
+      // expected — SSE or WS auth rejects the bad token
     }
-    expect(connected).toBe(false);
+    // The extension must not reach a fully-connected state.
+    expect(started).toBe(false);
     await mockExt.stop();
   });
 });
@@ -206,11 +218,11 @@ async function waitFor(
 }
 
 async function waitForRegistryEntry(
-  guardianId: string,
+  _guardianId: string,
   timeoutMs = 2000,
 ): Promise<void> {
   await waitFor(
-    () => getChromeExtensionRegistry().get(guardianId) !== undefined,
+    () => getClientRegistry().getMostRecentByCapability("host_browser") != null,
     timeoutMs,
   );
 }

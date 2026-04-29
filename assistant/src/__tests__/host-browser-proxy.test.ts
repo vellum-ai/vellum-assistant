@@ -15,20 +15,14 @@ let mockHasConnection = true;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
-    publish: (event: unknown) => {
+    publish: async (event: unknown) => {
       publishedEvents.push(event);
     },
   },
 }));
 
 mock.module("../runtime/assistant-event.js", () => ({
-  buildAssistantEvent: (_assistantId: string, message: unknown) => ({
-    message,
-  }),
-}));
-
-mock.module("../runtime/assistant-scope.js", () => ({
-  DAEMON_INTERNAL_ASSISTANT_ID: "self",
+  buildAssistantEvent: (message: unknown) => ({ message }),
 }));
 
 mock.module("../runtime/client-registry.js", () => ({
