@@ -63,9 +63,7 @@ export async function writeHomeFeedItemForSignal(
 
   const item: FeedItem = {
     id: `notif:${signal.signalId}`,
-    type: "action",
-    source: "assistant",
-    author: "assistant",
+    type: "notification",
     priority: 50,
     title: renderedCopy?.title ?? payloadTitle ?? signal.sourceEventName,
     summary: renderedCopy?.body ?? payloadBody ?? signal.sourceEventName,

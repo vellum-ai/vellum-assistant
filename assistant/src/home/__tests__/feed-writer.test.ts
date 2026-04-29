@@ -43,29 +43,23 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 const {
   HOME_FEED_FILENAME,
   HOME_FEED_VERSION,
-  MAX_ACTIONS_PER_SOURCE,
   appendFeedItem,
   getHomeFeedPath,
   patchFeedItemStatus,
   readHomeFeed,
 } = await import("../feed-writer.js");
 
-type FeedItemType = "nudge" | "digest" | "action" | "thread";
-type FeedItemAuthor = "assistant" | "platform";
 type FeedItemStatus = "new" | "seen" | "acted_on";
-type FeedItemSource = "gmail" | "slack" | "calendar" | "assistant";
 
 interface TestFeedItem {
   id: string;
-  type: FeedItemType;
+  type: "notification";
   priority: number;
   title: string;
   summary: string;
-  source?: FeedItemSource;
   timestamp: string;
   status: FeedItemStatus;
   expiresAt?: string;
-  author: FeedItemAuthor;
   createdAt: string;
 }
 
@@ -73,13 +67,12 @@ function makeItem(
   overrides: Partial<TestFeedItem> & { id: string },
 ): TestFeedItem {
   return {
-    type: "nudge",
+    type: "notification",
     priority: 50,
     title: "Test",
     summary: "Test summary",
     timestamp: "2026-04-14T12:00:00.000Z",
     status: "new",
-    author: "platform",
     createdAt: "2026-04-14T12:00:00.000Z",
     ...overrides,
   };
@@ -127,7 +120,7 @@ describe("feed-writer", () => {
   });
 
   describe("readHomeFeed", () => {
-    test("missing file returns an empty v1 HomeFeedFile", () => {
+    test("missing file returns an empty v2 HomeFeedFile", () => {
       const feed = readHomeFeed();
       expect(feed.version).toBe(HOME_FEED_VERSION);
       expect(feed.items).toEqual([]);
@@ -139,17 +132,15 @@ describe("feed-writer", () => {
       const past = new Date(Date.now() - 60_000).toISOString();
       const future = new Date(Date.now() + 60_000).toISOString();
       const file = {
-        version: 1,
+        version: 2,
         updatedAt: "2026-04-14T12:00:00.000Z",
         items: [
           makeItem({
             id: "expired",
-            type: "action",
             expiresAt: past,
           }),
           makeItem({
             id: "live",
-            type: "action",
             expiresAt: future,
           }),
         ],
@@ -167,119 +158,125 @@ describe("feed-writer", () => {
       const feed = readHomeFeed();
       expect(feed.items).toEqual([]);
     });
+
+    test("v1 file (legacy schema) fails Zod validation and falls back to empty", () => {
+      // Defensive: if the workspace migration has not yet run (e.g. on
+      // first daemon boot before migrations land, or a corrupted
+      // migration checkpoint), the writer's read path must degrade
+      // gracefully rather than throwing.
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      const v1File = {
+        version: 1,
+        updatedAt: "2026-04-14T12:00:00.000Z",
+        items: [
+          {
+            id: "legacy",
+            type: "nudge",
+            priority: 50,
+            title: "Legacy",
+            summary: "Legacy summary",
+            source: "gmail",
+            author: "platform",
+            timestamp: "2026-04-14T12:00:00.000Z",
+            status: "new",
+            createdAt: "2026-04-14T12:00:00.000Z",
+          },
+        ],
+      };
+      writeFileSync(
+        getHomeFeedPath(),
+        JSON.stringify(v1File, null, 2),
+        "utf-8",
+      );
+
+      const feed = readHomeFeed();
+      expect(feed.items).toEqual([]);
+    });
   });
 
   describe("appendFeedItem", () => {
-    test("appends a single nudge to disk", async () => {
+    test("appends a single notification to disk as v2", async () => {
       await appendFeedItem(
         makeItem({
-          id: "nudge-1",
-          type: "nudge",
-          source: "gmail",
+          id: "notif-1",
           title: "New email",
           summary: "You have a new email",
         }),
       );
       const decoded = readFileJson();
-      expect(decoded.version).toBe(1);
+      expect(decoded.version).toBe(2);
       expect(decoded.items).toHaveLength(1);
-      expect(decoded.items[0]!.id).toBe("nudge-1");
+      expect(decoded.items[0]!.id).toBe("notif-1");
+      expect(decoded.items[0]!.type).toBe("notification");
       expect(decoded.items[0]!.title).toBe("New email");
     });
 
-    test("second digest from the same source replaces the first", async () => {
+    test("incoming item with the same id replaces the existing entry in place", async () => {
+      // The v2 merge rule: same-id replaces (preserving array
+      // position); otherwise append. Older entries with the same id
+      // must NOT linger in the list as duplicates.
       await appendFeedItem(
         makeItem({
-          id: "digest-old",
-          type: "digest",
-          source: "gmail",
-          title: "Old digest",
+          id: "dup",
+          title: "Original title",
           createdAt: "2026-04-14T10:00:00.000Z",
         }),
       );
       await appendFeedItem(
         makeItem({
-          id: "digest-new",
-          type: "digest",
-          source: "gmail",
-          title: "New digest",
+          id: "other",
+          title: "Other entry",
           createdAt: "2026-04-14T11:00:00.000Z",
         }),
       );
-
-      const decoded = readFileJson();
-      const digests = decoded.items.filter((i) => i.type === "digest");
-      expect(digests).toHaveLength(1);
-      expect(digests[0]!.id).toBe("digest-new");
-      expect(digests[0]!.title).toBe("New digest");
-    });
-
-    test("assistant nudge overwrites an existing platform nudge for the same source", async () => {
       await appendFeedItem(
         makeItem({
-          id: "platform-nudge",
-          type: "nudge",
-          source: "slack",
-          author: "platform",
-          title: "Platform baseline",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "assistant-nudge",
-          type: "nudge",
-          source: "slack",
-          author: "assistant",
-          title: "Assistant override",
+          id: "dup",
+          title: "Refreshed title",
+          createdAt: "2026-04-14T12:00:00.000Z",
         }),
       );
 
       const decoded = readFileJson();
-      const nudges = decoded.items.filter(
-        (i) => i.type === "nudge" && i.source === "slack",
-      );
-      expect(nudges).toHaveLength(1);
-      expect(nudges[0]!.author).toBe("assistant");
-      expect(nudges[0]!.title).toBe("Assistant override");
+      const matching = decoded.items.filter((i) => i.id === "dup");
+      expect(matching).toHaveLength(1);
+      expect(matching[0]!.title).toBe("Refreshed title");
+      expect(decoded.items.find((i) => i.id === "other")).toBeDefined();
     });
 
-    test("platform nudge over an existing assistant nudge is a no-op", async () => {
+    test("distinct ids all persist (no implicit dedup beyond same-id)", async () => {
       await appendFeedItem(
         makeItem({
-          id: "assistant-nudge",
-          type: "nudge",
-          source: "slack",
-          author: "assistant",
-          title: "Assistant original",
+          id: "a",
+          title: "First",
+          createdAt: "2026-04-14T10:00:00.000Z",
         }),
       );
       await appendFeedItem(
         makeItem({
-          id: "platform-nudge",
-          type: "nudge",
-          source: "slack",
-          author: "platform",
-          title: "Stale platform baseline",
+          id: "b",
+          title: "Second",
+          createdAt: "2026-04-14T11:00:00.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "c",
+          title: "Third",
+          createdAt: "2026-04-14T12:00:00.000Z",
         }),
       );
 
       const decoded = readFileJson();
-      const nudges = decoded.items.filter(
-        (i) => i.type === "nudge" && i.source === "slack",
-      );
-      expect(nudges).toHaveLength(1);
-      expect(nudges[0]!.author).toBe("assistant");
-      expect(nudges[0]!.title).toBe("Assistant original");
+      expect(decoded.items).toHaveLength(3);
+      const ids = new Set(decoded.items.map((i) => i.id));
+      expect(ids).toEqual(new Set(["a", "b", "c"]));
     });
 
-    test("action without expiresAt is persisted with no auto-fade", async () => {
-      // Action items are the feed's activity log — they must persist
-      // until the user dismisses them. The writer used to fill in a
-      // 24h default expiresAt; that behavior is intentionally gone.
+    test("item without expiresAt is persisted as-is (no auto-fade)", async () => {
       await appendFeedItem(
         makeItem({
-          id: "action-1",
-          type: "action",
+          id: "no-expiry",
           createdAt: "2026-04-14T12:00:00.000Z",
         }),
       );
@@ -288,206 +285,17 @@ describe("feed-writer", () => {
       expect(decoded.items[0]!.expiresAt).toBeUndefined();
     });
 
-    test("action with an explicit expiresAt is left untouched", async () => {
+    test("explicit expiresAt is left untouched", async () => {
       const explicit = "2026-04-15T00:00:00.000Z";
       await appendFeedItem(
         makeItem({
-          id: "action-2",
-          type: "action",
+          id: "with-expiry",
           expiresAt: explicit,
           createdAt: "2026-04-14T12:00:00.000Z",
         }),
       );
       const decoded = readFileJson();
       expect(decoded.items[0]!.expiresAt).toBe(explicit);
-    });
-
-    test("action with same id updates the existing entry in place", async () => {
-      // Deterministic-dedup callers (emit-feed-event.ts dedupKey)
-      // emit the same id on repeat signals; the writer must refresh
-      // the existing entry rather than append a duplicate, otherwise
-      // the same event would show up N times until the per-source
-      // cap trimmed it.
-      await appendFeedItem(
-        makeItem({
-          id: "emit:gmail:unread-msg-42",
-          type: "action",
-          source: "gmail",
-          title: "Unread from Alice",
-          createdAt: "2026-04-14T10:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "emit:gmail:unread-msg-42",
-          type: "action",
-          source: "gmail",
-          title: "Unread from Alice (refreshed)",
-          createdAt: "2026-04-14T12:00:00.000Z",
-        }),
-      );
-
-      const decoded = readFileJson();
-      const matching = decoded.items.filter(
-        (i) => i.id === "emit:gmail:unread-msg-42",
-      );
-      expect(matching).toHaveLength(1);
-      expect(matching[0]!.title).toBe("Unread from Alice (refreshed)");
-    });
-
-    test("multiple actions with the same (type, source) all persist", async () => {
-      // Actions must not collapse onto each other by (type, source) —
-      // each append is a distinct entry in the activity log.
-      await appendFeedItem(
-        makeItem({
-          id: "action-a",
-          type: "action",
-          source: "gmail",
-          title: "Acted A",
-          createdAt: "2026-04-14T10:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "action-b",
-          type: "action",
-          source: "gmail",
-          title: "Acted B",
-          createdAt: "2026-04-14T11:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "action-c",
-          type: "action",
-          source: "gmail",
-          title: "Acted C",
-          createdAt: "2026-04-14T12:00:00.000Z",
-        }),
-      );
-
-      const decoded = readFileJson();
-      const gmailActions = decoded.items.filter(
-        (i) => i.type === "action" && i.source === "gmail",
-      );
-      expect(gmailActions).toHaveLength(3);
-      const ids = new Set(gmailActions.map((i) => i.id));
-      expect(ids).toEqual(new Set(["action-a", "action-b", "action-c"]));
-    });
-
-    test("per-source action cap keeps only the N most recent per source", async () => {
-      // Append MAX+5 actions for gmail, interleaved with a handful of
-      // slack actions and a digest. Cap must apply only to the
-      // overflowing source.
-      const overflow = MAX_ACTIONS_PER_SOURCE + 5;
-      for (let i = 0; i < overflow; i++) {
-        await appendFeedItem(
-          makeItem({
-            id: `gmail-${i}`,
-            type: "action",
-            source: "gmail",
-            title: `Gmail action ${i}`,
-            createdAt: new Date(
-              Date.parse("2026-04-14T00:00:00.000Z") + i * 60_000,
-            ).toISOString(),
-          }),
-        );
-      }
-      await appendFeedItem(
-        makeItem({
-          id: "slack-1",
-          type: "action",
-          source: "slack",
-          title: "Slack action",
-          createdAt: "2026-04-14T12:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "digest-1",
-          type: "digest",
-          source: "gmail",
-          title: "Gmail digest",
-          createdAt: "2026-04-14T12:01:00.000Z",
-        }),
-      );
-
-      const decoded = readFileJson();
-      const gmailActions = decoded.items.filter(
-        (i) => i.type === "action" && i.source === "gmail",
-      );
-      expect(gmailActions).toHaveLength(MAX_ACTIONS_PER_SOURCE);
-
-      // The kept ids are the MAX most recent by createdAt — i.e. the
-      // final MAX entries of the 0..overflow-1 sequence.
-      const keptIds = new Set(gmailActions.map((i) => i.id));
-      for (let i = overflow - MAX_ACTIONS_PER_SOURCE; i < overflow; i++) {
-        expect(keptIds.has(`gmail-${i}`)).toBe(true);
-      }
-      for (let i = 0; i < overflow - MAX_ACTIONS_PER_SOURCE; i++) {
-        expect(keptIds.has(`gmail-${i}`)).toBe(false);
-      }
-
-      // Slack is under the cap and the digest is a different type —
-      // both untouched by the prune.
-      expect(decoded.items.filter((i) => i.id === "slack-1")).toHaveLength(1);
-      expect(decoded.items.filter((i) => i.type === "digest")).toHaveLength(1);
-    });
-
-    test("action items without a source are not subject to the cap", async () => {
-      const n = MAX_ACTIONS_PER_SOURCE + 3;
-      for (let i = 0; i < n; i++) {
-        await appendFeedItem(
-          makeItem({
-            id: `sourceless-${i}`,
-            type: "action",
-            title: `Sourceless ${i}`,
-            createdAt: new Date(
-              Date.parse("2026-04-14T00:00:00.000Z") + i * 60_000,
-            ).toISOString(),
-          }),
-        );
-      }
-      const decoded = readFileJson();
-      const sourceless = decoded.items.filter(
-        (i) => i.type === "action" && i.source === undefined,
-      );
-      expect(sourceless).toHaveLength(n);
-    });
-
-    test("thread updates replace the existing thread with the same id in place", async () => {
-      await appendFeedItem(
-        makeItem({
-          id: "thread-A",
-          type: "thread",
-          title: "Thread v1",
-          priority: 80,
-          createdAt: "2026-04-14T12:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "thread-B",
-          type: "thread",
-          title: "Other thread",
-          priority: 60,
-          createdAt: "2026-04-14T11:00:00.000Z",
-        }),
-      );
-      await appendFeedItem(
-        makeItem({
-          id: "thread-A",
-          type: "thread",
-          title: "Thread v2 updated",
-          priority: 80,
-          createdAt: "2026-04-14T12:00:00.000Z",
-        }),
-      );
-
-      const decoded = readFileJson();
-      expect(decoded.items).toHaveLength(2);
-      const threadA = decoded.items.find((i) => i.id === "thread-A");
-      expect(threadA?.title).toBe("Thread v2 updated");
     });
 
     test("items sort by priority desc then createdAt desc", async () => {
@@ -527,7 +335,6 @@ describe("feed-writer", () => {
       await appendFeedItem(
         makeItem({
           id: "item-1",
-          type: "nudge",
           title: "Original",
         }),
       );
@@ -545,7 +352,7 @@ describe("feed-writer", () => {
     });
 
     test("returns null for an unknown id", async () => {
-      await appendFeedItem(makeItem({ id: "known", type: "nudge" }));
+      await appendFeedItem(makeItem({ id: "known" }));
       const result = await patchFeedItemStatus("unknown", "seen");
       expect(result).toBeNull();
     });
@@ -556,7 +363,6 @@ describe("feed-writer", () => {
       await appendFeedItem(
         makeItem({
           id: "fail-item",
-          type: "nudge",
           title: "Pre-fail title",
         }),
       );
@@ -594,13 +400,10 @@ describe("feed-writer", () => {
   });
 
   describe("concurrency", () => {
-    test("10 concurrent appends of items with distinct (type,source) pairs all land", async () => {
+    test("10 concurrent appends with distinct ids all land", async () => {
       const items = Array.from({ length: 10 }, (_, i) =>
         makeItem({
           id: `distinct-${i}`,
-          type: "nudge",
-          // No source → no (type,source) dedupe at all; every item
-          // lands as-is. This is the purest concurrent-append test.
           title: `Item ${i}`,
           createdAt: new Date(
             Date.parse("2026-04-14T12:00:00.000Z") + i * 1000,
@@ -624,14 +427,12 @@ describe("feed-writer", () => {
       await appendFeedItem(
         makeItem({
           id: "new-1",
-          type: "nudge",
           status: "new",
         }),
       );
       await appendFeedItem(
         makeItem({
           id: "new-2",
-          type: "nudge",
           status: "new",
           createdAt: "2026-04-14T12:00:01.000Z",
         }),
@@ -639,7 +440,6 @@ describe("feed-writer", () => {
       await appendFeedItem(
         makeItem({
           id: "seen-1",
-          type: "nudge",
           status: "seen",
           createdAt: "2026-04-14T12:00:02.000Z",
         }),
@@ -664,7 +464,6 @@ describe("feed-writer", () => {
       await appendFeedItem(
         makeItem({
           id: "x",
-          type: "nudge",
           status: "new",
         }),
       );

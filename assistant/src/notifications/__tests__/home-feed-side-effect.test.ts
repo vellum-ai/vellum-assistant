@@ -102,9 +102,11 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(1);
     const appended = appendCalls[0]!;
     expect(appended.id).toBe("notif:sig-test-1");
-    expect(appended.type).toBe("action");
-    expect(appended.source).toBe("assistant");
-    expect(appended.author).toBe("assistant");
+    expect(appended.type).toBe("notification");
+    // v2 dropped source/author — the side effect must construct items
+    // without those fields.
+    expect((appended as { source?: unknown }).source).toBeUndefined();
+    expect((appended as { author?: unknown }).author).toBeUndefined();
     expect(appended.priority).toBe(50);
     expect(appended.status).toBe("new");
     expect(appended.title).toBe("Background job done");
