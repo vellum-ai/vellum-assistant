@@ -14,9 +14,6 @@
  */
 
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
-import { getLogger } from "../logger.js";
-
-const log = getLogger("assistant-db-proxy");
 
 type SqliteValue = string | number | null | Uint8Array;
 

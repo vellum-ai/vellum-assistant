@@ -36,8 +36,8 @@ import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
-import type { IpcEnvelope } from "./ipc-framing.js";
 import {
+  type IpcEnvelope,
   IpcFrameReader,
   writeLegacyMessage,
   writeMessage,
