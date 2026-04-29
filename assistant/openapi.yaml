@@ -2601,6 +2601,76 @@ paths:
                 - requestId
                 - decision
               additionalProperties: false
+  /v1/consolidation/config:
+    get:
+      operationId: consolidation_config_get
+      summary: Get consolidation config
+      description: Return the current memory v2 consolidation schedule configuration.
+      tags:
+        - consolidation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - available
+                  - enabled
+                  - intervalMs
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/consolidation/run-now:
+    post:
+      operationId: consolidation_runnow_post
+      summary: Run consolidation now
+      description:
+        Enqueue an immediate memory v2 consolidation job. Returns once the job is queued; the job itself runs
+        through the memory jobs worker.
+      tags:
+        - consolidation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ran:
+                    type: boolean
+                    description: Whether a job was enqueued
+                  jobId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - success
+                  - ran
+                  - jobId
+                additionalProperties: false
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -4473,6 +4543,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  available:
+                    type: boolean
                   enabled:
                     type: boolean
                   intervalMs:
@@ -4496,6 +4568,7 @@ paths:
                   success:
                     type: boolean
                 required:
+                  - available
                   - enabled
                   - intervalMs
                   - activeHoursStart
