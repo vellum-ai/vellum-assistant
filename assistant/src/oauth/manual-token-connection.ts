@@ -9,7 +9,8 @@
  */
 
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getSecureKeyResultAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import {
   createConnection,
   deleteConnection,
@@ -17,6 +18,8 @@ import {
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
+
+const log = getLogger("manual-token-connection");
 
 /** Sentinel client_id used for non-OAuth providers that don't have a real app. */
 const MANUAL_TOKEN_CLIENT_ID = "manual-config";
@@ -101,13 +104,19 @@ export async function syncManualTokenConnection(
 ): Promise<void> {
   switch (provider) {
     case "telegram": {
-      const hasBotToken = !!(await getSecureKeyAsync(
+      const botTokenResult = await getSecureKeyResultAsync(
         credentialKey("telegram", "bot_token"),
-      ));
-      const hasWebhookSecret = !!(await getSecureKeyAsync(
+      );
+      const webhookSecretResult = await getSecureKeyResultAsync(
         credentialKey("telegram", "webhook_secret"),
-      ));
-      if (hasBotToken && hasWebhookSecret) {
+      );
+      if (botTokenResult.unreachable || webhookSecretResult.unreachable) {
+        log.warn(
+          "Skipping telegram manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (botTokenResult.value && webhookSecretResult.value) {
         await ensureManualTokenConnection(provider, accountInfo);
       } else {
         removeManualTokenConnection(provider);
@@ -116,13 +125,19 @@ export async function syncManualTokenConnection(
     }
 
     case "slack_channel": {
-      const hasBotToken = !!(await getSecureKeyAsync(
+      const botTokenResult = await getSecureKeyResultAsync(
         credentialKey("slack_channel", "bot_token"),
-      ));
-      const hasAppToken = !!(await getSecureKeyAsync(
+      );
+      const appTokenResult = await getSecureKeyResultAsync(
         credentialKey("slack_channel", "app_token"),
-      ));
-      if (hasBotToken && hasAppToken) {
+      );
+      if (botTokenResult.unreachable || appTokenResult.unreachable) {
+        log.warn(
+          "Skipping slack_channel manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (botTokenResult.value && appTokenResult.value) {
         await ensureManualTokenConnection(provider, accountInfo);
       } else {
         removeManualTokenConnection(provider);
