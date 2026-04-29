@@ -241,7 +241,9 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig(),
     });
-    expect(out.size).toBe(0);
+    expect(out.candidates.size).toBe(0);
+    expect(out.fromPrior.size).toBe(0);
+    expect(out.fromAnn.size).toBe(0);
     // No turn text → no embedding call, no Qdrant call.
     expect(state.embedCalls).toHaveLength(0);
     expect(state.queryCalls).toHaveLength(0);
@@ -266,7 +268,9 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig({ epsilon: 0.01 }),
     });
-    expect(out).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+    expect(out.candidates).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+    expect(out.fromPrior).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+    expect(out.fromAnn).toEqual(new Set());
   });
 
   test("unions ANN hits with prior-state survivors", async () => {
@@ -289,7 +293,51 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig(),
     });
-    expect(out).toEqual(new Set(["alice-vscode", "delta-recipe"]));
+    expect(out.candidates).toEqual(new Set(["alice-vscode", "delta-recipe"]));
+    expect(out.fromPrior).toEqual(new Set(["alice-vscode"]));
+    expect(out.fromAnn).toEqual(new Set(["alice-vscode", "delta-recipe"]));
+  });
+
+  test("tags overlap: a slug in both sources lands in fromPrior ∩ fromAnn", async () => {
+    const priorState: ActivationState = {
+      messageId: "msg-1",
+      state: {
+        "alice-vscode": 0.5, // in prior AND in ANN
+        "carol-jazz": 0.3, // prior only
+      },
+      everInjected: [],
+      currentTurn: 1,
+      updatedAt: 1,
+    };
+    stageHybridResponse([
+      { slug: "alice-vscode", denseScore: 0.7, sparseScore: 1 }, // overlap
+      { slug: "delta-recipe", denseScore: 0.4, sparseScore: 1 }, // ANN only
+    ]);
+
+    const out = await selectCandidates({
+      priorState,
+      userText: "hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig(),
+    });
+
+    // Overlap: alice-vscode appears in both source sets.
+    const overlap = new Set(
+      [...out.fromPrior].filter((slug) => out.fromAnn.has(slug)),
+    );
+    expect(overlap).toEqual(new Set(["alice-vscode"]));
+
+    // candidates = fromPrior ∪ fromAnn.
+    const union = new Set<string>([...out.fromPrior, ...out.fromAnn]);
+    expect(out.candidates).toEqual(union);
+    expect(out.candidates).toEqual(
+      new Set(["alice-vscode", "carol-jazz", "delta-recipe"]),
+    );
+
+    // Source-set membership matches each slug's actual provenance.
+    expect(out.fromPrior).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+    expect(out.fromAnn).toEqual(new Set(["alice-vscode", "delta-recipe"]));
   });
 
   test("ANN top-K limit equals 50 and runs without slug restriction", async () => {

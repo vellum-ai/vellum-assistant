@@ -132,7 +132,9 @@ export async function injectMemoryV2Block(
   const edgesIdx = await readEdges(workspaceDir);
 
   // (3) Candidate set: prior-state survivors above epsilon ∪ ANN top-50.
-  const candidates = await selectCandidates({
+  // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets;
+  // they are unused here today and will be consumed by upcoming telemetry.
+  const { candidates } = await selectCandidates({
     priorState,
     userText: userMessage,
     assistantText: assistantMessage,

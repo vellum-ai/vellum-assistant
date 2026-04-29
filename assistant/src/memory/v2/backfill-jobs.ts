@@ -321,7 +321,7 @@ async function recomputeForConversation(
   const { userText, assistantText } = lastExchangeTexts(conversationId);
   if (!userText && !assistantText) return null;
 
-  const candidates = await selectCandidates({
+  const { candidates } = await selectCandidates({
     priorState,
     userText,
     assistantText,
