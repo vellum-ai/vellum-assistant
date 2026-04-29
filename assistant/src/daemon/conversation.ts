@@ -396,7 +396,6 @@ export class Conversation {
       }
     });
     this.secretPrompter = new SecretPrompter();
-    this.secretPrompter.setConversation(this, conversationId);
 
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);

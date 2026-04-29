@@ -41,7 +41,7 @@ export function registerPendingCommand(program: Command): void {
         try {
           const response =
             await cliIpcCall<PendingInteractionsResponse>(
-              "pending_interactions_all",
+              "pending_interactions",
             );
 
           if (!response.ok || !response.result) {

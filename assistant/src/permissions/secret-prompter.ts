@@ -42,19 +42,7 @@ export interface SecretPrompterChannelContext {
  */
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
-  private conversationId?: string;
   private channelContext?: SecretPrompterChannelContext;
-  /** Weak back-reference set during construction by Conversation. */
-  private conversation: import("../daemon/conversation.js").Conversation | null =
-    null;
-
-  setConversation(
-    conversation: import("../daemon/conversation.js").Conversation,
-    conversationId: string,
-  ): void {
-    this.conversation = conversation;
-    this.conversationId = conversationId;
-  }
 
   setChannelContext(ctx: SecretPrompterChannelContext | undefined): void {
     this.channelContext = ctx;
@@ -87,8 +75,7 @@ export class SecretPrompter {
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
     const requestId = uuid();
-    const effectiveConversationId =
-      conversationId ?? this.conversationId ?? "unknown";
+    const effectiveConversationId = conversationId ?? "unknown";
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
@@ -102,9 +89,10 @@ export class SecretPrompter {
       this.pending.set(requestId, { resolve, reject, timer });
 
       // Register in the global map so POST /v1/secret can look up the
-      // conversation by requestId.
+      // conversation by conversationId. The conversation object is loaded
+      // from the conversation store at resolve time — no DI needed.
       pendingInteractions.register(requestId, {
-        conversation: this.conversation,
+        conversation: null,
         conversationId: effectiveConversationId,
         kind: "secret",
       });
