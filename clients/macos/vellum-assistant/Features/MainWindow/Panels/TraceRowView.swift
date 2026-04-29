@@ -53,8 +53,6 @@ struct TraceRowView: View {
             return .wrench
         case "tool_failed":
             return .triangleAlert
-        case "secret_detected":
-            return .eye
         case "generation_handoff":
             return .refreshCw
         case "message_complete":

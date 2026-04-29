@@ -238,20 +238,12 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   errorStack?: string;
 }
 
-export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
-  type: "secret_detected";
-  matches: Array<{ type: string; redactedValue: string }>;
-  action: "redact" | "warn" | "block" | "prompt";
-  detectedAtMs: number;
-}
-
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent
   | ToolPermissionPromptEvent
   | ToolPermissionDeniedEvent
   | ToolExecutedEvent
-  | ToolExecutionErrorEvent
-  | ToolSecretDetectedEvent;
+  | ToolExecutionErrorEvent;
 
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
@@ -279,7 +271,7 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;

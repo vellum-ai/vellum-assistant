@@ -582,10 +582,6 @@ describe("One-time send override", () => {
   test("allowOneTimeSend defaults to false in config", () => {
     expect(DEFAULT_CONFIG.secretDetection.allowOneTimeSend).toBe(false);
   });
-
-  test("default secretDetection.action is redact", () => {
-    expect(DEFAULT_CONFIG.secretDetection.action).toBe("redact");
-  });
 });
 
 // ---------------------------------------------------------------------------

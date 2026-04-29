@@ -85,16 +85,6 @@ export function createToolDomainEventPublisher(
           failedAtMs: Date.now(),
         });
         break;
-      case "secret_detected":
-        await eventBus.emit("tool.secret.detected", {
-          conversationId: event.conversationId,
-          requestId: event.requestId,
-          toolName: event.toolName,
-          action: event.action,
-          matches: event.matches,
-          detectedAtMs: event.detectedAtMs,
-        });
-        break;
     }
   };
 }

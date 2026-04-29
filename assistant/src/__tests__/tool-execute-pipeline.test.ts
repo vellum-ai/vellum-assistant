@@ -45,8 +45,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {
     mode: "workspace" as const,

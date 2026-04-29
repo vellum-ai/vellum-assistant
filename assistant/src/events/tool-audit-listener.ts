@@ -67,7 +67,6 @@ function toInvocationRecord(
       };
     case "start":
     case "permission_prompt":
-    case "secret_detected":
       return null;
   }
 }

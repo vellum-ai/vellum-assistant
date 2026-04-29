@@ -233,13 +233,6 @@ export interface ErrorMessage {
   category?: string;
 }
 
-export interface SecretDetected {
-  type: "secret_detected";
-  toolName: string;
-  matches: Array<{ type: string; redactedValue: string }>;
-  action: "redact" | "warn" | "block" | "prompt";
-}
-
 export interface MessageQueued {
   type: "message_queued";
   conversationId: string;
@@ -361,7 +354,6 @@ export type TraceEventKind =
   | "tool_permission_decided"
   | "tool_finished"
   | "tool_failed"
-  | "secret_detected"
   | "generation_handoff"
   | "message_complete"
   | "generation_cancelled"
@@ -402,7 +394,6 @@ export type _MessagesServerMessages =
   | SecretRequest
   | MessageComplete
   | ErrorMessage
-  | SecretDetected
   | MessageQueued
   | MessageDequeued
   | MessageRequestComplete

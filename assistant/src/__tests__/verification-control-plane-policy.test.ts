@@ -40,8 +40,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
 };
 
@@ -194,7 +192,10 @@ mock.module("../tools/verification-control-plane-policy.js", () => {
     };
   }
 
-  return { isVerificationControlPlaneInvocation, enforceVerificationControlPlanePolicy };
+  return {
+    isVerificationControlPlaneInvocation,
+    enforceVerificationControlPlanePolicy,
+  };
 });
 
 // -- Real imports --

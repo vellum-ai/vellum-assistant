@@ -124,8 +124,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     secretDetection: {
       enabled: true,
-      customPatterns: [],
-      entropyThreshold: 3.5,
     },
     model: "test",
     provider: "test",
