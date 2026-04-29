@@ -508,8 +508,9 @@ export async function bulkSetSecureKeysAsync(
       }
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok).length;
-      if (succeeded > 0) {
-        log.info(
+      if (succeeded > 0 || failed > 0) {
+        const level = succeeded > 0 ? "info" : "warn";
+        log[level](
           { succeeded, failed, backend: backend.name },
           "Bulk credential store completed",
         );
