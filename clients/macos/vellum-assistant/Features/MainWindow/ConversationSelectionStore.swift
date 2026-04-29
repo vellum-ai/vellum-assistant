@@ -281,8 +281,16 @@ final class ConversationSelectionStore {
 
     /// Evict the oldest cached ChatViewModel that is not the active conversation,
     /// keeping at most `maxCachedViewModels` entries in the dictionary.
+    ///
+    /// Evicted VMs are collected into a local array and handed to
+    /// `Task.detached` so the expensive `deinit` cascade (8+
+    /// `ObservationRegistrar.Extent` teardowns, Task cancellations,
+    /// NotificationCenter unregistrations) runs on the cooperative thread
+    /// pool instead of blocking the main thread. Under memory pressure the
+    /// synchronous dealloc can stall for 2+ seconds.
     private func evictStaleCachedViewModels() {
         var evictedCount = 0
+        var evictedVMs: [ChatViewModel] = []
         while chatViewModels.count > maxCachedViewModels {
             // Find the oldest non-active, non-busy VM so we never cancel an in-flight response.
             guard let victim = vmAccessOrder.first(where: {
@@ -293,7 +301,9 @@ final class ConversationSelectionStore {
             }) else {
                 break
             }
-            chatViewModels.removeValue(forKey: victim)
+            if let vm = chatViewModels.removeValue(forKey: victim) {
+                evictedVMs.append(vm)
+            }
             onViewModelEvicted?(victim)
             if let idx = vmAccessOrder.firstIndex(of: victim) {
                 vmAccessOrder.remove(at: idx)
@@ -303,6 +313,14 @@ final class ConversationSelectionStore {
         }
         if evictedCount > 0 {
             os_signpost(.event, log: stallLog, name: "LRU.evict", "%{public}d VMs", evictedCount)
+        }
+        if !evictedVMs.isEmpty {
+            // Defer deallocation to the cooperative thread pool.
+            // ChatViewModel.deinit is nonisolated and all cleanup operations
+            // (Task.cancel, AnyCancellable.cancel, NotificationCenter.removeObserver,
+            // MemoryPressureMonitor.removeListener, ObservationRegistrar.Extent.deinit)
+            // are thread-safe. See LUM-1277 / LUM-504 for background.
+            Task.detached { withExtendedLifetime(evictedVMs) {} }
         }
     }
 
