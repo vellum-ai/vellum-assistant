@@ -27,7 +27,10 @@ import {
   parseVBundleStream,
   type StreamedTarEntry,
 } from "../vbundle-tar-stream.js";
-import { computeManifestChecksum } from "../vbundle-validator.js";
+import {
+  computeLegacyManifestSha256,
+  computeManifestChecksum,
+} from "../vbundle-validator.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -489,5 +492,82 @@ describe("createHashVerifier — identity + integrity", () => {
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("entry_size");
     expect(err?.archivePath).toBe("workspace/bad-size.txt");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readAndValidateManifest — legacy fallback (backwards compatibility)
+// ---------------------------------------------------------------------------
+
+describe("readAndValidateManifest — legacy fallback", () => {
+  test("accepts a valid legacy six-field manifest and translates to v1 shape", async () => {
+    const dbBytes = new TextEncoder().encode("legacy-db");
+    const dbSha = createHash("sha256").update(dbBytes).digest("hex");
+
+    const legacyManifest: Record<string, unknown> = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      source: "runtime-export",
+      description: "legacy fixture",
+      files: [
+        { path: "data/db/assistant.db", sha256: dbSha, size: dbBytes.length },
+      ],
+      manifest_sha256: "",
+    };
+    legacyManifest.manifest_sha256 =
+      computeLegacyManifestSha256(legacyManifest);
+
+    const archive = buildRawVBundle([
+      {
+        name: "manifest.json",
+        data: new TextEncoder().encode(JSON.stringify(legacyManifest)),
+      },
+      { name: "data/db/assistant.db", data: dbBytes },
+    ]);
+
+    const { entry, drainRest } = await firstEntryOf(archive);
+    const result = await readAndValidateManifest(entry);
+    await drainRest();
+
+    expect(result.manifest.schema_version).toBe(1);
+    expect(result.manifest.contents).toHaveLength(1);
+    expect(result.manifest.contents[0]?.path).toBe("data/db/assistant.db");
+    expect(result.manifest.contents[0]?.size_bytes).toBe(dbBytes.length);
+    expect(result.expected.get("data/db/assistant.db")?.sha256).toBe(dbSha);
+  });
+
+  test("throws manifest_sha256 on a legacy manifest with a wrong checksum", async () => {
+    const dbBytes = new TextEncoder().encode("legacy-db");
+    const dbSha = createHash("sha256").update(dbBytes).digest("hex");
+
+    const badLegacy = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      files: [
+        { path: "data/db/assistant.db", sha256: dbSha, size: dbBytes.length },
+      ],
+      // Deliberately wrong checksum.
+      manifest_sha256:
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    const archive = buildRawVBundle([
+      {
+        name: "manifest.json",
+        data: new TextEncoder().encode(JSON.stringify(badLegacy)),
+      },
+    ]);
+    const { entry, drainRest } = await firstEntryOf(archive);
+
+    let err: StreamingValidationError | null = null;
+    try {
+      await readAndValidateManifest(entry);
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+    await drainRest();
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("manifest_sha256");
   });
 });

@@ -17,6 +17,7 @@ import { describe, expect, test } from "bun:test";
 import { buildVBundle } from "../vbundle-builder.js";
 import {
   canonicalizeJson,
+  computeLegacyManifestSha256,
   computeManifestChecksum,
   validateVBundle,
 } from "../vbundle-validator.js";
@@ -169,20 +170,6 @@ describe("ManifestSchema — v1 acceptance", () => {
 });
 
 describe("ManifestSchema — v1 rejection", () => {
-  test("rejects a legacy six-field manifest", () => {
-    const legacy = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      source: "runtime-export",
-      description: "legacy",
-      files: [],
-      manifest_sha256: "0".repeat(64),
-    };
-    const archive = gzipTarOf(legacy);
-    const result = validateVBundle(archive);
-    expect(result.is_valid).toBe(false);
-  });
-
   test("rejects schema_version !== 1", () => {
     const manifest = withChecksum({ ...v1Skeleton(), schema_version: 2 });
     const archive = gzipTarOf(manifest, [
@@ -241,6 +228,128 @@ describe("ManifestSchema — v1 rejection", () => {
     expect(
       result.errors.some((e) => e.code === "MANIFEST_CHECKSUM_MISMATCH"),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy six-field manifest fallback — required for backwards compatibility
+// with on-disk bundles produced by pre-v1 runtimes (backup snapshots,
+// cross-version migration artifacts). AGENTS.md prohibits silent breaks of
+// persisted state.
+// ---------------------------------------------------------------------------
+
+function legacySkeleton(
+  files: Array<{ path: string; sha256: string; size: number }>,
+): Record<string, unknown> {
+  return {
+    schema_version: "1.0",
+    created_at: new Date().toISOString(),
+    source: "runtime-export",
+    description: "legacy fixture",
+    files,
+    manifest_sha256: "",
+  };
+}
+
+function withLegacyChecksum(
+  manifest: Record<string, unknown>,
+): Record<string, unknown> {
+  // `computeLegacyManifestSha256` strips the field internally before
+  // canonicalizing, so passing the manifest in unmodified is correct.
+  const manifest_sha256 = computeLegacyManifestSha256(manifest);
+  return { ...manifest, manifest_sha256 };
+}
+
+describe("ManifestSchema — legacy fallback (backwards compatibility)", () => {
+  test("accepts a valid legacy six-field manifest", () => {
+    const legacy = withLegacyChecksum(
+      legacySkeleton([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size: DB_BYTES.length,
+        },
+      ]),
+    );
+    const archive = gzipTarOf(legacy, [
+      { name: "data/db/assistant.db", data: DB_BYTES },
+    ]);
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(true);
+  });
+
+  test("rejects a legacy manifest with a wrong manifest_sha256", () => {
+    const legacy = {
+      ...legacySkeleton([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size: DB_BYTES.length,
+        },
+      ]),
+      // Deliberately wrong checksum.
+      manifest_sha256:
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    };
+    const archive = gzipTarOf(legacy, [
+      { name: "data/db/assistant.db", data: DB_BYTES },
+    ]);
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "MANIFEST_CHECKSUM_MISMATCH"),
+    ).toBe(true);
+  });
+
+  test("translator surfaces a v1 ManifestType to downstream consumers", () => {
+    const legacy = withLegacyChecksum(
+      legacySkeleton([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size: DB_BYTES.length,
+        },
+      ]),
+    );
+    const archive = gzipTarOf(legacy, [
+      { name: "data/db/assistant.db", data: DB_BYTES },
+    ]);
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(true);
+    expect(result.manifest).toBeDefined();
+    // Translation fills in v1 fields and renames legacy fields.
+    expect(result.manifest?.schema_version).toBe(1);
+    expect(result.manifest?.contents).toHaveLength(1);
+    expect(result.manifest?.contents[0]?.path).toBe("data/db/assistant.db");
+    expect(result.manifest?.contents[0]?.size_bytes).toBe(DB_BYTES.length);
+    expect(result.manifest?.contents[0]?.sha256).toBe(sha256Hex(DB_BYTES));
+    // Conservative defaults so the v1 refines never trip.
+    expect(result.manifest?.origin.mode).toBe("self-hosted-local");
+    expect(result.manifest?.secrets_redacted).toBe(false);
+  });
+
+  test("legacy manifest with corrupted file payload still flags FILE_CHECKSUM_MISMATCH", () => {
+    // Verifies the per-file integrity pipeline runs on translated legacy
+    // bundles too — translation must preserve `files` → `contents` /
+    // `size` → `size_bytes` so verification works uniformly.
+    const legacy = withLegacyChecksum(
+      legacySkeleton([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size: DB_BYTES.length,
+        },
+      ]),
+    );
+    const corruptedDb = new TextEncoder().encode("not-the-real-db-bytes");
+    const archive = gzipTarOf(legacy, [
+      { name: "data/db/assistant.db", data: corruptedDb },
+    ]);
+    const result = validateVBundle(archive);
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "FILE_CHECKSUM_MISMATCH")).toBe(
+      true,
+    );
   });
 });
 

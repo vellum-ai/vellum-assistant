@@ -14,7 +14,7 @@
  * 4. Per-file content integrity: SHA-256 of each file matches manifest checksums
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
 import { z } from "zod";
@@ -85,6 +85,108 @@ export const ManifestSchema = z
 
 export type ManifestFileEntryType = z.infer<typeof ManifestFileEntry>;
 export type ManifestType = z.infer<typeof ManifestSchema>;
+
+// ---------------------------------------------------------------------------
+// Legacy manifest schema (pre-v1, six-field shape)
+// ---------------------------------------------------------------------------
+//
+// Older runtime versions wrote a six-field manifest with `schema_version: "1.0"`,
+// `files`, `size` (per-entry), and a self-referencing `manifest_sha256` field.
+// Existing on-disk artifacts produced by those versions — backup snapshots,
+// cross-version migration bundles — must keep validating after upgrade,
+// per AGENTS.md "no silent breaks of persisted state".
+//
+// We accept legacy bundles via a fallback parse + translator so the rest of
+// the validation pipeline (per-file hash + size verification) only ever sees
+// the v1 shape.
+
+const LegacyManifestFileEntry = z.object({
+  path: z.string(),
+  sha256: z.string(),
+  size: z.number().int().nonnegative(),
+});
+
+export const LegacyManifestSchema = z.object({
+  schema_version: z.string(),
+  created_at: z.string(),
+  source: z.string().optional(),
+  description: z.string().optional(),
+  files: z.array(LegacyManifestFileEntry),
+  manifest_sha256: z.string(),
+});
+
+export type LegacyManifestType = z.infer<typeof LegacyManifestSchema>;
+
+/**
+ * Recompute the legacy `manifest_sha256` field — strips the field entirely
+ * (rather than emptying it) before canonicalizing, matching the pre-v1
+ * producer behavior. Required so legacy bundles whose checksum was computed
+ * the old way still verify after upgrade.
+ */
+export function computeLegacyManifestSha256(manifest: unknown): string {
+  const copy = { ...(manifest as Record<string, unknown>) };
+  delete copy.manifest_sha256;
+  return sha256Hex(canonicalizeJson(copy));
+}
+
+/**
+ * Coerce a legacy ISO-ish `created_at` into the v1 datetime regex shape.
+ * Pre-v1 producers always wrote `new Date().toISOString()`, which already
+ * has the `Z` suffix the v1 regex requires; this helper is defensive against
+ * any historical producer that omitted the offset/`Z`.
+ */
+function coerceLegacyCreatedAt(raw: string): string {
+  // If the string already parses as a Date, keep it as the canonical ISO form.
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    // `toISOString()` always emits the `...Z` form the v1 regex accepts.
+    return parsed.toISOString();
+  }
+  return raw;
+}
+
+/**
+ * Translate a parsed legacy manifest into a v1 `ManifestType` so the rest of
+ * the validator pipeline can operate on a uniform shape.
+ *
+ * Legacy bundles never carried assistant identity, origin, compatibility, or
+ * export-option signals; we substitute conservative placeholders that satisfy
+ * the v1 schema's `.refine()` rules without misrepresenting the source bundle.
+ */
+export function translateLegacyManifest(
+  legacy: LegacyManifestType,
+): ManifestType {
+  return {
+    schema_version: 1,
+    bundle_id: randomUUID(),
+    created_at: coerceLegacyCreatedAt(legacy.created_at),
+    assistant: {
+      id: "self",
+      name: "Assistant",
+      runtime_version: "0.0.0-legacy",
+    },
+    // Legacy bundles came from the local self-hosted exporter; the
+    // conservative default is "self-hosted-local" so the v1 managed/secrets
+    // refine never trips on a translated legacy bundle.
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-legacy",
+      max_runtime_version: null,
+    },
+    contents: legacy.files.map((f) => ({
+      path: f.path,
+      sha256: f.sha256,
+      size_bytes: f.size,
+    })),
+    checksum: legacy.manifest_sha256,
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Validation result types
@@ -340,33 +442,58 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     return { is_valid: false, errors };
   }
 
+  // Try the v1 schema first. If that fails, fall back to the legacy six-field
+  // shape so existing on-disk bundles (backup snapshots, cross-version
+  // migrations) keep validating after upgrade. AGENTS.md prohibits silent
+  // breaks of persisted state.
   const parseResult = ManifestSchema.safeParse(manifestRaw);
-  if (!parseResult.success) {
-    for (const issue of parseResult.error.issues) {
+  let manifest: ManifestType;
+
+  if (parseResult.success) {
+    manifest = parseResult.data;
+
+    // Step 5 (v1): Verify manifest checksum — SHA-256 of canonicalized JSON
+    // with the `checksum` field replaced by an empty string.
+    const computedChecksum = computeManifestChecksum(manifestRaw);
+    if (computedChecksum !== manifest.checksum) {
       errors.push({
-        code: "MANIFEST_SCHEMA_ERROR",
-        message: `Manifest validation error at ${issue.path.join(".")}: ${
-          issue.message
-        }`,
-        path: `manifest.json/${issue.path.join(".")}`,
+        code: "MANIFEST_CHECKSUM_MISMATCH",
+        message: `Manifest checksum mismatch: expected ${manifest.checksum}, computed ${computedChecksum}`,
+        path: "manifest.json",
       });
     }
-    return { is_valid: false, errors };
-  }
+  } else {
+    const legacyParse = LegacyManifestSchema.safeParse(manifestRaw);
+    if (!legacyParse.success) {
+      // Truly malformed — surface the v1 error for the clearer error trail.
+      for (const issue of parseResult.error.issues) {
+        errors.push({
+          code: "MANIFEST_SCHEMA_ERROR",
+          message: `Manifest validation error at ${issue.path.join(".")}: ${
+            issue.message
+          }`,
+          path: `manifest.json/${issue.path.join(".")}`,
+        });
+      }
+      return { is_valid: false, errors };
+    }
 
-  const manifest = parseResult.data;
+    // Step 5 (legacy): Verify the legacy `manifest_sha256` using the OLD
+    // canonicalization (strip the field entirely; do NOT replace with "").
+    const legacy = legacyParse.data;
+    const computedLegacyChecksum = computeLegacyManifestSha256(manifestRaw);
+    if (computedLegacyChecksum !== legacy.manifest_sha256) {
+      errors.push({
+        code: "MANIFEST_CHECKSUM_MISMATCH",
+        message: `Manifest checksum mismatch: expected ${legacy.manifest_sha256}, computed ${computedLegacyChecksum}`,
+        path: "manifest.json",
+      });
+      return { is_valid: false, errors };
+    }
 
-  // Step 5: Verify manifest checksum
-  // The checksum field is the SHA-256 of the canonicalized JSON with the
-  // checksum field replaced by an empty string.
-  const computedChecksum = computeManifestChecksum(manifestRaw);
-
-  if (computedChecksum !== manifest.checksum) {
-    errors.push({
-      code: "MANIFEST_CHECKSUM_MISMATCH",
-      message: `Manifest checksum mismatch: expected ${manifest.checksum}, computed ${computedChecksum}`,
-      path: "manifest.json",
-    });
+    // Translate to v1 so the rest of the pipeline (per-file hash + size
+    // verification, refine rules) sees a uniform shape.
+    manifest = translateLegacyManifest(legacy);
   }
 
   // Step 6: Verify per-file content integrity
