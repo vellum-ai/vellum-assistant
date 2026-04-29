@@ -89,6 +89,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   },
   { id: "activity.complete", description: "Background activity finished" },
   {
+    id: "activity.failed",
+    description:
+      "Background job execution failed (model error, exception, tool failure, or timeout)",
+  },
+  {
     id: "quick_chat.response_ready",
     description: "Quick chat response ready for review",
   },
