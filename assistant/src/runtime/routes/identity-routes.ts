@@ -2,12 +2,17 @@
  * Identity and health endpoint handlers.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
 import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
-import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
+import {
+  getCpuLimit,
+  getIsPlatform,
+  getStorageSize,
+} from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -29,20 +34,70 @@ interface DiskSpaceInfo {
   freeMb: number;
 }
 
+/**
+ * Measure the on-disk usage of one or more directory paths using `du -sb`.
+ * Returns the sum of all paths in bytes, or null on failure.
+ */
+function getDirectorySizeBytes(paths: string[]): number | null {
+  try {
+    const existing = paths.filter((p) => existsSync(p));
+    if (existing.length === 0) return null;
+    const result = spawnSync("du", ["-sb", ...existing], {
+      encoding: "utf-8",
+      timeout: 30_000,
+    });
+    if (result.status !== 0) return null;
+    let total = 0;
+    for (const line of result.stdout.trim().split("\n")) {
+      const size = parseInt(line.split("\t")[0], 10);
+      if (!isNaN(size) && size > 0) total += size;
+    }
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
+
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
     const wsDir = getWorkspaceDir();
     const diskPath = existsSync(wsDir) ? wsDir : "/";
     const stats = statfsSync(diskPath);
-    const totalBytes = stats.bsize * stats.blocks;
-    const freeBytes = stats.bsize * stats.bavail;
+    const fsTotalBytes = stats.bsize * stats.blocks;
+    const fsFreeBytes = stats.bsize * stats.bavail;
     const bytesToMb = (b: number) =>
       Math.round((b / (1024 * 1024)) * 100) / 100;
+
+    // When the platform passes the PVC storage size, use it as the capacity.
+    // On hostPath-backed PVCs (e.g. minikube) statfsSync reports the host's
+    // entire filesystem rather than the PVC. Detect this by comparing the
+    // filesystem size against the PVC size — if the filesystem is larger,
+    // measure actual directory usage with `du` instead.
+    const storageSizeRaw = getStorageSize();
+    if (storageSizeRaw) {
+      const pvcTotalBytes = parseK8sMemoryBytes(storageSizeRaw);
+      if (pvcTotalBytes !== null && fsTotalBytes > pvcTotalBytes * 1.1) {
+        const volumePaths = [diskPath];
+        if (diskPath !== "/data" && existsSync("/data")) {
+          volumePaths.push("/data");
+        }
+        const usedBytes = getDirectorySizeBytes(volumePaths);
+        if (usedBytes !== null) {
+          return {
+            path: diskPath,
+            totalMb: bytesToMb(pvcTotalBytes),
+            usedMb: bytesToMb(usedBytes),
+            freeMb: bytesToMb(Math.max(0, pvcTotalBytes - usedBytes)),
+          };
+        }
+      }
+    }
+
     return {
       path: diskPath,
-      totalMb: bytesToMb(totalBytes),
-      usedMb: bytesToMb(totalBytes - freeBytes),
-      freeMb: bytesToMb(freeBytes),
+      totalMb: bytesToMb(fsTotalBytes),
+      usedMb: bytesToMb(fsTotalBytes - fsFreeBytes),
+      freeMb: bytesToMb(fsFreeBytes),
     };
   } catch {
     return null;

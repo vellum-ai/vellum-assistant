@@ -117,6 +117,17 @@ export function getCpuLimit(): string | undefined {
 }
 
 /**
+ * VELLUM_STORAGE_SIZE — string (K8s resource format), default: undefined
+ * The PVC storage request size for the assistant volume (e.g. "10Gi").
+ * Set by the platform StatefulSet template. Used by the health endpoint to
+ * report accurate disk capacity on hostPath-backed PVCs (e.g. minikube)
+ * where statfsSync reports the host's entire filesystem instead of the PVC.
+ */
+export function getStorageSize(): string | undefined {
+  return str("VELLUM_STORAGE_SIZE");
+}
+
+/**
  * VELLUM_PROFILER_RUN_ID — string, default: undefined
  * Unique identifier for the current profiler run. When set, the profiler
  * run store treats this run as "active" and will never prune its directory.
