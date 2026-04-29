@@ -496,7 +496,7 @@ export function isTemplateContent(
   }
 }
 
-function readPromptFile(path: string): string | null {
+export function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
 
   try {

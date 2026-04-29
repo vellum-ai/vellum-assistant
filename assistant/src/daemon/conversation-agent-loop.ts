@@ -68,6 +68,7 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { readMemoryV2StaticContent } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -1170,6 +1171,15 @@ export async function runAgentLoopImpl(
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
+    // V2 static memory block (essentials/threads/recent/buffer). Same
+    // first-turn / post-compaction cadence as PKB — `readMemoryV2StaticContent`
+    // self-gates on the v2 flag + config, returning null when v2 is off.
+    // Skip the file reads entirely on non-injection turns.
+    const currentMemoryV2Static = shouldInjectNowAndPkb
+      ? readMemoryV2StaticContent()
+      : null;
+    const memoryV2Static = currentMemoryV2Static;
+
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
     // the updated conversation history.
@@ -1248,6 +1258,7 @@ export async function runAgentLoopImpl(
       pkbAutoInjectList,
       pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
+      memoryV2Static,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -1528,6 +1539,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
             ...(stepCompacted && { pkbContext: currentPkbContent }),
+            ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
@@ -1838,6 +1850,7 @@ export async function runAgentLoopImpl(
       const injection = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
+        memoryV2Static: currentMemoryV2Static,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
@@ -2082,6 +2095,7 @@ export async function runAgentLoopImpl(
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
+          memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
@@ -2241,6 +2255,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
+            memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext

@@ -1455,11 +1455,12 @@ const RUNTIME_INJECTION_PREFIXES = [
   // blocks persist in history so the assistant retains temporal/actor grounding.
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
-  // NOTE: <memory __injected> is intentionally NOT stripped — memory
-  // injections persist in history so the assistant can reference them.
-  // Context compaction handles these blocks during history reduction, and
-  // the InContextTracker deduplicates nodes across turns, so accumulation
-  // does not cause unbounded context growth.
+  // NOTE: `<memory>` blocks (both the dynamic activation block from
+  // `prependMemoryV2Block` and the static `memory-v2-static` injector) are
+  // intentionally NOT stripped — memory injections persist in history so
+  // the assistant retains intra-turn memory state. The activation pipeline
+  // dedupes via `everInjected`, and compaction handles aggregate growth, so
+  // accumulation does not cause unbounded context growth.
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // NOTE: <workspace> is intentionally NOT stripped — workspace context
@@ -1749,6 +1750,14 @@ export interface RuntimeInjectionOptions {
    * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
    */
   pkbWorkingDir?: string;
+  /**
+   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
+   * concatenated, header-wrapped). When non-null on full-mode turns the
+   * `memory-v2-static` injector wraps it in `<memory>` and splices it onto
+   * the user message; subsequent turns leave the prior block cached on its
+   * original user message.
+   */
+  memoryV2Static?: string | null;
   nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
@@ -1828,6 +1837,7 @@ function buildTurnInjectionInputs(
     pkbAutoInjectList: options.pkbAutoInjectList,
     pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
+    memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,

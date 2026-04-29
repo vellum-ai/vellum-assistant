@@ -4,10 +4,10 @@
  *
  * Covers:
  *
- * 1. The eight default injectors registered by `defaultInjectorsPlugin` come
+ * 1. The nine default injectors registered by `defaultInjectorsPlugin` come
  *    back from `getInjectors()` in the documented order (workspace-context →
- *    unified-turn-context → pkb-context → pkb-reminder → now-md →
- *    subagent-status → slack-messages → thread-focus).
+ *    unified-turn-context → pkb-context → pkb-reminder → memory-v2-static →
+ *    now-md → subagent-status → slack-messages → thread-focus).
  * 2. A third-party-registered injector at `order: 25` slots between
  *    `unified-turn-context` (order 20) and `pkb` (order 30), proving the
  *    extensibility contract.
@@ -76,7 +76,7 @@ describe("injector chain", () => {
     resetPluginRegistryForTests();
   });
 
-  test("defaultInjectorsPlugin registers the eight defaults in the documented order", () => {
+  test("defaultInjectorsPlugin registers the nine defaults in the documented order", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const names = getInjectors().map((i) => i.name);
@@ -85,6 +85,7 @@ describe("injector chain", () => {
       "unified-turn-context",
       "pkb-context",
       "pkb-reminder",
+      "memory-v2-static",
       "now-md",
       "subagent-status",
       "slack-messages",
@@ -104,6 +105,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
     expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);
+    expect(byName.get("memory-v2-static")).toBe(
+      DEFAULT_INJECTOR_ORDER.memoryV2Static,
+    );
     expect(byName.get("now-md")).toBe(DEFAULT_INJECTOR_ORDER.nowMd);
     expect(byName.get("subagent-status")).toBe(
       DEFAULT_INJECTOR_ORDER.subagentStatus,
@@ -133,6 +137,7 @@ describe("injector chain", () => {
       "plugin-25", // 25 — slots in
       "pkb-context", // 30
       "pkb-reminder", // 35
+      "memory-v2-static", // 38
       "now-md", // 40
       "subagent-status", // 50
       "slack-messages", // 60
@@ -141,7 +146,7 @@ describe("injector chain", () => {
   });
 
   test("composeInjectorChain returns empty string when every injector opts out", async () => {
-    // The default chain is the golden-path: all eight defaults return `null`
+    // The default chain is the golden-path: all nine defaults return `null`
     // on an empty turn context, so the composed block is an empty string.
     registerPlugin(defaultInjectorsPlugin);
 

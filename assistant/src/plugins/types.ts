@@ -815,6 +815,13 @@ export interface TurnInjectionInputs {
    * Falls back to `pkbRoot` when omitted.
    */
   readonly pkbWorkingDir?: string;
+  /**
+   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
+   * concatenated, header-wrapped) or null to skip. The agent loop only
+   * passes this on full-mode turns; the injector wraps it in `<memory>` for
+   * the user message.
+   */
+  readonly memoryV2Static?: string | null;
   /** NOW.md scratchpad content or null to skip. */
   readonly nowScratchpad?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */

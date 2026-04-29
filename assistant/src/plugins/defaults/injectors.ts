@@ -16,6 +16,7 @@
  * | `unified-turn-context`   | 20    | prepend-user-tail       |
  * | `pkb-context`            | 30    | after-memory-prefix     |
  * | `pkb-reminder`           | 35    | after-memory-prefix     |
+ * | `memory-v2-static`       | 38    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
@@ -86,6 +87,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   unifiedTurnContext: 20,
   pkbContext: 30,
   pkbReminder: 35,
+  memoryV2Static: 38,
   nowMd: 40,
   subagentStatus: 50,
   slackMessages: 60,
@@ -314,6 +316,53 @@ async function buildPkbReminderWithHints(
 }
 
 /**
+ * `memory-v2-static` injector — order 38, after-memory-prefix.
+ *
+ * Injects the v2 static memory block (essentials/threads/recent/buffer
+ * concatenated under markdown headings) wrapped in `<memory>...</memory>`
+ * onto the user message. The agent loop only forwards `memoryV2Static` on
+ * full-mode turns (first turn / post-compaction), mirroring the PKB
+ * auto-inject cadence — subsequent turns get `null` and the prior block
+ * stays cached on its original user message.
+ *
+ * Sits between `pkb-reminder` (35) and `now-md` (40) so the rendered order
+ * after the memory prefix is `[pkb-reminder, pkb-context, memory-v2-static,
+ * now-md, ...user text]` when every PKB injector also fires (transitional
+ * state). Once PKB is fully retired under v2 this is the only block
+ * adjacent to the memory prefix.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `memoryV2Static` is a non-null, non-empty string.
+ */
+const memoryV2StaticInjector: Injector = {
+  name: "memory-v2-static",
+  order: DEFAULT_INJECTOR_ORDER.memoryV2Static,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const content = inputs.memoryV2Static;
+    if (!content) return null;
+    return {
+      id: "memory-v2-static",
+      text: buildMemoryV2StaticBlock(content),
+      placement: "after-memory-prefix",
+    };
+  },
+};
+
+/**
+ * Wrap the static memory content in `<memory>...</memory>`. Escapes any
+ * closing `</memory>` inside the content so authored memory files cannot
+ * accidentally break out of the wrapper.
+ */
+function buildMemoryV2StaticBlock(content: string): string {
+  const escaped = content.replace(/<\/memory\s*>/gi, "&lt;/memory&gt;");
+  return `<memory>\n${escaped}\n</memory>`;
+}
+
+/**
  * `now-md` injector — order 40, after-memory-prefix.
  *
  * Injects the NOW.md scratchpad content as
@@ -475,6 +524,7 @@ export const defaultInjectorsPlugin: Plugin = {
     unifiedTurnContextInjector,
     pkbContextInjector,
     pkbReminderInjector,
+    memoryV2StaticInjector,
     nowMdInjector,
     subagentStatusInjector,
     slackMessagesInjector,
