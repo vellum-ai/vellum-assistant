@@ -36,6 +36,12 @@ You are not summarizing for an audience. You are rewriting your own memory.
 
 Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. Anything in \`memory/buffer.md\` with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\` arrived AFTER you started — leave it for the next pass.
 
+## Memory graph concepts
+
+High activation concepts in the memory graph are retrieved at the start of each turn. Activations are calculated using the previous turn's activations and similarity to your last message, the user's most recent message, and NOW.md. Activations spread along edges, causing neighboring concepts to be boosted when a node is activated.
+
+Each concept should be a single topic. It should function as a single retrievable cheat sheet about that topic. Prefer smaller concepts over larger ones, splitting aggressively into multiple concepts and connecting them with edges. Don't hoard information in a single concept, split it into multiple concepts with edges between them that can be easily followed. Just because there's a maximum size for a page doesn't mean you should be hitting the limit. The limit is an absolute maximum, not a target. The immutable archive retains the entire buffer forever, so don't worry about losing information.
+
 ## Inputs
 
 - Your identity files (already loaded into context)
