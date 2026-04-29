@@ -190,21 +190,6 @@ public struct SuggestedPrompt: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
-// MARK: - LowPriorityCollapsed
-
-/// Summary of low-priority items that were collapsed out of the main
-/// feed list. The client renders this as a single "N low priority
-/// updates" line instead of showing each item individually.
-public struct LowPriorityCollapsed: Codable, Sendable, Hashable {
-    public let count: Int
-    public let itemIds: [String]
-
-    public init(count: Int, itemIds: [String]) {
-        self.count = count
-        self.itemIds = itemIds
-    }
-}
-
 // MARK: - HomeFeedFile
 
 /// On-disk file format for `~/.vellum/workspace/data/home-feed.json`.

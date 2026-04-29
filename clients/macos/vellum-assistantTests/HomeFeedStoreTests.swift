@@ -54,8 +54,7 @@ final class HomeFeedStoreTests: XCTestCase {
                 timeAwayLabel: "Away for 2 hours",
                 newCount: items.filter { $0.status == .new }.count
             ),
-            suggestedPrompts: suggestedPrompts,
-            lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
+            suggestedPrompts: suggestedPrompts
         )
     }
 

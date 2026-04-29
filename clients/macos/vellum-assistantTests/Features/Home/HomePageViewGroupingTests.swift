@@ -48,8 +48,7 @@ final class HomePageViewGroupingTests: XCTestCase {
                 timeAwayLabel: "",
                 newCount: 0
             ),
-            suggestedPrompts: [],
-            lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
+            suggestedPrompts: []
         )
         let client = MockHomeFeedClient(response: response)
         let (stream, _) = AsyncStream<ServerMessage>.makeStream()

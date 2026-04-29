@@ -5217,11 +5217,7 @@ paths:
                           type: string
                         type:
                           type: string
-                          enum:
-                            - nudge
-                            - digest
-                            - action
-                            - thread
+                          const: notification
                         priority:
                           type: integer
                           minimum: 0
@@ -5230,14 +5226,6 @@ paths:
                           type: string
                         summary:
                           type: string
-                        source:
-                          type: string
-                          enum:
-                            - gmail
-                            - slack
-                            - calendar
-                            - assistant
-                            - telegram
                         timestamp:
                           type: string
                         status:
@@ -5250,10 +5238,6 @@ paths:
                             - dismissed
                         expiresAt:
                           type: string
-                        minTimeAway:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
                         actions:
                           type: array
                           items:
@@ -5294,11 +5278,6 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
-                        author:
-                          type: string
-                          enum:
-                            - assistant
-                            - platform
                         createdAt:
                           type: string
                       required:
@@ -5309,7 +5288,6 @@ paths:
                         - summary
                         - timestamp
                         - status
-                        - author
                         - createdAt
                       additionalProperties: false
                   updatedAt:
@@ -5354,27 +5332,11 @@ paths:
                         - prompt
                         - source
                       additionalProperties: false
-                  lowPriorityCollapsed:
-                    type: object
-                    properties:
-                      count:
-                        type: integer
-                        minimum: 0
-                        maximum: 9007199254740991
-                      itemIds:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - count
-                      - itemIds
-                    additionalProperties: false
                 required:
                   - items
                   - updatedAt
                   - contextBanner
                   - suggestedPrompts
-                  - lowPriorityCollapsed
                 additionalProperties: false
       parameters:
         - name: timeAwaySeconds
@@ -5382,9 +5344,7 @@ paths:
           required: true
           schema:
             type: integer
-          description:
-            Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to
-            compute the context-banner relative-time label.
+          description: Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.
   /v1/home/feed/{id}:
     patch:
       operationId: home_feed_by_id_patch
@@ -5406,11 +5366,7 @@ paths:
                     type: string
                   type:
                     type: string
-                    enum:
-                      - nudge
-                      - digest
-                      - action
-                      - thread
+                    const: notification
                   priority:
                     type: integer
                     minimum: 0
@@ -5419,14 +5375,6 @@ paths:
                     type: string
                   summary:
                     type: string
-                  source:
-                    type: string
-                    enum:
-                      - gmail
-                      - slack
-                      - calendar
-                      - assistant
-                      - telegram
                   timestamp:
                     type: string
                   status:
@@ -5439,10 +5387,6 @@ paths:
                       - dismissed
                   expiresAt:
                     type: string
-                  minTimeAway:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
                   actions:
                     type: array
                     items:
@@ -5483,11 +5427,6 @@ paths:
                     required:
                       - kind
                     additionalProperties: false
-                  author:
-                    type: string
-                    enum:
-                      - assistant
-                      - platform
                   createdAt:
                     type: string
                 required:
@@ -5498,7 +5437,6 @@ paths:
                   - summary
                   - timestamp
                   - status
-                  - author
                   - createdAt
                 additionalProperties: false
         "404":
