@@ -17,6 +17,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
+}));
+
 // Mock render to return the raw content as text
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
@@ -161,10 +166,11 @@ function registerPendingInteraction(
   },
 ): ReturnType<typeof mock> {
   const handleConfirmationResponse = mock(() => {});
-  const mockSession = {
+  const _mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
   } as unknown as Conversation;
+  _conversationMocks.set(conversationId, _mockSession);
 
   pendingInteractions.register(requestId, {
     conversationId,

@@ -313,7 +313,7 @@ function seedPendingConfirmation(
  * confirmation details.
  */
 function registerPendingInteraction(
-  conversation: Conversation,
+  _conversation: Conversation,
   requestId: string,
   conversationId: string,
   confirmationDetails?: ConfirmationDetails,

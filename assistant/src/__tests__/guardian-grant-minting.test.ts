@@ -19,6 +19,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
+}));
+
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -93,10 +98,11 @@ function registerPendingInteraction(
   input: Record<string, unknown> = TOOL_INPUT,
 ): ReturnType<typeof mock> {
   const handleConfirmationResponse = mock(() => {});
-  const mockSession = {
+  const _mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
   } as unknown as Conversation;
+  _conversationMocks.set(conversationId, _mockSession);
 
   pendingInteractions.register(requestId, {
     conversationId,

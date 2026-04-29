@@ -2,6 +2,14 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
+  findConversationBySurfaceId: () => undefined,
+  getActiveConversations: () => [],
+  createConversation: () => undefined,
+}));
+
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
@@ -241,10 +249,11 @@ describe("Telegram callback seen signals", () => {
 
     // Register a pending interaction so the approval interception handles it
     const handleConfirmationResponse = mock(() => {});
-    const mockSession = {
+    const _mockSession = {
       handleConfirmationResponse,
       ensureActorScopedHistory: async () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
+    _conversationMocks.set(conversationId, _mockSession);
     pendingInteractions.register("req-cb-test", {
       conversationId,
       kind: "confirmation",
