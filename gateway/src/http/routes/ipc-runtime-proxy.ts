@@ -12,7 +12,14 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
+import {
+  getIpcRoutePolicy,
+  type IpcRoutePolicy,
+} from "../../auth/ipc-route-policy.js";
+import { resolveScopeProfile } from "../../auth/scopes.js";
+import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
+import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import {
   ipcCallAssistantStrict,
@@ -47,6 +54,8 @@ export async function tryIpcProxy(
   }
 
   // --- Auth: replicate the gateway's JWT validation -----------------------
+  let claims: TokenClaims | undefined;
+
   if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
     const authHeader = req.headers.get("authorization");
     if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
@@ -65,6 +74,7 @@ export async function tryIpcProxy(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    claims = result.claims;
   }
 
   // --- Route matching -----------------------------------------------------
@@ -86,6 +96,11 @@ export async function tryIpcProxy(
       { status: 404 },
     );
   }
+
+  // --- Policy enforcement --------------------------------------------------
+  const policy = getIpcRoutePolicy(match.operationId);
+  const policyDenied = enforceRoutePolicy(policy, claims, pathname);
+  if (policyDenied) return policyDenied;
 
   const start = performance.now();
 
@@ -196,4 +211,84 @@ export async function tryIpcProxy(
     );
     return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Policy enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Enforce the route's scope/principal policy against the caller's token.
+ * Returns a 403 Response when denied, null when allowed.
+ */
+function enforceRoutePolicy(
+  policy: IpcRoutePolicy | undefined,
+  claims: TokenClaims | undefined,
+  path: string,
+): Response | null {
+  if (!policy) return null;
+
+  // When auth is disabled (dev mode), no claims → skip enforcement.
+  if (!claims) return null;
+
+  // Check principal type.
+  if (policy.allowedPrincipalTypes.length > 0) {
+    const subResult = parseSub(claims.sub);
+    if (!subResult.ok) {
+      log.warn(
+        { path, sub: claims.sub, reason: subResult.reason },
+        "IPC proxy policy denied: failed to parse sub claim",
+      );
+      return Response.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Unable to determine principal type",
+          },
+        },
+        { status: 403 },
+      );
+    }
+    if (!policy.allowedPrincipalTypes.includes(subResult.principalType)) {
+      log.warn(
+        {
+          path,
+          principalType: subResult.principalType,
+          allowed: policy.allowedPrincipalTypes,
+        },
+        "IPC proxy policy denied: principal type not allowed",
+      );
+      return Response.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Principal type not permitted for this endpoint",
+          },
+        },
+        { status: 403 },
+      );
+    }
+  }
+
+  // Check required scopes.
+  const scopes = resolveScopeProfile(claims.scope_profile);
+  for (const required of policy.requiredScopes) {
+    if (!scopes.has(required)) {
+      log.warn(
+        { path, missingScope: required },
+        "IPC proxy policy denied: missing required scope",
+      );
+      return Response.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: `Missing required scope: ${required}`,
+          },
+        },
+        { status: 403 },
+      );
+    }
+  }
+
+  return null;
 }
