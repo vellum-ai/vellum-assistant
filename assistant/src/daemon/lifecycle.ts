@@ -9,7 +9,10 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
+import {
+  initFeatureFlagOverrides,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
@@ -1219,16 +1222,31 @@ export async function runDaemon(): Promise<void> {
       "Heartbeat service configured",
     );
 
-    const filingConfig = config.filing;
-    const filing = new FilingService();
-    filing.start();
-    log.info(
-      {
-        enabled: filingConfig.enabled,
-        intervalMs: filingConfig.intervalMs,
-      },
-      "Filing service configured",
+    // Filing yields to the memory v2 consolidation job when the flag is on —
+    // both serve the same role (periodic background memory processing) and
+    // running both is redundant. The consolidation job runs through the
+    // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
+    const memoryV2Enabled = isAssistantFeatureFlagEnabled(
+      "memory-v2-enabled",
+      config,
     );
+    let filing: FilingService | null = null;
+    if (!memoryV2Enabled) {
+      const filingConfig = config.filing;
+      filing = new FilingService();
+      filing.start();
+      log.info(
+        {
+          enabled: filingConfig.enabled,
+          intervalMs: filingConfig.intervalMs,
+        },
+        "Filing service configured",
+      );
+    } else {
+      log.info(
+        "Filing service skipped — memory v2 consolidation is the active background memory job",
+      );
+    }
 
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().

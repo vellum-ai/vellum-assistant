@@ -481,6 +481,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "filing", scopes: ["settings.read"] },
   { endpoint: "filing:POST", scopes: ["settings.write"] },
 
+  // Consolidation (memory v2 counterpart to Filing)
+  { endpoint: "consolidation", scopes: ["settings.read"] },
+  { endpoint: "consolidation:POST", scopes: ["settings.write"] },
+
   // Heartbeat (config, runs, checklist — all share the "heartbeat" policyKey)
   { endpoint: "heartbeat:GET", scopes: ["settings.read"] },
   { endpoint: "heartbeat", scopes: ["settings.write"] },

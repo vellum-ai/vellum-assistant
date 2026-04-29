@@ -19,12 +19,15 @@ struct SettingsSchedulesTab: View {
     // System task state
     @State private var heartbeatConfig: HeartbeatConfigResponse?
     @State private var filingConfig: FilingConfigResponse?
+    @State private var consolidationConfig: ConsolidationConfigResponse?
     @State private var isHeartbeatRunning = false
     @State private var isFilingRunning = false
+    @State private var isConsolidationRunning = false
 
     private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
     private let heartbeatClient: HeartbeatClientProtocol = HeartbeatClient()
     private let filingClient: FilingClientProtocol = FilingClient()
+    private let consolidationClient: ConsolidationClientProtocol = ConsolidationClient()
 
     // MARK: - Body
 
@@ -64,10 +67,17 @@ struct SettingsSchedulesTab: View {
             .foregroundStyle(VColor.contentDefault)
     }
 
+    private var filingAvailable: Bool { filingConfig?.available == true }
+    private var consolidationAvailable: Bool { consolidationConfig?.available == true }
+    private var hasAnySystemTask: Bool {
+        heartbeatConfig != nil || filingAvailable || consolidationAvailable
+    }
+
     private var systemTaskCount: Int {
         var count = 0
         if heartbeatConfig != nil { count += 1 }
-        if filingConfig != nil { count += 1 }
+        if filingAvailable { count += 1 }
+        if consolidationAvailable { count += 1 }
         return count
     }
 
@@ -78,7 +88,7 @@ struct SettingsSchedulesTab: View {
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 120)
-        } else if schedules.isEmpty && heartbeatConfig == nil && filingConfig == nil {
+        } else if schedules.isEmpty && !hasAnySystemTask {
             if let error = loadError {
                 errorView(error)
             } else {
@@ -132,7 +142,7 @@ struct SettingsSchedulesTab: View {
                 }
             }
 
-            if heartbeatConfig != nil || filingConfig != nil {
+            if hasAnySystemTask {
                 systemSection
             }
         }
@@ -304,7 +314,7 @@ struct SettingsSchedulesTab: View {
                 )
             }
 
-            if let config = filingConfig {
+            if let config = filingConfig, config.available {
                 systemRow(
                     name: "Filing",
                     subtitle: filingSubtitle(config),
@@ -313,6 +323,19 @@ struct SettingsSchedulesTab: View {
                     lastRunAt: config.lastRunAt,
                     isRunning: isFilingRunning,
                     onRunNow: { runFilingNow() },
+                    onToggle: nil
+                )
+            }
+
+            if let config = consolidationConfig, config.available {
+                systemRow(
+                    name: "Consolidation",
+                    subtitle: consolidationSubtitle(config),
+                    enabled: config.enabled,
+                    nextRunAt: config.nextRunAt,
+                    lastRunAt: config.lastRunAt,
+                    isRunning: isConsolidationRunning,
+                    onRunNow: { runConsolidationNow() },
                     onToggle: nil
                 )
             }
@@ -451,8 +474,12 @@ struct SettingsSchedulesTab: View {
         } catch {
             loadError = "Failed to load schedules. \(error.localizedDescription)"
         }
-        heartbeatConfig = await heartbeatClient.fetchConfig()
-        filingConfig = await filingClient.fetchConfig()
+        async let hb = heartbeatClient.fetchConfig()
+        async let fi = filingClient.fetchConfig()
+        async let co = consolidationClient.fetchConfig()
+        heartbeatConfig = await hb
+        filingConfig = await fi
+        consolidationConfig = await co
         isLoading = false
     }
 
@@ -572,6 +599,15 @@ struct SettingsSchedulesTab: View {
         }
     }
 
+    private func runConsolidationNow() {
+        isConsolidationRunning = true
+        Task {
+            _ = await consolidationClient.runNow()
+            consolidationConfig = await consolidationClient.fetchConfig()
+            isConsolidationRunning = false
+        }
+    }
+
     // MARK: - Helpers
 
     private func modeBadgeTone(_ mode: String) -> VBadge.Tone {
@@ -604,6 +640,14 @@ struct SettingsSchedulesTab: View {
             subtitle += " (\(Int(start)):00\u{2013}\(Int(end)):00)"
         }
         return subtitle
+    }
+
+    private func consolidationSubtitle(_ config: ConsolidationConfigResponse) -> String {
+        let minutes = Int(config.intervalMs / 60_000)
+        if minutes >= 60 && minutes % 60 == 0 {
+            return "Every \(minutes / 60) hr"
+        }
+        return "Every \(minutes) min"
     }
 
     private func formatNextRun(_ ms: Int, timezone: String?) -> String? {

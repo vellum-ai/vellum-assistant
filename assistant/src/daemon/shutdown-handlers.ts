@@ -21,7 +21,7 @@ export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
-  filing: FilingService;
+  filing: FilingService | null;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
   feedScheduler: { stop(): void } | null;
@@ -61,7 +61,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
-    await deps.filing.stop();
+    if (deps.filing) await deps.filing.stop();
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)
     // before stopping the server so any HTTP round-trips and SSE emissions
