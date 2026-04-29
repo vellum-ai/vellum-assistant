@@ -13,7 +13,6 @@
  * resolve the interaction.
  */
 
-import type { Conversation } from "../daemon/conversation.js";
 import type { UserDecision } from "../permissions/types.js";
 
 export interface ConfirmationDetails {
@@ -39,7 +38,6 @@ export interface ConfirmationDetails {
 }
 
 export interface PendingInteraction {
-  conversation: Conversation | null;
   conversationId: string;
   kind:
     | "confirmation"
@@ -112,10 +110,10 @@ export function getByConversation(
  * /v1/host-transfer-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
  */
-export function removeByConversation(conversation: Conversation): void {
+export function removeByConversation(conversationId: string): void {
   for (const [requestId, interaction] of pending) {
     if (
-      interaction.conversation === conversation &&
+      interaction.conversationId === conversationId &&
       interaction.kind !== "host_bash" &&
       interaction.kind !== "host_file" &&
       interaction.kind !== "host_cu" &&
@@ -139,6 +137,17 @@ export function getByKind(
     if (interaction.kind === kind) {
       results.push({ requestId, ...interaction });
     }
+  }
+  return results;
+}
+
+/**
+ * Return all pending interactions across all conversations.
+ */
+export function getAll(): Array<{ requestId: string } & PendingInteraction> {
+  const results: Array<{ requestId: string } & PendingInteraction> = [];
+  for (const [requestId, interaction] of pending) {
+    results.push({ requestId, ...interaction });
   }
   return results;
 }

@@ -14,6 +14,7 @@
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { findConversation } from "../daemon/conversation-store.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import {
   type CanonicalGuardianRequest,
@@ -203,7 +204,11 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision: UserDecision =
       decision.action === "reject" ? "deny" : "allow";
-    resolved.conversation!.handleConfirmationResponse(
+    const conversation = findConversation(resolved.conversationId);
+    if (!conversation) {
+      return { ok: false, reason: "conversation_not_found" };
+    }
+    conversation.handleConfirmationResponse(
       request.id,
       userDecision,
       undefined,

@@ -313,13 +313,12 @@ function seedPendingConfirmation(
  * confirmation details.
  */
 function registerPendingInteraction(
-  conversation: Conversation,
+  _conversation: Conversation,
   requestId: string,
   conversationId: string,
   confirmationDetails?: ConfirmationDetails,
 ): void {
   pendingInteractions.register(requestId, {
-    conversation,
     conversationId,
     kind: "confirmation",
     confirmationDetails,

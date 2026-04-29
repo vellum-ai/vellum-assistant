@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -32,6 +33,13 @@ export interface SecretPrompterChannelContext {
   supportsDynamicUi?: boolean;
 }
 
+/**
+ * Per-conversation secret prompter.
+ *
+ * Promise/timer state lives here (per-conversation lifecycle), while the
+ * global {@link pendingInteractions} map provides the requestId→conversationId
+ * lookup that standalone HTTP endpoints (POST /v1/secret) need.
+ */
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
   private channelContext?: SecretPrompterChannelContext;
@@ -47,6 +55,9 @@ export class SecretPrompter {
    * The request is always published to the SSE hub via
    * {@link broadcastMessage} so any connected client (desktop, web) can
    * display the secure prompt dialog.
+   *
+   * Also registers the interaction in the global {@link pendingInteractions}
+   * map so that POST /v1/secret can find the conversation by requestId.
    *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
@@ -64,16 +75,23 @@ export class SecretPrompter {
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
     const requestId = uuid();
+    const effectiveConversationId = conversationId ?? "unknown";
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
+
+      pendingInteractions.register(requestId, {
+        conversationId: effectiveConversationId,
+        kind: "secret",
+      });
 
       const config = getConfig();
       const msg: SecretRequestMessage = {
@@ -84,7 +102,7 @@ export class SecretPrompter {
         label,
         description,
         placeholder,
-        conversationId,
+        conversationId: effectiveConversationId,
         purpose,
         allowedTools,
         allowedDomains,
@@ -118,12 +136,15 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    // Clean up the global map (may already be removed by approval-routes).
+    pendingInteractions.resolve(requestId);
     pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
   dispose(): void {
-    for (const [, pending] of this.pending) {
+    for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
+      pendingInteractions.resolve(requestId);
       pending.reject(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );

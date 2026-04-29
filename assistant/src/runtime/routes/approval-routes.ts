@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -97,7 +98,14 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     return { accepted: true };
   }
 
-  interaction.conversation!.handleConfirmationResponse(
+  const conversation = findConversation(interaction.conversationId);
+  if (!conversation) {
+    throw new NotFoundError(
+      "Conversation not found for this pending confirmation",
+    );
+  }
+
+  conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
     selectedPattern,
@@ -136,7 +144,14 @@ function handleSecret({ body }: RouteHandlerArgs) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }
 
-  interaction.conversation!.handleSecretResponse(
+  const conversation = findConversation(interaction.conversationId);
+  if (!conversation) {
+    throw new NotFoundError(
+      "Conversation not found for this pending secret request",
+    );
+  }
+
+  conversation.handleSecretResponse(
     requestId,
     value,
     delivery as "store" | "transient_send" | undefined,
@@ -147,13 +162,28 @@ function handleSecret({ body }: RouteHandlerArgs) {
 /**
  * GET /v1/pending-interactions?conversationKey=...&conversationId=...
  *
- * Returns pending confirmations and secrets for a conversation, allowing
- * polling-based clients (like the CLI) to discover approval requests
- * without SSE.
+ * Returns pending interactions. When conversationKey or conversationId is
+ * provided, returns the first pending confirmation and secret for that
+ * conversation. When neither is provided, returns all pending interactions
+ * across all conversations (diagnostic mode).
  */
 function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
   const conversationKey = queryParams?.conversationKey;
   const conversationId = queryParams?.conversationId;
+
+  // When no filters are provided, return all interactions (diagnostic mode).
+  if (!conversationId && !conversationKey) {
+    const all = pendingInteractions.getAll();
+    return {
+      interactions: all.map((i) => ({
+        requestId: i.requestId,
+        conversationId: i.conversationId,
+        kind: i.kind,
+        toolName: i.confirmationDetails?.toolName,
+        riskLevel: i.confirmationDetails?.riskLevel,
+      })),
+    };
+  }
 
   let resolvedConversationId: string | undefined;
   if (conversationId) {
@@ -161,10 +191,6 @@ function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
   } else if (conversationKey) {
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
-  } else {
-    throw new BadRequestError(
-      "conversationKey or conversationId query parameter is required",
-    );
   }
 
   if (!resolvedConversationId) {
@@ -266,27 +292,42 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     handler: handleListPendingInteractions,
     summary: "List pending interactions",
-    description: "Return pending confirmations and secrets for a conversation.",
+    description:
+      "Return pending interactions. When conversationKey or conversationId is provided, returns details for that conversation. When neither is provided, returns all pending interactions.",
     tags: ["approvals"],
     queryParams: [
       {
         name: "conversationKey",
-        description: "Conversation key",
+        description: "Conversation key (optional)",
       },
       {
         name: "conversationId",
-        description: "Conversation ID",
+        description: "Conversation ID (optional)",
       },
     ],
     responseBody: z.object({
       pendingConfirmation: z
         .object({})
         .passthrough()
-        .describe("Pending confirmation details or null"),
+        .describe("Pending confirmation details or null")
+        .optional(),
       pendingSecret: z
         .object({})
         .passthrough()
-        .describe("Pending secret request or null"),
+        .describe("Pending secret request or null")
+        .optional(),
+      interactions: z
+        .array(
+          z.object({
+            requestId: z.string(),
+            conversationId: z.string(),
+            kind: z.string(),
+            toolName: z.string().optional(),
+            riskLevel: z.string().optional(),
+          }),
+        )
+        .describe("All pending interactions (returned when no filters given)")
+        .optional(),
     }),
   },
 ];

@@ -1035,7 +1035,6 @@ function makeHubPublisher(
     // Register pending interactions for approval events
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -1153,13 +1152,10 @@ function makeHubPublisher(
         );
       }
     } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
+      // SecretPrompter.prompt() registers in pendingInteractions directly;
+      // no duplicate registration needed here.
     } else {
-      registerHostProxyPendingInteraction(msg, conversation, conversationId);
+      registerHostProxyPendingInteraction(msg, conversationId);
     }
 
     // ServerMessage is a large union; conversationId exists on most but not all variants.
@@ -1230,12 +1226,10 @@ function makeHubPublisher(
  */
 function registerHostProxyPendingInteraction(
   msg: ServerMessage,
-  conversation: Conversation,
   conversationId: string,
 ): string | undefined {
   if (msg.type === "host_bash_request") {
     pendingInteractions.register(msg.requestId, {
-      conversation,
       conversationId,
       kind: "host_bash",
     });
@@ -1243,7 +1237,6 @@ function registerHostProxyPendingInteraction(
   }
   if (msg.type === "host_browser_request") {
     pendingInteractions.register(msg.requestId, {
-      conversation,
       conversationId,
       kind: "host_browser",
     });
@@ -1251,7 +1244,6 @@ function registerHostProxyPendingInteraction(
   }
   if (msg.type === "host_file_request") {
     pendingInteractions.register(msg.requestId, {
-      conversation,
       conversationId,
       kind: "host_file",
     });
@@ -1259,7 +1251,6 @@ function registerHostProxyPendingInteraction(
   }
   if (msg.type === "host_cu_request") {
     pendingInteractions.register(msg.requestId, {
-      conversation,
       conversationId,
       kind: "host_cu",
     });
@@ -1267,7 +1258,6 @@ function registerHostProxyPendingInteraction(
   }
   if (msg.type === "host_transfer_request") {
     pendingInteractions.register(msg.requestId, {
-      conversation,
       conversationId,
       kind: "host_transfer",
     });
@@ -1942,10 +1932,7 @@ export async function handleSendMessage(
         for (const interaction of pendingInteractions.getByConversation(
           mapping.conversationId,
         )) {
-          if (
-            interaction.conversation === conversation &&
-            interaction.kind === "confirmation"
-          ) {
+          if (interaction.kind === "confirmation") {
             conversation.emitConfirmationStateChanged({
               conversationId: mapping.conversationId,
               requestId: interaction.requestId,
@@ -1960,7 +1947,7 @@ export async function handleSendMessage(
           }
         }
         conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(conversation);
+        pendingInteractions.removeByConversation(mapping.conversationId);
       }
 
       // Expire any orphaned canonical requests that survived without a
@@ -1989,10 +1976,7 @@ export async function handleSendMessage(
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
-      if (
-        interaction.conversation === conversation &&
-        interaction.kind === "confirmation"
-      ) {
+      if (interaction.kind === "confirmation") {
         conversation.emitConfirmationStateChanged({
           conversationId: mapping.conversationId,
           requestId: interaction.requestId,
@@ -2007,7 +1991,7 @@ export async function handleSendMessage(
       }
     }
     conversation.denyAllPendingConfirmations();
-    pendingInteractions.removeByConversation(conversation);
+    pendingInteractions.removeByConversation(mapping.conversationId);
   }
 
   // Expire any orphaned canonical requests that survived without a

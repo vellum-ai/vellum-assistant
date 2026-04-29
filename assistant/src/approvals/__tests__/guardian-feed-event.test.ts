@@ -88,6 +88,11 @@ mock.module("../../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
 }));
 
+let _mockConversation: Record<string, unknown> | null = null;
+mock.module("../../daemon/conversation-store.js", () => ({
+  findConversation: () => _mockConversation,
+}));
+
 // Stub pending-interactions so tool_approval resolver can find/resolve.
 let mockInteraction: Record<string, unknown> | null = null;
 let mockResolved: Record<string, unknown> | null = null;
@@ -155,16 +160,18 @@ describe("guardian approval feed events", () => {
     mockInteraction = {
       confirmationDetails: { toolName: "web_fetch" },
     };
+    _mockConversation = {
+      handleConfirmationResponse: () => {},
+    };
     mockResolved = {
-      conversation: {
-        handleConfirmationResponse: () => {},
-      },
+      conversationId: "conv-test",
     };
   });
 
   afterEach(() => {
     mockInteraction = null;
     mockResolved = null;
+    _mockConversation = null;
   });
 
   // -----------------------------------------------------------------------

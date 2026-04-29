@@ -108,6 +108,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credential-execution",
   "credential-execution grants",
   "credential-execution grants list",
+  "pending",
+  "pending list",
   "credential-execution grants revoke",
   "credential-execution audit",
   "credential-execution audit list",

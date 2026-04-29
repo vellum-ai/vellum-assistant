@@ -113,7 +113,6 @@ export function makePendingInteractionRegistrar(
   return (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -177,38 +176,30 @@ export function makePendingInteractionRegistrar(
         );
       }
     } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
+      // SecretPrompter.prompt() registers in pendingInteractions directly;
+      // no duplicate registration needed here.
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_browser_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "host_browser",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "host_cu",
       });
     } else if (msg.type === "host_transfer_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation,
         conversationId,
         kind: "host_transfer",
       });
