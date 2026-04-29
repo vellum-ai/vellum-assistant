@@ -7,10 +7,12 @@ import { randomUUID } from "node:crypto";
 
 import { inArray } from "drizzle-orm";
 
+import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getDb } from "../memory/db-connection.js";
 import { acpSessionHistory } from "../memory/schema.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
@@ -54,19 +56,6 @@ export class AcpSessionManager {
    * `acp_session_history` on terminal transition, then cleared.
    */
   private eventBuffers = new Map<string, BufferedAcpUpdate[]>();
-
-  /**
-   * Optional callback to inject a completion/failure message into the parent
-   * conversation so the LLM sees the agent's output.
-   * Wired by DaemonServer at startup.
-   */
-  onAcpSessionFinished:
-    | ((
-        parentConversationId: string,
-        message: string,
-        sendToClient: (msg: ServerMessage) => void,
-      ) => Promise<void>)
-    | null = null;
 
   constructor(private readonly maxConcurrent: number) {
     this.cleanupStaleRunningRows();
@@ -446,28 +435,54 @@ export class AcpSessionManager {
           this.teardownSession(acpSessionId, current);
 
           // Notify parent session so the LLM sees the agent's output
-          if (this.onAcpSessionFinished) {
+          {
             const agentLabel = current.state.agentId;
             const responseText = current.clientHandler.responseText;
             const sessionId = current.state.acpSessionId;
-            // `claude --resume <id>` is Claude Code-specific (the
-            // claude-agent-acp adapter binary). Other adapters resume
-            // differently or not at all, so the hint is gated.
             const resumeHint =
               current.command === "claude-agent-acp"
                 ? `\n\nTo resume: cd ${current.cwd} && claude --resume ${sessionId}`
                 : "";
             const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
-            this.onAcpSessionFinished(
+            const parentConversation = findConversation(
               current.parentConversationId,
-              notifyMessage,
-              current.sendToVellum,
-            ).catch((notifyErr) => {
-              log.error(
-                { acpSessionId, notifyErr },
-                "Failed to notify parent of ACP completion",
+            );
+            if (parentConversation) {
+              const onEvent = (msg: ServerMessage) =>
+                broadcastMessage(msg, current.parentConversationId);
+              const requestId = `acp-notify-${Date.now()}`;
+              const enqueueResult = parentConversation.enqueueMessage(
+                notifyMessage,
+                [],
+                onEvent,
+                requestId,
               );
-            });
+              if (!enqueueResult.queued && !enqueueResult.rejected) {
+                parentConversation
+                  .persistUserMessage(notifyMessage, [])
+                  .then((messageId) =>
+                    parentConversation.runAgentLoop(
+                      notifyMessage,
+                      messageId,
+                      onEvent,
+                    ),
+                  )
+                  .catch((err) => {
+                    log.error(
+                      {
+                        parentConversationId: current.parentConversationId,
+                        err,
+                      },
+                      "Failed to process ACP notification in parent",
+                    );
+                  });
+              }
+            } else {
+              log.warn(
+                { parentConversationId: current.parentConversationId },
+                "ACP agent finished but parent conversation not found",
+              );
+            }
           }
         }
       })
