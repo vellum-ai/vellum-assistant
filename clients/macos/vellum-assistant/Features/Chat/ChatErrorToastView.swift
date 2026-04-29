@@ -261,7 +261,7 @@ struct DiskPressureBanner: View {
 
             Spacer(minLength: VSpacing.lg)
 
-            VButton(label: "Open Workspace", style: .primary) {
+            VButton(label: "Review Disk Usage", style: .primary) {
                 onReviewDiskUsage()
             }
         }
