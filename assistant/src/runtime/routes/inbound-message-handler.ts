@@ -45,7 +45,7 @@ import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   backfillDm,
-  backfillThread,
+  backfillThreadWindow,
 } from "../../messaging/providers/slack/backfill.js";
 import {
   mergeSlackMetadata,
@@ -286,7 +286,7 @@ export async function handleChannelInbound({
         { conversationExternalId },
         "Slack message_deleted event missing sourceMetadata.messageId; ignoring",
       );
-      return ({ accepted: true, deleted: false });
+      return { accepted: true, deleted: false };
     }
 
     // Look up the stored message via the existing channel-event lookup.
@@ -327,7 +327,7 @@ export async function handleChannelInbound({
         { conversationExternalId, deletedMessageTs },
         "No stored message found for Slack delete after retries; ignoring",
       );
-      return ({ accepted: true, deleted: false });
+      return { accepted: true, deleted: false };
     }
 
     // Merge deletedAt into the existing slackMeta sub-key. If the row has
@@ -345,7 +345,7 @@ export async function handleChannelInbound({
         },
         "Stored Slack message has no metadata; skipping delete marker",
       );
-      return ({ accepted: true, deleted: false });
+      return { accepted: true, deleted: false };
     }
 
     let parentMetadata: Record<string, unknown>;
@@ -365,7 +365,7 @@ export async function handleChannelInbound({
         },
         "Failed to parse stored metadata; skipping delete marker",
       );
-      return ({ accepted: true, deleted: false });
+      return { accepted: true, deleted: false };
     }
 
     const existingSlackMeta =
@@ -382,7 +382,7 @@ export async function handleChannelInbound({
         },
         "Stored Slack message has no slackMeta; skipping delete marker",
       );
-      return ({ accepted: true, deleted: false });
+      return { accepted: true, deleted: false };
     }
 
     const updatedSlackMeta = mergeSlackMetadata(existingSlackMeta, {
@@ -404,11 +404,11 @@ export async function handleChannelInbound({
       "Marked Slack message as deleted",
     );
 
-    return ({
+    return {
       accepted: true,
       deleted: true,
       messageId: original.messageId,
-    });
+    };
   }
 
   if (hasAttachments) {
@@ -416,7 +416,9 @@ export async function handleChannelInbound({
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      throw new BadRequestError(`Attachment IDs not found: ${missing.join(", ")}`);
+      throw new BadRequestError(
+        `Attachment IDs not found: ${missing.join(", ")}`,
+      );
     }
   }
 
@@ -500,11 +502,11 @@ export async function handleChannelInbound({
           "Retry of pending verification reply failed; will retry on next duplicate",
         );
       }
-      return ({
+      return {
         accepted: true,
         duplicate: true,
         eventId: result.eventId,
-      });
+      };
     }
   }
 
@@ -586,12 +588,12 @@ export async function handleChannelInbound({
       // transcript line. All other interception outcomes (stale_ignored,
       // non-guardian, no pending approval) fall through to persistence.
       if (reactionApprovalResult.type === "guardian_decision_applied") {
-        return ({
+        return {
           accepted: true,
           duplicate: false,
           eventId: result.eventId,
           approval: reactionApprovalResult.type,
-        });
+        };
       }
     }
 
@@ -604,11 +606,11 @@ export async function handleChannelInbound({
         { conversationId: result.conversationId, eventId: result.eventId },
         "Skipping reaction persistence: missing sourceMetadata.messageId",
       );
-      return ({
+      return {
         accepted: result.accepted,
         duplicate: result.duplicate,
         eventId: result.eventId,
-      });
+      };
     }
 
     const threadTs =
@@ -634,11 +636,11 @@ export async function handleChannelInbound({
       );
     }
 
-    return ({
+    return {
       accepted: result.accepted,
       duplicate: result.duplicate,
       eventId: result.eventId,
-    });
+    };
   }
 
   // ── Ingress escalation ──
@@ -862,12 +864,12 @@ export async function handleChannelInbound({
         }
       }
 
-      return ({
+      return {
         accepted: true,
         duplicate: false,
         eventId: result.eventId,
         approval: approvalResult.type,
-      });
+      };
     }
 
     // When a callback payload was not handled by approval interception, it's
@@ -922,12 +924,12 @@ export async function handleChannelInbound({
         });
       }
 
-      return ({
+      return {
         accepted: true,
         duplicate: false,
         eventId: result.eventId,
         approval: "stale_ignored",
-      });
+      };
     }
   }
 
@@ -1090,11 +1092,11 @@ export async function handleChannelInbound({
     }
   }
 
-  return ({
+  return {
     accepted: result.accepted,
     duplicate: result.duplicate,
     eventId: result.eventId,
-  });
+  };
 }
 
 /**
@@ -1273,19 +1275,7 @@ function countSlackMetaMessages(conversationId: string): number {
     );
     if (candidates.length === 0) return count;
     for (const raw of candidates) {
-      let parent: Record<string, unknown> | null = null;
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          parent = parsed as Record<string, unknown>;
-        }
-      } catch {
-        continue;
-      }
-      if (!parent) continue;
-      const inner = parent.slackMeta;
-      if (typeof inner !== "string") continue;
-      if (readSlackMetadata(inner)) {
+      if (readSlackMetadataFromMessageMetadata(raw)) {
         count++;
         if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
       }
@@ -1294,6 +1284,25 @@ function countSlackMetaMessages(conversationId: string): number {
     offset += candidates.length;
   }
   return count;
+}
+
+function readSlackMetadataFromMessageMetadata(
+  metadata: string | null | undefined,
+): SlackMessageMetadata | null {
+  if (!metadata) return null;
+  let parent: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      parent = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  if (!parent) return null;
+  const raw = parent.slackMeta;
+  if (typeof raw !== "string") return null;
+  return readSlackMetadata(raw);
 }
 
 /**
@@ -1305,20 +1314,7 @@ function countSlackMetaMessages(conversationId: string): number {
 function readStoredSlackChannelTs(conversationId: string): Set<string> {
   const seen = new Set<string>();
   for (const row of getMessages(conversationId)) {
-    if (!row.metadata) continue;
-    let parent: Record<string, unknown> | null = null;
-    try {
-      const parsed = JSON.parse(row.metadata) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parent = parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-    if (!parent) continue;
-    const raw = parent.slackMeta;
-    if (typeof raw !== "string") continue;
-    const meta = readSlackMetadata(raw);
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata);
     // Only message rows represent stored Slack messages. Reaction rows carry
     // `channelTs` equal to the target message's ts, so including them would
     // make a reaction on a thread parent wrongly short-circuit ancestor
@@ -1326,6 +1322,66 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
   }
   return seen;
+}
+
+interface ParsedSlackTimestamp {
+  seconds: bigint;
+  micros: bigint;
+}
+
+function parseSlackTimestamp(
+  ts: string | undefined,
+): ParsedSlackTimestamp | null {
+  if (!ts) return null;
+  const match = /^(\d+)\.(\d{1,6})$/.exec(ts);
+  if (!match) return null;
+  const micros = BigInt(match[2]);
+  if (micros > 999_999n) return null;
+  return {
+    seconds: BigInt(match[1]),
+    micros,
+  };
+}
+
+function compareSlackTimestamps(left: string, right: string): number | null {
+  const parsedLeft = parseSlackTimestamp(left);
+  const parsedRight = parseSlackTimestamp(right);
+  if (!parsedLeft || !parsedRight) return null;
+  if (parsedLeft.seconds < parsedRight.seconds) return -1;
+  if (parsedLeft.seconds > parsedRight.seconds) return 1;
+  if (parsedLeft.micros < parsedRight.micros) return -1;
+  if (parsedLeft.micros > parsedRight.micros) return 1;
+  return 0;
+}
+
+interface StoredSlackThreadState {
+  storedChannelTs: Set<string>;
+  latestStoredThreadTs: string | undefined;
+}
+
+function readStoredSlackThreadState(
+  conversationId: string,
+  threadTs: string,
+): StoredSlackThreadState {
+  const storedChannelTs = new Set<string>();
+  let latestStoredThreadTs: string | undefined;
+
+  for (const row of getMessages(conversationId)) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata);
+    if (!meta || meta.eventKind !== "message") continue;
+    if (meta.channelTs !== threadTs && meta.threadTs !== threadTs) continue;
+
+    storedChannelTs.add(meta.channelTs);
+    if (!parseSlackTimestamp(meta.channelTs)) continue;
+    if (
+      latestStoredThreadTs === undefined ||
+      compareSlackTimestamps(meta.channelTs, latestStoredThreadTs) === 1
+    ) {
+      latestStoredThreadTs = meta.channelTs;
+    }
+  }
+
+  return { storedChannelTs, latestStoredThreadTs };
 }
 
 /**
@@ -1503,13 +1559,11 @@ async function runBackfillSlackDmIfCold(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * In-memory TTL cache keyed by `<conversationId>:<threadTs>`. Tracks recent
- * thread-backfill triggers so a burst of replies inside the same Slack
- * thread (e.g. a guardian rapidly typing several lines) does not re-fetch
- * the same parent messages from Slack repeatedly. Entries naturally fall
- * out after the TTL — if the thread is still active later, a fresh
- * backfill becomes a cheap "are the parents already stored?" DB lookup
- * that short-circuits before the Slack API is touched.
+ * In-memory TTL cache keyed by
+ * `<conversationId>:<threadTs>:<lowerBoundTs>:<upperBoundTs>`. Tracks recent
+ * thread-backfill windows so repeated triggers for the same Slack gap do not
+ * re-fetch identical rows while later replies in the same thread can still
+ * request newer unseen windows.
  *
  * Exported only for tests; production callers should use
  * {@link triggerSlackThreadBackfillIfNeeded}.
@@ -1558,17 +1612,18 @@ function isBackfillRecentlyTriggered(cacheKey: string): boolean {
  * When a reply arrives for a thread the daemon has never seen (e.g. the bot
  * was just added to the channel, or the parent message pre-dates the
  * conversation), the daemon fetches the thread's recent history via
- * {@link backfillThread}, persists each unseen message as a `messages` row
+ * {@link backfillThreadWindow}, persists each unseen message as a `messages` row
  * with a `slackMeta` envelope, and skips duplicates whose `ts` already
  * appears in the conversation.
  *
  * Behavior contracts:
- * - **No-op when the parent is already stored.** Looks up the conversation's
- *   messages and short-circuits if any row has `slackMeta.channelTs ===
- *   threadTs`. This keeps subsequent replies in the same thread cheap.
- * - **TTL idempotency cache.** A 10-minute in-memory cache prevents bursts
- *   of replies in the same thread from re-running the DB lookup or the
- *   Slack API call.
+ * - **Thread-state gap detection.** Looks up stored Slack message rows for
+ *   the same thread, excluding reactions, then fetches only the unseen
+ *   `(latestStoredThreadTs, excludeChannelTs)` window when the inbound Slack
+ *   timestamp is newer than local state.
+ * - **TTL idempotency cache.** A 10-minute in-memory cache prevents repeated
+ *   fetches for the same exact bounded window, without suppressing later
+ *   unseen windows in the same thread.
  * - **Failure-tolerant.** Any error (Slack API failure, DB error, malformed
  *   payload) is logged at `warn` and swallowed — the inbound turn must
  *   never block on backfill.
@@ -1583,46 +1638,62 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
    * `conversations.replies` returns it in the thread window. Necessary
    * because thread backfill runs concurrently with
    * `processChannelMessageInBackground`, so the inbound row may not yet be
-   * in the DB when `readStoredSlackChannelTs` snapshots the conversation.
+   * in the DB when the thread-state scan snapshots the conversation.
    */
   excludeChannelTs?: string;
   /**
    * OAuth account identifier used to disambiguate which Slack workspace the
    * backfill should read from in multi-account setups. Passed through to
-   * `backfillThread` → `resolveConnection`. Best-effort: if omitted, the
+   * `backfillThreadWindow` → `resolveConnection`. Best-effort: if omitted, the
    * resolver falls back to the default-active connection.
    */
   account?: string;
 }): Promise<void> {
   const { conversationId, channelId, threadTs, excludeChannelTs, account } =
     params;
-  const cacheKey = `${conversationId}:${threadTs}`;
 
   try {
+    const upperBoundTs = parseSlackTimestamp(excludeChannelTs)
+      ? excludeChannelTs
+      : undefined;
+    const threadState = readStoredSlackThreadState(conversationId, threadTs);
+    const lowerBoundTs = threadState.latestStoredThreadTs;
+
+    // Pre-seed only after computing lowerBoundTs. The current inbound row
+    // may not have reached the DB yet, and treating it as stored state would
+    // hide the gap we need to fetch.
+    if (excludeChannelTs) threadState.storedChannelTs.add(excludeChannelTs);
+
+    if (upperBoundTs && lowerBoundTs) {
+      const lowerVsUpper = compareSlackTimestamps(lowerBoundTs, upperBoundTs);
+      if (lowerVsUpper !== null && lowerVsUpper >= 0) {
+        return;
+      }
+    } else if (!upperBoundTs && lowerBoundTs) {
+      return;
+    }
+
+    const cacheKey = `${conversationId}:${threadTs}:${
+      lowerBoundTs ?? "none"
+    }:${upperBoundTs ?? "unbounded"}`;
     if (isBackfillRecentlyTriggered(cacheKey)) {
       return;
     }
 
-    const storedChannelTs = readStoredSlackChannelTs(conversationId);
-    if (excludeChannelTs) storedChannelTs.add(excludeChannelTs);
-    if (storedChannelTs.has(threadTs)) {
-      // Parent is already in the conversation; mark the cache so a burst of
-      // replies in this thread does not redo the DB scan for each one.
-      _backfillTriggerCache.set(cacheKey, Date.now());
-      pruneBackfillCacheIfNeeded();
-      return;
-    }
-
     // Mark the trigger before issuing the network call. Doing this first
-    // means a second concurrent reply in the same thread short-circuits
-    // immediately even while the first call is still awaiting the Slack
-    // API. The cost is a slightly larger window where a transient Slack
-    // failure suppresses a retry, which the next reply outside the TTL
-    // (or a daemon restart) will re-attempt anyway.
+    // means a second concurrent request for the same window short-circuits
+    // immediately even while the first call is still awaiting the Slack API.
+    // The cost is a slightly larger window where a transient Slack failure
+    // suppresses a retry, which the next reply outside the TTL (or a daemon
+    // restart) will re-attempt anyway.
     _backfillTriggerCache.set(cacheKey, Date.now());
     pruneBackfillCacheIfNeeded();
 
-    const fetched = await backfillThread(channelId, threadTs, { account });
+    const fetched = await backfillThreadWindow(channelId, threadTs, {
+      account,
+      ...(lowerBoundTs !== undefined ? { after: lowerBoundTs } : {}),
+      ...(upperBoundTs !== undefined ? { before: upperBoundTs } : {}),
+    });
     if (fetched.length === 0) {
       log.debug(
         { conversationId, channelId, threadTs },
@@ -1634,14 +1705,14 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     let persisted = 0;
     for (const message of fetched) {
       if (!message.id) continue;
-      if (storedChannelTs.has(message.id)) continue;
+      if (threadState.storedChannelTs.has(message.id)) continue;
       try {
         await persistBackfilledSlackMessage({
           conversationId,
           channelId,
           message,
         });
-        storedChannelTs.add(message.id);
+        threadState.storedChannelTs.add(message.id);
         persisted++;
       } catch (err) {
         log.warn(
