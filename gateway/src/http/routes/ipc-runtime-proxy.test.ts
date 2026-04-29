@@ -46,25 +46,9 @@ const ipcCallAssistantMock = mock(() =>
       endpoint: "apps/:appId/dist/:filename",
       method: "GET",
     },
-    // Policy-enforced routes for testing
-    {
-      operationId: "settings_get",
-      endpoint: "settings",
-      method: "GET",
-      policy: {
-        scopes: ["settings.read"],
-        principalTypes: ["actor", "svc_gateway"],
-      },
-    },
-    {
-      operationId: "calls_start",
-      endpoint: "calls/start",
-      method: "POST",
-      policy: {
-        scopes: ["calls.write"],
-        principalTypes: ["actor"],
-      },
-    },
+    // Policy-enforced routes (policies resolved gateway-side)
+    { operationId: "settings_get", endpoint: "settings", method: "GET" },
+    { operationId: "calls_start", endpoint: "calls/start", method: "POST" },
   ]),
 );
 
@@ -95,6 +79,25 @@ const validateEdgeTokenMock = mock(
     claims: { sub: "test", scope_profile: "test" },
   }),
 );
+
+// Mock gateway-side policy registry
+const testPolicies: Record<
+  string,
+  { requiredScopes: string[]; allowedPrincipalTypes: string[] }
+> = {
+  settings_get: {
+    requiredScopes: ["settings.read"],
+    allowedPrincipalTypes: ["actor", "svc_gateway"],
+  },
+  calls_start: {
+    requiredScopes: ["calls.write"],
+    allowedPrincipalTypes: ["actor"],
+  },
+};
+
+mock.module("../../auth/ipc-route-policy.js", () => ({
+  getIpcRoutePolicy: (operationId: string) => testPolicies[operationId],
+}));
 
 mock.module("../../auth/token-exchange.js", () => ({
   validateEdgeToken: validateEdgeTokenMock,
@@ -484,5 +487,30 @@ describe("policy enforcement", () => {
     });
     const result = await tryIpcProxy(req, config);
     expect(result!.status).toBe(200);
+  });
+
+  test("returns 403 when sub claim is malformed", async () => {
+    // A valid JWT with a garbage sub should be denied, not silently bypass
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "garbage",
+        scope_profile: "actor_client_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/settings", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(403);
+
+    const body = (await result!.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("Unable to determine principal type");
   });
 });
