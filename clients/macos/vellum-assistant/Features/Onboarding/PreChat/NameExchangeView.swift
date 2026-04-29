@@ -7,9 +7,10 @@ struct NameExchangeView: View {
 
     @Binding var userName: String
     @Binding var assistantName: String
+    @Binding var selectedGroupID: String?
 
-    /// Stable subset of the name pool to display as quick-tap pills. The caller
-    /// is responsible for sampling so the pills don't reshuffle across re-renders.
+    /// Names to display as quick-tap pills, ordered by the caller based on
+    /// the currently selected personality group.
     let displayedAssistantNames: [String]
 
     var onBack: (() -> Void)?
@@ -21,25 +22,7 @@ struct NameExchangeView: View {
     @State private var showHeader = false
     @State private var showContent = false
     @State private var hoveredSuggestion: String?
-
-    /// Curated pool of short, evocative names for the assistant. The quick-tap
-    /// suggestion pills show a random sample of `suggestionCount` names drawn
-    /// from this pool per onboarding session.
-    static let assistantNamePool = [
-        "Pax", "Atlas", "Sage", "Nova", "Kit",
-        "Echo", "Luna", "Juno", "Ada", "Iris",
-        "Milo", "Remy", "Wren", "Lark", "Vesper",
-        "Onyx", "Vela", "Cleo", "Quill", "Rune",
-        "Orion", "Ember", "Ziggy", "Bodhi", "Pip",
-    ]
-
-    /// Number of suggestion pills shown at a time.
-    static let suggestionCount = 5
-
-    /// Returns `suggestionCount` unique random names drawn from the pool.
-    static func sampleAssistantNames() -> [String] {
-        Array(assistantNamePool.shuffled().prefix(suggestionCount))
-    }
+    @State private var hoveredGroup: String?
 
     /// Usernames that are clearly not real names and should not be pre-filled.
     private static let usernameBlacklist: Set<String> = ["admin", "user", "root", "guest"]
@@ -83,7 +66,7 @@ struct NameExchangeView: View {
                     text: $userName
                 )
 
-                // "Call me..." field + suggestion pills
+                // "Call me..." field + group pills + suggestion pills
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     VTextField(
                         "What should I go by?",
@@ -91,8 +74,15 @@ struct NameExchangeView: View {
                         text: $assistantName
                     )
 
-                    // Suggestion pills
+                    // Personality group pills
                     HStack(spacing: VSpacing.xs) {
+                        ForEach(PersonalityGroup.allGroups, id: \.id) { group in
+                            groupPill(group)
+                        }
+                    }
+
+                    // Name suggestion pills (flow layout for wrapping)
+                    WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
                         ForEach(displayedAssistantNames, id: \.self) { suggestion in
                             suggestionPill(suggestion)
                         }
@@ -136,6 +126,48 @@ struct NameExchangeView: View {
     }
 
     // MARK: - Subviews
+
+    private func groupPill(_ group: PersonalityGroup) -> some View {
+        let isActive = selectedGroupID == group.id
+        let isHovered = hoveredGroup == group.id
+        return Button {
+            withAnimation(VAnimation.fast) {
+                if isActive {
+                    selectedGroupID = nil
+                } else {
+                    selectedGroupID = group.id
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Text(group.label)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(isActive ? VColor.contentInset : VColor.contentDefault)
+                Text(group.descriptor)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(isActive ? VColor.contentInset.opacity(0.8) : VColor.contentTertiary)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.pill)
+                    .fill(isActive ? VColor.primaryBase : (isHovered ? VColor.surfaceBase : VColor.surfaceLift))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.pill)
+                            .stroke(isActive ? VColor.primaryBase : VColor.borderElement, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredGroup = hovering ? group.id : nil
+            }
+        })
+        .accessibilityLabel("\(group.label), \(group.descriptor)")
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
 
     private func suggestionPill(_ name: String) -> some View {
         let isActive = assistantName == name
@@ -200,5 +232,59 @@ struct NameExchangeView: View {
         }
 
         return ""
+    }
+}
+
+// MARK: - Wrapping horizontal layout
+
+private struct WrappingHStack: Layout {
+    var hSpacing: CGFloat
+    var vSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        guard !rows.isEmpty else { return .zero }
+        let height = rows.enumerated().reduce(CGFloat.zero) { acc, pair in
+            let rowHeight = pair.element.map { $0.size.height }.max() ?? 0
+            return acc + rowHeight + (pair.offset > 0 ? vSpacing : 0)
+        }
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            let rowHeight = row.map { $0.size.height }.max() ?? 0
+            var x = bounds.minX
+            for item in row {
+                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + hSpacing
+            }
+            y += rowHeight + vSpacing
+        }
+    }
+
+    private struct LayoutItem {
+        let subview: LayoutSubview
+        let size: CGSize
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutItem]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutItem]] = [[]]
+        var currentRowWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let needed = currentRowWidth > 0 ? size.width + hSpacing : size.width
+            if currentRowWidth + needed > maxWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                currentRowWidth = 0
+            }
+            rows[rows.count - 1].append(LayoutItem(subview: subview, size: size))
+            currentRowWidth += currentRowWidth > 0 ? size.width + hSpacing : size.width
+        }
+        return rows
     }
 }
