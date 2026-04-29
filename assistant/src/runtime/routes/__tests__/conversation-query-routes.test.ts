@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+import { getDb } from "../../../memory/db-connection.js";
+import { initializeDb } from "../../../memory/db-init.js";
+import {
+  backfillMemoryV2ActivationMessageId,
+  type MemoryV2ConceptRowRecord,
+  type MemoryV2ConfigSnapshot,
+  type MemoryV2SkillRowRecord,
+  recordMemoryV2ActivationLog,
+} from "../../../memory/memory-v2-activation-log-store.js";
+import {
+  llmRequestLogs,
+  memoryV2ActivationLogs,
+} from "../../../memory/schema.js";
+import { ROUTES } from "../conversation-query-routes.js";
+
+initializeDb();
+
+const llmContextRoute = ROUTES.find(
+  (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
+)!;
+
+function dispatchLlmContext(messageId: string) {
+  return llmContextRoute.handler({ pathParams: { id: messageId } });
+}
+
+function clearTables(): void {
+  const db = getDb();
+  db.delete(llmRequestLogs).run();
+  db.delete(memoryV2ActivationLogs).run();
+}
+
+function seedRequestLog(messageId: string, id: string): void {
+  getDb()
+    .insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: "conv-1",
+      messageId,
+      provider: "openai",
+      requestPayload: JSON.stringify({ model: "gpt-4.1", messages: [] }),
+      responsePayload: JSON.stringify({
+        choices: [{ message: { content: "hi" } }],
+      }),
+      createdAt: 1_700_000_000_000,
+    })
+    .run();
+}
+
+const sampleConcepts: MemoryV2ConceptRowRecord[] = [
+  {
+    slug: "concept-a",
+    finalActivation: 0.9,
+    ownActivation: 0.7,
+    priorActivation: 0.5,
+    simUser: 0.6,
+    simAssistant: 0.4,
+    simNow: 0.3,
+    spreadContribution: 0.2,
+    source: "both",
+    status: "injected",
+  },
+];
+
+const sampleSkills: MemoryV2SkillRowRecord[] = [
+  {
+    id: "skill-1",
+    activation: 0.8,
+    simUser: 0.5,
+    simAssistant: 0.4,
+    simNow: 0.3,
+    status: "injected",
+  },
+];
+
+const sampleConfig: MemoryV2ConfigSnapshot = {
+  d: 0.85,
+  c_user: 1.0,
+  c_assistant: 0.5,
+  c_now: 0.25,
+  k: 5,
+  hops: 2,
+  top_k: 10,
+  top_k_skills: 3,
+  epsilon: 0.001,
+};
+
+describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns null memoryV2Activation when no v2 log exists for the turn", async () => {
+    const messageId = "msg-no-v2";
+    seedRequestLog(messageId, "log-no-v2");
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      memoryV2Activation: unknown;
+      memoryRecall: unknown;
+    };
+
+    expect(body.memoryV2Activation).toBeNull();
+    // Backwards-compat: memoryRecall remains.
+    expect(body).toHaveProperty("memoryRecall");
+  });
+
+  test("returns the recorded v2 activation log on the response", async () => {
+    const conversationId = "conv-v2";
+    const messageId = "msg-v2-present";
+
+    seedRequestLog(messageId, "log-v2-present");
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: 4,
+      mode: "per-turn",
+      concepts: sampleConcepts,
+      skills: sampleSkills,
+      config: sampleConfig,
+    });
+    backfillMemoryV2ActivationMessageId(conversationId, messageId);
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      memoryV2Activation: {
+        turn: number;
+        mode: "context-load" | "per-turn";
+        concepts: MemoryV2ConceptRowRecord[];
+        skills: MemoryV2SkillRowRecord[];
+        config: MemoryV2ConfigSnapshot;
+      } | null;
+      memoryRecall: unknown;
+    };
+
+    expect(body.memoryV2Activation).not.toBeNull();
+    expect(body.memoryV2Activation!.turn).toBe(4);
+    expect(body.memoryV2Activation!.mode).toBe("per-turn");
+    expect(body.memoryV2Activation!.concepts).toEqual(sampleConcepts);
+    expect(body.memoryV2Activation!.skills).toEqual(sampleSkills);
+    expect(body.memoryV2Activation!.config).toEqual(sampleConfig);
+    // Backwards-compat: memoryRecall field still present.
+    expect(body).toHaveProperty("memoryRecall");
+  });
+});

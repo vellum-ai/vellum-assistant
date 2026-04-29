@@ -50,6 +50,7 @@ import {
   getRequestLogsByMessageId,
 } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
@@ -359,6 +360,8 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const logs = getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
+  const memoryV2Activation =
+    getMemoryV2ActivationLogByMessageIds(turnMessageIds);
   return {
     messageId,
     logs: logs.map((log) => {
@@ -392,6 +395,7 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
       };
     }),
     memoryRecall: memoryRecallLog ?? null,
+    memoryV2Activation: memoryV2Activation ?? null,
   };
 }
 
@@ -599,7 +603,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       messageId: z.string(),
       logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough(),
+      memoryRecall: z.object({}).passthrough().nullable(),
+      memoryV2Activation: z.object({}).passthrough().nullable(),
     }),
     handler: handleGetLlmContext,
   },
