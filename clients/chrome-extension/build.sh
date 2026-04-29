@@ -7,10 +7,11 @@
 #
 # Commands:
 #   build (default)   Build the extension for distribution
-#   run               Build for local development (VELLUM_ENVIRONMENT defaults to 'local')
+#   run               Build + watch for local development (rebuilds on source changes)
 #   release           Build a release (VELLUM_ENVIRONMENT defaults to 'production')
 #
 # After building, load the dist/ directory as an unpacked extension in Chrome.
+# In `run` mode the script stays alive and rebuilds whenever source files change.
 
 set -euo pipefail
 
@@ -59,76 +60,147 @@ fi
 # builds produce a valid extension zip.
 EXT_VERSION="${EXT_VERSION%%-*}"
 
-echo "Building the Vellum Assistant Chrome extension…"
-echo "  Command: $CMD"
+# ---------------------------------------------------------------------------
+# Build function — shared by initial build and watch-triggered rebuilds.
+# ---------------------------------------------------------------------------
+do_build() {
+  echo "Building the Vellum Assistant Chrome extension…"
+  echo "  Command: $CMD"
 
-# Type-check with tsc --noEmit before bundling so type errors fail fast
-# rather than surfacing as runtime errors in the loaded extension. `bun build`
-# does not run a TypeScript check — it strips types and bundles.
-echo "Type-checking with tsc --noEmit..."
-(cd "$SCRIPT_DIR" && bunx tsc --noEmit)
+  echo "Type-checking with tsc --noEmit..."
+  if ! (cd "$SCRIPT_DIR" && bunx tsc --noEmit); then
+    echo "❌ Type-check failed."
+    return 1
+  fi
 
-# Clean previous build
-rm -rf "$DIST_DIR"
-mkdir -p "$DIST_DIR/background"
-mkdir -p "$DIST_DIR/popup"
-mkdir -p "$DIST_DIR/icons"
+  rm -rf "$DIST_DIR"
+  mkdir -p "$DIST_DIR/background"
+  mkdir -p "$DIST_DIR/popup"
+  mkdir -p "$DIST_DIR/icons"
 
-# Build service worker
-echo "Bundling service worker with bun build..."
-echo "  Environment: $VELLUM_ENV"
-bun build \
-  "$SCRIPT_DIR/background/worker.ts" \
-  --outdir "$DIST_DIR/background" \
-  --target browser \
-  --format esm \
-  --minify \
-  --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
+  echo "Bundling service worker with bun build..."
+  echo "  Environment: $VELLUM_ENV"
+  bun build \
+    "$SCRIPT_DIR/background/worker.ts" \
+    --outdir "$DIST_DIR/background" \
+    --target browser \
+    --format esm \
+    --minify \
+    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
 
-# Build popup script
-echo "Bundling popup script with bun build..."
-bun build \
-  "$SCRIPT_DIR/popup/popup.ts" \
-  --outdir "$DIST_DIR/popup" \
-  --target browser \
-  --format esm \
-  --minify \
-  --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
+  echo "Bundling popup script with bun build..."
+  bun build \
+    "$SCRIPT_DIR/popup/popup.ts" \
+    --outdir "$DIST_DIR/popup" \
+    --target browser \
+    --format esm \
+    --minify \
+    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
 
-# Copy static assets
-cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"
+  cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"
 
-# Stamp the resolved version into the dist manifest.
-jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
-  && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
-echo "  Extension version: $EXT_VERSION"
+  jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+  echo "  Extension version: $EXT_VERSION"
 
-# Stamp environment-specific name into the dist manifest so unpacked
-# extensions are distinguishable (e.g. "Vellum Assistant Local").
-case "$VELLUM_ENV" in
-  production) EXT_NAME="Vellum Assistant" ;;
-  *)          EXT_NAME="Vellum Assistant $(echo "$VELLUM_ENV" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')" ;;
-esac
-jq --arg n "$EXT_NAME" '.name = $n' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
-  && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
-echo "  Extension name: $EXT_NAME"
+  case "$VELLUM_ENV" in
+    production) EXT_NAME="Vellum Assistant" ;;
+    *)          EXT_NAME="Vellum Assistant $(echo "$VELLUM_ENV" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')" ;;
+  esac
+  jq --arg n "$EXT_NAME" '.name = $n' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+  echo "  Extension name: $EXT_NAME"
 
-cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html"
+  cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html"
 
-# Copy icons if they exist, otherwise create placeholder PNGs
-if [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
-  cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
-else
-  echo "  (No icons found — creating placeholder icon files)"
-  # Create minimal 1×1 transparent PNG for each size
-  TINY_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-  for size in 16 48 128; do
-    echo "$TINY_PNG_B64" | base64 --decode > "$DIST_DIR/icons/icon${size}.png"
+  if [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
+    cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
+  else
+    echo "  (No icons found — creating placeholder icon files)"
+    TINY_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    for size in 16 48 128; do
+      echo "$TINY_PNG_B64" | base64 --decode > "$DIST_DIR/icons/icon${size}.png"
+    done
+  fi
+
+  echo ""
+  echo "✅ Extension built to: $DIST_DIR"
+}
+
+# ---------------------------------------------------------------------------
+# Initial build
+# ---------------------------------------------------------------------------
+do_build
+
+# ---------------------------------------------------------------------------
+# Watch mode (run only) — poll for source changes and rebuild automatically.
+# Stays alive until Ctrl-C. Skips packaging (CRX/zip) since dev builds don't
+# need it.
+# ---------------------------------------------------------------------------
+if [ "$CMD" = "run" ]; then
+  WATCH_DIRS=("background" "popup" "types" "icons")
+  WATCH_FILES=("manifest.json" "package.json" "tsconfig.json")
+  POLL_INTERVAL=3
+  DEBOUNCE=2
+
+  # Snapshot initial mtime of the dist manifest as our baseline.
+  BASELINE_MTIME=$(stat -f '%m' "$DIST_DIR/manifest.json" 2>/dev/null || stat -c '%Y' "$DIST_DIR/manifest.json" 2>/dev/null || echo 0)
+
+  echo ""
+  echo "👀 Watching for changes (poll every ${POLL_INTERVAL}s)..."
+  echo "   Dirs:  ${WATCH_DIRS[*]}"
+  echo "   Files: ${WATCH_FILES[*]}"
+  echo "   Press Ctrl-C to stop."
+  echo ""
+
+  trap 'echo ""; echo "🛑 Watch stopped."; exit 0' INT TERM
+
+  while true; do
+    sleep "$POLL_INTERVAL"
+
+    # Check if any source file is newer than the last build output.
+    CHANGED=0
+    for d in "${WATCH_DIRS[@]}"; do
+      [ -d "$SCRIPT_DIR/$d" ] || continue
+      if [ -n "$(find "$SCRIPT_DIR/$d" -type f -newer "$DIST_DIR/manifest.json" -print -quit 2>/dev/null)" ]; then
+        CHANGED=1
+        break
+      fi
+    done
+    if [ "$CHANGED" -eq 0 ]; then
+      for f in "${WATCH_FILES[@]}"; do
+        [ -f "$SCRIPT_DIR/$f" ] || continue
+        FILE_MTIME=$(stat -f '%m' "$SCRIPT_DIR/$f" 2>/dev/null || stat -c '%Y' "$SCRIPT_DIR/$f" 2>/dev/null || echo 0)
+        if [ "$FILE_MTIME" -gt "$BASELINE_MTIME" ]; then
+          CHANGED=1
+          break
+        fi
+      done
+    fi
+
+    [ "$CHANGED" -eq 0 ] && continue
+
+    # Debounce — wait for rapid saves to settle.
+    sleep "$DEBOUNCE"
+
+    echo ""
+    echo "🔄 Source changed. Rebuilding..."
+    echo ""
+    if do_build; then
+      BASELINE_MTIME=$(stat -f '%m' "$DIST_DIR/manifest.json" 2>/dev/null || stat -c '%Y' "$DIST_DIR/manifest.json" 2>/dev/null || echo 0)
+      echo ""
+      echo "   Reload in chrome://extensions to pick up changes."
+      echo ""
+    else
+      echo ""
+      echo "❌ Build failed. Will retry on next change."
+      echo ""
+    fi
   done
-fi
 
-echo ""
-echo "Done! Extension built to: $DIST_DIR"
+  # run mode never reaches here — the loop runs until Ctrl-C
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Packaging: produce a signed .crx for Verified CRX Uploads (CWS) and a .zip
