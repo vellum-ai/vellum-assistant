@@ -31,10 +31,8 @@ import {
   cloudUrlsForEnvironment,
   parseExtensionEnvironment,
   resolveBuildDefaultEnvironment,
-} from './extension-environment.js';
-import {
-  type AssistantAuthProfile,
-} from './assistant-auth-profile.js';
+} from "./extension-environment.js";
+import { type AssistantAuthProfile } from "./assistant-auth-profile.js";
 import {
   bootstrapDirectPairToken,
   getStoredLocalToken,
@@ -42,7 +40,7 @@ import {
   setStoredGatewayUrl,
   isLocalTokenStale,
   type StoredLocalToken,
-} from './self-hosted-auth.js';
+} from "./self-hosted-auth.js";
 import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
@@ -51,16 +49,17 @@ import {
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
   type HostBrowserSessionInvalidatedEnvelope,
-} from './host-browser-dispatcher.js';
+} from "./host-browser-dispatcher.js";
 import {
   RelayConnection,
   postHostBrowserEvent,
   postHostBrowserResult,
   postHostBrowserSessionInvalidated,
   type RelayMode,
-} from './relay-connection.js';
-import { SseConnection, type SseMode } from './sse-connection.js';
-import { fetchAssistants } from './cloud-api.js';
+} from "./relay-connection.js";
+import { SseConnection, type SseMode } from "./sse-connection.js";
+import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
+import { appendEvent, getEventLog } from "./event-log.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -68,7 +67,7 @@ import {
   getSelectedAssistant,
   storeSelectedAssistant,
   clearSelectedAssistant,
-} from './cloud-auth.js';
+} from "./cloud-auth.js";
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -80,7 +79,7 @@ import {
 // The popup can read and write the override via `environment-get` and
 // `environment-set` worker messages without requiring an extension reload.
 
-const ENVIRONMENT_OVERRIDE_KEY = 'vellum.environmentOverride';
+const ENVIRONMENT_OVERRIDE_KEY = "vellum.environmentOverride";
 
 /**
  * Resolve the effective environment by checking for a popup-persisted
@@ -89,7 +88,7 @@ const ENVIRONMENT_OVERRIDE_KEY = 'vellum.environmentOverride';
 async function getEffectiveEnvironment(): Promise<ExtensionEnvironment> {
   const result = await chrome.storage.local.get(ENVIRONMENT_OVERRIDE_KEY);
   const override = result[ENVIRONMENT_OVERRIDE_KEY];
-  if (typeof override === 'string') {
+  if (typeof override === "string") {
     const parsed = parseExtensionEnvironment(override);
     if (parsed) return parsed;
   }
@@ -102,7 +101,7 @@ async function getEffectiveEnvironment(): Promise<ExtensionEnvironment> {
 async function getOverrideEnvironment(): Promise<ExtensionEnvironment | null> {
   const result = await chrome.storage.local.get(ENVIRONMENT_OVERRIDE_KEY);
   const override = result[ENVIRONMENT_OVERRIDE_KEY];
-  if (typeof override === 'string') {
+  if (typeof override === "string") {
     return parseExtensionEnvironment(override);
   }
   return null;
@@ -111,7 +110,9 @@ async function getOverrideEnvironment(): Promise<ExtensionEnvironment | null> {
 /**
  * Persist an environment override. Pass `null` to clear.
  */
-async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise<void> {
+async function setOverrideEnvironment(
+  env: ExtensionEnvironment | null,
+): Promise<void> {
   if (env === null) {
     await chrome.storage.local.remove(ENVIRONMENT_OVERRIDE_KEY);
   } else {
@@ -126,8 +127,8 @@ async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise
  */
 async function invalidateAuthTokens(): Promise<void> {
   const all = await chrome.storage.local.get(null);
-  const keysToRemove = Object.keys(all).filter(
-    (k) => k.startsWith('vellum.localCapabilityToken'),
+  const keysToRemove = Object.keys(all).filter((k) =>
+    k.startsWith("vellum.localCapabilityToken"),
   );
   await chrome.storage.local.remove(keysToRemove);
 }
@@ -146,7 +147,7 @@ async function invalidateAuthTokens(): Promise<void> {
 // available in MV3 service workers. The key is intentionally distinct
 // from any persisted auth token so the instance id survives re-pair
 // and re-sign-in flows.
-const CLIENT_INSTANCE_ID_KEY = 'vellum.clientInstanceId';
+const CLIENT_INSTANCE_ID_KEY = "vellum.clientInstanceId";
 
 /**
  * Read-through cache for the stable client instance id. The value is
@@ -160,7 +161,7 @@ async function getOrCreateClientInstanceId(): Promise<string> {
   if (cachedClientInstanceId) return cachedClientInstanceId;
   const stored = await chrome.storage.local.get(CLIENT_INSTANCE_ID_KEY);
   const existing = stored[CLIENT_INSTANCE_ID_KEY];
-  if (typeof existing === 'string' && existing.length > 0) {
+  if (typeof existing === "string" && existing.length > 0) {
     cachedClientInstanceId = existing;
     return existing;
   }
@@ -175,17 +176,17 @@ async function getOrCreateClientInstanceId(): Promise<string> {
 // Set to `true` after a successful user-initiated connect, cleared to
 // `false` by the `pause` action so the extension stays quiet until
 // the user explicitly reconnects.
-const AUTO_CONNECT_KEY = 'autoConnect';
+const AUTO_CONNECT_KEY = "autoConnect";
 
 // Storage key used to surface the most recent auth-related relay error
 // to the popup. The popup reads this on open and shows it next to the
 // sign-in button. Cleared on a successful connect so stale errors
 // don't linger after the user re-signs in.
-const RELAY_AUTH_ERROR_KEY = 'vellum.relayAuthError';
+const RELAY_AUTH_ERROR_KEY = "vellum.relayAuthError";
 
 interface RelayAuthError {
   message: string;
-  mode: 'self-hosted' | 'vellum-cloud';
+  mode: "self-hosted" | "vellum-cloud";
   at: number;
   debugDetails?: string;
 }
@@ -194,7 +195,7 @@ async function setRelayAuthError(error: RelayAuthError): Promise<void> {
   try {
     await chrome.storage.local.set({ [RELAY_AUTH_ERROR_KEY]: error });
   } catch (err) {
-    console.warn('[vellum-relay] Failed to persist relay auth error', err);
+    console.warn("[vellum-relay] Failed to persist relay auth error", err);
   }
 }
 
@@ -202,7 +203,7 @@ async function clearRelayAuthError(): Promise<void> {
   try {
     await chrome.storage.local.remove(RELAY_AUTH_ERROR_KEY);
   } catch (err) {
-    console.warn('[vellum-relay] Failed to clear relay auth error', err);
+    console.warn("[vellum-relay] Failed to clear relay auth error", err);
   }
 }
 
@@ -224,7 +225,7 @@ async function setAutoConnect(enabled: boolean): Promise<void> {
   try {
     await chrome.storage.local.set({ [AUTO_CONNECT_KEY]: enabled });
   } catch (err) {
-    console.warn('[vellum-relay] Failed to persist autoConnect flag', err);
+    console.warn("[vellum-relay] Failed to persist autoConnect flag", err);
   }
 }
 
@@ -258,13 +259,13 @@ async function setAutoConnect(enabled: boolean): Promise<void> {
  * close, and pause actions in the worker.
  */
 export type ConnectionHealthState =
-  | 'paused'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'auth_required'
-  | 'assistant_gone'
-  | 'error';
+  | "paused"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "auth_required"
+  | "assistant_gone"
+  | "error";
 
 /**
  * Detail fields attached to the current health state. Populated on
@@ -279,7 +280,7 @@ export interface ConnectionHealthDetail {
   lastChangeAt: number;
 }
 
-let connectionHealth: ConnectionHealthState = 'paused';
+let connectionHealth: ConnectionHealthState = "paused";
 let connectionHealthDetail: ConnectionHealthDetail = {
   lastChangeAt: Date.now(),
 };
@@ -291,7 +292,7 @@ let connectionHealthDetail: ConnectionHealthDetail = {
  */
 function setConnectionHealth(
   state: ConnectionHealthState,
-  detail?: Partial<Omit<ConnectionHealthDetail, 'lastChangeAt'>>,
+  detail?: Partial<Omit<ConnectionHealthDetail, "lastChangeAt">>,
 ): void {
   connectionHealth = state;
   connectionHealthDetail = {
@@ -302,7 +303,7 @@ function setConnectionHealth(
   // Clear stale error fields when entering a non-error state so
   // previous `lastErrorMessage` / `lastDisconnectCode` values don't
   // bleed into unrelated transitions (e.g. auth_required → paused).
-  if (state === 'connected' || state === 'paused' || state === 'connecting') {
+  if (state === "connected" || state === "paused" || state === "connecting") {
     delete connectionHealthDetail.lastDisconnectCode;
     delete connectionHealthDetail.lastErrorMessage;
   }
@@ -350,9 +351,12 @@ async function resolveHostBrowserTarget(
     }
     return { targetId: cdpSessionId };
   }
-  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
   if (activeTab?.id === undefined) {
-    throw new Error('No active tab available to resolve host_browser target');
+    throw new Error("No active tab available to resolve host_browser target");
   }
   return { tabId: activeTab.id };
 }
@@ -376,6 +380,10 @@ async function resolveHostBrowserTarget(
 async function dispatchHostBrowserResult(
   result: HostBrowserResultEnvelope,
 ): Promise<void> {
+  appendEvent("outbound", "host_browser_result", {
+    summary: `${result.requestId.slice(0, 8)}${result.isError ? " (error)" : ""}`,
+    isError: result.isError,
+  });
   if (relayConnection) {
     // Read the live mode from the active connection so that
     // reconnect-with-refresh token updates propagate to result POSTs
@@ -388,30 +396,35 @@ async function dispatchHostBrowserResult(
   // URL. The SSE stream is read-only so results must go via HTTP.
   // We POST directly here (rather than via postHostBrowserResult) so
   // we can include cross-origin credentials and the SSE mode's token.
+  // The CSRF token is required because Django's SessionAuthentication
+  // enforces CSRF on mutating methods — the extension's
+  // chrome-extension:// origin must be in CSRF_TRUSTED_ORIGINS and the
+  // X-CSRFToken header must match the csrftoken cookie.
   if (sseConnection && sseConnection.isOpen()) {
     const mode = sseConnection.getMode();
-    const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
+    const baseUrl = mode.runtimeUrl.replace(/\/$/, "");
     const url = `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/host-browser-result`;
     const headers: Record<string, string> = {
-      'content-type': 'application/json',
+      "content-type": "application/json",
     };
     if (mode.token) {
-      headers['authorization'] = `Bearer ${mode.token}`;
+      headers["authorization"] = `Bearer ${mode.token}`;
     }
     if (mode.organizationId) {
-      headers['Vellum-Organization-Id'] = mode.organizationId;
+      headers["Vellum-Organization-Id"] = mode.organizationId;
+    }
+    const csrfToken = await getCsrfToken(baseUrl);
+    if (csrfToken) {
+      headers["X-CSRFToken"] = csrfToken;
     }
     const resp = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers,
       body: JSON.stringify(result),
-      credentials: 'include',
+      credentials: "include",
     });
     if (!resp.ok) {
-      console.warn(
-        '[vellum-sse] host-browser-result POST failed',
-        resp.status,
-      );
+      console.warn("[vellum-sse] host-browser-result POST failed", resp.status);
     }
     return;
   }
@@ -422,14 +435,14 @@ async function dispatchHostBrowserResult(
   const local = await getStoredLocalToken(gatewayUrl);
   if (local) {
     const fallbackMode: RelayMode = {
-      kind: 'self-hosted',
+      kind: "self-hosted",
       baseUrl: gatewayUrl,
       token: local.token,
     };
     return postHostBrowserResult(fallbackMode, null, result);
   }
   console.warn(
-    '[vellum-relay] host_browser_result dropped: no active connection',
+    "[vellum-relay] host_browser_result dropped: no active connection",
   );
 }
 
@@ -465,28 +478,31 @@ function dispatchHostBrowserSessionInvalidated(
   postHostBrowserSessionInvalidated(relayConnection, envelope);
 }
 
-const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
-  resolveTarget: resolveHostBrowserTarget,
-  postResult: dispatchHostBrowserResult,
-  forwardCdpEvent: dispatchHostBrowserEvent,
-  forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
-});
+const hostBrowserDispatcher: HostBrowserDispatcher =
+  createHostBrowserDispatcher({
+    resolveTarget: resolveHostBrowserTarget,
+    postResult: dispatchHostBrowserResult,
+    forwardCdpEvent: dispatchHostBrowserEvent,
+    forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
+  });
 
 // ── Storage helpers ─────────────────────────────────────────────────
 
 /** Storage key for the user's chosen connection mode (welcome screen). */
-const USER_MODE_KEY = 'vellum.userMode';
+const USER_MODE_KEY = "vellum.userMode";
 
-async function getStoredUserMode(): Promise<'self-hosted' | 'cloud' | null> {
+async function getStoredUserMode(): Promise<"self-hosted" | "cloud" | null> {
   try {
     const result = await chrome.storage.local.get(USER_MODE_KEY);
     const stored = result[USER_MODE_KEY];
-    if (stored === 'self-hosted' || stored === 'cloud') return stored;
-  } catch { /* best-effort */ }
+    if (stored === "self-hosted" || stored === "cloud") return stored;
+  } catch {
+    /* best-effort */
+  }
   return null;
 }
 
-async function setStoredUserMode(mode: 'self-hosted' | 'cloud'): Promise<void> {
+async function setStoredUserMode(mode: "self-hosted" | "cloud"): Promise<void> {
   await chrome.storage.local.set({ [USER_MODE_KEY]: mode });
 }
 
@@ -526,14 +542,14 @@ async function buildSelfHostedRelayMode(): Promise<RelayMode> {
 
   if (local) {
     return {
-      kind: 'self-hosted',
+      kind: "self-hosted",
       baseUrl: gatewayUrl,
       token: local.token,
     };
   }
 
   return {
-    kind: 'self-hosted',
+    kind: "self-hosted",
     baseUrl: gatewayUrl,
     token: null,
   };
@@ -552,23 +568,22 @@ function createRelayConnection(
     clientInstanceId,
     onOpen: () => {
       console.log(`[vellum-relay] Connected (${mode.kind})`);
-      setConnectionHealth('connected');
+      setConnectionHealth("connected");
       // A successful connect means any persisted auth-error is stale
       // — clear it so the popup stops showing the sign-in prompt.
       void clearRelayAuthError();
-
     },
     onMessage: (data) => {
       // Fire-and-forget dispatch — wrap with .catch so a future refactor
       // can't leak an unhandled rejection into the service worker and
       // tear down the relay socket unexpectedly.
       void handleServerMessage(data).catch((err) => {
-        console.warn('[vellum-relay] handleServerMessage failed', err);
+        console.warn("[vellum-relay] handleServerMessage failed", err);
       });
     },
     onClose: (code, reason, authError) => {
       console.log(
-        `[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`,
+        `[vellum-relay] Disconnected (code=${code}, reason=${reason || "n/a"})`,
       );
       if (authError) {
         // The reconnect hook decided refresh is impossible — persist
@@ -577,13 +592,13 @@ function createRelayConnection(
         // after re-signing in.
         console.warn(`[vellum-relay] Auth refresh impossible: ${authError}`);
         shouldConnect = false;
-        setConnectionHealth('auth_required', {
+        setConnectionHealth("auth_required", {
           lastDisconnectCode: code,
           lastErrorMessage: authError,
         });
         void setRelayAuthError({
           message: authError,
-          mode: 'self-hosted',
+          mode: "self-hosted",
           at: Date.now(),
         });
         // Clear the module-level reference so a subsequent
@@ -593,7 +608,7 @@ function createRelayConnection(
       } else if (shouldConnect) {
         // Unexpected disconnect but we intend to stay connected —
         // the RelayConnection will attempt to reconnect automatically.
-        setConnectionHealth('reconnecting', {
+        setConnectionHealth("reconnecting", {
           lastDisconnectCode: code,
         });
       }
@@ -617,12 +632,12 @@ function createRelayConnection(
       }
 
       if (local?.token) {
-        return { kind: 'refreshed', token: local.token };
+        return { kind: "refreshed", token: local.token };
       }
       return {
-        kind: 'abort',
+        kind: "abort",
         error:
-          'Self-hosted relay token missing or expired. Check the Gateway URL and make sure the assistant is running.',
+          "Self-hosted relay token missing or expired. Check the Gateway URL and make sure the assistant is running.",
       };
     },
   });
@@ -636,36 +651,38 @@ function createSseConnection(mode: SseMode): SseConnection {
   return new SseConnection({
     mode,
     onOpen: () => {
-      console.log('[vellum-sse] Connected to cloud assistant');
-      setConnectionHealth('connected');
+      console.log("[vellum-sse] Connected to cloud assistant");
+      setConnectionHealth("connected");
       void clearRelayAuthError();
     },
     onMessage: (data) => {
       void handleSseMessage(data).catch((err) => {
-        console.warn('[vellum-sse] handleSseMessage failed', err);
+        console.warn("[vellum-sse] handleSseMessage failed", err);
       });
     },
     onClose: (authError) => {
       console.log(
-        `[vellum-sse] Disconnected${authError ? ` (auth: ${authError})` : ''}`,
+        `[vellum-sse] Disconnected${authError ? ` (auth: ${authError})` : ""}`,
       );
       if (authError) {
         shouldConnect = false;
-        setConnectionHealth('auth_required', {
+        setConnectionHealth("auth_required", {
           lastErrorMessage: authError,
         });
         void setRelayAuthError({
           message: authError,
-          mode: 'vellum-cloud',
+          mode: "vellum-cloud",
           at: Date.now(),
         });
         sseConnection = null;
       } else if (shouldConnect) {
-        setConnectionHealth('reconnecting');
+        setConnectionHealth("reconnecting");
       }
     },
     onNotFound: () => {
-      console.warn('[vellum-sse] 404 — assistant not found, attempting recovery');
+      console.warn(
+        "[vellum-sse] 404 — assistant not found, attempting recovery",
+      );
       void handleAssistantGone();
     },
   });
@@ -688,9 +705,12 @@ async function handleAssistantGone(): Promise<void> {
     const env = await getEffectiveEnvironment();
     assistants = await fetchAssistants(env);
   } catch (err) {
-    console.error('[vellum-sse] Failed to fetch assistants during 404 recovery', err);
-    setConnectionHealth('error', {
-      lastErrorMessage: 'Assistant not found and could not refresh the list.',
+    console.error(
+      "[vellum-sse] Failed to fetch assistants during 404 recovery",
+      err,
+    );
+    setConnectionHealth("error", {
+      lastErrorMessage: "Assistant not found and could not refresh the list.",
     });
     return;
   }
@@ -700,14 +720,16 @@ async function handleAssistantGone(): Promise<void> {
   if (assistants.length === 1 && assistants[0]!.id !== current?.id) {
     // A different sole assistant is available — auto-switch and reconnect.
     const only = assistants[0]!;
-    console.log(`[vellum-sse] Auto-switching to sole assistant: ${only.name} (${only.id})`);
+    console.log(
+      `[vellum-sse] Auto-switching to sole assistant: ${only.name} (${only.id})`,
+    );
     await storeSelectedAssistant({ id: only.id, name: only.name });
     shouldConnect = true;
     await connect({ interactive: false });
   } else {
     // Same assistant still 404ing, 0 assistants, or 2+ — user must pick.
-    setConnectionHealth('assistant_gone', {
-      lastErrorMessage: 'The selected assistant no longer exists.',
+    setConnectionHealth("assistant_gone", {
+      lastErrorMessage: "The selected assistant no longer exists.",
     });
   }
 }
@@ -719,23 +741,31 @@ async function handleAssistantGone(): Promise<void> {
  * to the CDP proxy dispatcher, matching the relay WebSocket behavior.
  */
 async function handleSseMessage(data: unknown): Promise<void> {
-  if (!data || typeof data !== 'object') return;
+  if (!data || typeof data !== "object") return;
 
   // The /events SSE endpoint wraps messages in an AssistantEvent envelope:
   // { id, assistantId, message: { type, ... } }
   const envelope = data as { message?: unknown };
   const message = envelope.message;
-  if (!message || typeof message !== 'object') return;
+  if (!message || typeof message !== "object") return;
 
   const typed = message as { type?: unknown };
-  if (typeof typed.type !== 'string') return;
+  if (typeof typed.type !== "string") return;
 
-  if (typed.type === 'host_browser_request') {
-    await hostBrowserDispatcher.handle(message as HostBrowserRequestEnvelope);
+  if (typed.type === "host_browser_request") {
+    const req = message as HostBrowserRequestEnvelope;
+    appendEvent("inbound", "host_browser_request", {
+      summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
+    });
+    await hostBrowserDispatcher.handle(req);
     return;
   }
-  if (typed.type === 'host_browser_cancel') {
-    hostBrowserDispatcher.cancel(message as HostBrowserCancelEnvelope);
+  if (typed.type === "host_browser_cancel") {
+    const cancel = message as HostBrowserCancelEnvelope;
+    appendEvent("inbound", "host_browser_cancel", {
+      summary: cancel.requestId.slice(0, 8),
+    });
+    hostBrowserDispatcher.cancel(cancel);
     return;
   }
 
@@ -754,7 +784,7 @@ async function handleSseMessage(data: unknown): Promise<void> {
 class MissingTokenError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'MissingTokenError';
+    this.name = "MissingTokenError";
   }
 }
 
@@ -763,16 +793,16 @@ class MissingTokenError extends Error {
  * to the selected assistant's auth profile.
  */
 function missingTokenMessage(profile: AssistantAuthProfile | null): string {
-  if (profile === 'self-hosted') {
+  if (profile === "self-hosted") {
     return "Pairing with gateway failed \u2014 check the Gateway URL and make sure the assistant is running, then try again";
   }
-  if (profile === 'vellum-cloud') {
-    return 'Vellum cloud session expired or unavailable. Sign in again to reconnect.';
+  if (profile === "vellum-cloud") {
+    return "Vellum cloud session expired or unavailable. Sign in again to reconnect.";
   }
-  if (profile === 'unsupported') {
-    return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
+  if (profile === "unsupported") {
+    return "This assistant uses an unsupported topology. Please update the Vellum extension.";
   }
-  return 'Configure a gateway URL and turn Connection on to connect';
+  return "Configure a gateway URL and turn Connection on to connect";
 }
 
 // ── Connect options ────────────────────────────────────────────────
@@ -811,14 +841,14 @@ async function connectPreflight(
     return mode;
   }
 
-  if (authProfile === 'self-hosted') {
+  if (authProfile === "self-hosted") {
     if (!options.interactive) {
-      throw new MissingTokenError(missingTokenMessage('self-hosted'));
+      throw new MissingTokenError(missingTokenMessage("self-hosted"));
     }
     const gatewayUrl = await getStoredGatewayUrl();
     const stored = await bootstrapDirectPairToken(gatewayUrl);
     return {
-      kind: 'self-hosted',
+      kind: "self-hosted",
       baseUrl: gatewayUrl,
       token: stored.token,
     };
@@ -841,7 +871,9 @@ async function connectPreflight(
 let connectInFlight: Promise<void> | null = null;
 let connectInFlightInteractive = false;
 
-async function connect(options: ConnectOptions = { interactive: false }): Promise<void> {
+async function connect(
+  options: ConnectOptions = { interactive: false },
+): Promise<void> {
   if (connectInFlight && (connectInFlightInteractive || !options.interactive)) {
     return connectInFlight;
   }
@@ -867,7 +899,7 @@ function isAnyConnectionOpen(): boolean {
 
 async function doConnect(options: ConnectOptions): Promise<void> {
   if (isAnyConnectionOpen()) return;
-  setConnectionHealth('connecting');
+  setConnectionHealth("connecting");
 
   // A fresh connect attempt supersedes any previously persisted
   // auth-error — the user either just signed back in or is explicitly
@@ -882,14 +914,14 @@ async function doConnect(options: ConnectOptions): Promise<void> {
   // Bail if the user disconnected while we were awaiting above.
   if (!shouldConnect) return;
 
-  if (userMode === 'cloud') {
+  if (userMode === "cloud") {
     // Cloud mode: connect via SSE to the platform API.
-    currentAuthProfile = 'vellum-cloud';
+    currentAuthProfile = "vellum-cloud";
     const session = await getStoredSession();
     const selectedAssistant = await getSelectedAssistant();
     if (!session || !selectedAssistant) {
-      setConnectionHealth('auth_required', {
-        lastErrorMessage: 'Sign in and select an assistant to connect.',
+      setConnectionHealth("auth_required", {
+        lastErrorMessage: "Sign in and select an assistant to connect.",
       });
       return;
     }
@@ -897,7 +929,7 @@ async function doConnect(options: ConnectOptions): Promise<void> {
     const { apiBaseUrl } = cloudUrlsForEnvironment(env);
     if (!shouldConnect) return;
     sseConnection = createSseConnection({
-      kind: 'vellum-cloud',
+      kind: "vellum-cloud",
       runtimeUrl: apiBaseUrl,
       assistantId: selectedAssistant.id,
       token: null, // session cookie handles auth
@@ -906,7 +938,7 @@ async function doConnect(options: ConnectOptions): Promise<void> {
     sseConnection.start();
   } else {
     // Self-hosted: connect via WebSocket relay to the local gateway.
-    currentAuthProfile = 'self-hosted';
+    currentAuthProfile = "self-hosted";
     const rawMode = await buildSelfHostedRelayMode();
     if (!shouldConnect) return;
     const mode = await connectPreflight(currentAuthProfile, rawMode, options);
@@ -924,7 +956,7 @@ async function doConnect(options: ConnectOptions): Promise<void> {
  */
 function teardownConnections(): void {
   if (relayConnection) {
-    relayConnection.close(1000, 'reconfigured');
+    relayConnection.close(1000, "reconfigured");
     relayConnection = null;
   }
   if (sseConnection) {
@@ -935,7 +967,7 @@ function teardownConnections(): void {
 
 function disconnect(): void {
   if (relayConnection) {
-    relayConnection.close(1000, 'User disconnected');
+    relayConnection.close(1000, "User disconnected");
     relayConnection = null;
   }
   if (sseConnection) {
@@ -951,34 +983,42 @@ async function handleServerMessage(raw: string): Promise<void> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    console.warn('[vellum-relay] Failed to parse server message');
+    console.warn("[vellum-relay] Failed to parse server message");
     return;
   }
 
   if (
     parsed !== null &&
-    typeof parsed === 'object' &&
-    'type' in parsed &&
-    typeof (parsed as { type: unknown }).type === 'string'
+    typeof parsed === "object" &&
+    "type" in parsed &&
+    typeof (parsed as { type: unknown }).type === "string"
   ) {
     const envelopeType = (parsed as { type: string }).type;
-    if (envelopeType === 'host_browser_request') {
-      await hostBrowserDispatcher.handle(parsed as HostBrowserRequestEnvelope);
+    if (envelopeType === "host_browser_request") {
+      const req = parsed as HostBrowserRequestEnvelope;
+      appendEvent("inbound", "host_browser_request", {
+        summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
+      });
+      await hostBrowserDispatcher.handle(req);
       return;
     }
-    if (envelopeType === 'host_browser_cancel') {
-      hostBrowserDispatcher.cancel(parsed as HostBrowserCancelEnvelope);
+    if (envelopeType === "host_browser_cancel") {
+      const cancel = parsed as HostBrowserCancelEnvelope;
+      appendEvent("inbound", "host_browser_cancel", {
+        summary: cancel.requestId.slice(0, 8),
+      });
+      hostBrowserDispatcher.cancel(cancel);
       return;
     }
   }
 
-  console.warn('[vellum-relay] Unknown message type:', parsed);
+  console.warn("[vellum-relay] Unknown message type:", parsed);
 }
 
 // ── Extension message listener (from popup) ─────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
-  if (message.type === 'connect') {
+  if (message.type === "connect") {
     shouldConnect = true;
     // User-initiated Connect is interactive: the worker will auto-
     // bootstrap missing auth (pair for local)
@@ -1006,11 +1046,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // Classify the failure: auth-related errors (MissingTokenError)
         // surface as `auth_required`; everything else is a generic `error`.
         if (err instanceof MissingTokenError) {
-          setConnectionHealth('auth_required', {
+          setConnectionHealth("auth_required", {
             lastErrorMessage: errorMessage,
           });
         } else {
-          setConnectionHealth('error', {
+          setConnectionHealth("error", {
             lastErrorMessage: errorMessage,
           });
         }
@@ -1023,9 +1063,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   // the next startup, then tears down the relay connection.
   // `disconnect` is kept as a backward-compatible alias during rollout
   // — both actions perform identical state transitions.
-  if (message.type === 'pause' || message.type === 'disconnect') {
+  if (message.type === "pause" || message.type === "disconnect") {
     shouldConnect = false;
-    setConnectionHealth('paused');
+    setConnectionHealth("paused");
     // Await the storage write so MV3 can't terminate the worker before
     // the autoConnect flag is persisted to false.
     setAutoConnect(false)
@@ -1040,7 +1080,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       });
     return true; // async
   }
-  if (message.type === 'get_status') {
+  if (message.type === "get_status") {
     sendResponseFn({
       connected: isAnyConnectionOpen(),
       authProfile: currentAuthProfile,
@@ -1049,7 +1089,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     });
     return false;
   }
-  if (message.type === 'self-hosted-pair') {
+  if (message.type === "self-hosted-pair") {
     // Bootstrap a capability token by POSTing directly to the gateway's
     // /v1/browser-extension-pair endpoint.
     (async () => {
@@ -1057,18 +1097,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const stored = await bootstrapDirectPairToken(gatewayUrl);
 
       if (shouldConnect || relayConnection) {
-        setConnectionHealth('reconnecting');
+        setConnectionHealth("reconnecting");
         disconnect();
         await connect({ interactive: false });
       }
 
       return stored;
     })()
-      .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
-      .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      .then((stored: StoredLocalToken) =>
+        sendResponseFn({ ok: true, token: stored }),
+      )
+      .catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     return true; // async
   }
-  if (message.type === 'gateway-url-get') {
+  if (message.type === "gateway-url-get") {
     getStoredGatewayUrl()
       .then((gatewayUrl) => sendResponseFn({ ok: true, gatewayUrl }))
       .catch((err) =>
@@ -1079,11 +1126,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       );
     return true; // async
   }
-  if (message.type === 'gateway-url-set') {
+  if (message.type === "gateway-url-set") {
     const url =
-      typeof message.gatewayUrl === 'string' ? message.gatewayUrl.trim() : null;
+      typeof message.gatewayUrl === "string" ? message.gatewayUrl.trim() : null;
     if (!url) {
-      sendResponseFn({ ok: false, error: 'gatewayUrl is required' });
+      sendResponseFn({ ok: false, error: "gatewayUrl is required" });
       return false;
     }
     (async () => {
@@ -1096,17 +1143,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
           await connect({ interactive: true });
         } catch (err) {
           shouldConnect = false;
-          const errorMessage =
-            err instanceof Error ? err.message : String(err);
+          const errorMessage = err instanceof Error ? err.message : String(err);
           console.warn(
             `[vellum-relay] Gateway URL switch left disconnected: ${errorMessage}`,
           );
           if (err instanceof MissingTokenError) {
-            setConnectionHealth('auth_required', {
+            setConnectionHealth("auth_required", {
               lastErrorMessage: errorMessage,
             });
           } else {
-            setConnectionHealth('error', {
+            setConnectionHealth("error", {
               lastErrorMessage: errorMessage,
             });
           }
@@ -1122,7 +1168,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     );
     return true; // async
   }
-  if (message.type === 'environment-get') {
+  if (message.type === "environment-get") {
     // Returns the effective environment and its components so the popup
     // can display which environment is active and whether an override is
     // in effect.
@@ -1143,7 +1189,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       );
     return true; // async
   }
-  if (message.type === 'environment-set') {
+  if (message.type === "environment-set") {
     // Validates and persists an environment override. Pass
     // `environment: null` to clear the override and revert to the
     // build default.
@@ -1183,8 +1229,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       );
       return true; // async
     }
-    if (typeof rawEnv !== 'string') {
-      sendResponseFn({ ok: false, error: 'environment must be a string or null' });
+    if (typeof rawEnv !== "string") {
+      sendResponseFn({
+        ok: false,
+        error: "environment must be a string or null",
+      });
       return false;
     }
     const parsed = parseExtensionEnvironment(rawEnv);
@@ -1219,7 +1268,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 
   // ── Onboarding / session messages ─────────────────────────────────
 
-  if (message.type === 'get-session') {
+  if (message.type === "get-session") {
     (async () => {
       const session = await getStoredSession();
       const selectedAssistant = await getSelectedAssistant();
@@ -1229,10 +1278,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       // the onboarding flow was added will have autoConnect=true but
       // no userMode. Infer self-hosted so they skip the welcome screen.
       if (!mode) {
-        const autoConnectResult = await chrome.storage.local.get(AUTO_CONNECT_KEY);
+        const autoConnectResult =
+          await chrome.storage.local.get(AUTO_CONNECT_KEY);
         if (autoConnectResult[AUTO_CONNECT_KEY] === true) {
-          mode = 'self-hosted';
-          await setStoredUserMode('self-hosted');
+          mode = "self-hosted";
+          await setStoredUserMode("self-hosted");
         }
       }
 
@@ -1246,18 +1296,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return true; // async
   }
 
-  if (message.type === 'set-mode') {
+  if (message.type === "set-mode") {
     (async () => {
-      const newMode = message.mode as 'self-hosted' | 'cloud';
+      const newMode = message.mode as "self-hosted" | "cloud";
       await setStoredUserMode(newMode);
       sendResponseFn({ ok: true });
     })().catch((err) =>
-      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
     );
     return true; // async
   }
 
-  if (message.type === 'cloud-login') {
+  if (message.type === "cloud-login") {
     (async () => {
       const env = await getEffectiveEnvironment();
       const session = await startCloudLogin(env);
@@ -1268,7 +1321,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       } catch (err) {
         assistantsError = err instanceof Error ? err.message : String(err);
       }
-      await setStoredUserMode('cloud');
+      await setStoredUserMode("cloud");
       sendResponseFn({
         ok: true,
         session: { email: session.email },
@@ -1284,11 +1337,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return true; // async
   }
 
-  if (message.type === 'cloud-logout') {
+  if (message.type === "cloud-logout") {
     (async () => {
       shouldConnect = false;
       disconnect();
-      setConnectionHealth('paused');
+      setConnectionHealth("paused");
       await setAutoConnect(false);
       await clearSession();
       await clearSelectedAssistant();
@@ -1298,11 +1351,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return true; // async
   }
 
-  if (message.type === 'self-hosted-disconnect') {
+  if (message.type === "self-hosted-disconnect") {
     (async () => {
       shouldConnect = false;
       disconnect();
-      setConnectionHealth('paused');
+      setConnectionHealth("paused");
       await setAutoConnect(false);
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
@@ -1310,27 +1363,38 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return true; // async
   }
 
-  if (message.type === 'list-assistants') {
+  if (message.type === "list-assistants") {
     (async () => {
       const env = await getEffectiveEnvironment();
       const assistants = await fetchAssistants(env);
       sendResponseFn({ ok: true, assistants });
     })().catch((err) =>
-      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
     );
     return true; // async
   }
 
-  if (message.type === 'select-assistant') {
+  if (message.type === "select-assistant") {
     (async () => {
       const assistantId = message.assistantId as string;
       const assistantName = message.assistantName as string;
       await storeSelectedAssistant({ id: assistantId, name: assistantName });
       sendResponseFn({ ok: true });
     })().catch((err) =>
-      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
     );
     return true; // async
+  }
+
+  if (message.type === "get-event-log") {
+    sendResponseFn({ ok: true, entries: getEventLog() });
+    return false; // synchronous
   }
 
   // Unknown message type — let Chrome close the port naturally.
@@ -1357,12 +1421,12 @@ async function bootstrap(): Promise<void> {
     shouldConnect = false;
     if (err instanceof MissingTokenError) {
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
-      setConnectionHealth('auth_required', {
+      setConnectionHealth("auth_required", {
         lastErrorMessage: err.message,
       });
       void setRelayAuthError({
         message: err.message,
-        mode: 'self-hosted',
+        mode: "self-hosted",
         at: Date.now(),
       });
       return;
@@ -1373,12 +1437,12 @@ async function bootstrap(): Promise<void> {
     // an unhandled rejection.
     const detail = err instanceof Error ? err.message : String(err);
     console.warn(`[vellum-relay] Auto-connect failed: ${detail}`);
-    setConnectionHealth('error', {
+    setConnectionHealth("error", {
       lastErrorMessage: detail,
     });
     void setRelayAuthError({
       message: detail,
-      mode: 'self-hosted',
+      mode: "self-hosted",
       at: Date.now(),
     });
   }

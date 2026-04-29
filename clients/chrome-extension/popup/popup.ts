@@ -126,6 +126,13 @@ const assistantAccountEl = document.getElementById('assistant-account') as HTMLP
 // Session actions
 const sessionActions = document.getElementById('session-actions') as HTMLDivElement;
 
+// Event log
+const eventLogToggle = document.getElementById('event-log-toggle') as HTMLButtonElement;
+const eventLogBody = document.getElementById('event-log-body') as HTMLDivElement;
+const eventLogContainer = document.getElementById('event-log-container') as HTMLDivElement;
+const eventLogCount = document.getElementById('event-log-count') as HTMLSpanElement;
+const eventLogEmpty = document.getElementById('event-log-empty') as HTMLParagraphElement;
+
 // ── DOM references (Welcome screen) ─────────────────────────────────
 
 const btnSignIn = document.getElementById('btn-sign-in') as HTMLButtonElement;
@@ -328,6 +335,65 @@ troubleshootToggle?.addEventListener('click', () => {
   troubleshootToggle.setAttribute('aria-expanded', String(!isExpanded));
   troubleshootBody.style.display = isExpanded ? 'none' : 'block';
 });
+
+// ── Event log ───────────────────────────────────────────────────────
+
+let eventLogExpanded = false;
+
+eventLogToggle?.addEventListener('click', () => {
+  eventLogExpanded = !eventLogExpanded;
+  eventLogToggle.setAttribute('aria-expanded', String(eventLogExpanded));
+  eventLogBody.style.display = eventLogExpanded ? 'block' : 'none';
+  if (eventLogExpanded) {
+    refreshEventLog();
+  }
+});
+
+function formatEventTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function refreshEventLog(): void {
+  sendMessage<{ ok: boolean; entries: Array<{
+    id: number;
+    timestamp: string;
+    direction: 'inbound' | 'outbound';
+    eventType: string;
+    summary?: string;
+    isError?: boolean;
+  }> }>({ type: 'get-event-log' }, (response) => {
+    if (!response?.ok) return;
+    const entries = response.entries;
+    eventLogCount.textContent = String(entries.length);
+    if (entries.length === 0) {
+      eventLogEmpty.style.display = 'block';
+      // Remove any previously rendered rows
+      const rows = eventLogContainer.querySelectorAll('.event-log-row');
+      rows.forEach((r) => r.remove());
+      return;
+    }
+    eventLogEmpty.style.display = 'none';
+    // Rebuild the log (newest first for readability)
+    const rows = eventLogContainer.querySelectorAll('.event-log-row');
+    rows.forEach((r) => r.remove());
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]!;
+      const row = document.createElement('div');
+      row.className = `event-log-row${e.isError ? ' is-error' : ''}`;
+      const arrow = e.direction === 'inbound' ? '↓' : '↑';
+      row.innerHTML = [
+        `<span class="event-log-time">${escapeHtml(formatEventTime(e.timestamp))}</span>`,
+        `<span class="event-log-dir ${e.direction}">${arrow}</span>`,
+        `<span class="event-log-type">${escapeHtml(e.eventType)}</span>`,
+        e.summary ? `<span class="event-log-summary">${escapeHtml(e.summary)}</span>` : '',
+      ].join('');
+      eventLogContainer.appendChild(row);
+    }
+  });
+}
+
+
 
 // ── Welcome screen handlers ─────────────────────────────────────────
 
@@ -544,6 +610,9 @@ function refreshStatus(): void {
     currentAuthProfile = response.authProfile;
     updateHealthDisplay(response.health, response.healthDetail);
   });
+  if (eventLogExpanded) {
+    refreshEventLog();
+  }
 }
 
 function startStatusPoll(): void {

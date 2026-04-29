@@ -302,6 +302,95 @@
       margin-bottom: 4px;
     }
 
+    /* ── Event Log ────────────────────────────────────────────────── */
+
+    .event-log-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px 0;
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .event-log-toggle:hover { color: var(--text); }
+    .event-log-toggle .chevron {
+      font-size: 9px;
+      transition: transform 0.15s;
+      display: inline-block;
+    }
+    .event-log-toggle[aria-expanded="true"] .chevron {
+      transform: rotate(90deg);
+    }
+
+    .event-log-container {
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      margin-bottom: 8px;
+    }
+
+    .event-log-empty {
+      padding: 16px;
+      text-align: center;
+      color: var(--text-2);
+      font-size: 12px;
+    }
+
+    .event-log-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+      border-bottom: 1px solid var(--border);
+    }
+    .event-log-row:last-child { border-bottom: none; }
+
+    .event-log-time {
+      color: var(--text-2);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .event-log-dir {
+      font-weight: 600;
+      flex-shrink: 0;
+      width: 14px;
+      text-align: center;
+    }
+    .event-log-dir.inbound { color: var(--blue); }
+    .event-log-dir.outbound { color: var(--green); }
+    .event-log-type {
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .event-log-summary {
+      color: var(--text-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .event-log-row.is-error .event-log-type,
+    .event-log-row.is-error .event-log-summary {
+      color: var(--red);
+    }
+    .event-log-badge {
+      background: var(--surface-2);
+      color: var(--text-2);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
     /* ── Divider ─────────────────────────────────────────────────── */
 
     .divider {
@@ -815,6 +904,26 @@
           </div>
         </div>
       </div>
+
+    <!-- Event log: collapsible activity feed -->
+    <div id="event-log-section">
+      <button
+        type="button"
+        class="event-log-toggle"
+        id="event-log-toggle"
+        aria-expanded="false"
+        aria-controls="event-log-body"
+      >
+        <span class="chevron">&#9654;</span>
+        Activity
+        <span class="event-log-badge" id="event-log-count">0</span>
+      </button>
+      <div id="event-log-body" style="display:none;">
+        <div class="event-log-container" id="event-log-container">
+          <p class="event-log-empty" id="event-log-empty">No events yet</p>
+        </div>
+      </div>
+    </div>
 
     <p class="error-text" id="error-text" style="display:none"></p>
     <div class="debug-details" id="debug-details" style="display:none">
