@@ -26,6 +26,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
+import type { AssistantConfig } from "../../../config/schema.js";
 import { getLogger } from "../../../util/logger.js";
 import { embedWithRetry } from "../../embed.js";
 import { generateSparseEmbedding } from "../../embedding-backend.js";
@@ -41,14 +42,15 @@ import type {
 } from "../types.js";
 
 /**
- * True when both v2 gates are on. Single source of truth shared by the
- * `memory` source (which then delegates to v2) and the `pkb` source (which
- * short-circuits because v2 absorbs PKB as a read source).
+ * True when both v2 gates are on. Single source of truth shared by the recall
+ * `memory` source (which delegates to v2), the `pkb` source (which
+ * short-circuits because v2 absorbs PKB as a read source), and the per-turn
+ * PKB injectors (which go silent so v2 owns the read path end-to-end).
  */
-export function isMemoryV2ReadActive(context: RecallSearchContext): boolean {
+export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
   return (
-    isAssistantFeatureFlagEnabled("memory-v2-enabled", context.config) &&
-    context.config.memory.v2.enabled
+    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+    config.memory.v2.enabled
   );
 }
 
