@@ -95,6 +95,16 @@ extension MainWindowView {
             .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
                 handleOpenDocumentEditor(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openAppFromArtifact)) { notification in
+                guard let appId = notification.userInfo?["appId"] as? String else { return }
+                Task {
+                    await AppsClient.openAppAndDispatchSurface(
+                        id: appId,
+                        connectionManager: connectionManager,
+                        eventStreamClient: eventStreamClient
+                    )
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
                 if let updated = notification.userInfo?["surface"] as? Surface,
                    updated.id == windowState.activeDynamicSurface?.surfaceId {

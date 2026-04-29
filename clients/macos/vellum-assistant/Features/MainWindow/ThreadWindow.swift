@@ -219,24 +219,13 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
-                    recoveryMode: settingsStore.managedAssistantRecoveryMode,
-                    isRecoveryModeExiting: settingsStore.recoveryModeExiting,
-                    onResumeAssistant: {
-                        settingsStore.exitManagedAssistantRecoveryMode()
-                    },
-                    onOpenSSHSettings: {
-                        settingsStore.pendingSettingsTab = .developer
-                        AppDelegate.shared?.showSettingsWindow(nil)
-                    },
-                    onOpenConversationApp: { [viewModel] artifact in
+                    onOpenConversationApp: { artifact in
                         guard let appId = artifact.appId else { return }
-                        Task {
-                            await AppsClient.openAppAndDispatchSurface(
-                                id: appId,
-                                connectionManager: viewModel.connectionManager,
-                                eventStreamClient: viewModel.eventStreamClient
-                            )
-                        }
+                        NotificationCenter.default.post(
+                            name: .openAppFromArtifact,
+                            object: nil,
+                            userInfo: ["appId": appId]
+                        )
                     },
                     onOpenConversationDocument: { artifact in
                         guard let surfaceId = artifact.surfaceId else { return }
@@ -245,6 +234,15 @@ private struct ThreadWindowContentView: View {
                             object: nil,
                             userInfo: ["documentSurfaceId": surfaceId]
                         )
+                    },
+                    recoveryMode: settingsStore.managedAssistantRecoveryMode,
+                    isRecoveryModeExiting: settingsStore.recoveryModeExiting,
+                    onResumeAssistant: {
+                        settingsStore.exitManagedAssistantRecoveryMode()
+                    },
+                    onOpenSSHSettings: {
+                        settingsStore.pendingSettingsTab = .developer
+                        AppDelegate.shared?.showSettingsWindow(nil)
                     },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,

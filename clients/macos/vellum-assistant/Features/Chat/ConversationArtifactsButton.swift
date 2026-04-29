@@ -1,8 +1,6 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Compact button that shows the count of conversation artifacts (apps and documents).
-/// Tapping it opens a popover listing each artifact with appropriate actions.
 struct ConversationArtifactsButton: View {
     let artifacts: [ConversationArtifact]
     let onOpenApp: (ConversationArtifact) -> Void
@@ -11,6 +9,11 @@ struct ConversationArtifactsButton: View {
     @State private var isPopoverPresented = false
     @State private var hoveredArtifactId: String?
 
+    private var label: String {
+        let count = artifacts.count
+        return count == 1 ? "1 asset" : "\(count) assets"
+    }
+
     var body: some View {
         if artifacts.isEmpty {
             EmptyView()
@@ -18,23 +21,20 @@ struct ConversationArtifactsButton: View {
             Button {
                 isPopoverPresented.toggle()
             } label: {
-                HStack(spacing: VSpacing.xxs) {
-                    VIconView(.layers, size: 14)
-                    Text("\(artifacts.count)")
-                        .font(VFont.labelSmall)
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.layers, size: 10)
+                    Text(label)
+                        .font(VFont.bodySmallDefault)
                 }
-                .foregroundStyle(VColor.contentSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
                 .background(VColor.surfaceOverlay)
-                .cornerRadius(VRadius.md)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(VColor.borderBase, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Conversation artifacts, \(artifacts.count) items")
+            .pointerCursor()
+            .accessibilityLabel("Conversation assets, \(artifacts.count) items")
             .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
                 popoverContent
             }
@@ -44,7 +44,7 @@ struct ConversationArtifactsButton: View {
     @ViewBuilder
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Artifacts")
+            Text("Assets")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.md)
