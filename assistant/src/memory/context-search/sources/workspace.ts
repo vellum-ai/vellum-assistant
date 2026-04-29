@@ -25,7 +25,6 @@ const WORKSPACE_BUCKETS: readonly WorkspaceBucket[] = [
   { name: "root", relativePath: "", budget: 100, rootFilesOnly: true },
   { name: "pkb", relativePath: "pkb", budget: 500 },
   { name: "journal", relativePath: "journal", budget: 250 },
-  { name: "birthday-builds", relativePath: ".birthday-builds", budget: 250 },
   { name: "scratch", relativePath: "scratch", budget: 500 },
   { name: "users", relativePath: "users", budget: 250 },
   { name: "work", relativePath: "work", budget: 250 },
@@ -1045,7 +1044,6 @@ function scoreMatch(options: {
 function getPathPriorityBoost(relativePath: string): number {
   if (relativePath.startsWith("data/apps/")) return 0.65;
   if (relativePath.startsWith("scratch/location-tracker/")) return 0.65;
-  if (relativePath.startsWith(".birthday-builds/")) return 0.6;
   if (relativePath.startsWith("work/")) return 0.45;
   if (relativePath.startsWith("scratch/")) return 0.35;
   if (relativePath.startsWith("users/")) return 0.3;

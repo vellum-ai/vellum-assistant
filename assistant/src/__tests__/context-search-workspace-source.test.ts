@@ -109,10 +109,10 @@ describe("searchWorkspaceSource", () => {
     writeWorkspaceFile(root, ".hidden.md", "needle hidden");
     writeWorkspaceFile(
       root,
-      ".birthday-builds/.format-rec.md",
+      ".notes/.format-rec.md",
       "needle safe hidden file",
     );
-    writeWorkspaceFile(root, ".birthday-builds/cake.md", "needle safe hidden");
+    writeWorkspaceFile(root, ".notes/cake.md", "needle safe hidden");
     writeWorkspaceFile(root, ".git/config.md", "needle git");
     writeWorkspaceFile(root, ".private/notes.md", "needle private");
     writeWorkspaceFile(root, "node_modules/pkg/index.md", "needle dependency");
@@ -136,9 +136,9 @@ describe("searchWorkspaceSource", () => {
     const result = await searchWorkspaceSource("needle", makeContext(root), 10);
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
-      ".birthday-builds/.format-rec.md:1",
-      ".birthday-builds/cake.md:1",
       ".hidden.md:1",
+      ".notes/.format-rec.md:1",
+      ".notes/cake.md:1",
       "src/readme.md:1",
     ]);
   });
@@ -182,11 +182,6 @@ describe("searchWorkspaceSource", () => {
         "sharedneedle scratch filler",
       );
     }
-    writeWorkspaceFile(
-      root,
-      ".birthday-builds/format.md",
-      "formatneedle hidden authored decision",
-    );
     writeWorkspaceFile(root, "work/source.md", "workneedle live authored doc");
     writeWorkspaceFile(
       root,
@@ -199,17 +194,13 @@ describe("searchWorkspaceSource", () => {
     );
 
     const result = await searchWorkspaceSource(
-      "sharedneedle formatneedle workneedle appneedle",
+      "sharedneedle workneedle appneedle",
       makeContext(root),
       10,
     );
 
     expect(result.evidence.map((item) => item.title)).toEqual(
-      expect.arrayContaining([
-        ".birthday-builds/format.md",
-        "work/source.md",
-        "data/apps/example-app.json",
-      ]),
+      expect.arrayContaining(["work/source.md", "data/apps/example-app.json"]),
     );
   });
 
@@ -519,21 +510,17 @@ describe("inspectWorkspacePaths", () => {
   test("inspects up to five safe surfaced files and reports unsafe paths", async () => {
     const root = makeTempDir();
     writeWorkspaceFile(root, "scratch/handoff.md", "handoff exact truth");
-    writeWorkspaceFile(
-      root,
-      ".birthday-builds/format.md",
-      "hidden exact truth",
-    );
+    writeWorkspaceFile(root, ".notes/format.md", "hidden exact truth");
 
     const result = await inspectWorkspacePaths(
-      ["scratch/handoff.md", ".birthday-builds/format.md", "../secret.md"],
+      ["scratch/handoff.md", ".notes/format.md", "../secret.md"],
       "unrelated query terms",
       makeContext(root),
     );
 
     expect(result.evidence.map((item) => item.title)).toEqual([
       "scratch/handoff.md",
-      ".birthday-builds/format.md",
+      ".notes/format.md",
     ]);
     expect(result.errors).toEqual([
       {
