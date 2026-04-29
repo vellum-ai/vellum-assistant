@@ -230,6 +230,10 @@ public struct VSplitButton<MenuContent: View>: View {
             return
         }
 
+        // Resign first responder so text fields release focus before the
+        // menu panel becomes key. Matches ComposerPillMenu / VDropdown.
+        window.makeFirstResponder(nil)
+
         // Anchor point in screen coordinates (y-up).
         // .below: bottom-left of dropdown zone; .above: top-left of dropdown zone.
         let anchorY = chevronDirection == .up ? dropdownFrame.minY : dropdownFrame.maxY
