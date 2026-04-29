@@ -1477,17 +1477,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     // MARK: - Actions
 
     public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
-        // For relay_prompt / agent_prompt actions from history-restored surfaces,
-        // send the prompt as a regular message instead of a surface action.
-        // This avoids requiring in-memory surface state on the daemon (which is
-        // lost after restart) and ensures the full message send pipeline runs
-        // (conversation creation, hub publisher setup, SSE event delivery).
-        let isRelay = actionId == "relay_prompt" || actionId == "agent_prompt"
-        if isRelay, let prompt = data?["prompt"]?.value as? String, !prompt.isEmpty {
-            _ = sendSilently(prompt)
-            return
-        }
-
         guard let conversationId else { return }
         Task {
             await surfaceActionClient.sendSurfaceAction(
