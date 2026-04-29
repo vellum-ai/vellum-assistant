@@ -2029,6 +2029,60 @@ if [ "$CONFIG" = "release" ]; then
     # separately via their SDK integration — no need to run dsymutil on it.
 fi
 
+# 6b. Register local build manifest
+#
+# For local builds, record a manifest entry so the localhost downloads page
+# can discover and serve previous builds. Each build gets a JSON file under
+# $_VELLUM_CONFIG_DIR/builds/ keyed by BUILD_VERSION, and a companion ZIP
+# of the .app bundle for download.
+if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -d "$APP_DIR" ]; then
+    _BUILDS_DIR="$_VELLUM_CONFIG_DIR/builds"
+    mkdir -p "$_BUILDS_DIR"
+
+    _BUILD_ZIP="$_BUILDS_DIR/${BUILD_VERSION}.zip"
+    _BUILD_MANIFEST="$_BUILDS_DIR/${BUILD_VERSION}.json"
+
+    # Create ZIP of the .app bundle (ditto preserves macOS metadata + code signatures)
+    echo "Registering local build $DISPLAY_VERSION (build $BUILD_VERSION)..."
+    if command -v ditto &>/dev/null; then
+        ditto -c -k --keepParent "$APP_DIR" "$_BUILD_ZIP"
+    else
+        (cd "$SCRIPT_DIR/dist" && zip -r -q "$_BUILD_ZIP" "$BUNDLE_DISPLAY_NAME.app")
+    fi
+
+    _BUILD_SHA=$(git -C "$SCRIPT_DIR/../.." rev-parse HEAD 2>/dev/null | head -c 10)
+    _BUILD_ARCH=$(uname -m)
+    _BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    _BUILD_SIZE=$(stat -f%z "$_BUILD_ZIP" 2>/dev/null || stat -c%s "$_BUILD_ZIP" 2>/dev/null || echo "0")
+
+    cat > "$_BUILD_MANIFEST" << MANIFEST_EOF
+{
+  "version": "$DISPLAY_VERSION",
+  "buildVersion": "$BUILD_VERSION",
+  "displayName": "$BUNDLE_DISPLAY_NAME",
+  "bundleId": "$BUNDLE_ID",
+  "timestamp": "$_BUILD_TIMESTAMP",
+  "commitSha": "$_BUILD_SHA",
+  "architecture": "$_BUILD_ARCH",
+  "zipPath": "$_BUILD_ZIP",
+  "zipSize": $_BUILD_SIZE
+}
+MANIFEST_EOF
+
+    echo "Build registered: $_BUILD_MANIFEST"
+    echo "Build ZIP: $_BUILD_ZIP ($(du -h "$_BUILD_ZIP" | cut -f1))"
+
+    # Prune old builds — keep the latest 10
+    _build_count=$(ls -1 "$_BUILDS_DIR"/*.json 2>/dev/null | wc -l)
+    if [ "$_build_count" -gt 10 ]; then
+        ls -1t "$_BUILDS_DIR"/*.json | tail -n +11 | while read -r old_manifest; do
+            old_zip="${old_manifest%.json}.zip"
+            rm -f "$old_manifest" "$old_zip"
+        done
+        echo "Pruned old builds (keeping latest 10)"
+    fi
+fi
+
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
