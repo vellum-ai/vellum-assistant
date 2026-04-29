@@ -1,8 +1,8 @@
 import Foundation
 import VellumAssistantShared
 
-/// A feed row for display — either a single item, or a digest parent
-/// with low-priority children collapsed beneath it.
+/// A feed row for display — either a single item, or a parent item with
+/// a run of low-priority children collapsed beneath it.
 enum HomeFeedGroupedRow: Hashable {
     case single(FeedItem)
     case group(parent: FeedItem, children: [FeedItem])
@@ -24,10 +24,6 @@ enum HomeFeedGroupedRow: Hashable {
 /// original order. Items that don't qualify — items at or above the
 /// threshold, or runs shorter than `minimumGroupSize` — pass through as
 /// ``HomeFeedGroupedRow/single(_:)``.
-///
-/// Pre-v2 the eligibility check also required `type == .digest` (the
-/// digest case no longer exists on the v2 schema). Now that the type
-/// discriminator is gone, low-priority is the sole grouping signal.
 ///
 /// Relative input order is preserved across both singles and groups.
 enum HomeFeedGrouping {

@@ -65,12 +65,6 @@ struct HomePageView<DetailPanel: View>: View {
     /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
 
-    /// Types the user has tapped in the filter bar. Empty means "show
-    /// everything" — a non-empty set is treated as an inclusion filter
-    /// in ``groupedFeed``. Deliberately view-local (not persisted):
-    /// the filter is a transient read-time affordance, not a setting.
-    @State private var activeFilter: FeedItemType? = nil
-
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -132,15 +126,6 @@ struct HomePageView<DetailPanel: View>: View {
                         }
                     )
                 }
-
-                HomeFeedFilterBar(
-                    selected: activeFilter,
-                    onToggle: { type in
-                        // Single-select: tapping the active chip clears
-                        // the filter; tapping a different chip replaces it.
-                        activeFilter = (activeFilter == type) ? nil : type
-                    }
-                )
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
                     VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -251,27 +236,16 @@ struct HomePageView<DetailPanel: View>: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// applies the active type filter (nil = show all), buckets via
-    /// `HomeFeedTimeGroup.bucket(_:)`, then collapses contiguous
-    /// low-priority digest runs within each bucket via
+    /// buckets via `HomeFeedTimeGroup.bucket(_:)`, then collapses
+    /// contiguous low-priority digest runs within each bucket via
     /// `HomeFeedGrouping.group(_:)`.
     // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
     var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
-        groupedFeed(for: activeFilter)
-    }
-
-    /// Pure grouping pipeline exposed for unit tests. Mirrors the logic
-    /// used by ``groupedFeed`` but takes the filter as a parameter so
-    /// tests don't need to manipulate `@State`.
-    func groupedFeed(for filter: FeedItemType?) -> [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        let filtered = sorted.filter { item in
-            item.status != .dismissed
-                && (filter == nil || filter == item.type)
-        }
+        let filtered = sorted.filter { $0.status != .dismissed }
         let buckets = HomeFeedTimeGroup.bucket(filtered)
         return buckets.map { bucket in
             (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
@@ -290,18 +264,16 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Recap row styling
 
-    /// Icon glyph for a feed item. With the v2 schema collapsed to the
-    /// single `notification` type, every row uses the same glyph; PR 17
-    /// will revisit the visual language now that the type discriminator
-    /// is gone.
+    /// Icon glyph for a feed item. The v2 schema collapsed all items to
+    /// the single `notification` type, so every row uses the same glyph
+    /// — a per-item visual language driven by `urgency` or
+    /// `detailPanel.kind` is a future iteration.
     private func icon(for item: FeedItem) -> VIcon {
         .bell
     }
 
     /// Foreground (glyph) color for the recap icon. See the `feed*`
-    /// tokens in `ColorTokens.swift`. With the type collapse there's a
-    /// single tint for all rows — PR 17 will reconsider per-item color
-    /// driven by `urgency` or `detailPanel.kind`.
+    /// tokens in `ColorTokens.swift`.
     private func iconForeground(for item: FeedItem) -> Color {
         VColor.feedDigestStrong
     }

@@ -5,22 +5,16 @@ import XCTest
 
 /// Routing tests for ``HomePageView.openItem(_:)``.
 ///
-/// **Pre-v2 these tests asserted that taps on `.thread + .calendar` /
-/// `.nudge` items fired `onDetailPanelSelected` while taps on
-/// `.digest` / `.action` / non-calendar `.thread` items fell through.**
-/// The v2 schema collapsed `FeedItemType` to a single `.notification`
-/// case and removed `FeedItemSource` / `FeedItemAuthor` entirely, so
-/// the type-and-source dispatch those tests covered no longer exists —
-/// `HomePageView.openItem(_:)` now unconditionally fires
-/// `onDetailPanelSelected`. PR 17 will reshape this dispatch around the
-/// server-supplied `detailPanel` descriptor; until then the only routing
-/// signal worth asserting is "every tap fires the callback exactly once".
+/// In the v2 schema every feed item is a `.notification`, so
+/// `openItem(_:)` unconditionally fires `onDetailPanelSelected` and the
+/// receiver decides whether the item resolves to a typed detail panel
+/// or a generic one via ``HomeDetailPanelKind/resolve(for:)``.
 ///
 /// `openItem` is exposed as `internal` (not `private`) specifically so
 /// these tests can drive the routing branch without needing to render the
 /// full SwiftUI view tree.
 @MainActor
-final class HomeScheduledRoutingTests: XCTestCase {
+final class HomeOpenItemRoutingTests: XCTestCase {
 
     // MARK: - Fixtures
 
@@ -83,9 +77,8 @@ final class HomeScheduledRoutingTests: XCTestCase {
 
     /// Smoke test: every tap fires the detail panel callback exactly
     /// once, regardless of whether a `detailPanel` descriptor is set.
-    /// Replaces the old per-type dispatch matrix — PR 17 will reintroduce
-    /// finer-grained routing once the server-driven panel descriptor
-    /// stabilizes.
+    /// The receiver decides which detail panel to render via
+    /// ``HomeDetailPanelKind/resolve(for:)``.
     func test_openItem_firesDetailPanelCallback() async {
         let (homeStore, feedStore, feedClient) = makeStores()
         var captured: [FeedItem] = []
