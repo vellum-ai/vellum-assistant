@@ -1293,6 +1293,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return true; // async
   }
 
+  if (message.type === 'self-hosted-disconnect') {
+    (async () => {
+      shouldConnect = false;
+      disconnect();
+      setConnectionHealth('paused');
+      await setAutoConnect(false);
+      await clearStoredUserMode();
+      sendResponseFn({ ok: true });
+    })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
   if (message.type === 'list-assistants') {
     (async () => {
       const env = await getEffectiveEnvironment();
