@@ -320,7 +320,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -334,7 +334,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -348,7 +348,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -362,7 +362,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
 
     // Workspace blocks use <workspace> tag which is intentionally NOT stripped.
     const persistedMessages = conversation.getMessages();
@@ -377,14 +377,14 @@ describe("Conversation workspace injection", () => {
     await conversation.loadFromDb();
 
     // First message — workspace is injected
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
     expect(runCalls).toHaveLength(1);
     const firstCallUser = runCalls[0][runCalls[0].length - 1];
     const firstText = messageText(firstCallUser);
     expect(firstText).toContain("<workspace>");
 
     // Second message — workspace is NOT injected (not first message, no compaction)
-    await conversation.processMessage("Follow up", [], () => {});
+    await conversation.processMessage("Follow up", []);
     expect(runCalls).toHaveLength(2);
     const secondCallUser = runCalls[1][runCalls[1].length - 1];
     const secondText = messageText(secondCallUser);
@@ -403,7 +403,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
 
     expect(scanCallCount).toBe(1);
     const text = messageText(runCalls[0][runCalls[0].length - 1]);
@@ -414,10 +414,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
     const afterFirst = scanCallCount;
 
-    await conversation.processMessage("Again", [], () => {});
+    await conversation.processMessage("Again", []);
 
     // Scanner should NOT have been called again
     expect(scanCallCount).toBe(afterFirst);
@@ -427,7 +427,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
     const afterFirst = scanCallCount;
 
     // Simulate a turn where the agent uses file_edit
@@ -440,7 +440,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await conversation.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage("Edit a file", []);
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -448,7 +448,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await conversation.processMessage("What happened?", [], () => {});
+    await conversation.processMessage("What happened?", []);
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
@@ -457,7 +457,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -469,7 +469,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage("Run a command", []);
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -477,7 +477,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await conversation.processMessage("What now?", [], () => {});
+    await conversation.processMessage("What now?", []);
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
@@ -486,7 +486,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", []);
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -498,10 +498,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: true,
       });
     };
-    await conversation.processMessage("Try editing", [], () => {});
+    await conversation.processMessage("Try editing", []);
 
     agentLoopScript = () => {};
-    await conversation.processMessage("What happened?", [], () => {});
+    await conversation.processMessage("What happened?", []);
 
     // Scanner should NOT have been re-called since the tool failed
     expect(scanCallCount).toBe(afterFirst);

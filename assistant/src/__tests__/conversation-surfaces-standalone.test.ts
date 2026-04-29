@@ -63,8 +63,8 @@ function createMockContext(
     hostCuProxy: undefined,
     hasNoClient: overrides?.hasNoClient ?? false,
     isProcessing: () => false,
-    enqueueMessage: (content, _attachments, _onEvent, requestId) => {
-      const resolvedId = requestId ?? "mock-request-id";
+    enqueueMessage: (content: string) => {
+      const resolvedId = "mock-request-id";
       enqueuedMessages.push({ content, requestId: resolvedId });
       return { queued: false, requestId: resolvedId };
     },

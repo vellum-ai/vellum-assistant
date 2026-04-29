@@ -137,9 +137,10 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             conversation.taskRunId = taskRunId;
             conversation.headlessLock = true;
           }
-          await conversation.processMessage(message, [], (event) => {
+          conversation.updateClient((event) => {
             broadcastMessage(event);
           });
+          await conversation.processMessage(message, []);
         },
       );
 

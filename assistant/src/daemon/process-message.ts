@@ -559,19 +559,18 @@ export async function processMessage(
         }
       }
     : registrar;
-  if (options?.isInteractive === true) {
-    conversation.updateClient(onEvent, false);
-  }
+  const isInteractive = options?.isInteractive === true;
+  conversation.updateClient(onEvent, !isInteractive);
 
   try {
-    await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
+    await conversation.runAgentLoop(resolvedContent, messageId, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     });
   } finally {
     if (
-      options?.isInteractive === true &&
+      isInteractive &&
       conversation.getCurrentSender() === onEvent
     ) {
       conversation.updateClient(() => {}, true);
@@ -630,19 +629,18 @@ export async function processMessageInBackground(
         }
       }
     : registrar;
-  if (options?.isInteractive === true) {
-    conversation.updateClient(onEvent, false);
-  }
+  const bgIsInteractive = options?.isInteractive === true;
+  conversation.updateClient(onEvent, !bgIsInteractive);
 
   conversation
-    .runAgentLoop(content, messageId, onEvent, {
+    .runAgentLoop(content, messageId, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     })
     .finally(() => {
       if (
-        options?.isInteractive === true &&
+        bgIsInteractive &&
         conversation.getCurrentSender() === onEvent
       ) {
         conversation.updateClient(() => {}, true);

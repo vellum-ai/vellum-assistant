@@ -276,7 +276,6 @@ describe("processMessage callSite threading", () => {
     await conversation.processMessage(
       "Heartbeat tick",
       [],
-      () => {},
       undefined, // requestId
       undefined, // activeSurfaceId
       undefined, // currentPage
@@ -301,7 +300,7 @@ describe("processMessage callSite threading", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Plain user message", [], () => {});
+    await conversation.processMessage("Plain user message", []);
 
     expect(captured.callSite).toBe("mainAgent");
   });

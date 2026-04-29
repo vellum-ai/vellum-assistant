@@ -386,7 +386,6 @@ async function handleRunScheduleNow(id: string) {
             await conversation.processMessage(
               message,
               [],
-              () => {},
               undefined,
               undefined,
               undefined,
@@ -482,7 +481,6 @@ async function handleRunScheduleNow(id: string) {
     await activeConversation.processMessage(
       schedule.message,
       [],
-      () => {},
       undefined,
       undefined,
       undefined,

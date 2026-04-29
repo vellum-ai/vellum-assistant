@@ -1050,7 +1050,7 @@ export async function runDaemon(): Promise<void> {
 
             let agentLoopError: string | undefined;
             let generatedText = "";
-            await conversation.runAgentLoop(instruction, messageId, (msg) => {
+            conversation.updateClient((msg) => {
               if (
                 "type" in msg &&
                 msg.type === "assistant_text_delta" &&
@@ -1070,6 +1070,7 @@ export async function runDaemon(): Promise<void> {
                       : "Agent loop failed";
               }
             });
+            await conversation.runAgentLoop(instruction, messageId);
 
             // Identify messages created during this run by diffing against
             // the pre-run snapshot. This captures all messages added to the

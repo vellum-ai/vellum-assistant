@@ -288,7 +288,7 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage("Run tools", []);
 
     // Find user messages in persisted data that contain tool_result
     const toolResultUserMessages = persistedMessages.filter((m) => {
@@ -347,7 +347,7 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage("Run tools", []);
 
     // Simulate reload: the in-memory messages should be valid after repair
     const messages = conversation.getMessages();

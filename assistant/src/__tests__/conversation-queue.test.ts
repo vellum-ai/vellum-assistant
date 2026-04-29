@@ -521,11 +521,11 @@ describe("Conversation message queue", () => {
     const events2: ServerMessage[] = [];
 
     // Start first message — this will block on AgentLoop.run
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
 
     // Wait for the first AgentLoop.run to be registered
@@ -535,12 +535,8 @@ describe("Conversation message queue", () => {
     expect(conversation.isProcessing()).toBe(true);
 
     // Enqueue second message — should NOT throw
-    const result = conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => events2.push(e),
-      "req-2",
-    );
+    conversation.updateClient((e) => events2.push(e));
+    const result = conversation.enqueueMessage("msg-2", []);
     expect(result.queued).toBe(true);
     expect(result.requestId).toBe("req-2");
     expect(conversation.getQueueDepth()).toBe(1);
@@ -572,17 +568,19 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Enqueue two more sibling passthrough messages
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-2", []);
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("msg-3", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete run 0 → drain pulls msg-2 and msg-3 into ONE batched run.
@@ -639,16 +637,16 @@ describe("Conversation message queue", () => {
     const events2: ServerMessage[] = [];
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue second — simulating what handleUserMessage does
-    const result = conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => events2.push(e),
-      "req-2",
-    );
+    conversation.updateClient((e) => events2.push(e));
+    const result = conversation.enqueueMessage("msg-2", []);
     expect(result.queued).toBe(true);
 
     // Complete first
@@ -678,12 +676,18 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue two more
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-2", []);
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("msg-3", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Abort
@@ -729,11 +733,11 @@ describe("Conversation message queue", () => {
     const events: ServerMessage[] = [];
 
     // Start a message — blocks on AgentLoop.run
+    conversation.updateClient((e) => events.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -756,18 +760,22 @@ describe("Conversation message queue", () => {
     await conversation.loadFromDb();
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     expect(conversation.getQueueDepth()).toBe(0);
 
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", []);
     expect(conversation.getQueueDepth()).toBe(1);
 
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage("msg-3", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
-    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+    conversation.enqueueMessage("msg-4", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete first → drain pulls all three same-interface passthroughs
@@ -793,18 +801,20 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on AgentLoop.run
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Enqueue a message with empty content (will fail persistUserMessage)
-    conversation.enqueueMessage("", [], (e) => events2.push(e), "req-2");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("", []);
     // Enqueue a valid message after the bad one
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("msg-3", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first message — triggers drain. The empty message should fail
@@ -853,7 +863,11 @@ describe("Batched drain", () => {
     const events5: ServerMessage[] = [];
 
     // Start in-flight message (msg-1)
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue 4 messages with interfaces [macos, macos, cli, macos].
@@ -862,41 +876,37 @@ describe("Batched drain", () => {
       userMessageInterface: iface,
       assistantMessageInterface: iface,
     });
+    conversation.updateClient((e) => events2.push(e));
     conversation.enqueueMessage(
       "msg-2",
       [],
-      (e) => events2.push(e),
-      "req-2",
       undefined,
       undefined,
-      meta("macos"),
+      meta("macos")
     );
+    conversation.updateClient((e) => events3.push(e));
     conversation.enqueueMessage(
       "msg-3",
       [],
-      (e) => events3.push(e),
-      "req-3",
       undefined,
       undefined,
-      meta("macos"),
+      meta("macos")
     );
+    conversation.updateClient((e) => events4.push(e));
     conversation.enqueueMessage(
       "msg-4",
       [],
-      (e) => events4.push(e),
-      "req-4",
       undefined,
       undefined,
-      meta("cli"),
+      meta("cli")
     );
+    conversation.updateClient((e) => events5.push(e));
     conversation.enqueueMessage(
       "msg-5",
       [],
-      (e) => events5.push(e),
-      "req-5",
       undefined,
       undefined,
-      meta("macos"),
+      meta("macos")
     );
     expect(conversation.getQueueDepth()).toBe(4);
 
@@ -972,31 +982,23 @@ describe("Batched drain", () => {
     const eventsWorld: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue ["hello", "/compact", "world"]. /compact resolves to a non-
     // passthrough slash, so the batch builder stops at "hello" (length 1),
     // then /compact takes the single-message /compact short-circuit path
     // (no new runAgentLoop invocation), then "world" drains as its own run.
-    conversation.enqueueMessage(
-      "hello",
-      [],
-      (e) => eventsHello.push(e),
-      "req-hello",
-    );
-    conversation.enqueueMessage(
-      "/compact",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage(
-      "world",
-      [],
-      (e) => eventsWorld.push(e),
-      "req-world",
-    );
+    conversation.updateClient((e) => eventsHello.push(e));
+    conversation.enqueueMessage("hello", []);
+    conversation.updateClient((e) => eventsSlash.push(e));
+    conversation.enqueueMessage("/compact", []);
+    conversation.updateClient((e) => eventsWorld.push(e));
+    conversation.enqueueMessage("world", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls "hello" as its own run (batch stops at
@@ -1044,7 +1046,11 @@ describe("Batched drain", () => {
     const eventsPlainB: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue ["plain-a", "/status", "plain-b"]. /status resolves to a non-
@@ -1053,24 +1059,12 @@ describe("Batched drain", () => {
     // unknown-slash short-circuit path (no new runAgentLoop invocation — it
     // emits assistant_text_delta + message_complete inline), then "plain-b"
     // drains as its own run.
-    conversation.enqueueMessage(
-      "plain-a",
-      [],
-      (e) => eventsPlainA.push(e),
-      "req-plain-a",
-    );
-    conversation.enqueueMessage(
-      "/status",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage(
-      "plain-b",
-      [],
-      (e) => eventsPlainB.push(e),
-      "req-plain-b",
-    );
+    conversation.updateClient((e) => eventsPlainA.push(e));
+    conversation.enqueueMessage("plain-a", []);
+    conversation.updateClient((e) => eventsSlash.push(e));
+    conversation.enqueueMessage("/status", []);
+    conversation.updateClient((e) => eventsPlainB.push(e));
+    conversation.enqueueMessage("plain-b", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls "plain-a" as its own run (batch stops at
@@ -1112,7 +1106,11 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Two sibling messages, each with a distinct image attachment.
@@ -1134,8 +1132,8 @@ describe("Batched drain", () => {
         filePath: "/tmp/b.png",
       },
     ];
-    conversation.enqueueMessage("with-A", attachA, () => {}, "req-A");
-    conversation.enqueueMessage("with-B", attachB, () => {}, "req-B");
+    conversation.enqueueMessage("with-A", attachA);
+    conversation.enqueueMessage("with-B", attachB);
     expect(conversation.getQueueDepth()).toBe(2);
 
     resolveRun(0);
@@ -1187,34 +1185,24 @@ describe("Batched drain", () => {
       new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Fill to just-under budget: two ~500-char messages (1512+1512 = 3024 bytes).
-    const accepted1 = conversation.enqueueMessage(
-      "x".repeat(500),
-      [],
-      () => {},
-      "req-big-1",
-    );
-    const accepted2 = conversation.enqueueMessage(
-      "y".repeat(500),
-      [],
-      () => {},
-      "req-big-2",
-    );
+    const accepted1 = conversation.enqueueMessage("x".repeat(500), []);
+    const accepted2 = conversation.enqueueMessage("y".repeat(500), []);
     expect(accepted1.queued).toBe(true);
     expect(accepted2.queued).toBe(true);
     // A third would push the queue over budget → rejected. Capture its
     // onEvent callback so we can verify the queue_full error event reaches
     // the rejected caller (not just the synchronous return value).
     const rejectedEvents: ServerMessage[] = [];
-    const rejected = conversation.enqueueMessage(
-      "z".repeat(500),
-      [],
-      (e) => rejectedEvents.push(e),
-      "req-over",
-    );
+    conversation.updateClient((e) => rejectedEvents.push(e));
+    const rejected = conversation.enqueueMessage("z".repeat(500), []);
     expect(rejected.queued).toBe(false);
     expect(rejected.rejected).toBe(true);
     expect(conversation.getQueueDepth()).toBe(2);
@@ -1245,14 +1233,18 @@ describe("Batched drain", () => {
     // After the full drain, the byte budget must be fully reclaimed — a fresh
     // round of enqueues up to the budget should succeed again. Spin up another
     // in-flight message to reach the queueing state.
-    const p2 = conversation.processMessage("msg-2", [], () => {}, "req-2");
+    const p2 = conversation.processMessage(
+      "msg-2",
+      [],
+      "req-2"
+    );
     await waitForPendingRun(3);
     expect(
-      conversation.enqueueMessage("a".repeat(500), [], () => {}, "req-a")
+      conversation.enqueueMessage("a".repeat(500), [])
         .queued,
     ).toBe(true);
     expect(
-      conversation.enqueueMessage("b".repeat(500), [], () => {}, "req-b")
+      conversation.enqueueMessage("b".repeat(500), [])
         .queued,
     ).toBe(true);
 
@@ -1283,7 +1275,11 @@ describe("Batched drain correctness fixes", () => {
     const eventsRegular: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue a surface-action message (activeSurfaceId set + tracked in
@@ -1291,19 +1287,15 @@ describe("Batched drain correctness fixes", () => {
     // same interface. The batch builder must reject the surface-action head
     // so each drains as its own run.
     conversation.surfaceActionRequestIds.add("req-surface");
+    conversation.updateClient((e) => eventsSurface.push(e));
     conversation.enqueueMessage(
       "surface action response",
       [],
-      (e) => eventsSurface.push(e),
-      "req-surface",
-      "surface-1", // activeSurfaceId
+      "surface-1",
+      // activeSurfaceId
     );
-    conversation.enqueueMessage(
-      "regular follow-up",
-      [],
-      (e) => eventsRegular.push(e),
-      "req-regular",
-    );
+    conversation.updateClient((e) => eventsRegular.push(e));
+    conversation.enqueueMessage("regular follow-up", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete run 0 → drain must NOT batch the surface-action with the
@@ -1347,11 +1339,11 @@ describe("Batched drain correctness fixes", () => {
     const events4: ServerMessage[] = [];
 
     // Start in-flight message
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -1362,7 +1354,8 @@ describe("Batched drain correctness fixes", () => {
     // fresh one). Calling abort() now aborts that fresh controller, and
     // the drainBatch loop's abort check after msg-3's persist will break,
     // so msg-4 never persists.
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-2", []);
 
     // Install a one-shot abort trigger on msg-3's dequeue event. We do
     // this before enqueueing so the wrapped callback is what drainBatch
@@ -1375,8 +1368,10 @@ describe("Batched drain correctness fixes", () => {
         conversation.abort();
       }
     };
-    conversation.enqueueMessage("msg-3", [], onMsg3Event, "req-3");
-    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    conversation.updateClient(onMsg3Event);
+    conversation.enqueueMessage("msg-3", []);
+    conversation.updateClient((e) => events4.push(e));
+    conversation.enqueueMessage("msg-4", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     const persistedUserRowCountBefore = capturedAddMessages.filter(
@@ -1414,11 +1409,11 @@ describe("Batched drain correctness fixes", () => {
     const events4: ServerMessage[] = [];
 
     // Start in-flight message
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -1428,24 +1423,12 @@ describe("Batched drain correctness fixes", () => {
     // msg-tail's requestId (the LAST successful persist), not msg-mid's.
     addMessageShouldThrowForContent.add("msg-mid-unique-marker");
 
-    conversation.enqueueMessage(
-      "msg-head",
-      [],
-      (e) => events2.push(e),
-      "req-head",
-    );
-    conversation.enqueueMessage(
-      "msg-mid-unique-marker",
-      [],
-      (e) => events3.push(e),
-      "req-mid",
-    );
-    conversation.enqueueMessage(
-      "msg-tail",
-      [],
-      (e) => events4.push(e),
-      "req-tail",
-    );
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-head", []);
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("msg-mid-unique-marker", []);
+    conversation.updateClient((e) => events4.push(e));
+    conversation.enqueueMessage("msg-tail", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete run 0 → batched drain.
@@ -1479,11 +1462,11 @@ describe("Batched drain correctness fixes", () => {
     const events3: ServerMessage[] = [];
     const events4: ServerMessage[] = [];
 
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -1494,24 +1477,12 @@ describe("Batched drain correctness fixes", () => {
     // desync the client.
     addMessageShouldThrowForContent.add("fanout-mid-marker");
 
-    conversation.enqueueMessage(
-      "fanout-head",
-      [],
-      (e) => events2.push(e),
-      "req-fanout-head",
-    );
-    conversation.enqueueMessage(
-      "fanout-mid-marker",
-      [],
-      (e) => events3.push(e),
-      "req-fanout-mid",
-    );
-    conversation.enqueueMessage(
-      "fanout-tail",
-      [],
-      (e) => events4.push(e),
-      "req-fanout-tail",
-    );
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("fanout-head", []);
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("fanout-mid-marker", []);
+    conversation.updateClient((e) => events4.push(e));
+    conversation.enqueueMessage("fanout-tail", []);
 
     resolveRun(0);
     await p1;
@@ -1538,7 +1509,11 @@ describe("Batched drain correctness fixes", () => {
     await conversation.loadFromDb();
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Snapshot the count before drain so we only compare batch-emitted
@@ -1546,9 +1521,9 @@ describe("Batched drain correctness fixes", () => {
     const baseline = activityStates.length;
 
     // Enqueue three sibling passthroughs.
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
-    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+    conversation.enqueueMessage("msg-2", []);
+    conversation.enqueueMessage("msg-3", []);
+    conversation.enqueueMessage("msg-4", []);
 
     // Complete run 0 → drain pulls the batched siblings as ONE run.
     resolveRun(0);
@@ -1612,11 +1587,15 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing to make the session busy
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue a message while processing
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", []);
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Cleanup: resolve the pending run
@@ -1639,7 +1618,11 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing — but don't enqueue anything
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     expect(conversation.isProcessing()).toBe(true);
@@ -1656,11 +1639,15 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue a message
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", []);
 
     expect(conversation.isProcessing()).toBe(true);
     expect(conversation.hasQueuedMessages()).toBe(true);
@@ -1707,16 +1694,16 @@ describe("Conversation checkpoint handoff", () => {
     const events1: ServerMessage[] = [];
 
     // Start processing first message
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", []);
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // The pending run should have received an onCheckpoint callback.
@@ -1758,7 +1745,11 @@ describe("Conversation checkpoint handoff", () => {
     await conversation.loadFromDb();
 
     // Start processing — no enqueued messages
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     expect(conversation.hasQueuedMessages()).toBe(false);
@@ -1791,18 +1782,21 @@ describe("Conversation checkpoint handoff", () => {
     const events4: ServerMessage[] = [];
 
     // Start first message (mid-tool-use — will yield at the next checkpoint)
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Enqueue three sibling passthroughs while msg-1 is mid-turn
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
-    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-2", []);
+    conversation.updateClient((e) => events3.push(e));
+    conversation.enqueueMessage("msg-3", []);
+    conversation.updateClient((e) => events4.push(e));
+    conversation.enqueueMessage("msg-4", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Simulate the agent loop yielding at the checkpoint (first run is mid-tool-use)
@@ -1847,16 +1841,17 @@ describe("Conversation checkpoint handoff", () => {
     const events2: ServerMessage[] = [];
 
     // Start processing first message
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.updateClient((e) => events2.push(e));
+    conversation.enqueueMessage("msg-2", []);
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
@@ -1914,11 +1909,11 @@ describe("Conversation checkpoint handoff", () => {
     };
 
     // Start processing message A
+    conversation.updateClient((e) => eventsA.push(e));
     const pA = conversation.processMessage(
       "msg-A",
       [],
-      (e) => eventsA.push(e),
-      "req-A",
+      "req-A"
     );
     await waitForPendingRun(1);
 
@@ -1928,32 +1923,29 @@ describe("Conversation checkpoint handoff", () => {
       userMessageInterface: iface,
       assistantMessageInterface: iface,
     });
+    conversation.updateClient(makeHandler("B"));
     conversation.enqueueMessage(
       "msg-B",
       [],
-      makeHandler("B"),
-      "req-B",
       undefined,
       undefined,
-      meta("macos"),
+      meta("macos")
     );
+    conversation.updateClient(makeHandler("C"));
     conversation.enqueueMessage(
       "msg-C",
       [],
-      makeHandler("C"),
-      "req-C",
       undefined,
       undefined,
-      meta("cli"),
+      meta("cli")
     );
+    conversation.updateClient(makeHandler("D"));
     conversation.enqueueMessage(
       "msg-D",
       [],
-      makeHandler("D"),
-      "req-D",
       undefined,
       undefined,
-      meta("vellum"),
+      meta("vellum")
     );
     expect(conversation.getQueueDepth()).toBe(3);
 
@@ -2031,17 +2023,19 @@ describe("Conversation checkpoint handoff", () => {
     const eventsC: ServerMessage[] = [];
 
     // Start processing message A
+    conversation.updateClient((e) => eventsA.push(e));
     const pA = conversation.processMessage(
       "msg-A",
       [],
-      (e) => eventsA.push(e),
-      "req-A",
+      "req-A"
     );
     await waitForPendingRun(1);
 
     // Enqueue B (empty content — will fail to persist) and C (valid)
-    conversation.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
-    conversation.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
+    conversation.updateClient((e) => eventsB.push(e));
+    conversation.enqueueMessage("", []);
+    conversation.updateClient((e) => eventsC.push(e));
+    conversation.enqueueMessage("msg-C", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete message A — triggers drain. B should fail, C should proceed.
@@ -2074,7 +2068,11 @@ describe("Conversation checkpoint handoff", () => {
     await conversation.loadFromDb();
 
     // Start processing
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // The first run should have onCheckpoint
@@ -2118,7 +2116,11 @@ describe("Conversation usage requestId correlation", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-42");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-42"
+    );
     await waitForPendingRun(1);
 
     // Complete the run — this triggers recordUsage with the request's ID
@@ -2151,13 +2153,17 @@ describe("Terminal trace events on rejection/failure", () => {
     await conversation.loadFromDb();
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      "req-1"
+    );
     await waitForPendingRun(1);
 
     // Enqueue empty content (will fail persistUserMessage)
-    conversation.enqueueMessage("", [], () => {}, "req-bad");
+    conversation.enqueueMessage("", []);
     // Enqueue valid message so drain continues
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage("msg-3", []);
 
     // Complete first — triggers drain, empty msg fails persist
     resolveRun(0);
@@ -2199,11 +2205,11 @@ describe("Conversation host attachment directives", () => {
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
+      conversation.updateClient((e) => events.push(e));
       const p1 = conversation.processMessage(
         "msg-1",
         [],
-        (e) => events.push(e),
-        "req-1",
+        "req-1"
       );
       await waitForPendingRun(1);
 
@@ -2268,11 +2274,11 @@ describe("Conversation host attachment directives", () => {
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
+      conversation.updateClient((e) => events.push(e));
       const p1 = conversation.processMessage(
         "msg-1",
         [],
-        (e) => events.push(e),
-        "req-1",
+        "req-1"
       );
       await waitForPendingRun(1);
 
@@ -2354,11 +2360,11 @@ describe("Conversation attachment event payloads", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    conversation.updateClient((e) => events.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -2416,16 +2422,16 @@ describe("Conversation attachment event payloads", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    conversation.updateClient((e) => events1.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events1.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
     // Queue a second message so the first run yields via checkpoint handoff.
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", []);
 
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
@@ -2500,11 +2506,11 @@ describe("Regression: cancel semantics and error channel split", () => {
     await conversation.loadFromDb();
 
     // Start processing a message — collect events from the per-message callback
+    conversation.updateClient((e) => msgEvents.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => msgEvents.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -2534,11 +2540,11 @@ describe("Regression: cancel semantics and error channel split", () => {
     await conversation.loadFromDb();
     linkAttachmentShouldThrow = true;
 
+    conversation.updateClient((e) => events.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => events.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
     const run = pendingRuns[0];
@@ -2587,11 +2593,11 @@ describe("Regression: cancel semantics and error channel split", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    conversation.updateClient((e) => allEvents.push(e));
     const p1 = conversation.processMessage(
       "msg-1",
       [],
-      (e) => allEvents.push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
@@ -2616,26 +2622,18 @@ describe("Regression: cancel semantics and error channel split", () => {
 
     const eventsPerMsg: ServerMessage[][] = [[], [], []];
 
+    conversation.updateClient((e) => eventsPerMsg[0].push(e));
     conversation.processMessage(
       "msg-1",
       [],
-      (e) => eventsPerMsg[0].push(e),
-      "req-1",
+      "req-1"
     );
     await waitForPendingRun(1);
 
-    conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => eventsPerMsg[1].push(e),
-      "req-2",
-    );
-    conversation.enqueueMessage(
-      "msg-3",
-      [],
-      (e) => eventsPerMsg[2].push(e),
-      "req-3",
-    );
+    conversation.updateClient((e) => eventsPerMsg[1].push(e));
+    conversation.enqueueMessage("msg-2", []);
+    conversation.updateClient((e) => eventsPerMsg[2].push(e));
+    conversation.enqueueMessage("msg-3", []);
 
     conversation.abort();
 
@@ -2670,16 +2668,17 @@ describe("Regression: cancel semantics and error channel split", () => {
       const events2: ServerMessage[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
+      conversation.updateClient((e) => events1.push(e));
       const _p1 = conversation.processMessage(
         "msg-1",
         [],
-        (e) => events1.push(e),
-        "req-1",
+        "req-1"
       );
       await waitForPendingRun(1);
 
       // Enqueue a second message while the first is processing
-      conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+      conversation.updateClient((e) => events2.push(e));
+      conversation.enqueueMessage("msg-2", []);
 
       // Complete the first agent loop run
       resolveRun(0);

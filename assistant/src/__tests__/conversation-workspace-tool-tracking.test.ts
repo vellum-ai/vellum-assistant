@@ -313,7 +313,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage("Write a file", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -339,7 +339,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage("Edit a file", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -367,7 +367,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage("Write a file", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -393,7 +393,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage("Run a command", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -419,7 +419,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage("Run a command", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -445,7 +445,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Read a file", [], () => {});
+    await conversation.processMessage("Read a file", []);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });

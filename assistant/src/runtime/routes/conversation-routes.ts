@@ -1890,12 +1890,9 @@ export async function handleSendMessage(
 
   if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
-    const requestId = crypto.randomUUID();
     const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
-      onEvent,
-      requestId,
       undefined, // activeSurfaceId
       undefined, // currentPage
       {
@@ -2239,9 +2236,9 @@ export async function handleSendMessage(
     clientMessageId,
   });
 
-  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+  // Fire-and-forget the agent loop; events flow to the hub via sendToClient.
   conversation
-    .runAgentLoop(resolvedContent, messageId, onEvent, {
+    .runAgentLoop(resolvedContent, messageId, {
       isInteractive,
       isUserMessage: true,
     })

@@ -157,7 +157,10 @@ function makeCompletingConversation(): Conversation {
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    updateClient: () => {},
+    sendToClient: () => {},
+    updateClient: function (cb: (msg: ServerMessage) => void) {
+      (this as Record<string, unknown>).sendToClient = cb;
+    },
     setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
@@ -170,11 +173,11 @@ function makeCompletingConversation(): Conversation {
     denyAllPendingConfirmations: () => {},
     getQueueDepth: () => 0,
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
-    runAgentLoop: async (
+    runAgentLoop: async function (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
-    ) => {
+    ) {
+      const onEvent = (this as Record<string, unknown>).sendToClient as (msg: ServerMessage) => void;
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
@@ -217,7 +220,10 @@ function makeHangingConversation(): Conversation {
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    updateClient: () => {},
+    sendToClient: () => {},
+    updateClient: function (cb: (msg: ServerMessage) => void) {
+      (this as Record<string, unknown>).sendToClient = cb;
+    },
     setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
@@ -229,12 +235,11 @@ function makeHangingConversation(): Conversation {
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     getQueueDepth: () => enqueuedMessages.length,
-    enqueueMessage: (
+    enqueueMessage: function (
       content: string,
-      _attachments: unknown[],
-      onEvent: (msg: ServerMessage) => void,
-      requestId: string,
-    ) => {
+    ) {
+      const requestId = crypto.randomUUID();
+      const onEvent = (this as Record<string, unknown>).sendToClient as (msg: ServerMessage) => void;
       enqueuedMessages.push({ content, onEvent, requestId });
       return { queued: true, requestId };
     },
@@ -264,17 +269,10 @@ function makePendingApprovalConversation(
   const pending = new Set([requestId]);
   const messages: unknown[] = [];
   const runAgentLoopMock = mock(async () => {});
-  const enqueueMessageMock = mock(
-    (
-      _content: string,
-      _attachments: unknown[],
-      _onEvent: (msg: ServerMessage) => void,
-      queuedRequestId: string,
-    ) => ({
-      queued: true,
-      requestId: queuedRequestId,
-    }),
-  );
+  const enqueueMessageMock = mock((_content: string) => ({
+    queued: true,
+    requestId: crypto.randomUUID(),
+  }));
   const denyAllPendingConfirmationsMock = mock(() => {
     pending.clear();
   });

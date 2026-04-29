@@ -129,10 +129,13 @@ export interface ProcessConversationContext {
     metadata?: Record<string, unknown>,
     displayContent?: string,
   ): Promise<string>;
+  updateClient(
+    sendToClient: (msg: ServerMessage) => void,
+    hasNoClient?: boolean,
+  ): void;
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -775,13 +778,9 @@ async function drainSingleMessage(
   if (agentLoopContent !== resolvedContent)
     drainLoopOptions.titleText = resolvedContent;
 
+  conversation.updateClient(next.onEvent);
   conversation
-    .runAgentLoop(
-      agentLoopContent,
-      userMessageId,
-      next.onEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(agentLoopContent, userMessageId, drainLoopOptions)
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1151,13 +1150,9 @@ async function drainBatch(
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
+  conversation.updateClient(fanOutOnEvent);
   conversation
-    .runAgentLoop(
-      lastSuccessfulContent,
-      lastUserMessageId,
-      fanOutOnEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(lastSuccessfulContent, lastUserMessageId, drainLoopOptions)
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1562,11 +1557,6 @@ export async function processMessage(
     loopOptions.titleText = resolvedContent;
   if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
 
-  await conversation.runAgentLoop(
-    agentLoopContent,
-    userMessageId,
-    onEvent,
-    loopOptions,
-  );
+  await conversation.runAgentLoop(agentLoopContent, userMessageId, loopOptions);
   return userMessageId;
 }

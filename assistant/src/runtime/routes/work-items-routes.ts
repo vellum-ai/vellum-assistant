@@ -797,12 +797,12 @@ export const ROUTES: RouteDefinition[] = [
                 taskConversation.taskRunId = taskRunId;
                 taskConversation.headlessLock = true;
               }
+              taskConversation.updateClient((event) => {
+                publishEvent(event);
+              });
               await taskConversation.processMessage(
                 message,
                 [],
-                (event) => {
-                  publishEvent(event);
-                },
                 undefined,
                 undefined,
                 undefined,

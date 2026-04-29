@@ -133,14 +133,12 @@ async function dispatchUserMessage(params: {
         }
       }
     }
-    const requestId = crypto.randomUUID();
     const resolvedChannel = resolveTurnChannel(params.sourceChannel);
     const resolvedInterface = resolveTurnInterface(params.sourceInterface);
+    conversation.updateClient(hubSender, true);
     const result = conversation.enqueueMessage(
       params.content,
       resolvedAttachments,
-      hubSender,
-      requestId,
       undefined,
       undefined,
       {

@@ -169,7 +169,7 @@ export async function regenerateResponse(
     attributes: { source: "regenerate" },
   });
   try {
-    await conversation.regenerate(sendEvent, requestId);
+    await conversation.regenerate(requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId }, "Error regenerating message");

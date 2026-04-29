@@ -358,23 +358,18 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    conversation.updateClient((e) => events1.push(e));
+    const p1 = conversation.processMessage("msg-1", [], "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a slash-like passthrough and a normal passthrough after it.
     // Both resolve to passthrough, so the batch builder groups them into one run.
-    conversation.enqueueMessage(
-      "/not-a-skill",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.updateClient((e) => eventsSlash.push(e));
+
+    conversation.enqueueMessage("/not-a-skill", []);
+    conversation.updateClient((e) => events3.push(e));
+
+    conversation.enqueueMessage("msg-3", []);
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first run — drain pulls both queued messages into one batched run.
@@ -401,21 +396,14 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsSlash: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    conversation.updateClient((e) => events1.push(e));
+    const p1 = conversation.processMessage("msg-1", [], "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a slash command that matches a skill name — still passes through
-    conversation.enqueueMessage(
-      "/start-the-day",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
+    conversation.updateClient((e) => eventsSlash.push(e));
+
+    conversation.enqueueMessage("/start-the-day", []);
 
     // Complete first run — triggers drain
     resolveRun(0);
@@ -446,21 +434,22 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsBye: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], "req-1");
     await waitForPendingRun(1);
 
     // Enqueue ["hi", "/compact", "bye"]. /compact is non-passthrough, so the
     // batch builder stops at "hi" (length-1 batch → drainSingleMessage). Then
     // /compact takes its short-circuit path (no new runAgentLoop), and "bye"
     // drains as its own run.
-    conversation.enqueueMessage("hi", [], (e) => eventsHi.push(e), "req-hi");
-    conversation.enqueueMessage(
-      "/compact",
-      [],
-      (e) => eventsCompact.push(e),
-      "req-compact",
-    );
-    conversation.enqueueMessage("bye", [], (e) => eventsBye.push(e), "req-bye");
+    conversation.updateClient((e) => eventsHi.push(e));
+
+    conversation.enqueueMessage("hi", []);
+    conversation.updateClient((e) => eventsCompact.push(e));
+
+    conversation.enqueueMessage("/compact", []);
+    conversation.updateClient((e) => eventsBye.push(e));
+
+    conversation.enqueueMessage("bye", []);
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls only "hi" (batch builder stops at /compact).

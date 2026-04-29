@@ -327,7 +327,7 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
 
   test("unknown slash-like input passes through to agent loop", async () => {
     const conversation = makeConversation();
-    await conversation.processMessage("/not-a-skill", [], () => {});
+    await conversation.processMessage("/not-a-skill", []);
 
     // Should go through the normal agent loop path
     expect(agentLoopRunCalled).toBe(true);
@@ -336,9 +336,8 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
   test("normal messages still go through standard path", async () => {
     const conversation = makeConversation();
     const events: ServerMessage[] = [];
-    await conversation.processMessage("hello world", [], (msg) =>
-      events.push(msg),
-    );
+    conversation.updateClient((msg) => events.push(msg));
+    await conversation.processMessage("hello world", []);
     expect(agentLoopRunCalled).toBe(true);
   });
 });

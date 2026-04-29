@@ -561,6 +561,26 @@ export async function startVoiceTurn(
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
       return;
     }
+    // Capture errors and forward voice-relevant events to the real-time event sink
+    if (msg.type === "error") {
+      lastError = msg.message;
+      eventSink.onError(msg.message);
+    } else if (msg.type === "conversation_error") {
+      lastError = msg.userMessage;
+      eventSink.onError(msg.userMessage);
+    } else if (msg.type === "assistant_text_delta") {
+      eventSink.onTextDelta(msg);
+    } else if (msg.type === "message_complete") {
+      eventSink.onMessageComplete(msg);
+    } else if (msg.type === "generation_cancelled") {
+      // Treat cancellation as a completed turn so the voice
+      // turnComplete promise settles instead of hanging forever.
+      eventSink.onMessageComplete(msg);
+    } else if (msg.type === "tool_use_start") {
+      eventSink.onToolUse(msg.toolName, msg.input);
+    }
+    // Note: tool_use_preview_start is intentionally not handled here.
+    // Voice only reacts to the definitive tool_use_start event.
     publishToHub(msg);
   });
 
@@ -581,38 +601,9 @@ export async function startVoiceTurn(
 
   void (async () => {
     try {
-      await conversation.runAgentLoop(
-        persistedContent,
-        messageId,
-        (msg: ServerMessage) => {
-          if (msg.type === "error") {
-            lastError = msg.message;
-          } else if (msg.type === "conversation_error") {
-            lastError = msg.userMessage;
-          }
-          publishToHub(msg);
-
-          // Forward voice-relevant events to the real-time event sink
-          if (msg.type === "assistant_text_delta") {
-            eventSink.onTextDelta(msg);
-          } else if (msg.type === "message_complete") {
-            eventSink.onMessageComplete(msg);
-          } else if (msg.type === "generation_cancelled") {
-            // Treat cancellation as a completed turn so the voice
-            // turnComplete promise settles instead of hanging forever.
-            eventSink.onMessageComplete(msg);
-          } else if (msg.type === "error") {
-            eventSink.onError(msg.message);
-          } else if (msg.type === "conversation_error") {
-            eventSink.onError(msg.userMessage);
-          } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input);
-          }
-          // Note: tool_use_preview_start is intentionally not handled here.
-          // Voice only reacts to the definitive tool_use_start event.
-        },
-        { callSite: "callAgent" },
-      );
+      await conversation.runAgentLoop(persistedContent, messageId, {
+        callSite: "callAgent",
+      });
       if (lastError) {
         log.error(
           { turnId, error: lastError },

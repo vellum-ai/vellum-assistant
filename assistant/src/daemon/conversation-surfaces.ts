@@ -326,8 +326,6 @@ export interface SurfaceConversationContext {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -339,7 +337,6 @@ export interface SurfaceConversationContext {
   processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1206,7 +1203,6 @@ export async function handleSurfaceAction(
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -1217,8 +1213,6 @@ export async function handleSurfaceAction(
     const result = ctx.enqueueMessage(
       content,
       attachments,
-      onEvent,
-      requestId,
       surfaceId,
       undefined,
       undefined,
@@ -1264,7 +1258,6 @@ export async function handleSurfaceAction(
       .processMessage(
         content,
         attachments,
-        onEvent,
         requestId,
         surfaceId,
         undefined,
@@ -1277,7 +1270,7 @@ export async function handleSurfaceAction(
           { err, surfaceId, actionId },
           "Failed to process history-restored surface action",
         );
-        onEvent(
+        ctx.sendToClient(
           buildConversationErrorMessage(ctx.conversationId, {
             code: "CONVERSATION_PROCESSING_FAILED",
             userMessage: `Something went wrong: ${message}`,
@@ -1440,7 +1433,6 @@ export async function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
@@ -1466,8 +1458,6 @@ export async function handleSurfaceAction(
   const result = ctx.enqueueMessage(
     content,
     pendingAttachments,
-    onEvent,
-    requestId,
     surfaceId,
     undefined,
     undefined,
@@ -1512,7 +1502,7 @@ export async function handleSurfaceAction(
         attributes: { position },
       },
     );
-    onEvent({
+    ctx.sendToClient({
       type: "message_queued",
       conversationId: ctx.conversationId,
       requestId,
@@ -1537,7 +1527,6 @@ export async function handleSurfaceAction(
     .processMessage(
       content,
       pendingAttachments,
-      onEvent,
       requestId,
       surfaceId,
       undefined,
@@ -1550,7 +1539,7 @@ export async function handleSurfaceAction(
         { err, surfaceId, actionId },
         "Error processing surface action",
       );
-      onEvent({
+      ctx.sendToClient({
         type: "error",
         message: `Failed to process surface action: ${message}`,
       });

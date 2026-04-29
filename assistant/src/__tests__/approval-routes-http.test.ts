@@ -175,7 +175,10 @@ function makeIdleSession(opts?: {
     ensureActorScopedHistory: async () => {},
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    updateClient: () => {},
+    sendToClient: () => {},
+    updateClient: function (cb: (msg: ServerMessage) => void) {
+      (this as Record<string, unknown>).sendToClient = cb;
+    },
     setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
@@ -185,11 +188,11 @@ function makeIdleSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
-    runAgentLoop: async (
+    runAgentLoop: async function (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
-    ) => {
+    ) {
+      const onEvent = (this as Record<string, unknown>).sendToClient as (msg: ServerMessage) => void;
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
@@ -242,7 +245,10 @@ function makeConfirmationEmittingSession(opts?: {
     ensureActorScopedHistory: async () => {},
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    updateClient: () => {},
+    sendToClient: () => {},
+    updateClient: function (cb: (msg: ServerMessage) => void) {
+      (this as Record<string, unknown>).sendToClient = cb;
+    },
     setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
@@ -252,11 +258,11 @@ function makeConfirmationEmittingSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
-    runAgentLoop: async (
+    runAgentLoop: async function (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
-    ) => {
+    ) {
+      const onEvent = (this as Record<string, unknown>).sendToClient as (msg: ServerMessage) => void;
       // Emit confirmation_request — this triggers the hub publisher to register
       // the pending interaction
       onEvent({

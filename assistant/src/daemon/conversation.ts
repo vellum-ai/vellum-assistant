@@ -789,8 +789,6 @@ export class Conversation {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -803,8 +801,8 @@ export class Conversation {
       this,
       content,
       attachments,
-      onEvent ?? this.sendToClient,
-      requestId ?? crypto.randomUUID(),
+      this.sendToClient,
+      crypto.randomUUID(),
       activeSurfaceId,
       currentPage,
       metadata,
@@ -1220,7 +1218,6 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -1241,7 +1238,7 @@ export class Conversation {
       this,
       content,
       userMessageId,
-      onEvent ?? this.sendToClient,
+      this.sendToClient,
       options,
     );
   }
@@ -1253,7 +1250,6 @@ export class Conversation {
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1266,7 +1262,7 @@ export class Conversation {
       this as ProcessConversationContext,
       content,
       attachments,
-      onEvent ?? this.sendToClient,
+      this.sendToClient,
       requestId,
       activeSurfaceId,
       currentPage,
@@ -1285,13 +1281,10 @@ export class Conversation {
     return undoImpl(this as HistoryConversationContext);
   }
 
-  async regenerate(
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-  ): Promise<void> {
+  async regenerate(requestId?: string): Promise<void> {
     return regenerateImpl(
       this as HistoryConversationContext,
-      onEvent ?? this.sendToClient,
+      this.sendToClient,
       requestId,
     );
   }

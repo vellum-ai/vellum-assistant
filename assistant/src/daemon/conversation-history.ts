@@ -357,7 +357,6 @@ export interface HistoryConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isUserMessage?: boolean;
       titleText?: string;
@@ -572,7 +571,7 @@ export async function regenerate(
   // not await the agent loop. Emit a structured trace event so the
   // observability contract is preserved on those paths too.
   void conversation
-    .runAgentLoop(content, existingUserMessageId, onEvent, {
+    .runAgentLoop(content, existingUserMessageId, {
       isUserMessage: true,
     })
     .catch((err) => {
