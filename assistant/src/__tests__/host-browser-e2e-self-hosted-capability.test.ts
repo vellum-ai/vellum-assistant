@@ -67,7 +67,6 @@ import {
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
 } from "../runtime/capability-tokens.js";
-import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
@@ -96,7 +95,6 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
 
     port = 19600 + Math.floor(Math.random() * 200);
     runtimeBaseUrl = `http://127.0.0.1:${port}`;
@@ -107,7 +105,6 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
   afterEach(async () => {
     await server?.stop();
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
     resetCapabilityTokenSecretForTests();
   });
 

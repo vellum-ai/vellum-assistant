@@ -269,7 +269,7 @@ export async function prepareConversationForMessage(
     throw new Error(
       "prepareConversationForMessage does not yet support chrome-extension transport — " +
         "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
-        "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
+        "the assistant event hub. If you need chrome-extension here, factor out the " +
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }

@@ -138,10 +138,9 @@ async function invalidateAuthTokens(): Promise<void> {
 // chrome.storage.local so it survives service-worker teardown and
 // browser restarts. Sent on every WebSocket handshake against the
 // runtime's `/v1/browser-relay` endpoint as a `clientInstanceId` query
-// param. The runtime uses it to key its ChromeExtensionRegistry under
-// (guardianId, clientInstanceId) pairs so multiple parallel installs
-// for the same guardian (two Chrome profiles, two desktops) don't
-// evict each other on register/unregister.
+// param. The runtime uses it to identify the extension instance so
+// multiple parallel installs for the same guardian (two Chrome
+// profiles, two desktops) can coexist.
 //
 // The value is a UUIDv4, generated via crypto.randomUUID() which is
 // available in MV3 service workers. The key is intentionally distinct
