@@ -1,5 +1,11 @@
 import type { UsageActor } from "./actors.js";
 
+export type {
+  UsageAttributionInput,
+  UsageAttributionProfileSource,
+  UsageAttributionSnapshot,
+} from "./attribution.js";
+
 /**
  * Anthropic prompt caching exposes write-tier detail so callers can price
  * 5-minute and 1-hour cache writes differently.
