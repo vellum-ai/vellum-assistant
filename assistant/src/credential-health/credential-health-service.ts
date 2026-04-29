@@ -22,7 +22,7 @@ import {
   listActiveConnectionsByProvider,
   listProviders,
 } from "../oauth/oauth-store.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("credential-health");
@@ -40,6 +40,7 @@ export type CredentialHealthStatus =
   | "expiring"
   | "expired"
   | "missing_token"
+  | "unreachable"
   | "missing_scopes"
   | "revoked"
   | "ping_failed";
@@ -173,8 +174,16 @@ async function checkConnection(
   const tokenPath =
     manualTokenAccessCredentialKey(provider) ??
     oauthConnectionAccessTokenPath(connectionId);
-  const token = await getSecureKeyAsync(tokenPath);
-  if (!token) {
+  const tokenResult = await getSecureKeyResultAsync(tokenPath);
+  if (!tokenResult.value) {
+    if (tokenResult.unreachable) {
+      return {
+        ...base,
+        status: "unreachable",
+        details: `Credential backend is temporarily unreachable for ${provider}. Token status unknown.`,
+        canAutoRecover: true,
+      };
+    }
     return {
       ...base,
       status: "missing_token",
@@ -182,6 +191,7 @@ async function checkConnection(
       canAutoRecover: false,
     };
   }
+  const token = tokenResult.value;
 
   // 2. Check token expiry
   if (isTokenExpired(expiresAt)) {
