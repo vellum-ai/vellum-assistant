@@ -97,11 +97,11 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                 )
             }
 
+        // Concept-only partition: skills lack `in_context`, so summing them in would
+        // make the three chips asymmetric. Skills are surfaced in their own card.
         let inContext = conceptRows.filter { $0.status == "in_context" }.count
         let injected = conceptRows.filter { $0.status == "injected" }.count
-            + skillRows.filter { $0.status == "injected" }.count
         let notInjected = conceptRows.filter { $0.status == "not_injected" }.count
-            + skillRows.filter { $0.status == "not_injected" }.count
 
         let config = ConfigVM(
             d: formatActivation(activation.config.d),
@@ -536,7 +536,7 @@ private struct ActivationBar: View {
         mode: "per-turn",
         concepts: [
             MemoryV2ConceptRow(
-                slug: "user_assistant_name",
+                slug: "user-prefers-dark-mode",
                 finalActivation: 0.842,
                 ownActivation: 0.512,
                 priorActivation: 0.220,
@@ -548,7 +548,7 @@ private struct ActivationBar: View {
                 status: "injected"
             ),
             MemoryV2ConceptRow(
-                slug: "project_persona_journal_systems",
+                slug: "project-onboarding-notes",
                 finalActivation: 0.610,
                 ownActivation: 0.430,
                 priorActivation: 0.150,
@@ -560,7 +560,7 @@ private struct ActivationBar: View {
                 status: "in_context"
             ),
             MemoryV2ConceptRow(
-                slug: "feedback_use_rg",
+                slug: "feedback-prefer-tdd",
                 finalActivation: 0.180,
                 ownActivation: 0.140,
                 priorActivation: 0.030,
@@ -574,7 +574,7 @@ private struct ActivationBar: View {
         ],
         skills: [
             MemoryV2SkillRow(
-                id: "meet-join",
+                id: "meeting-bot",
                 activation: 0.720,
                 simUser: 0.510,
                 simAssistant: 0.420,
