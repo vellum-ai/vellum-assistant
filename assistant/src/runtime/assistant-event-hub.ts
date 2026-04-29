@@ -69,35 +69,14 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`. */
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt` and defaults `filter`/`onEvict`. */
 export type SubscriberInput = DistributiveOmit<
   SubscriberEntry,
-  "active" | "connectedAt" | "lastActiveAt"
->;
-
-/** Serialized form returned by the IPC route / CLI command. */
-export interface ClientEntryJSON {
-  clientId: string;
-  interfaceId: InterfaceId;
-  capabilities: HostProxyCapability[];
-  connectedAt: string;
-  lastActiveAt: string;
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-/** Convert any object's Date-valued fields to ISO strings. */
-export function datesToISO<T extends Record<string, unknown>>(
-  obj: T,
-): { [K in keyof T]: T[K] extends Date ? string : T[K] } {
-  const result = { ...obj } as Record<string, unknown>;
-  for (const [key, value] of Object.entries(result)) {
-    if (value instanceof Date) {
-      result[key] = value.toISOString();
-    }
-  }
-  return result as { [K in keyof T]: T[K] extends Date ? string : T[K] };
-}
+  "active" | "connectedAt" | "lastActiveAt" | "filter" | "onEvict"
+> & {
+  filter?: AssistantEventFilter;
+  onEvict?: () => void;
+};
 
 // ── Hub ───────────────────────────────────────────────────────────────────────
 
@@ -148,6 +127,8 @@ export class AssistantEventHub {
     const now = new Date();
     const entry: SubscriberEntry = {
       ...subscriber,
+      filter: subscriber.filter ?? {},
+      onEvict: subscriber.onEvict ?? (() => {}),
       active: true,
       connectedAt: now,
       lastActiveAt: now,

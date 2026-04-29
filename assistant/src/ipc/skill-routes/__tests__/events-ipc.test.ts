@@ -145,11 +145,9 @@ describe("host.events.publish", () => {
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
-      filter: {},
       callback: (evt) => {
         received.push(evt);
       },
-      onEvict: () => {},
     });
 
     try {

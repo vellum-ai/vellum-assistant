@@ -121,9 +121,7 @@ describe("POST /v1/conversations/:id/analyze", () => {
   test("keeps analysis non-interactive even when a matching subscriber is connected", async () => {
     const sub = testHub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
-      onEvict: () => {},
     });
 
     try {

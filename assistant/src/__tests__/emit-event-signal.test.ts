@@ -49,12 +49,10 @@ describe("handleEmitEventSignal", () => {
     subscriptions.push(
       assistantEventHub.subscribe({
         type: "process",
-        filter: {},
         callback: (event) => {
           received.push(event);
           resolveDelivered?.();
         },
-        onEvict: () => {},
       }),
     );
 

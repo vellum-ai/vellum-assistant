@@ -66,11 +66,9 @@ describe("daemon send → one mirrored assistant event", () => {
 
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (e) => {
         received.push(e);
       },
-      onEvict: () => {},
     });
 
     const msg: ServerMessage = {
@@ -92,11 +90,9 @@ describe("daemon send → one mirrored assistant event", () => {
 
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (e) => {
         received.push(e);
       },
-      onEvict: () => {},
     });
 
     const msg: ServerMessage = { type: "pong" }; // no conversationId field
@@ -117,19 +113,15 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     // Two subscribers (simulating two wire clients)
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (e) => {
         received.push(e);
       },
-      onEvict: () => {},
     });
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (e) => {
         received.push(e);
       },
-      onEvict: () => {},
     });
 
     // Simulate broadcast: server calls publishAssistantEvent once
@@ -150,11 +142,9 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
 
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (e) => {
         publishedEvents.push(e);
       },
-      onEvict: () => {},
     });
 
     const msgA: ServerMessage = {

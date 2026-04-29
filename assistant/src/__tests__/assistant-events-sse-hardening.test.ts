@@ -54,7 +54,6 @@ describe("AssistantEventHub — subscriber cap", () => {
 
     const sub1 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push("sub1"),
     });
@@ -64,7 +63,6 @@ describe("AssistantEventHub — subscriber cap", () => {
     // Adding sub2 evicts sub1 to make room.
     const sub2 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push("sub2"),
     });
@@ -83,13 +81,11 @@ describe("AssistantEventHub — subscriber cap", () => {
 
     const sub1 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push(1),
     });
     const sub2 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push(2),
     });
@@ -97,7 +93,6 @@ describe("AssistantEventHub — subscriber cap", () => {
     // 3rd subscriber evicts oldest (sub1)
     const sub3 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push(3),
     });
@@ -108,7 +103,6 @@ describe("AssistantEventHub — subscriber cap", () => {
     // 4th subscriber evicts next oldest (sub2)
     const sub4 = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
       onEvict: () => evicted.push(4),
     });
@@ -126,9 +120,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     expect(() =>
       hub.subscribe({
         type: "process",
-        filter: {},
         callback: () => {},
-        onEvict: () => {},
       }),
     ).toThrow(RangeError);
   });
@@ -137,9 +129,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
     const sub = hub.subscribe({
       type: "process",
-      filter: {},
       callback: () => {},
-      onEvict: () => {},
     });
     sub.dispose();
 
@@ -147,9 +137,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     expect(() =>
       hub.subscribe({
         type: "process",
-        filter: {},
         callback: () => {},
-        onEvict: () => {},
       }),
     ).not.toThrow();
   });
@@ -160,9 +148,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     const subs = Array.from({ length: N }, () =>
       hub.subscribe({
         type: "process",
-        filter: {},
         callback: () => {},
-        onEvict: () => {},
       }),
     );
     expect(hub.subscriberCount()).toBe(N);

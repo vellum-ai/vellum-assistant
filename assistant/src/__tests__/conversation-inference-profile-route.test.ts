@@ -66,7 +66,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
-      filter: {},
       callback: (event) => {
         received.push({
           type: event.message.type,
@@ -77,7 +76,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
               : undefined,
         });
       },
-      onEvict: () => {},
     });
 
     const result = profileRoute.handler({
@@ -132,13 +130,11 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     const received: Array<{ profile?: string | null }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
-      filter: {},
       callback: (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });
         }
       },
-      onEvict: () => {},
     });
 
     const result = profileRoute.handler({
@@ -172,13 +168,11 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     const received: Array<{ profile?: string | null }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
-      filter: {},
       callback: (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });
         }
       },
-      onEvict: () => {},
     });
 
     const result = profileRoute.handler({

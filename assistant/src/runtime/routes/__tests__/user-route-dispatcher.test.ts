@@ -446,11 +446,9 @@ describe("context injection", () => {
     const received: unknown[] = [];
     hub.subscribe({
       type: "process",
-      filter: {},
       callback: (event) => {
         received.push(event);
       },
-      onEvict: () => {},
     });
 
     const ctx = makeContext({ assistantEventHub: hub });

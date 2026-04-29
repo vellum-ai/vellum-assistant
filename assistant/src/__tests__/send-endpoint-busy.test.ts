@@ -427,11 +427,9 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       await import("../runtime/assistant-event-hub.js");
     routeEventHub.subscribe({
       type: "process",
-      filter: {},
       callback: (event: AssistantEvent) => {
         publishedEvents.push(event);
       },
-      onEvict: () => {},
     });
 
     const res = await fetch(messagesUrl(), {

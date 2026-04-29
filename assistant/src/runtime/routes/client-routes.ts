@@ -8,8 +8,8 @@
 import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
-import type { ClientEntryJSON } from "../assistant-event-hub.js";
-import { assistantEventHub, datesToISO } from "../assistant-event-hub.js";
+import { datesToISO } from "../../util/json.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import type { RouteDefinition } from "./types.js";
 
 export const ROUTES: RouteDefinition[] = [
@@ -42,15 +42,14 @@ export const ROUTES: RouteDefinition[] = [
         : assistantEventHub.listClients();
 
       return {
-        clients: clients.map(
-          (c): ClientEntryJSON =>
-            datesToISO({
-              clientId: c.clientId,
-              interfaceId: c.interfaceId,
-              capabilities: c.capabilities,
-              connectedAt: c.connectedAt,
-              lastActiveAt: c.lastActiveAt,
-            }),
+        clients: clients.map((c) =>
+          datesToISO({
+            clientId: c.clientId,
+            interfaceId: c.interfaceId,
+            capabilities: c.capabilities,
+            connectedAt: c.connectedAt,
+            lastActiveAt: c.lastActiveAt,
+          }),
         ),
       };
     },

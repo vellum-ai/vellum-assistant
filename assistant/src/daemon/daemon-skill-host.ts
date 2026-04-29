@@ -204,9 +204,8 @@ function buildEventsFacet(): EventsFacet {
     subscribe: (filter: Filter, cb: AssistantEventCallback): Subscription =>
       assistantEventHub.subscribe({
         type: "process",
-        filter: filter as never,
-        callback: cb as never,
-        onEvict: () => {},
+        filter,
+        callback: cb,
       }),
     // `buildAssistantEvent` takes `(message, conversationId?)`.
     buildEvent: (message: ServerMessage, conversationId?: string) =>

@@ -952,7 +952,6 @@ describe("voice-session-bridge", () => {
       callback: (event) => {
         publishedMessages.push(event.message);
       },
-      onEvict: () => {},
     });
 
     const session = {
