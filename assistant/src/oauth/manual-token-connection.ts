@@ -19,33 +19,14 @@ import {
   upsertApp,
 } from "./oauth-store.js";
 
+// Re-export from the centralized resolver so existing callers that import
+// from this module continue to work without changes.
+export { manualTokenAccessCredentialKey } from "./credential-token-resolver.js";
+
 const log = getLogger("manual-token-connection");
 
 /** Sentinel client_id used for non-OAuth providers that don't have a real app. */
 const MANUAL_TOKEN_CLIENT_ID = "manual-config";
-
-/**
- * Return the secure-store key holding the primary access token for a
- * manual-token provider, or null for OAuth providers whose tokens live at
- * `oauth_connection/<id>/access_token`.
- *
- * Manual-token providers store their tokens under `credential/<provider>/<field>`
- * via the generic credential store, so any code that validates tokens for these
- * providers (e.g. credential-health checks) must resolve the path through here
- * rather than assuming the OAuth access-token path.
- */
-export function manualTokenAccessCredentialKey(
-  provider: string,
-): string | null {
-  switch (provider) {
-    case "slack_channel":
-      return credentialKey("slack_channel", "bot_token");
-    case "telegram":
-      return credentialKey("telegram", "bot_token");
-    default:
-      return null;
-  }
-}
 
 /**
  * Ensure an active oauth_connection row exists for the given manual-token

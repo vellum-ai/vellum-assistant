@@ -11,18 +11,14 @@
  * no token refresh or recovery is attempted.
  */
 
-import {
-  isTokenExpired,
-  oauthConnectionAccessTokenPath,
-} from "@vellumai/credential-storage";
+import { isTokenExpired } from "@vellumai/credential-storage";
 
-import { manualTokenAccessCredentialKey } from "../oauth/manual-token-connection.js";
+import { getConnectionAccessTokenResult } from "../oauth/credential-token-resolver.js";
 import {
   getProvider,
   listActiveConnectionsByProvider,
   listProviders,
 } from "../oauth/oauth-store.js";
-import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("credential-health");
@@ -166,15 +162,14 @@ async function checkConnection(
     missingScopes: [] as string[],
   };
 
-  // 1. Check token presence. Manual-token providers (e.g. slack_channel,
-  // telegram) store their primary token under credential/<provider>/<field>
-  // rather than oauth_connection/<id>/access_token, so resolve the correct
-  // path before looking up the token — otherwise the lookup always returns
-  // null and marks these providers as "missing_token".
-  const tokenPath =
-    manualTokenAccessCredentialKey(provider) ??
-    oauthConnectionAccessTokenPath(connectionId);
-  const tokenResult = await getSecureKeyResultAsync(tokenPath);
+  // 1. Check token presence via the centralized resolver. Manual-token
+  // providers (e.g. slack_channel, telegram) store their primary token at
+  // credential/<provider>/<field> rather than oauth_connection/<id>/access_token;
+  // the resolver handles the mapping automatically.
+  const tokenResult = await getConnectionAccessTokenResult({
+    provider,
+    connectionId,
+  });
   if (!tokenResult.value) {
     if (tokenResult.unreachable) {
       return {
