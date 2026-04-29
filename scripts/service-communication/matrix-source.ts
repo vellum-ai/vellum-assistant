@@ -185,7 +185,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway even when the broad runtime proxy is disabled.",
+      "Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway for dedicated auth handling.",
     callerGlobs: ["gateway/src/http/routes/runtime-health-proxy.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
