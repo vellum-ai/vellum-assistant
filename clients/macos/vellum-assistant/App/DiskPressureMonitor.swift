@@ -19,7 +19,8 @@ final class DiskPressureMonitor {
     typealias ActiveAssistantIdProvider = @MainActor () -> String?
     typealias ConnectedProvider = @MainActor () -> Bool
 
-    static let triggerUsageFraction = 0.90
+    static let triggerUsageFraction = 0.85
+    // This one is to prevent flickering of the disk usage alert allegedly
     static let resolveUsageFraction = 0.80
 
     private let fetchHealthz: HealthzFetcher
