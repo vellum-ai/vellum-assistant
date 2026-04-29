@@ -797,11 +797,10 @@ struct SettingsPanel: View {
             ensureSelectedTabIsVisible()
             return
         }
-        let visibleTabs = allVisibleTabs
-        if visibleTabs.contains(deferred) {
+        if allVisibleTabs.contains(deferred) {
             selectedTab = deferred
+            deferredDeepLinkTab = nil
         }
-        deferredDeepLinkTab = nil
         ensureSelectedTabIsVisible()
     }
 
