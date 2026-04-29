@@ -28,11 +28,7 @@ public final class AppServices {
     public init() {
         let connectionManager = GatewayConnectionManager()
         self.connectionManager = connectionManager
-        diskPressureMonitor = DiskPressureMonitor(
-            isConnectedProvider: { [weak connectionManager] in
-                connectionManager?.isConnected ?? false
-            }
-        )
+        diskPressureMonitor = DiskPressureMonitor()
     }
 
     /// Reconfigure the connection for a new assistant.

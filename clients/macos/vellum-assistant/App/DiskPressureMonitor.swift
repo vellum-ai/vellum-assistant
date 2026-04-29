@@ -15,17 +15,15 @@ struct DiskPressureAlert: Equatable, Sendable {
 @MainActor
 @Observable
 final class DiskPressureMonitor {
-    typealias HealthzFetcher = @Sendable () async throws -> DaemonHealthz?
+    typealias UsageFractionFetcher = @Sendable () -> Double?
     typealias ActiveAssistantIdProvider = @MainActor () -> String?
-    typealias ConnectedProvider = @MainActor () -> Bool
 
     static let triggerUsageFraction = 0.85
     /// Keep the banner visible until usage drops comfortably below the trigger.
     static let resolveUsageFraction = 0.80
 
-    private let fetchHealthz: HealthzFetcher
+    private let fetchUsageFraction: UsageFractionFetcher
     private let activeAssistantIdProvider: ActiveAssistantIdProvider
-    private let isConnectedProvider: ConnectedProvider
     private let notificationCenter: NotificationCenter
     private let cadenceNanoseconds: UInt64
 
@@ -34,38 +32,26 @@ final class DiskPressureMonitor {
     @ObservationIgnored private var activeAssistantId: String?
     @ObservationIgnored private var alertCycle = 0
     @ObservationIgnored private var started = false
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var cadenceTask: Task<Void, Never>?
     @ObservationIgnored private var appActivationObserver: NSObjectProtocol?
     @ObservationIgnored private var activeAssistantObserver: NSObjectProtocol?
 
     init(
-        fetchHealthz: @escaping HealthzFetcher = {
-            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
-                timeout: 10
-            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
-            return decoded
-        },
+        fetchUsageFraction: @escaping UsageFractionFetcher = { Self.defaultUsageFraction() },
         activeAssistantIdProvider: @escaping ActiveAssistantIdProvider = {
             LockfileAssistant.loadActiveAssistantId()
-        },
-        isConnectedProvider: @escaping ConnectedProvider = {
-            AppDelegate.shared?.connectionManager.isConnected ?? false
         },
         notificationCenter: NotificationCenter = .default,
         cadenceNanoseconds: UInt64 = 60_000_000_000
     ) {
-        self.fetchHealthz = fetchHealthz
+        self.fetchUsageFraction = fetchUsageFraction
         self.activeAssistantIdProvider = activeAssistantIdProvider
-        self.isConnectedProvider = isConnectedProvider
         self.notificationCenter = notificationCenter
         self.cadenceNanoseconds = cadenceNanoseconds
         self.activeAssistantId = activeAssistantIdProvider()
     }
 
     deinit {
-        refreshTask?.cancel()
         cadenceTask?.cancel()
         if let appActivationObserver {
             notificationCenter.removeObserver(appActivationObserver)
@@ -107,12 +93,12 @@ final class DiskPressureMonitor {
                 self.refreshForCurrentAssistant()
             }
         }
+
+        refreshForCurrentAssistant()
     }
 
     func stop() {
         started = false
-        refreshTask?.cancel()
-        refreshTask = nil
         cadenceTask?.cancel()
         cadenceTask = nil
         clearAlert()
@@ -127,67 +113,15 @@ final class DiskPressureMonitor {
         }
     }
 
-    func connectionStateChanged(isConnected: Bool) {
-        if isConnected {
-            refreshForCurrentAssistant()
-        } else {
-            refreshTask?.cancel()
-            refreshTask = nil
-            clearAlert()
-        }
-    }
-
     func refreshForCurrentAssistant() {
         let assistantId = activeAssistantIdProvider()
+        applyUsageFraction(fetchUsageFraction(), assistantId: assistantId)
+    }
+
+    func applyUsageFraction(_ usageFraction: Double?, assistantId: String?) {
         updateActiveAssistant(assistantId)
 
-        guard isConnectedProvider(), assistantId != nil else {
-            refreshTask?.cancel()
-            refreshTask = nil
-            clearAlert()
-            return
-        }
-
-        refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.fetchAndApplyHealthz(for: assistantId)
-        }
-    }
-
-    func applyHealthz(_ healthz: DaemonHealthz?, assistantId: String?) {
-        updateActiveAssistant(assistantId)
-
-        guard let assistantId, let disk = healthz?.disk else {
-            clearAlert()
-            return
-        }
-
-        applyDiskInfo(disk, assistantId: assistantId)
-    }
-
-    private func fetchAndApplyHealthz(for assistantId: String?) async {
-        do {
-            let healthz = try await fetchHealthz()
-            guard !Task.isCancelled else { return }
-            applyHealthz(healthz, assistantId: assistantId)
-        } catch {
-            guard !Task.isCancelled else { return }
-            log.debug("Disk-pressure healthz refresh failed: \(error.localizedDescription, privacy: .public)")
-            applyHealthz(nil, assistantId: assistantId)
-        }
-    }
-
-    private func updateActiveAssistant(_ assistantId: String?) {
-        guard activeAssistantId != assistantId else { return }
-        activeAssistantId = assistantId
-        refreshTask?.cancel()
-        refreshTask = nil
-        clearAlert()
-    }
-
-    private func applyDiskInfo(_ disk: DaemonHealthz.DiskInfo, assistantId: String) {
-        guard let usageFraction = Self.usageFraction(for: disk) else {
+        guard let assistantId, let usageFraction, usageFraction.isFinite else {
             clearAlert()
             return
         }
@@ -210,16 +144,42 @@ final class DiskPressureMonitor {
         }
     }
 
+    private func updateActiveAssistant(_ assistantId: String?) {
+        guard activeAssistantId != assistantId else { return }
+        activeAssistantId = assistantId
+        clearAlert()
+    }
+
     private func clearAlert() {
         guard alert != nil else { return }
         alert = nil
     }
 
-    static func usageFraction(for disk: DaemonHealthz.DiskInfo) -> Double? {
-        guard disk.totalMb > 0, disk.usedMb.isFinite, disk.totalMb.isFinite else {
+    /// Reads the home volume's usage fraction using
+    /// `volumeAvailableCapacityForImportantUsageKey`, the Apple-recommended
+    /// signal that matches what System Settings → Storage and Finder show.
+    /// Accounts for purgeable space (Time Machine local snapshots, evictable
+    /// iCloud cache) that macOS reclaims under pressure, so the banner agrees
+    /// with the user's perceived free space rather than the strict raw-FS
+    /// reading from `statfs(2)`.
+    static func defaultUsageFraction() -> Double? {
+        let url = VellumPaths.current.homeDirectory
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+        ]),
+              let total = values.volumeTotalCapacity,
+              total > 0,
+              let importantAvailable = values.volumeAvailableCapacityForImportantUsage
+        else {
+            log.debug("Disk-pressure: failed to read volume capacity for home directory")
             return nil
         }
-        return disk.usedMb / disk.totalMb
+        let totalBytes = Double(total)
+        let availableBytes = Double(importantAvailable)
+        guard totalBytes.isFinite, availableBytes.isFinite, totalBytes > 0 else { return nil }
+        let usedBytes = max(0.0, totalBytes - availableBytes)
+        return min(1.0, usedBytes / totalBytes)
     }
 
     static func displayPercent(forUsageFraction usageFraction: Double) -> Int {
