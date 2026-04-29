@@ -108,40 +108,19 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             ]
         case .home:
             return [
-                GalleryComponent("recapPill", "RecapPillView", keywords: ["pill", "chip", "inline", "recap"], description: "Inline interactive pill for recap text"),
-                GalleryComponent("homeAuthCard", "HomeAuthCard", keywords: ["auth", "authorise", "deny", "payment"], description: "Payment authorisation action card"),
-                GalleryComponent("homePermissionCard", "HomePermissionCard", keywords: ["permission", "tool", "action"], description: "Tool permission request card"),
-                GalleryComponent("homeAssistantCard", "HomeAssistantCard", keywords: ["assistant", "a2a", "agent"], description: "Assistant-to-assistant message card"),
-                GalleryComponent("homeReplyCard", "HomeReplyCard", keywords: ["reply", "composer", "input"], description: "Reply prompt with inline composer"),
-                GalleryComponent("homeEmailPreviewCard", "HomeEmailPreviewCard", keywords: ["email", "draft", "preview"], description: "Email draft preview card"),
-                GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
-                GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
-                GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
                 GalleryComponent("homeFeedGroupHeader", "HomeFeedGroupHeader", keywords: ["feed", "group", "header", "section", "today", "yesterday"], description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."),
                 GalleryComponent("homeRecapRow", "HomeRecapRow", keywords: ["recap", "row", "feed", "bucket"], description: "Compact row used in the time-bucketed Home feed with tinted icon and optional trailing action."),
                 GalleryComponent(
                     "homeRecapGroupRow",
                     "HomeRecapGroupRow",
-                    keywords: ["recap", "group", "row", "feed", "collapsed", "low priority", "digest"],
-                    description: "Grouped Home feed row: parent summary header with a nested list of child rows. Used when HomeFeedGrouping collapses 3+ contiguous low-priority digests into a single card."
+                    keywords: ["recap", "group", "row", "feed", "collapsed", "low priority"],
+                    description: "Grouped Home feed row: parent summary header with a nested list of child rows. Used when HomeFeedGrouping collapses 3+ contiguous low-priority items into a single card."
                 ),
                 GalleryComponent(
                     "homeDetailPanel",
                     "HomeDetailPanel",
                     keywords: ["detail panel", "side panel", "home", "container"],
                     description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
-                ),
-                GalleryComponent(
-                    "homeScheduledDetailPanel",
-                    "HomeScheduledDetailPanel",
-                    keywords: ["scheduled", "detail panel", "thread", "calendar", "home"],
-                    description: "Right-hand detail panel surfaced when a scheduled (.thread, source: .calendar) feed item is tapped. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions."
-                ),
-                GalleryComponent(
-                    "homeNudgeDetailPanel",
-                    "HomeNudgeDetailPanel",
-                    keywords: ["nudge", "detail panel", "cards", "issues", "heartbeat", "home"],
-                    description: "Right-hand detail panel surfaced when a .nudge feed item is tapped. Description + stack of N cards with optional action buttons, plus a right-aligned footer with secondary + primary actions (e.g. Clear All / Resolve All)."
                 ),
                 GalleryComponent(
                     "homeEmailEditor",
@@ -152,7 +131,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent(
                     "homeDocumentPreview",
                     "HomeDocumentPreview",
-                    keywords: ["document", "preview", "image", "attachment", "file", "invoice", "detail"],
+                    keywords: ["document", "preview", "image", "attachment", "file", "detail"],
                     description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
                 ),
                 GalleryComponent(
@@ -178,12 +157,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     "HomeGreetingHeader",
                     keywords: ["greeting", "header", "home", "avatar", "new chat"],
                     description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
-                ),
-                GalleryComponent(
-                    "homeFeedFilterBar",
-                    "HomeFeedFilterBar",
-                    keywords: ["filter", "chip", "home", "feed", "type", "toggle"],
-                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed by type."
                 ),
             ]
         case .icons:

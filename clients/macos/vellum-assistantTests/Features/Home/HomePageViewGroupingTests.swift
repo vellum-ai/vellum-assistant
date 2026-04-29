@@ -3,13 +3,13 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-/// Unit tests for ``HomePageView/groupedFeed(for:)``.
+/// Unit tests for ``HomePageView/groupedFeed``.
 ///
-/// The grouping pipeline (sort → filter → bucket → group) is wired through
-/// `HomePageView` but its behaviour is pure — no view lifecycle is
-/// required. These tests instantiate the view with in-memory stores and
-/// call the helper directly, so they stay hermetic and don't depend on the
-/// SwiftUI rendering path.
+/// The grouping pipeline (sort → filter-dismissed → bucket → group) is
+/// wired through `HomePageView` but its behaviour is pure — no view
+/// lifecycle is required. These tests instantiate the view with in-memory
+/// stores and read the helper directly, so they stay hermetic and don't
+/// depend on the SwiftUI rendering path.
 @MainActor
 final class HomePageViewGroupingTests: XCTestCase {
 
@@ -109,7 +109,7 @@ final class HomePageViewGroupingTests: XCTestCase {
         let feedStore = await makeFeedStore(items: items)
         let view = makeView(feedStore: feedStore)
 
-        let buckets = view.groupedFeed(for: nil)
+        let buckets = view.groupedFeed
         let allRows = buckets.flatMap { $0.rows }
 
         let groupRows = allRows.compactMap { row -> [FeedItem]? in
@@ -121,40 +121,6 @@ final class HomePageViewGroupingTests: XCTestCase {
         XCTAssertTrue(
             groupRows.contains(where: { $0.count >= 3 }),
             "Expected a .group row with ≥ 3 children (low-priority run had 5 items)"
-        )
-    }
-
-    /// With the v2 schema collapse the filter accepts a single
-    /// `.notification` value; selecting it returns the same item set as
-    /// no filter at all, so both branches must produce the grouped row.
-    /// PR 17 will retire the filter affordance entirely once the
-    /// downstream UI no longer needs it.
-    func test_groupedFeed_respectsTypeFilter() async {
-        let items: [FeedItem] = [
-            makeItem(id: "high1", priority: 90),
-            makeItem(id: "high2", priority: 80),
-            makeItem(id: "low1",  priority: 20),
-            makeItem(id: "low2",  priority: 15),
-            makeItem(id: "low3",  priority: 10),
-            makeItem(id: "low4",  priority: 7),
-            makeItem(id: "low5",  priority: 5),
-        ]
-        let feedStore = await makeFeedStore(items: items)
-        let view = makeView(feedStore: feedStore)
-
-        let unfiltered = view.groupedFeed(for: nil).flatMap { $0.rows }
-        let notificationOnly = view.groupedFeed(for: .notification).flatMap { $0.rows }
-
-        XCTAssertEqual(
-            unfiltered.map(\.id),
-            notificationOnly.map(\.id),
-            "Filtering to .notification must match unfiltered output now that the type discriminator is gone"
-        )
-        XCTAssertTrue(
-            notificationOnly.contains(where: {
-                if case .group = $0 { return true } else { return false }
-            }),
-            "Filtering to .notification should still produce the grouped low-priority run"
         )
     }
 }
