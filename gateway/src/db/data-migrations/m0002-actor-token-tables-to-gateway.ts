@@ -9,55 +9,36 @@
  *   - The assistant DB no longer has these tables.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import { Database } from "bun:sqlite";
 
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
-import { getWorkspaceDir } from "../../paths.js";
+import {
+  assistantDbExec,
+  assistantDbQuery,
+} from "../assistant-db-proxy.js";
 
 import type { MigrationResult } from "./index.js";
 
 const log = getLogger("m0002-actor-token-tables-to-gateway");
 
-function getAssistantDbPath(): string {
-  return join(getWorkspaceDir(), "data", "db", "assistant.db");
-}
-
 function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
 }
 
-export function up(): MigrationResult {
-  const assistantDbPath = getAssistantDbPath();
-  if (!existsSync(assistantDbPath)) {
-    log.info("Assistant database not found — nothing to migrate");
-    return "done";
-  }
-
+export async function up(): Promise<MigrationResult> {
   const gwDb = getRawGatewayDb();
-  let assistantDb: Database | null = null;
+
   try {
-    assistantDb = new Database(assistantDbPath);
-    assistantDb.exec("PRAGMA journal_mode=WAL");
-    assistantDb.exec("PRAGMA synchronous=FULL");
-    assistantDb.exec("PRAGMA busy_timeout=5000");
+    const hasActorTokens = await assistantDbQuery<{ "1": number }>(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_token_records'`,
+    );
 
-    const hasActorTokens = assistantDb
-      .query(
-        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_token_records'`,
-      )
-      .get();
+    const hasRefreshTokens = await assistantDbQuery<{ "1": number }>(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_refresh_token_records'`,
+    );
 
-    const hasRefreshTokens = assistantDb
-      .query(
-        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_refresh_token_records'`,
-      )
-      .get();
-
-    if (!hasActorTokens && !hasRefreshTokens) {
+    if (hasActorTokens.length === 0 && hasRefreshTokens.length === 0) {
       log.info(
         "Neither actor token table exists in assistant DB — nothing to migrate",
       );
@@ -65,7 +46,7 @@ export function up(): MigrationResult {
     }
 
     // --- Migrate actor_token_records ---
-    if (hasActorTokens) {
+    if (hasActorTokens.length > 0) {
       interface ActorTokenRow {
         id: string;
         token_hash: string;
@@ -79,13 +60,11 @@ export function up(): MigrationResult {
         updated_at: number;
       }
 
-      const rows = assistantDb
-        .query<ActorTokenRow, []>(
-          `SELECT id, token_hash, guardian_principal_id, hashed_device_id,
-                  platform, status, issued_at, expires_at, created_at, updated_at
-           FROM actor_token_records`,
-        )
-        .all();
+      const rows = await assistantDbQuery<ActorTokenRow>(
+        `SELECT id, token_hash, guardian_principal_id, hashed_device_id,
+                platform, status, issued_at, expires_at, created_at, updated_at
+         FROM actor_token_records`,
+      );
 
       if (rows.length > 0) {
         const insert = gwDb.prepare(
@@ -118,12 +97,12 @@ export function up(): MigrationResult {
         );
       }
 
-      assistantDb.exec(`DROP TABLE IF EXISTS actor_token_records`);
+      await assistantDbExec(`DROP TABLE IF EXISTS actor_token_records`);
       log.info("Dropped actor_token_records from assistant DB");
     }
 
     // --- Migrate actor_refresh_token_records ---
-    if (hasRefreshTokens) {
+    if (hasRefreshTokens.length > 0) {
       interface RefreshTokenRow {
         id: string;
         token_hash: string;
@@ -140,14 +119,12 @@ export function up(): MigrationResult {
         updated_at: number;
       }
 
-      const rows = assistantDb
-        .query<RefreshTokenRow, []>(
-          `SELECT id, token_hash, family_id, guardian_principal_id, hashed_device_id,
-                  platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
-                  last_used_at, created_at, updated_at
-           FROM actor_refresh_token_records`,
-        )
-        .all();
+      const rows = await assistantDbQuery<RefreshTokenRow>(
+        `SELECT id, token_hash, family_id, guardian_principal_id, hashed_device_id,
+                platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
+                last_used_at, created_at, updated_at
+         FROM actor_refresh_token_records`,
+      );
 
       if (rows.length > 0) {
         const insert = gwDb.prepare(
@@ -184,7 +161,9 @@ export function up(): MigrationResult {
         );
       }
 
-      assistantDb.exec(`DROP TABLE IF EXISTS actor_refresh_token_records`);
+      await assistantDbExec(
+        `DROP TABLE IF EXISTS actor_refresh_token_records`,
+      );
       log.info("Dropped actor_refresh_token_records from assistant DB");
     }
 
@@ -195,14 +174,6 @@ export function up(): MigrationResult {
       "Actor token migration failed — will retry on next startup",
     );
     return "skip";
-  } finally {
-    if (assistantDb) {
-      try {
-        assistantDb.close();
-      } catch {
-        // best effort
-      }
-    }
   }
 }
 

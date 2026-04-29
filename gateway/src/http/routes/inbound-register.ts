@@ -14,10 +14,8 @@
 
 import { z } from "zod";
 
-import {
-  createGuardianBinding,
-  getAssistantDb,
-} from "../../auth/guardian-bootstrap.js";
+import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
+import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
@@ -70,15 +68,12 @@ interface GuardianRow {
  * Find the existing guardian contact (any channel). Returns null if no
  * guardian has been verified yet or if the guardian has no principal_id.
  */
-function findGuardian(): (GuardianRow & { principal_id: string }) | null {
-  const db = getAssistantDb();
-  const row =
-    db
-      .query<GuardianRow, []>(
-        `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
-      )
-      .get() ?? null;
+async function findGuardian(): Promise<(GuardianRow & { principal_id: string }) | null> {
+  const rows = await assistantDbQuery<GuardianRow>(
+    `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
+  );
 
+  const row = rows[0] ?? null;
   if (!row?.principal_id) return null;
   return row as GuardianRow & { principal_id: string };
 }
@@ -155,7 +150,7 @@ export function createInboundRegisterHandler(
 
     // ── Find existing guardian and create email channel binding ──
 
-    const guardian = findGuardian();
+    const guardian = await findGuardian();
     if (!guardian) {
       log.warn(
         "No guardian contact exists — cannot auto-verify email channel",
@@ -170,7 +165,7 @@ export function createInboundRegisterHandler(
     }
 
     try {
-      createGuardianBinding({
+      await createGuardianBinding({
         channel: binding.channel,
         externalUserId: binding.externalUserId,
         deliveryChatId: binding.deliveryChatId,

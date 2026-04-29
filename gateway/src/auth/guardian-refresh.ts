@@ -15,7 +15,6 @@ import {
 import { getLogger } from "../logger.js";
 
 import {
-  closeAssistantDb,
   getExternalAssistantId,
   hashToken,
   ACCESS_TOKEN_TTL_MS,
@@ -25,8 +24,6 @@ import {
 } from "./guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
-
-export { closeAssistantDb };
 
 const log = getLogger("guardian-refresh");
 

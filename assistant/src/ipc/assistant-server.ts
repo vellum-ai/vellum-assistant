@@ -36,14 +36,15 @@ import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
-import type { IpcEnvelope } from "./ipc-framing.js";
 import {
+  type IpcEnvelope,
   IpcFrameReader,
   writeLegacyMessage,
   writeMessage,
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { type DbProxyParams,handleDbProxy } from "./routes/db-proxy.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -140,6 +141,13 @@ export class AssistantIpcServer {
     for (const route of routeDefinitionsToIpcMethods(ROUTES)) {
       this.methods.set(route.operationId, route.handler);
     }
+
+    // ⚠️  TEMPORARY — gateway→assistant DB proxy (see ipc/routes/db-proxy.ts).
+    // Remove once contacts/guardian-binding logic is fully migrated to the
+    // gateway's own database.
+    this.methods.set("db_proxy", (params) =>
+      handleDbProxy(params as unknown as DbProxyParams),
+    );
   }
 
   /** Start listening on the Unix domain socket. */
