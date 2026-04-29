@@ -71,7 +71,7 @@ final class HomePageViewGroupingTests: XCTestCase {
     /// Constructs a fully-specialized `HomePageView` wired to the supplied
     /// feed store. All callbacks are no-ops and `detailPanel` resolves to
     /// `EmptyView` — the tests never exercise the view body, just the
-    /// pure `groupedFeed(for:)` helper.
+    /// pure `groupedFeed` helper.
     private func makeView(feedStore: HomeFeedStore) -> HomePageView<EmptyView> {
         HomePageView<EmptyView>(
             store: makeHomeStore(),

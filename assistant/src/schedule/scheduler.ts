@@ -2,6 +2,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
@@ -352,11 +353,17 @@ async function runScheduleOnce(
         // Track the schedule run using the task's conversation
         const runId = createScheduleRun(job.id, result.conversationId);
         if (result.status === "failed") {
+          const errorMessage = result.error ?? "Task run failed";
           completeScheduleRun(runId, {
             status: "error",
-            error: result.error ?? "Task run failed",
+            error: errorMessage,
           });
           if (isOneShot) failOneShot(job.id);
+          emitTaskActivityFailed({
+            taskId,
+            conversationId: result.conversationId,
+            errorMessage,
+          });
         } else {
           completeScheduleRun(runId, { status: "ok" });
           if (isOneShot) completeOneShot(job.id);
@@ -394,6 +401,11 @@ async function runScheduleOnce(
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
         if (isOneShot) failOneShot(job.id);
+        emitTaskActivityFailed({
+          taskId,
+          conversationId: fallbackConversation.id,
+          errorMessage: message,
+        });
       }
       continue;
     }
@@ -551,4 +563,45 @@ async function runScheduleOnce(
     log.info({ processed }, "Schedule tick complete");
   }
   return processed;
+}
+
+/**
+ * Emit an `activity.failed` notification for a failed scheduled task run.
+ * Mirrors the shape `runBackgroundJob` produces for its own failures so the
+ * home feed and native notifications stay consistent regardless of which
+ * code path executed the work. Fire-and-forget — a notification failure
+ * must never break scheduler operation.
+ */
+function emitTaskActivityFailed(args: {
+  taskId: string;
+  conversationId: string;
+  errorMessage: string;
+}): void {
+  const day = new Date().toISOString().slice(0, 10);
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.conversationId,
+    sourceEventName: "activity.failed",
+    dedupeKey: `activity-failed:task:${args.taskId}:${day}`,
+    contextPayload: {
+      jobName: `task:${args.taskId}`,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        taskId: args.taskId,
+        conversationId: args.conversationId,
+      },
+      "Failed to emit activity.failed notification for scheduled task",
+    );
+  });
 }

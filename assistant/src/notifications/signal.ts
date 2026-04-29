@@ -91,7 +91,7 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   {
     id: "activity.failed",
     description:
-      "Background job execution failed (model error, exception, tool failure, or timeout)",
+      "Background job execution failed (model_provider, exception, or timeout)",
   },
   {
     id: "quick_chat.response_ready",

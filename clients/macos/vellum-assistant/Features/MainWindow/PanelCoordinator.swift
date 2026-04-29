@@ -837,16 +837,19 @@ extension MainWindowView {
 /// With the v2 schema collapsed to a single `.notification` type these
 /// helpers no longer per-type-dispatch — every feed item uses the same
 /// generic glyph. A per-item visual language driven by `urgency` or
-/// `detailPanel.kind` is a future iteration.
-private func iconForFeedItem(_ item: FeedItem) -> VIcon {
+/// `detailPanel.kind` is a future iteration. The `FeedItem` parameter is
+/// retained (named `_` internally to flag intentionally unused) so a
+/// future per-urgency / per-detail-panel-kind dispatch can re-thread it
+/// without touching every call site.
+private func iconForFeedItem(_: FeedItem) -> VIcon {
     .bell
 }
 
-private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
+private func iconForegroundForFeedItem(_: FeedItem) -> Color {
     VColor.feedDigestStrong
 }
 
-private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
+private func iconBackgroundForFeedItem(_: FeedItem) -> Color {
     VColor.feedDigestWeak
 }
 
