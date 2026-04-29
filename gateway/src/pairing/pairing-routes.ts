@@ -40,12 +40,12 @@ interface PairingCredentials {
 // Credential minting (delegates to gateway's guardian-bootstrap)
 // ---------------------------------------------------------------------------
 
-function mintPairingCredentials(
+async function mintPairingCredentials(
   deviceId: string,
   platform: string,
-): PairingCredentials | null {
+): Promise<PairingCredentials | null> {
   try {
-    const result = bootstrapGuardian({ platform, deviceId });
+    const result = await bootstrapGuardian({ platform, deviceId });
     log.info({ platform }, "Minted credentials during pairing");
     return {
       accessToken: result.accessToken,
@@ -263,7 +263,7 @@ export function createPairingHandler(deps: {
             { pairingRequestId, hashedDeviceId },
             "Auto-approved allowlisted device",
           );
-          const credentials = mintPairingCredentials(deviceId, "ios");
+          const credentials = await mintPairingCredentials(deviceId, "ios");
           return Response.json({
             status: "approved",
             bearerToken,
@@ -299,7 +299,7 @@ export function createPairingHandler(deps: {
      * GET /pairing/status — Unauthenticated (secret-gated).
      * iOS polls for approval status.
      */
-    handlePairingStatus(req: Request): Response {
+    async handlePairingStatus(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const id = url.searchParams.get("id") ?? "";
       const secret = url.searchParams.get("secret") ?? "";
@@ -340,7 +340,7 @@ export function createPairingHandler(deps: {
           if (mintDeviceId) {
             mintingInFlight.add(id);
             try {
-              const credentials = mintPairingCredentials(mintDeviceId, "ios");
+              const credentials = await mintPairingCredentials(mintDeviceId, "ios");
               if (credentials) {
                 pendingDeviceIds.delete(id);
                 credentialEntry = { credentials, approvedAt: Date.now() };

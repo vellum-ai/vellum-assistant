@@ -31,7 +31,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { mintHostBrowserCapability } from "../../auth/capability-tokens.js";
-import { getAssistantDb } from "../../auth/guardian-bootstrap.js";
+import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
 import { getGatewaySecurityDir } from "../../paths.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
@@ -261,23 +261,20 @@ interface GuardianLookupRow {
   principal_id: string | null;
 }
 
-function resolveLocalGuardianId(): string {
+async function resolveLocalGuardianId(): Promise<string> {
   try {
-    const db = getAssistantDb();
-    const row = db
-      .query<GuardianLookupRow, []>(
-        `SELECT c.principal_id
-         FROM contacts c
-         INNER JOIN contact_channels cc ON cc.contact_id = c.id
-         WHERE c.role = 'guardian'
-           AND cc.type = 'vellum'
-           AND cc.status = 'active'
-         ORDER BY cc.verified_at DESC
-         LIMIT 1`,
-      )
-      .get();
-    if (row?.principal_id) {
-      return row.principal_id;
+    const rows = await assistantDbQuery<GuardianLookupRow>(
+      `SELECT c.principal_id
+       FROM contacts c
+       INNER JOIN contact_channels cc ON cc.contact_id = c.id
+       WHERE c.role = 'guardian'
+         AND cc.type = 'vellum'
+         AND cc.status = 'active'
+       ORDER BY cc.verified_at DESC
+       LIMIT 1`,
+    );
+    if (rows[0]?.principal_id) {
+      return rows[0].principal_id;
     }
   } catch (err) {
     log.warn(
@@ -440,7 +437,7 @@ export async function handleBrowserExtensionPair(
     return errorResponse("FORBIDDEN", "extension origin not allowed", 403);
   }
 
-  const guardianId = resolveLocalGuardianId();
+  const guardianId = await resolveLocalGuardianId();
   const { token, expiresAt } = mintHostBrowserCapability(guardianId);
   const expiresAtIso = new Date(expiresAt).toISOString();
 

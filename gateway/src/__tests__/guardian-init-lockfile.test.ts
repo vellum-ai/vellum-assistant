@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
-import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -29,6 +28,29 @@ let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+// Mock the IPC proxy so guardian-bootstrap reads/writes the local test DB
+let testAssistantDb: Database | null = null;
+
+mock.module("../db/assistant-db-proxy.js", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbQuery(sql: string, bind?: any[]) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    const stmt = testAssistantDb.prepare(sql);
+    return bind ? stmt.all(...bind) : stmt.all();
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbRun(sql: string, bind?: any[]) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    const stmt = testAssistantDb.prepare(sql);
+    const result = bind ? stmt.run(...bind) : stmt.run();
+    return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
+  },
+  async assistantDbExec(sql: string) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    testAssistantDb.exec(sql);
+  },
 }));
 
 const { createChannelVerificationSessionProxyHandler } =
@@ -98,7 +120,8 @@ async function setupTestDirs(): Promise<void> {
     )
   `);
 
-  db.close();
+  // Keep the DB open for the IPC proxy mock
+  testAssistantDb = db;
 
   // Point gateway at temp dirs
   process.env.VELLUM_WORKSPACE_DIR = testRoot;
@@ -140,10 +163,13 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  closeAssistantDb();
   resetGatewayDb();
   fetchMock = mock(async () => new Response());
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+  if (testAssistantDb) {
+    try { testAssistantDb.close(); } catch { /* best effort */ }
+    testAssistantDb = null;
+  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {

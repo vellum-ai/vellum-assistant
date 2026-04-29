@@ -1687,10 +1687,10 @@ async function main() {
               let isGuardianActor = false;
               if (slackActorId) {
                 try {
-                  isGuardianActor = !!findGuardianForChannelActor(
+                  isGuardianActor = !!(await findGuardianForChannelActor(
                     "slack",
                     slackActorId,
-                  );
+                  ));
                 } catch (err) {
                   log.warn(
                     { err, slackActorId },
