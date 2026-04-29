@@ -3,20 +3,20 @@ import XCTest
 
 @MainActor
 final class DiskPressureMonitorTests: XCTestCase {
-    func testPressureTriggersAtNinetyPercent() {
+    func testPressureTriggersAtEightyFivePercent() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 90, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyHealthz(healthz(usedMb: 85, totalMb: 100), assistantId: "assistant-a")
 
         XCTAssertEqual(monitor.alert?.assistantId, "assistant-a")
-        XCTAssertEqual(monitor.alert?.displayPercent, 90)
+        XCTAssertEqual(monitor.alert?.displayPercent, 85)
         XCTAssertEqual(monitor.alert?.id, "disk-pressure:assistant-a:1")
     }
 
-    func testPressureDoesNotTriggerBelowNinetyPercent() {
+    func testPressureDoesNotTriggerBelowEightyFivePercent() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 89.9, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyHealthz(healthz(usedMb: 84.9, totalMb: 100), assistantId: "assistant-a")
 
         XCTAssertNil(monitor.alert)
     }
