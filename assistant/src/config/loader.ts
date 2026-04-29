@@ -3,7 +3,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -526,15 +525,6 @@ export function loadConfig(): AssistantConfig {
     let fileConfig: Record<string, unknown> = {};
     let configFileExisted = true;
     if (existsSync(configPath)) {
-      const mode = statSync(configPath).mode;
-      if (mode & 0o077 && !process.env.IS_CONTAINERIZED) {
-        log.warn(
-          `Config file ${configPath} is readable by other users (mode ${(
-            mode & 0o777
-          ).toString(8)}). ` + `Run: chmod 600 ${configPath}`,
-        );
-      }
-
       try {
         fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
       } catch (err) {
