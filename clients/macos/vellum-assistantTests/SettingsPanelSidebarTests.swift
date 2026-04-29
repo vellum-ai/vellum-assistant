@@ -53,12 +53,16 @@ final class SettingsPanelSidebarTests: XCTestCase {
         XCTAssertFalse(tabs.contains(.compactionPlayground))
     }
 
-    func testDeveloperRemainsInBottomSidebarGroup() {
+    func testDeveloperIsNotRenderedInTopSidebarGroup() {
         let topTabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: true)
-        let bottomTabs = SettingsTab.sidebarBottomTabs(developerEnabled: true)
 
         XCTAssertFalse(topTabs.contains(.developer))
-        XCTAssertEqual(bottomTabs, [.developer])
-        XCTAssertFalse(bottomTabs.contains(.compactionPlayground))
+    }
+
+    func testDeferredDeepLinksAreLimitedToAsyncGatedTabs() {
+        XCTAssertTrue(SettingsTab.canDeferDeepLink(.developer))
+        XCTAssertTrue(SettingsTab.canDeferDeepLink(.compactionPlayground))
+        XCTAssertFalse(SettingsTab.canDeferDeepLink(.billing))
+        XCTAssertFalse(SettingsTab.canDeferDeepLink(.sounds))
     }
 }
