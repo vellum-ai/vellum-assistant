@@ -601,17 +601,6 @@ export async function runAgentLoopImpl(
     throw new Error("runAgentLoop called without prior persistUserMessage");
   }
 
-  if (isDiskSpaceLocked()) {
-    onEvent({
-      type: "error",
-      code: "DISK_SPACE_CRITICAL",
-      message:
-        "Disk usage has reached 95%. The assistant is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.",
-      category: "disk_space_locked",
-    });
-    return;
-  }
-
   // Initialize per-turn persona snapshots for callers (subagent manager,
   // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
   // without going through processMessage/drainQueue. This ensures the system
@@ -722,6 +711,17 @@ export async function runAgentLoopImpl(
   });
 
   try {
+    if (isDiskSpaceLocked()) {
+      onEvent({
+        type: "error",
+        code: "DISK_SPACE_CRITICAL",
+        message:
+          "Disk usage has reached 95%. The assistant is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.",
+        category: "disk_space_locked",
+      });
+      return;
+    }
+
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
     // response), so internal turns (subagent notifications, lifecycle
