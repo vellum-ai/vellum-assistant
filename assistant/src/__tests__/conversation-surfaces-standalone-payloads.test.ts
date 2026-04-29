@@ -17,7 +17,14 @@
  * and dispatches them in ChatActionHandler → ChatViewModel+SurfaceHandling.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+import type { ServerMessage } from "../daemon/message-protocol.js";
+
+let broadcastImpl: (msg: ServerMessage) => void = () => {};
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: ServerMessage) => broadcastImpl(msg),
+}));
 
 import {
   buildCompletionSummary,
@@ -25,7 +32,6 @@ import {
   showStandaloneSurface,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -40,6 +46,7 @@ function createMockContext(
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
   const sentMessages: ServerMessage[] = [];
+  broadcastImpl = (msg: ServerMessage) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
   return {
@@ -54,7 +61,6 @@ function createMockContext(
       : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
-    broadcastToAllClients: (msg: ServerMessage) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

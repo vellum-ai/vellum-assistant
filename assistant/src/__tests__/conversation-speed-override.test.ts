@@ -294,7 +294,6 @@ describe("per-conversation speed override", () => {
       4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // broadcastToAllClients
       undefined, // memoryPolicy
       undefined, // sharedCesClient
       "standard", // speedOverride
@@ -316,7 +315,6 @@ describe("per-conversation speed override", () => {
       4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // broadcastToAllClients
       undefined, // memoryPolicy
       undefined, // sharedCesClient
       // no speedOverride — should fall back to global config "fast"
@@ -337,7 +335,6 @@ describe("per-conversation speed override", () => {
       4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // broadcastToAllClients
       undefined, // memoryPolicy
       undefined, // sharedCesClient
       "fast", // speedOverride

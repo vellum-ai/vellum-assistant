@@ -150,7 +150,6 @@ export function createToolExecutor(
   secretPrompter: SecretPrompter,
   ctx: ToolSetupContext,
   handleToolLifecycleEvent: ToolLifecycleEventHandler,
-  broadcastToAllClients?: (msg: ServerMessage) => void,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -296,10 +295,7 @@ export function createToolExecutor(
         ctx.approvedViaPromptThisTurn = true;
       }
 
-      runPostExecutionSideEffects(toolName, toolInput, result, {
-        ctx,
-        broadcastToAllClients,
-      });
+      runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
 
       return result;
     }
@@ -314,10 +310,7 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(name, input, result, {
-      ctx,
-      broadcastToAllClients,
-    });
+    runPostExecutionSideEffects(name, input, result, { ctx });
 
     return result;
   };

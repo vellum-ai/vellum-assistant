@@ -15,6 +15,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import type { WakeTarget } from "../runtime/agent-wake.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -152,10 +153,7 @@ export function conversationToWakeTarget(
       conversation.messages.push(msg);
     },
     onWakeProducedOutput: (source, hint, surfaceId) => {
-      const emit =
-        conversation.broadcastToAllClients ??
-        conversation.sendToClient.bind(conversation);
-      emit({
+      broadcastMessage({
         type: "ui_surface_show",
         conversationId: conversation.conversationId,
         surfaceId,
@@ -174,11 +172,7 @@ export function conversationToWakeTarget(
         conversation.conversationId,
       );
       if (!frame) return;
-      if (conversation.broadcastToAllClients) {
-        conversation.broadcastToAllClients(frame);
-      } else {
-        conversation.sendToClient(frame);
-      }
+      broadcastMessage(frame);
     },
     isProcessing: () => conversation.isProcessing(),
     markProcessing: (on) => {

@@ -33,37 +33,23 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+let broadcastMessages: ServerMessage[] = [];
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),
+}));
+
 const { SecretPrompter } = await import("../permissions/secret-prompter.js");
 
 describe("secret prompter channel fallback", () => {
   let sentMessages: ServerMessage[];
-  let broadcastMessages: ServerMessage[];
 
   beforeEach(() => {
     sentMessages = [];
     broadcastMessages = [];
   });
 
-  test("fails fast with unsupported_channel error when channel lacks dynamic UI and no broadcast available", async () => {
+  test("broadcasts and sends via sendToClient when channel lacks dynamic UI", async () => {
     const prompter = new SecretPrompter((msg) => sentMessages.push(msg));
-    prompter.setChannelContext({
-      channel: "slack",
-      supportsDynamicUi: false,
-    });
-
-    const result = await prompter.prompt("myservice", "apikey", "API Key");
-
-    expect(result.value).toBeNull();
-    expect(result.error).toBe("unsupported_channel");
-    // No message should have been sent since we failed fast
-    expect(sentMessages).toHaveLength(0);
-  });
-
-  test("broadcasts secret_request via SSE hub AND sends via sendToClient when channel lacks dynamic UI but broadcast is available", async () => {
-    const prompter = new SecretPrompter(
-      (msg) => sentMessages.push(msg),
-      (msg) => broadcastMessages.push(msg),
-    );
     prompter.setChannelContext({
       channel: "slack",
       supportsDynamicUi: false,
@@ -71,24 +57,20 @@ describe("secret prompter channel fallback", () => {
 
     const promise = prompter.prompt("myservice", "apikey", "API Key");
 
-    // Should have broadcast AND sent via per-channel sender (voice path needs sendToClient)
     expect(broadcastMessages).toHaveLength(1);
     expect(broadcastMessages[0]!.type).toBe("secret_request");
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]!.type).toBe("secret_request");
 
-    // Resolve the prompt so it doesn't hang
     const requestId = (broadcastMessages[0] as SecretRequest).requestId;
     prompter.resolveSecret(requestId, "test-secret", "store");
     const result = await promise;
     expect(result.value).toBe("test-secret");
-    expect(result.error).toBeUndefined();
   });
 
   test("uses sendToClient when channel supports dynamic UI", async () => {
     const prompter = new SecretPrompter(
       (msg) => sentMessages.push(msg),
-      (msg) => broadcastMessages.push(msg),
     );
     prompter.setChannelContext({
       channel: "macos",
@@ -110,7 +92,6 @@ describe("secret prompter channel fallback", () => {
   test("uses sendToClient when no channel context is set (desktop default)", async () => {
     const prompter = new SecretPrompter(
       (msg) => sentMessages.push(msg),
-      (msg) => broadcastMessages.push(msg),
     );
     // No setChannelContext call — desktop default
 
@@ -127,7 +108,6 @@ describe("secret prompter channel fallback", () => {
   test("wasBroadcast returns true for broadcast requestIds and false after resolve", async () => {
     const prompter = new SecretPrompter(
       (msg) => sentMessages.push(msg),
-      (msg) => broadcastMessages.push(msg),
     );
     prompter.setChannelContext({
       channel: "slack",
@@ -150,7 +130,6 @@ describe("secret prompter channel fallback", () => {
   test("wasBroadcast returns false for non-broadcast requestIds (desktop channel)", async () => {
     const prompter = new SecretPrompter(
       (msg) => sentMessages.push(msg),
-      (msg) => broadcastMessages.push(msg),
     );
     prompter.setChannelContext({
       channel: "macos",

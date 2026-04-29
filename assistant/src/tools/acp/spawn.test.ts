@@ -98,8 +98,7 @@ const spawnMock = mock(
 );
 
 // Spread the real module's exports so transitive importers that pull other
-// names from `../../acp/index.js` (e.g. `broadcastToAllClients` from the
-// HTTP route layer) still resolve at parse time. Bun's `mock.module` is
+// names from `../../acp/index.js` still resolve at parse time. Bun's `mock.module` is
 // process-global and returns *exactly* the keys the factory returns —
 // without the spread, any module evaluated after this test file errors at
 // load with "Export named '<X>' not found".
