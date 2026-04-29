@@ -4,15 +4,20 @@ import XCTest
 final class SettingsPanelSidebarTests: XCTestCase {
 
     func testCompactionPlaygroundPositionFollowsVisibilityGate() {
-        let cases: [(visibility: SettingsTab.SidebarVisibility, expectedVisible: Bool)] = [
-            (.init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: true), true),
-            (.init(developerEnabled: true, compactionPlaygroundEnabled: false, devModeEnabled: true), false),
-            (.init(developerEnabled: false, compactionPlaygroundEnabled: true, devModeEnabled: true), false),
-            (.init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: false), false)
+        let cases: [(developerEnabled: Bool, playgroundEnabled: Bool, devModeEnabled: Bool, expectedVisible: Bool)] = [
+            (true, true, true, true),
+            (true, false, true, false),
+            (false, true, true, false),
+            (true, true, false, false)
         ]
 
         for testCase in cases {
-            let tabs = SettingsTab.sidebarTopTabs(visibility: testCase.visibility)
+            let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
+                developerEnabled: testCase.developerEnabled,
+                playgroundEnabled: testCase.playgroundEnabled,
+                devModeEnabled: testCase.devModeEnabled
+            )
+            let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
 
             XCTAssertEqual(tabs.contains(.compactionPlayground), testCase.expectedVisible)
             if testCase.expectedVisible {
@@ -25,9 +30,7 @@ final class SettingsPanelSidebarTests: XCTestCase {
     }
 
     func testDeveloperIsNotRenderedInTopSidebarGroup() {
-        let topTabs = SettingsTab.sidebarTopTabs(
-            visibility: .init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: true)
-        )
+        let topTabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: true)
 
         XCTAssertFalse(topTabs.contains(.developer))
     }
