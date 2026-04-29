@@ -1524,7 +1524,7 @@ async function main() {
   // Deferred startup tasks that depend on the assistant runtime being
   // ready (e.g. guardian binding backfill, data migrations that touch
   // the assistant DB). Runs in the background — does not block startup.
-  runPostAssistantReady(config).catch((err) => {
+  runPostAssistantReady().catch((err) => {
     log.error({ err }, "Post-assistant-ready lifecycle failed");
   });
 

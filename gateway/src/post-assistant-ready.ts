@@ -7,17 +7,16 @@
  * tables). When the gateway starts first, these tasks fail because the
  * assistant DB doesn't exist yet.
  *
- * This module polls the assistant health endpoint and, once the assistant
+ * This module polls the assistant IPC health route and, once the assistant
  * is ready, runs all deferred startup tasks.
  */
 
 import type { Database } from "bun:sqlite";
 
 import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
-import type { GatewayConfig } from "./config.js";
 import { getGatewayDb, type GatewayDb } from "./db/connection.js";
 import { runDataMigrations } from "./db/data-migrations/index.js";
-import { fetchImpl } from "./fetch.js";
+import { ipcCallAssistant } from "./ipc/assistant-client.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("post-assistant-ready");
@@ -29,23 +28,14 @@ function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
-async function waitForAssistant(config: GatewayConfig): Promise<boolean> {
-  const url = `${config.assistantRuntimeBaseUrl}/v1/health`;
+async function waitForAssistant(): Promise<boolean> {
   const deadline = Date.now() + MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3_000);
-      const res = await fetchImpl(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        log.info("Assistant is ready");
-        return true;
-      }
-    } catch {
-      // Not ready yet — keep polling
+    const result = await ipcCallAssistant("health");
+    if (result !== undefined) {
+      log.info("Assistant is ready");
+      return true;
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -62,10 +52,8 @@ async function waitForAssistant(config: GatewayConfig): Promise<boolean> {
  * Wait for the assistant runtime to become healthy, then run deferred
  * startup tasks. Fire-and-forget from the main startup path.
  */
-export async function runPostAssistantReady(
-  config: GatewayConfig,
-): Promise<void> {
-  const ready = await waitForAssistant(config);
+export async function runPostAssistantReady(): Promise<void> {
+  const ready = await waitForAssistant();
   if (!ready) return;
 
   // 1. Data migrations (some read/write the assistant DB)
