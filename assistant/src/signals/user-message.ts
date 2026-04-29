@@ -9,15 +9,26 @@
  *
  * Per-request filenames avoid dropped messages when overlapping invocations
  * race on the same signal file.
- *
- * Because the signal handler needs access to the daemon's conversation map and
- * event hub, the daemon registers a callback at startup via
- * {@link registerUserMessageCallback}.
  */
 
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
+import {
+  processMessageInBackground,
+  resolveTurnChannel,
+  resolveTurnInterface,
+} from "../daemon/process-message.js";
+import {
+  uploadFileBackedAttachment,
+  validateAttachmentUpload,
+} from "../memory/attachments-store.js";
+import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -35,25 +46,122 @@ export interface SignalAttachment {
   mimeType: string;
 }
 
-// ── Daemon callback registry ─────────────────────────────────────────
+// ── Dispatch helper ──────────────────────────────────────────────────
 
-type UserMessageCallback = (params: {
+async function dispatchUserMessage(params: {
   conversationKey: string;
   content: string;
   sourceChannel: string;
   sourceInterface: string;
   bypassSecretCheck?: boolean;
   attachments?: SignalAttachment[];
-}) => Promise<{ accepted: boolean; error?: string; message?: string }>;
+}): Promise<{ accepted: boolean; error?: string; message?: string }> {
+  if (!params.bypassSecretCheck) {
+    const ingressResult = checkIngressForSecrets(params.content);
+    if (ingressResult.blocked) {
+      return {
+        accepted: false,
+        error: "secret_blocked" as const,
+        message: ingressResult.userNotice,
+      };
+    }
+  }
 
-let _sendUserMessage: UserMessageCallback | null = null;
+  const { conversationId } = getOrCreateConversationKey(
+    params.conversationKey,
+  );
+  const conversation = await getOrCreateConversation(conversationId);
 
-/**
- * Register the user-message callback. Called once by the daemon server at
- * startup so the signal handler can reach the conversation map and event hub.
- */
-export function registerUserMessageCallback(cb: UserMessageCallback): void {
-  _sendUserMessage = cb;
+  const attachmentIds: string[] = [];
+  const resolvedAttachments: UserMessageAttachment[] = [];
+  if (params.attachments && params.attachments.length > 0) {
+    for (const a of params.attachments) {
+      try {
+        const validation = validateAttachmentUpload(a.filename, a.mimeType);
+        if (!validation.ok) {
+          log.warn(
+            { error: validation.error, path: a.path },
+            "Signal attachment rejected by validation",
+          );
+          continue;
+        }
+        const size = statSync(a.path).size;
+        const stored = uploadFileBackedAttachment(
+          a.filename,
+          a.mimeType,
+          a.path,
+          size,
+        );
+        attachmentIds.push(stored.id);
+        resolvedAttachments.push({
+          id: stored.id,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          data: "",
+          filePath: a.path,
+        });
+      } catch (err) {
+        log.warn(
+          { err, path: a.path },
+          "Failed to register signal attachment",
+        );
+      }
+    }
+  }
+
+  const hubSender = (msg: ServerMessage) => {
+    const msgConversationId =
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
+        : undefined;
+    broadcastMessage(msg, msgConversationId ?? conversationId);
+  };
+
+  if (conversation.isProcessing()) {
+    for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
+      const att = resolvedAttachments[i];
+      if (att.filePath && !att.data) {
+        try {
+          att.data = readFileSync(att.filePath).toString("base64");
+        } catch (err) {
+          log.warn(
+            { err, path: att.filePath },
+            "Failed to read queued signal attachment, skipping",
+          );
+          resolvedAttachments.splice(i, 1);
+        }
+      }
+    }
+    const requestId = crypto.randomUUID();
+    const resolvedChannel = resolveTurnChannel(params.sourceChannel);
+    const resolvedInterface = resolveTurnInterface(params.sourceInterface);
+    const result = conversation.enqueueMessage(
+      params.content,
+      resolvedAttachments,
+      hubSender,
+      requestId,
+      undefined,
+      undefined,
+      {
+        userMessageChannel: resolvedChannel,
+        assistantMessageChannel: resolvedChannel,
+        userMessageInterface: resolvedInterface,
+        assistantMessageInterface: resolvedInterface,
+      },
+    );
+    return { accepted: !result.rejected };
+  }
+
+  await processMessageInBackground(
+    conversationId,
+    params.content,
+    attachmentIds.length > 0 ? attachmentIds : undefined,
+    { onEvent: hubSender },
+    params.sourceChannel,
+    params.sourceInterface,
+  );
+  return { accepted: true };
 }
 
 // ── Signal handler ───────────────────────────────────────────────────
@@ -143,12 +251,6 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       return;
     }
 
-    if (!_sendUserMessage) {
-      log.warn("User-message callback not registered; daemon may not be ready");
-      writeResult({ ok: false, error: "Assistant not ready", requestId });
-      return;
-    }
-
     // Validate and normalize attachments
     const attachments: SignalAttachment[] = [];
     if (Array.isArray(parsed.attachments)) {
@@ -167,7 +269,7 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       }
     }
 
-    const result = await _sendUserMessage({
+    const result = await dispatchUserMessage({
       conversationKey: parsed.conversationKey,
       content: parsed.content,
       sourceChannel: parsed.sourceChannel ?? "vellum",

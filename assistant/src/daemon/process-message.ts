@@ -589,3 +589,77 @@ export async function processMessage(
 
   return { messageId };
 }
+
+/**
+ * Fire-and-forget variant of {@link processMessage}. Persists the user
+ * message and kicks off the agent loop in the background, returning the
+ * `messageId` immediately without waiting for completion.
+ *
+ * Used by signal handlers and the conversation-launcher where the caller
+ * does not await the full agent turn.
+ */
+export async function processMessageInBackground(
+  conversationId: string,
+  content: string,
+  attachmentIds?: string[],
+  options?: ConversationCreateOptions,
+  sourceChannel?: string,
+  sourceInterface?: string,
+): Promise<{ messageId: string }> {
+  const { conversation, attachments } = await prepareConversationForMessage(
+    conversationId,
+    content,
+    attachmentIds,
+    options,
+    sourceChannel,
+    sourceInterface,
+  );
+
+  const requestId = crypto.randomUUID();
+  const messageId = await conversation.persistUserMessage(
+    content,
+    attachments,
+    requestId,
+  );
+
+  const registrar = makePendingInteractionRegistrar(
+    conversation,
+    conversationId,
+  );
+  const onEvent = options?.onEvent
+    ? (msg: ServerMessage) => {
+        registrar(msg);
+        try {
+          options.onEvent!(msg);
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "onEvent callback failed; continuing agent loop",
+          );
+        }
+      }
+    : registrar;
+  if (options?.isInteractive === true) {
+    conversation.updateClient(onEvent, false);
+  }
+
+  conversation
+    .runAgentLoop(content, messageId, onEvent, {
+      isInteractive: options?.isInteractive ?? false,
+      isUserMessage: true,
+      ...(options?.callSite ? { callSite: options.callSite } : {}),
+    })
+    .finally(() => {
+      if (
+        options?.isInteractive === true &&
+        conversation.getCurrentSender() === onEvent
+      ) {
+        conversation.updateClient(() => {}, true);
+      }
+    })
+    .catch((err) => {
+      log.error({ err, conversationId }, "Background agent loop failed");
+    });
+
+  return { messageId };
+}

@@ -34,31 +34,19 @@ export interface SecretPrompterChannelContext {
 
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
-  private sendToClient: (msg: ServerMessage) => void;
   private channelContext?: SecretPrompterChannelContext;
-  /** Tracks requestIds that have been broadcast to prevent duplicate delivery when sendToClient also publishes to the same hub. */
-  private broadcastedRequestIds = new Set<string>();
-
-  constructor(sendToClient: (msg: ServerMessage) => void) {
-    this.sendToClient = sendToClient;
-  }
-
-  updateSender(sendToClient: (msg: ServerMessage) => void): void {
-    this.sendToClient = sendToClient;
-  }
 
   setChannelContext(ctx: SecretPrompterChannelContext | undefined): void {
     this.channelContext = ctx;
   }
 
   /**
-   * Send a secret_request to the client and wait for the response.
+   * Broadcast a secret_request to all connected clients and wait for a
+   * response.
    *
-   * When the conversation originates from a channel that cannot render secure
-   * prompts (e.g. Slack), the request is broadcast to all connected clients
-   * via the SSE hub so the desktop app can display it. If no broadcast path
-   * is available and the channel doesn't support dynamic UI, the method
-   * fails fast with an error result rather than hanging until timeout.
+   * The request is always published to the SSE hub via
+   * {@link broadcastMessage} so any connected client (desktop, web) can
+   * display the secure prompt dialog.
    *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
@@ -75,17 +63,12 @@ export class SecretPrompter {
     allowedTools?: string[],
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
-    // Determine whether the originating channel can render secure prompts.
-    const channelSupportsPrompt =
-      this.channelContext?.supportsDynamicUi !== false;
-
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        this.broadcastedRequestIds.delete(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
@@ -108,24 +91,12 @@ export class SecretPrompter {
         allowOneTimeSend: config.secretDetection.allowOneTimeSend,
       };
 
-      // When the originating channel cannot render secure prompts, broadcast
-      // to the SSE hub so a connected desktop client can pick it up.
-      // Track the requestId to prevent duplicate delivery when sendToClient
-      // also publishes to the same hub (e.g. voice path).
-      if (!channelSupportsPrompt) {
-        this.broadcastedRequestIds.add(requestId);
-        broadcastMessage(msg);
-      }
-      this.sendToClient(msg);
+      broadcastMessage(msg);
     });
   }
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
-  }
-
-  wasBroadcast(requestId: string): boolean {
-    return this.broadcastedRequestIds.has(requestId);
   }
 
   /**
@@ -147,7 +118,6 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    this.broadcastedRequestIds.delete(requestId);
     pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
@@ -159,6 +129,5 @@ export class SecretPrompter {
       );
     }
     this.pending.clear();
-    this.broadcastedRequestIds.clear();
   }
 }

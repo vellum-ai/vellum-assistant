@@ -396,7 +396,7 @@ export class Conversation {
         );
       }
     });
-    this.secretPrompter = new SecretPrompter(sendToClient);
+    this.secretPrompter = new SecretPrompter();
 
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
@@ -632,7 +632,6 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
@@ -850,10 +849,6 @@ export class Conversation {
 
   hasPendingSecret(requestId: string): boolean {
     return this.secretPrompter.hasPendingRequest(requestId);
-  }
-
-  wasSecretBroadcast(requestId: string): boolean {
-    return this.secretPrompter.wasBroadcast(requestId);
   }
 
   handleConfirmationResponse(

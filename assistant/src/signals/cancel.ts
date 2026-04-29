@@ -5,33 +5,22 @@
  * HTTP POST to `/v1/conversations/:id/cancel`. The daemon's ConfigWatcher
  * detects the file change and invokes {@link handleCancelSignal}, which
  * reads the payload and aborts the target conversation.
- *
- * Because the signal handler needs access to the daemon's conversation map, the
- * daemon registers a callback at startup via {@link registerCancelCallback}.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import {
+  findConversation,
+  touchConversation,
+} from "../daemon/conversation-store.js";
+import { getSubagentManager } from "../subagent/index.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:cancel");
-
-// ── Daemon callback registry ─────────────────────────────────────────
-
-type CancelCallback = (conversationId: string) => boolean;
-
-let _cancelGeneration: CancelCallback | null = null;
-
-/**
- * Register the cancel-generation callback. Called once by the daemon
- * server at startup so the signal handler can reach the conversation map.
- */
-export function registerCancelCallback(cb: CancelCallback): void {
-  _cancelGeneration = cb;
-}
 
 // ── Signal handler ───────────────────────────────────────────────────
 
@@ -52,17 +41,19 @@ export function handleCancelSignal(): void {
       return;
     }
 
-    if (!_cancelGeneration) {
-      log.warn("Cancel callback not registered; daemon may not be ready");
+    const conversation = findConversation(conversationId);
+    if (!conversation) {
+      log.warn({ conversationId }, "No active conversation for cancel signal");
       return;
     }
 
-    const found = _cancelGeneration(conversationId);
-    if (found) {
-      log.info({ conversationId }, "Generation cancelled via signal file");
-    } else {
-      log.warn({ conversationId }, "No active conversation for cancel signal");
-    }
+    touchConversation(conversationId);
+    conversation.abort(
+      createAbortReason("signal_cancel", "handleCancelSignal", conversationId),
+    );
+    getSubagentManager().abortAllForParent(conversationId);
+
+    log.info({ conversationId }, "Generation cancelled via signal file");
   } catch (err) {
     log.error({ err }, "Failed to handle cancel signal");
   }
