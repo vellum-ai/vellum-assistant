@@ -250,9 +250,9 @@ public enum PlatformMigrationClient {
 
     /// Imports a migration bundle by sending the raw data directly to the platform.
     ///
-    /// This is the fallback path when signed URL uploads are not available. It matches
-    /// the CLI's `platformImportBundle()` function: POST to `/v1/migrations/import/`
-    /// with the bundle data as an octet-stream body.
+    /// This is the fallback path when signed URL uploads are not available. Mirrors
+    /// the platform's `/v1/migrations/import/` octet-stream contract (the inline-import
+    /// legacy path): POST the bundle data as an octet-stream body.
     ///
     /// - Parameter bundleData: The raw bundle data to import.
     /// - Returns: A tuple of the HTTP status code and raw response data.

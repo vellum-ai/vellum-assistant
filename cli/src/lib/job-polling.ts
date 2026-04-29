@@ -107,7 +107,7 @@ function isTransientPollError(err: unknown): boolean {
  *
  * Transient errors raised by `poll()` (5xx, network hiccups, rate-limits) are
  * retried up to `maxTransientErrors` times before the last error propagates,
- * matching the pre-rewrite `platformPollExportStatus` loop's behavior so a
+ * matching the pre-rewrite migration-export polling loop's behavior so a
  * single flaky poll doesn't abort a migration that may still be running.
  */
 export async function pollJobUntilDone(
