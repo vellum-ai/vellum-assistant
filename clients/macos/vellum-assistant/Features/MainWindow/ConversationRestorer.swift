@@ -150,21 +150,24 @@ final class ConversationRestorer {
         }
 
         // Fetch conversation list on first connect using `.daemonDidReconnect`
-        // — the shared, main-actor-synchronous signal posted by
-        // `GatewayConnectionManager.setConnected(true)`.
+        // — the shared signal posted by `GatewayConnectionManager.setConnected(true)`.
         //
         // An `observationStream` on `isConnected` is inappropriate here:
         // `withObservationTracking` installation and `setConnected(true)`
         // are enqueued on the main actor in an unordered pair, so when the
         // transition lands before tracking is installed the `onChange`
         // callback never fires and the first-connect branch is silently
-        // skipped. `.daemonDidReconnect` is delivered synchronously from
-        // the write site, so it cannot be missed for this reason.
+        // skipped.
         //
-        // The synchronous `isConnected` guard covers the case where the
-        // daemon is already connected at observer-registration time; it is
-        // idempotent because `fetchConversationList` cancels any in-flight
-        // fetch before starting a new one.
+        // The notification is deferred to a separate main-actor turn to
+        // avoid a synchronous NotificationCenter cascade during property
+        // mutation. The synchronous `isConnected` guard below is the
+        // primary safety net — it covers the case where the daemon is
+        // already connected at observer-registration time. The deferred
+        // notification handles the case where connection completes after
+        // this code runs. Both paths are idempotent because
+        // `fetchConversationList` cancels any in-flight fetch before
+        // starting a new one.
         if connectionManager.isConnected {
             fetchConversationList()
         } else {
