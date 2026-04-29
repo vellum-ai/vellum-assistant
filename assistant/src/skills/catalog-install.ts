@@ -30,6 +30,7 @@ export interface CatalogSkill {
   emoji?: string;
   includes?: string[];
   version?: string;
+  updatedAt?: string;
   metadata?: {
     vellum?: {
       "display-name"?: string;
