@@ -112,6 +112,70 @@ describe("host_file_transfer local mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Local-mode to_host tests (source normalization)
+// ---------------------------------------------------------------------------
+
+describe("host_file_transfer local mode to_host", () => {
+  test("relative source_path resolves to workingDir", async () => {
+    const workingDir = makeTempDir();
+    const srcFile = join(workingDir, "report.pdf");
+    writeFileSync(srcFile, "pdf content");
+    const destDir = makeTempDir();
+    const destFile = join(destDir, "report.pdf");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: "report.pdf",
+        dest_path: destFile,
+        direction: "to_host",
+      },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(existsSync(destFile)).toBe(true);
+  });
+
+  test("out-of-bounds source_path is rejected", async () => {
+    const workingDir = makeTempDir();
+    const destDir = makeTempDir();
+    const destFile = join(destDir, "out.txt");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: "../../etc/passwd",
+        dest_path: destFile,
+        direction: "to_host",
+      },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid source path");
+    expect(existsSync(destFile)).toBe(false);
+  });
+
+  test("/workspace remap: source_path /workspace/data.txt maps to workingDir", async () => {
+    const workingDir = makeTempDir();
+    writeFileSync(join(workingDir, "data.txt"), "some data");
+    const destDir = makeTempDir();
+    const destFile = join(destDir, "data.txt");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: "/workspace/data.txt",
+        dest_path: destFile,
+        direction: "to_host",
+      },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(existsSync(destFile)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Managed-mode tests (mock proxy via context.hostTransferProxy)
 // ---------------------------------------------------------------------------
 
@@ -143,6 +207,33 @@ describe("host_file_transfer managed mode", () => {
 
     expect(calls.length).toBe(1);
     expect(calls[0].destPath).toBe(join(workingDir, "relative", "file.txt"));
+  });
+
+  test("to_host relative source is pre-resolved before proxy call", async () => {
+    const workingDir = makeTempDir();
+    writeFileSync(join(workingDir, "doc.md"), "content");
+
+    const calls: Array<{ sourcePath: string }> = [];
+    const mockProxy = {
+      isAvailable: () => true,
+      requestToHost: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
+        calls.push({ sourcePath: args.sourcePath });
+        return Promise.resolve({ content: "ok", isError: false });
+      },
+    };
+    const ctx = { ...makeContext(workingDir), hostTransferProxy: mockProxy as any };
+
+    await hostFileTransferTool.execute(
+      {
+        source_path: "doc.md",
+        dest_path: "/Users/someone/Desktop/doc.md",
+        direction: "to_host",
+      },
+      ctx,
+    );
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].sourcePath).toBe(join(workingDir, "doc.md"));
   });
 
   test("out-of-bounds path rejected before proxy call", async () => {
