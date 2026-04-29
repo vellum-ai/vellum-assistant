@@ -1,10 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  disposeAcpSessionManager,
-  getAcpSessionManager,
-} from "../acp/index.js";
+import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
@@ -36,7 +33,6 @@ import {
   clearConversations,
   conversationEntries,
   deleteConversation,
-  findConversation,
   getConversationMap,
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
@@ -46,7 +42,6 @@ import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
-
 
 const log = getLogger("server");
 
@@ -160,85 +155,7 @@ export class DaemonServer {
         (c) => c.status === "running" || c.status === "pending",
       );
     };
-    getSubagentManager().onSubagentFinished = async (
-      parentConversationId,
-      message,
-      sendToClient,
-      notification,
-    ) => {
-      const parentConversation = findConversation(parentConversationId);
-      if (!parentConversation) {
-        log.warn(
-          { parentConversationId },
-          "Subagent finished but parent conversation not found",
-        );
-        return;
-      }
-      const requestId = `subagent-notify-${Date.now()}`;
-      const metadata = { subagentNotification: notification };
-      const enqueueResult = parentConversation.enqueueMessage(
-        message,
-        [],
-        sendToClient,
-        requestId,
-        undefined,
-        undefined,
-        metadata,
-      );
-      if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentConversation.persistUserMessage(
-          message,
-          [],
-          undefined,
-          metadata,
-        );
-        parentConversation
-          .runAgentLoop(message, messageId, sendToClient)
-          .catch((err) => {
-            log.error(
-              { parentConversationId, err },
-              "Failed to process subagent notification in parent",
-            );
-          });
-      }
-    };
-    getAcpSessionManager().onAcpSessionFinished = async (
-      parentConversationId,
-      message,
-      sendToClient,
-    ) => {
-      const parentConversation = findConversation(parentConversationId);
-      if (!parentConversation) {
-        log.warn(
-          { parentConversationId },
-          "ACP agent finished but parent conversation not found",
-        );
-        return;
-      }
-      const requestId = `acp-notify-${Date.now()}`;
-      const enqueueResult = parentConversation.enqueueMessage(
-        message,
-        [],
-        sendToClient,
-        requestId,
-      );
-      if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentConversation.persistUserMessage(
-          message,
-          [],
-        );
-        parentConversation
-          .runAgentLoop(message, messageId, sendToClient)
-          .catch((err: unknown) => {
-            log.error(
-              { parentConversationId, err },
-              "Failed to process ACP notification in parent",
-            );
-          });
-      }
-    };
   }
-
 
   private broadcastIdentityChanged(): void {
     try {
@@ -478,5 +395,3 @@ export class DaemonServer {
     return getOrCreateActiveConversation(conversationId, options);
   }
 }
-
-

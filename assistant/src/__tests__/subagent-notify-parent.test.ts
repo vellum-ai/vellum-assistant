@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
+// ── Module mocks (must come before any imports that transitively load these) ──
+
 // Mock conversation-crud before importing tool executors that depend on it.
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -25,6 +27,29 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessages: () => null,
   createConversation: () => ({ id: "mock-conv" }),
+}));
+
+/**
+ * Captured messages from injectMessageIntoParent → findConversation → enqueueMessage.
+ * Each test can read this after triggering a notification.
+ */
+const capturedMessages: string[] = [];
+
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (_id: string) => ({
+    enqueueMessage: (content: string) => {
+      capturedMessages.push(content);
+      return { queued: true };
+    },
+    persistUserMessage: async () => "mock-msg",
+    runAgentLoop: async () => {},
+  }),
+  addConversation: () => {},
+  removeConversation: () => {},
+}));
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: () => {},
 }));
 
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
@@ -108,6 +133,15 @@ function makeContext(
   } as import("../tools/types.js").ToolContext;
 }
 
+/** Drain capturedMessages and return the latest one. */
+function lastCapturedMessage(): string {
+  return capturedMessages[capturedMessages.length - 1] ?? "";
+}
+
+function clearCaptured(): void {
+  capturedMessages.length = 0;
+}
+
 // ── Tool definition ────────────────────────────────────────────────
 
 describe("notify_parent tool definition", () => {
@@ -173,33 +207,25 @@ describe("executeSubagentNotifyParent", () => {
   });
 
   test("succeeds when called from a subagent conversation", async () => {
+    clearCaptured();
     const manager = getSubagentManager();
     const subagentId = "notify-sub-1";
     const parentConversationId = "notify-parent-1";
     injectSubagent(manager, subagentId, parentConversationId, "running");
 
-    // Wire up the onSubagentFinished callback.
-    let capturedMessage = "";
-    manager.onSubagentFinished = (_parentId: string, message: string) => {
-      capturedMessage = message;
-    };
-
-    try {
-      const result = await executeSubagentNotifyParent(
-        { message: "Found key results", urgency: "important" },
-        makeContext(`conv-${subagentId}`),
-      );
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(parsed.sent).toBe(true);
-      expect(parsed.urgency).toBe("important");
-      expect(capturedMessage).toContain("Found key results");
-    } finally {
-      manager.onSubagentFinished = undefined;
-    }
+    const result = await executeSubagentNotifyParent(
+      { message: "Found key results", urgency: "important" },
+      makeContext(`conv-${subagentId}`),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.sent).toBe(true);
+    expect(parsed.urgency).toBe("important");
+    expect(lastCapturedMessage()).toContain("Found key results");
   });
 
   test("formats message with label and urgency", async () => {
+    clearCaptured();
     const manager = getSubagentManager();
     const subagentId = "notify-format-1";
     const parentConversationId = "notify-format-parent";
@@ -212,22 +238,13 @@ describe("executeSubagentNotifyParent", () => {
       },
     });
 
-    let capturedMessage = "";
-    manager.onSubagentFinished = (_parentId: string, message: string) => {
-      capturedMessage = message;
-    };
-
-    try {
-      await executeSubagentNotifyParent(
-        { message: "Preliminary findings ready", urgency: "info" },
-        makeContext(`conv-${subagentId}`),
-      );
-      expect(capturedMessage).toBe(
-        '[Subagent "Research Task" — info] Preliminary findings ready',
-      );
-    } finally {
-      manager.onSubagentFinished = undefined;
-    }
+    await executeSubagentNotifyParent(
+      { message: "Preliminary findings ready", urgency: "info" },
+      makeContext(`conv-${subagentId}`),
+    );
+    expect(lastCapturedMessage()).toBe(
+      '[Subagent "Research Task" — info] Preliminary findings ready',
+    );
   });
 
   test("returns error when message is empty", async () => {
@@ -254,44 +271,30 @@ describe("executeSubagentNotifyParent", () => {
     const parentConversationId = "notify-default-urg-parent";
     injectSubagent(manager, subagentId, parentConversationId, "running");
 
-    manager.onSubagentFinished = () => {};
-
-    try {
-      const result = await executeSubagentNotifyParent(
-        { message: "Progress update" },
-        makeContext(`conv-${subagentId}`),
-      );
-      expect(result.isError).toBe(false);
-      const parsed = JSON.parse(result.content);
-      expect(parsed.urgency).toBe("info");
-    } finally {
-      manager.onSubagentFinished = undefined;
-    }
+    const result = await executeSubagentNotifyParent(
+      { message: "Progress update" },
+      makeContext(`conv-${subagentId}`),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.urgency).toBe("info");
   });
 
   test("appends guidance hint for blocked urgency", async () => {
+    clearCaptured();
     const manager = getSubagentManager();
     const subagentId = "notify-blocked-1";
     const parentConversationId = "notify-blocked-parent";
     injectSubagent(manager, subagentId, parentConversationId, "running");
 
-    let capturedMessage = "";
-    manager.onSubagentFinished = (_parentId: string, message: string) => {
-      capturedMessage = message;
-    };
-
-    try {
-      await executeSubagentNotifyParent(
-        { message: "Need API key to proceed", urgency: "blocked" },
-        makeContext(`conv-${subagentId}`),
-      );
-      expect(capturedMessage).toContain("Need API key to proceed");
-      expect(capturedMessage).toContain(
-        "Use subagent_message to send guidance to this subagent.",
-      );
-    } finally {
-      manager.onSubagentFinished = undefined;
-    }
+    await executeSubagentNotifyParent(
+      { message: "Need API key to proceed", urgency: "blocked" },
+      makeContext(`conv-${subagentId}`),
+    );
+    expect(lastCapturedMessage()).toContain("Need API key to proceed");
+    expect(lastCapturedMessage()).toContain(
+      "Use subagent_message to send guidance to this subagent.",
+    );
   });
 });
 
@@ -306,35 +309,29 @@ describe("SubagentManager.notifyParent", () => {
       const parentConversationId = `notify-terminal-parent-${terminalStatus}`;
       injectSubagent(manager, subagentId, parentConversationId, terminalStatus);
 
-      manager.onSubagentFinished = () => {};
-
-      try {
-        const result = manager.notifyParent(
-          `conv-${subagentId}`,
-          "Should not arrive",
-          "info",
-        );
-        expect(result).toBe(false);
-      } finally {
-        manager.onSubagentFinished = undefined;
-      }
+      const result = manager.notifyParent(
+        `conv-${subagentId}`,
+        "Should not arrive",
+        "info",
+      );
+      expect(result).toBe(false);
     }
   });
 
-  test("returns false when onSubagentFinished is not wired", () => {
+  test("returns true for running subagent (injects into parent via findConversation)", () => {
+    clearCaptured();
     const manager = getSubagentManager();
-    const subagentId = "notify-no-callback-1";
-    const parentConversationId = "notify-no-callback-parent";
+    const subagentId = "notify-running-1";
+    const parentConversationId = "notify-running-parent";
     injectSubagent(manager, subagentId, parentConversationId, "running");
-
-    manager.onSubagentFinished = undefined;
 
     const result = manager.notifyParent(
       `conv-${subagentId}`,
       "Test message",
       "info",
     );
-    expect(result).toBe(false);
+    expect(result).toBe(true);
+    expect(lastCapturedMessage()).toContain("Test message");
   });
 });
 
