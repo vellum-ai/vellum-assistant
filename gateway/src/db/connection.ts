@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
-import { runDataMigrations } from "./data-migrations/index.js";
 import * as schema from "./schema.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
 import { TrustRuleStore } from "./trust-rule-store.js";
@@ -134,8 +133,6 @@ export async function initGatewayDb(): Promise<void> {
   if (statementsToExecute.length > 0) {
     await apply();
   }
-
-  runDataMigrations(getRawDb(db));
 
   const trustRuleStore = new TrustRuleStore(db);
   seedTrustRulesFromRegistry(trustRuleStore);
