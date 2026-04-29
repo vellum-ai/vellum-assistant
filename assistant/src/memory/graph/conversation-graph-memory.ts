@@ -235,7 +235,7 @@ export class ConversationGraphMemory {
     }
     // Re-track node IDs since onCompacted evicted them
     this.tracker.add(this.lastInjectedNodeIds);
-    // Strip any existing <memory __injected> blocks from the last user message
+    // Strip any existing <memory> blocks from the last user message
     // before re-injecting, so compaction sites don't end up with duplicates.
     const cleaned = stripExistingMemoryInjections(messages);
 
@@ -264,7 +264,7 @@ export class ConversationGraphMemory {
    * Re-register cached node IDs with the InContextTracker after compaction
    * WITHOUT modifying messages. Use this at post-agent-loop compaction sites
    * where the memory block already survives on the original user message
-   * (since `<memory __injected>` is not stripped by stripInjectionsForCompaction).
+   * (since `<memory>` is not stripped by stripInjectionsForCompaction).
    *
    * Calling reinjectCachedMemory at these sites would inject a duplicate
    * onto the last user message — which after tool calls is a tool_result,
@@ -699,7 +699,7 @@ export class ConversationGraphMemory {
  * Count the leading content blocks on a user message that were added by
  * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
  * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory __injected>…</memory>` text block. A legacy
+ * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted). A legacy
  * 2-block image pattern (no closing tag) is also accepted for backward
  * compatibility. The injection prefix is always contiguous at the start,
  * so we stop at the first non-memory block.
@@ -712,7 +712,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
     const block = content[firstNonMemory];
     if (
       block.type === "text" &&
-      block.text.startsWith("<memory __injected>\n")
+      (block.text.startsWith("<memory>\n") ||
+        block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
@@ -747,7 +748,7 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
  *
  * `injectMemoryBlock` always prepends blocks in this order:
  *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
- *   2. `<memory __injected>…</memory>` text block
+ *   2. `<memory>…</memory>` text block
  *
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
@@ -795,7 +796,7 @@ function injectTextBlock(messages: Message[], text: string): Message[] {
       content: [
         {
           type: "text" as const,
-          text: `<memory __injected>\n${text}\n</memory>`,
+          text: `<memory>\n${text}\n</memory>`,
         },
         ...userTail.content,
       ],
@@ -839,7 +840,7 @@ function injectMemoryBlock(
 
   blocks.push({
     type: "text" as const,
-    text: `<memory __injected>\n${text}\n</memory>`,
+    text: `<memory>\n${text}\n</memory>`,
   });
 
   return [
@@ -861,7 +862,7 @@ function extractUserText(message: Message): string | null {
 }
 
 /**
- * Prepend a pre-rendered `<memory __injected>` block (produced by
+ * Prepend a pre-rendered `<memory>` block (produced by
  * `injectMemoryV2Block`) to the last user message. Unlike v1's
  * {@link injectMemoryBlock}, the input here is already wrapped — we
  * just need to attach it as a leading text block. We still strip any

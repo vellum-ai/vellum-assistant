@@ -337,7 +337,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
 
     expect(result.mode).toBe("per-turn");
     expect(result.injectedBlockText).not.toBeNull();
-    expect(result.injectedBlockText).toContain("<memory __injected>");
+    expect(result.injectedBlockText).toContain("<memory>");
     expect(result.injectedBlockText).toContain("### alice-vscode");
 
     // The leading content block on the user message is the v2 block.
@@ -346,7 +346,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     const firstBlock = lastMsg?.content[0];
     expect(firstBlock?.type).toBe("text");
     if (firstBlock?.type !== "text") throw new Error("unexpected block type");
-    expect(firstBlock.text).toContain("<memory __injected>");
+    expect(firstBlock.text).toContain("<memory>");
   });
 
   test("flag on + config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
@@ -388,7 +388,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).not.toBeNull();
-    expect(result.injectedBlockText).toContain("<memory __injected>");
+    expect(result.injectedBlockText).toContain("<memory>");
   });
 
   test("flag off → v2 not run on first turn either", async () => {

@@ -177,7 +177,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([
       {
         type: "text",
-        text: "<memory __injected>\nremember: alice\n</memory>",
+        text: "<memory>\nremember: alice\n</memory>",
       },
       { type: "text", text: "Hi" },
     ]);
@@ -215,7 +215,7 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     expect(messages).toHaveLength(3);
     // m1 is historical (not tail) — all three blocks should rehydrate in the
-    // documented shape: [<turn_context>, <memory __injected>, <system_reminder>, ...original]
+    // documented shape: [<turn_context>, <memory>, <system_reminder>, ...original]
     expect(messages[0].role).toBe("user");
     expect(messages[0].content).toEqual([
       {
@@ -224,7 +224,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       },
       {
         type: "text",
-        text: "<memory __injected>\nmem payload\n</memory>",
+        text: "<memory>\nmem payload\n</memory>",
       },
       {
         type: "text",
@@ -271,7 +271,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([
       {
         type: "text",
-        text: "<memory __injected>\nmem payload\n</memory>",
+        text: "<memory>\nmem payload\n</memory>",
       },
       { type: "text", text: "Tail turn" },
     ]);

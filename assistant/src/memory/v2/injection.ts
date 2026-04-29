@@ -14,7 +14,7 @@
 //   7. If no new slugs, render nothing — caller leaves the prior cached
 //      attachments on prior user messages exactly as Anthropic prompt caching
 //      requires.
-//   8. Otherwise render a `<memory __injected>` block scoped to the *new* slugs
+//   8. Otherwise render a `<memory>` block scoped to the *new* slugs
 //      ordered by activation (descending) and persist the updated state +
 //      everInjected list (with `currentTurn` annotated) so future turns can
 //      append-inject cache-stably.
@@ -49,7 +49,7 @@ import type { ActivationState, EverInjectedEntry } from "./types.js";
  * Discriminator the wiring layer (`conversation-graph-memory.ts`) sets to
  * tell the v2 injector which call site is asking. Both modes currently share
  * the same block layout (mirroring v1 which also wraps both flows in
- * `<memory __injected>...</memory>`); the parameter exists so future tuning
+ * `<memory>...</memory>`); the parameter exists so future tuning
  * can shape the conversation-start block without touching the call site.
  */
 export type InjectMemoryV2Mode = "context-load" | "per-turn";
@@ -81,7 +81,7 @@ export interface InjectMemoryV2BlockParams {
 
 export interface InjectMemoryV2BlockResult {
   /**
-   * Rendered `<memory __injected>` block, ready to prepend to the current
+   * Rendered `<memory>` block, ready to prepend to the current
    * user message — or `null` when nothing new is eligible for injection.
    * `null` is the cache-stable default: the caller adds nothing to the new
    * user message and prior attachments stay byte-identical.
@@ -235,7 +235,7 @@ export async function injectMemoryV2Block(
 // ---------------------------------------------------------------------------
 
 /**
- * Render the `<memory __injected>` block for a list of slugs and a list of
+ * Render the `<memory>` block for a list of slugs and a list of
  * ranked skill ids.
  *
  * Concept pages are read in parallel via `readPage`. Pages whose file has
@@ -250,7 +250,7 @@ export async function injectMemoryV2Block(
  * The block shape is the §5 layout from the design doc, with an optional
  * trailing skills subsection:
  *
- *   <memory __injected>
+ *   <memory>
  *   ## What I Remember Right Now
  *   ### <slug-1>
  *   <body-1>
@@ -303,5 +303,5 @@ async function renderInjectionBlock(
   if (sections.length === 0) return null;
 
   const inner = `## What I Remember Right Now\n\n${sections.join("\n\n")}`;
-  return `<memory __injected>\n${inner}\n</memory>`;
+  return `<memory>\n${inner}\n</memory>`;
 }

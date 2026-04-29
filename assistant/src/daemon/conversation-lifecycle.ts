@@ -244,7 +244,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
             content = [
               {
                 type: "text" as const,
-                text: `<memory __injected>\n${meta.memoryInjectedBlock}\n</memory>`,
+                text: `<memory>\n${meta.memoryInjectedBlock}\n</memory>`,
               },
               ...content,
             ];
