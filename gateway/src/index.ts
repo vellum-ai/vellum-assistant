@@ -467,7 +467,8 @@ async function main() {
     {
       path: "/inbound/register",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "internal.write",
       handler: (req) => handleInboundRegister(req),
     },
 
