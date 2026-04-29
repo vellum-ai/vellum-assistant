@@ -264,7 +264,7 @@ struct SettingsPanel: View {
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
                 if allVisibleTabs.contains(tab) {
-                    selectedTab = tab
+                    selectVisibleTab(tab)
                 } else {
                     deferredDeepLinkTab = tab
                 }
@@ -277,7 +277,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
                 guard allVisibleTabs.contains(tab) else { return }
-                selectedTab = tab
+                selectVisibleTab(tab)
             }
         }
         .onChange(of: billingVisible) { _, _ in
@@ -437,7 +437,7 @@ struct SettingsPanel: View {
                 id: \.self
             ) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
-                    selectedTab = tab
+                    selectVisibleTab(tab)
                 }
             }
             Spacer(minLength: VSpacing.sm)
@@ -447,7 +447,7 @@ struct SettingsPanel: View {
                     .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
                     .padding(.trailing, VSpacing.md)
                 VNavItem(icon: SettingsTab.developer.icon.rawValue, label: "Developer", isActive: selectedTab == .developer) {
-                    selectedTab = .developer
+                    selectVisibleTab(.developer)
                 }
             }
         }
@@ -460,6 +460,11 @@ struct SettingsPanel: View {
         if !allVisibleTabs.contains(selectedTab) {
             selectedTab = .general
         }
+    }
+
+    private func selectVisibleTab(_ tab: SettingsTab) {
+        selectedTab = tab
+        deferredDeepLinkTab = nil
     }
 
     // MARK: - Tab Content Router
@@ -798,8 +803,7 @@ struct SettingsPanel: View {
             return
         }
         if allVisibleTabs.contains(deferred) {
-            selectedTab = deferred
-            deferredDeepLinkTab = nil
+            selectVisibleTab(deferred)
         }
         ensureSelectedTabIsVisible()
     }
