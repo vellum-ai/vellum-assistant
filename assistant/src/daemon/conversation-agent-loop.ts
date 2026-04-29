@@ -167,6 +167,7 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
+import { isDiskSpaceLocked } from "./disk-space-guard.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -598,6 +599,17 @@ export async function runAgentLoopImpl(
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error("runAgentLoop called without prior persistUserMessage");
+  }
+
+  if (isDiskSpaceLocked()) {
+    onEvent({
+      type: "error",
+      code: "DISK_SPACE_CRITICAL",
+      message:
+        "Disk usage has reached 95%. The assistant is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.",
+      category: "disk_space_locked",
+    });
+    return;
   }
 
   // Initialize per-turn persona snapshots for callers (subagent manager,
