@@ -27,18 +27,15 @@ final class HomeFeedTimeGroupTests: XCTestCase {
     ) -> FeedItem {
         FeedItem(
             id: id,
-            type: .nudge,
+            type: .notification,
             priority: 50,
             title: "t-\(id)",
             summary: "s-\(id)",
-            source: nil,
             timestamp: createdAt,
             status: .new,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
             urgency: nil,
-            author: .assistant,
             createdAt: createdAt
         )
     }

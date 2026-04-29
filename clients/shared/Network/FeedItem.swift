@@ -7,6 +7,15 @@ import Foundation
 /// source of truth — any change there must be mirrored here so a JSON
 /// blob produced by the daemon decodes byte-for-byte on the macOS side.
 ///
+/// **v2 schema collapse** — feed items now have a single `notification`
+/// type. The legacy `nudge | digest | action | thread` distinctions
+/// (and the `source` / `author` / `minTimeAway` fields that supported
+/// them) have been removed; everything that lands in the home feed is
+/// a notification, with the writer's only merge rule being "same `id`
+/// replaces in place, otherwise append". Workspace migration
+/// `061-home-feed-notification-only` rewrites pre-v2 files on first
+/// boot.
+///
 /// The TDD contract field originally named `ttl` is renamed internally
 /// to `expiresAt` on both sides — it is an absolute ISO-8601 timestamp,
 /// not a duration. See the TypeScript module comment for rationale.
@@ -18,11 +27,13 @@ import Foundation
 // MARK: - Enums
 
 /// High-level kind of feed item — drives which Swift view renders it.
+///
+/// Collapsed to a single `notification` case in v2. Kept as an enum
+/// (rather than removed entirely) so the JSON `"type": "notification"`
+/// field continues to decode and to leave room for future types
+/// without another wire-format change.
 public enum FeedItemType: String, Codable, Sendable, Hashable {
-    case nudge
-    case digest
-    case action
-    case thread
+    case notification
 }
 
 /// User-facing lifecycle of a feed item.
@@ -33,35 +44,12 @@ public enum FeedItemStatus: String, Codable, Sendable, Hashable {
     case dismissed
 }
 
-/// Origin of the underlying event.
-///
-/// In v1 this is constrained to a closed set so the Swift icon mapping
-/// stays exhaustive. Future sources will be added explicitly rather
-/// than letting arbitrary strings slip through.
-public enum FeedItemSource: String, Codable, Sendable, Hashable {
-    case gmail
-    case slack
-    case calendar
-    case assistant
-    case telegram
-}
-
 /// Visual urgency treatment — controls badge color independently of sort priority.
 public enum FeedItemUrgency: String, Codable, Sendable, Hashable {
     case low
     case medium
     case high
     case critical
-}
-
-/// Internal field used by the hybrid authoring resolver.
-///
-/// Distinguishes items the assistant produced on its own from items
-/// the platform baseline generators produced, so assistant overrides
-/// can win over platform defaults for the same source.
-public enum FeedItemAuthor: String, Codable, Sendable, Hashable {
-    case assistant
-    case platform
 }
 
 // MARK: - FeedAction
@@ -103,13 +91,16 @@ public struct FeedItemDetailPanel: Codable, Sendable, Hashable {
 
 // MARK: - FeedItem
 
-/// A single item rendered in the Home feed.
+/// A single item rendered in the Home feed (schema **v2**).
 ///
-/// Mirrors the TDD contract plus two internal-only fields:
-///   - `author`    — hybrid-authoring resolver discriminator
+/// Mirrors the TDD contract plus one internal-only field:
 ///   - `createdAt` — when the writer recorded the item (distinct from
 ///                   `timestamp`, which is the event time). Used for
 ///                   TTL sweeps and stable ordering.
+///
+/// In v2 every feed item is a `.notification` — the legacy
+/// `source` / `author` / `minTimeAway` discriminators were removed when
+/// the type collapsed. See the module comment above for rationale.
 public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let id: String
     public let type: FeedItemType
@@ -117,15 +108,11 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let priority: Int
     public let title: String
     public let summary: String
-    /// Optional; when present must be one of the four v1 sources.
-    public let source: FeedItemSource?
     /// Event time.
     public let timestamp: Date
     public let status: FeedItemStatus
     /// Absolute expiry timestamp (renamed from TDD `ttl`).
     public let expiresAt: Date?
-    /// Minimum seconds the user must be away before the item is shown.
-    public let minTimeAway: TimeInterval?
     public let actions: [FeedAction]?
     /// Visual urgency treatment — controls badge color independently of sort priority.
     public let urgency: FeedItemUrgency?
@@ -133,8 +120,6 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let conversationId: String?
     /// Server-driven detail panel descriptor; when present, the client opens this panel kind.
     public let detailPanel: FeedItemDetailPanel?
-    /// Internal: who authored this item.
-    public let author: FeedItemAuthor
     /// Internal: writer-record time, used for ordering + TTL.
     public let createdAt: Date
 
@@ -144,16 +129,13 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         priority: Int,
         title: String,
         summary: String,
-        source: FeedItemSource? = nil,
         timestamp: Date,
         status: FeedItemStatus,
         expiresAt: Date? = nil,
-        minTimeAway: TimeInterval? = nil,
         actions: [FeedAction]? = nil,
         urgency: FeedItemUrgency? = nil,
         conversationId: String? = nil,
         detailPanel: FeedItemDetailPanel? = nil,
-        author: FeedItemAuthor,
         createdAt: Date
     ) {
         self.id = id
@@ -161,16 +143,13 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         self.priority = priority
         self.title = title
         self.summary = summary
-        self.source = source
         self.timestamp = timestamp
         self.status = status
         self.expiresAt = expiresAt
-        self.minTimeAway = minTimeAway
         self.actions = actions
         self.urgency = urgency
         self.conversationId = conversationId
         self.detailPanel = detailPanel
-        self.author = author
         self.createdAt = createdAt
     }
 }
@@ -231,9 +210,12 @@ public struct LowPriorityCollapsed: Codable, Sendable, Hashable {
 /// On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
 ///
 /// Written by the daemon feed writer, read by the daemon HTTP route
-/// and the macOS `HomeFeedStore` (lands in a later PR). `version` is
-/// pinned to `1`; future format changes bump this and live behind a
-/// workspace migration.
+/// and the macOS `HomeFeedStore`. `version` is currently `2` (the
+/// collapsed-schema format); pre-v2 files are rewritten by workspace
+/// migration `061-home-feed-notification-only`. The Swift type keeps
+/// `version` as `Int` (rather than a literal) for forward-compatibility —
+/// the client tolerates higher version numbers and lets the daemon
+/// gate which format it actually serves.
 public struct HomeFeedFile: Codable, Sendable, Hashable {
     public let version: Int
     public let items: [FeedItem]

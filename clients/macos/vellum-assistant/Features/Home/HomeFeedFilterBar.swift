@@ -4,16 +4,21 @@ import VellumAssistantShared
 /// Horizontal filter bar rendered between the suggestion pills and the
 /// time-grouped Home feed.
 ///
-/// Layout: "Filter:" caption + four icon-circle chips + an animated
-/// label that appears when a chip is selected. Chips are single-select:
-/// tapping a chip makes it the active filter; tapping the active chip
-/// again clears the filter. A nil ``selected`` means "show everything".
+/// Layout: "Filter:" caption + a single icon-circle chip + an animated
+/// label that appears when the chip is selected. The chip is single-select:
+/// tapping it makes it the active filter; tapping the active chip again
+/// clears the filter. A nil ``selected`` means "show everything".
+///
+/// Pre-v2 the bar exposed four chips (one per `FeedItemType` case). With
+/// the schema collapse to a single `notification` type the bar reduces to
+/// one chip; PR 17 is expected to remove the bar entirely once the
+/// downstream UI no longer needs a filter affordance.
 struct HomeFeedFilterBar: View {
     let selected: FeedItemType?
     let onToggle: (FeedItemType) -> Void
 
     /// Kept as a static list so the iteration order is deterministic.
-    private static let chipOrder: [FeedItemType] = [.nudge, .action, .digest, .thread]
+    private static let chipOrder: [FeedItemType] = [.notification]
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
@@ -46,9 +51,9 @@ struct HomeFeedFilterBar: View {
 /// Selected-state treatment: a thin 1.5pt `strokeBorder` in
 /// `VColor.contentDefault` wrapped around the existing chip fill.
 /// Picked over "boost saturation" because the chip fills already
-/// carry semantic color (red/blue/green/amber); changing their
-/// opacity would blur the type signal. A neutral outline reads as
-/// "selected" without competing with the type tint.
+/// carry semantic color; changing their opacity would blur the
+/// signal. A neutral outline reads as "selected" without competing
+/// with the chip tint.
 private struct HomeFeedFilterChip: View {
     let type: FeedItemType
     let isSelected: Bool
@@ -81,35 +86,27 @@ private struct HomeFeedFilterChip: View {
 
     // MARK: - Per-type styling
 
+    /// Pre-v2 each type had its own glyph (heart / arrowLeft / bell /
+    /// calendar). With only `.notification` left we settle on the bell
+    /// glyph as the generic "you have a notification" affordance.
     private var icon: VIcon {
         switch type {
-        case .nudge:   return .heart
-        case .action:  return .arrowLeft
-        case .digest:  return .bell
-        case .thread:  return .calendar
+        case .notification: return .bell
         }
     }
 
-    /// Glyph color. `.action` uses the info/blue pair; the other three
-    /// use the dedicated feed-type pairs (pink / teal / amber per Figma).
-    /// See `ColorTokens.swift`.
+    /// Glyph color. Single-tint now that the type discriminator is gone;
+    /// see `ColorTokens.swift` for the underlying tokens.
     private var foreground: Color {
         switch type {
-        case .nudge:   return VColor.feedNudgeStrong
-        case .action:  return VColor.systemInfoStrong
-        case .digest:  return VColor.feedDigestStrong
-        case .thread:  return VColor.feedThreadStrong
+        case .notification: return VColor.feedDigestStrong
         }
     }
 
-    /// Tinted circle fill. Paired with `foreground` above to match
-    /// the Figma chip-by-chip color mapping.
+    /// Tinted circle fill paired with `foreground` above.
     private var background: Color {
         switch type {
-        case .nudge:   return VColor.feedNudgeWeak
-        case .action:  return VColor.systemInfoWeak
-        case .digest:  return VColor.feedDigestWeak
-        case .thread:  return VColor.feedThreadWeak
+        case .notification: return VColor.feedDigestWeak
         }
     }
 
@@ -117,10 +114,7 @@ private struct HomeFeedFilterChip: View {
     /// caption in the filter bar.
     static func label(for type: FeedItemType) -> String {
         switch type {
-        case .nudge:   return "Heartbeat"
-        case .action:  return "Needs attention"
-        case .digest:  return "Just so you know"
-        case .thread:  return "Scheduled"
+        case .notification: return "Notifications"
         }
     }
 

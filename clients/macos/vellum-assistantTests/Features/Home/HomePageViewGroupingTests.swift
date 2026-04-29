@@ -17,7 +17,7 @@ final class HomePageViewGroupingTests: XCTestCase {
 
     private func makeItem(
         id: String,
-        type: FeedItemType = .digest,
+        type: FeedItemType = .notification,
         priority: Int,
         createdAt: Date = Date(timeIntervalSince1970: 1_760_000_000)
     ) -> FeedItem {
@@ -27,14 +27,11 @@ final class HomePageViewGroupingTests: XCTestCase {
             priority: priority,
             title: "t-\(id)",
             summary: "s-\(id)",
-            source: nil,
             timestamp: createdAt,
             status: .new,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
             urgency: nil,
-            author: .assistant,
             createdAt: createdAt
         )
     }
@@ -92,18 +89,22 @@ final class HomePageViewGroupingTests: XCTestCase {
 
     // MARK: - Tests
 
-    func test_groupedFeed_collapsesLowPriorityDigests() async {
-        // Five contiguous low-priority digests should collapse into a
-        // single `.group` row with ≥ 3 children. The two normal items
-        // (nudge/action) render as `.single` rows, regardless of bucket.
+    func test_groupedFeed_collapsesLowPriorityRun() async {
+        // Five contiguous low-priority items should collapse into a
+        // single `.group` row with ≥ 3 children. The two high-priority
+        // items render as `.single` rows, regardless of bucket.
+        //
+        // Pre-v2 the eligibility check also required `type == .digest`;
+        // the schema collapsed types to a single `.notification` case so
+        // low-priority is now the sole grouping signal.
         let items: [FeedItem] = [
-            makeItem(id: "nudge",  type: .nudge,  priority: 90),
-            makeItem(id: "action", type: .action, priority: 80),
-            makeItem(id: "d1",     type: .digest, priority: 20),
-            makeItem(id: "d2",     type: .digest, priority: 15),
-            makeItem(id: "d3",     type: .digest, priority: 10),
-            makeItem(id: "d4",     type: .digest, priority: 7),
-            makeItem(id: "d5",     type: .digest, priority: 5),
+            makeItem(id: "high1", priority: 90),
+            makeItem(id: "high2", priority: 80),
+            makeItem(id: "low1",  priority: 20),
+            makeItem(id: "low2",  priority: 15),
+            makeItem(id: "low3",  priority: 10),
+            makeItem(id: "low4",  priority: 7),
+            makeItem(id: "low5",  priority: 5),
         ]
         let feedStore = await makeFeedStore(items: items)
         let view = makeView(feedStore: feedStore)
@@ -116,45 +117,44 @@ final class HomePageViewGroupingTests: XCTestCase {
             return nil
         }
 
-        XCTAssertFalse(groupRows.isEmpty, "Expected at least one .group row for the low-priority digest run")
+        XCTAssertFalse(groupRows.isEmpty, "Expected at least one .group row for the low-priority run")
         XCTAssertTrue(
             groupRows.contains(where: { $0.count >= 3 }),
-            "Expected a .group row with ≥ 3 children (digest run had 5 items)"
+            "Expected a .group row with ≥ 3 children (low-priority run had 5 items)"
         )
     }
 
+    /// With the v2 schema collapse the filter accepts a single
+    /// `.notification` value; selecting it returns the same item set as
+    /// no filter at all, so both branches must produce the grouped row.
+    /// PR 17 will retire the filter affordance entirely once the
+    /// downstream UI no longer needs it.
     func test_groupedFeed_respectsTypeFilter() async {
-        // Same fixture as the collapse test. With `filter = .digest` the
-        // digest run is retained and still collapses into a group. With
-        // `filter = .nudge` only the single nudge row survives — no
-        // digest run means no `.group` emission.
         let items: [FeedItem] = [
-            makeItem(id: "nudge",  type: .nudge,  priority: 90),
-            makeItem(id: "action", type: .action, priority: 80),
-            makeItem(id: "d1",     type: .digest, priority: 20),
-            makeItem(id: "d2",     type: .digest, priority: 15),
-            makeItem(id: "d3",     type: .digest, priority: 10),
-            makeItem(id: "d4",     type: .digest, priority: 7),
-            makeItem(id: "d5",     type: .digest, priority: 5),
+            makeItem(id: "high1", priority: 90),
+            makeItem(id: "high2", priority: 80),
+            makeItem(id: "low1",  priority: 20),
+            makeItem(id: "low2",  priority: 15),
+            makeItem(id: "low3",  priority: 10),
+            makeItem(id: "low4",  priority: 7),
+            makeItem(id: "low5",  priority: 5),
         ]
         let feedStore = await makeFeedStore(items: items)
         let view = makeView(feedStore: feedStore)
 
-        let digestOnly = view.groupedFeed(for: .digest).flatMap { $0.rows }
-        XCTAssertTrue(
-            digestOnly.contains(where: {
-                if case .group = $0 { return true } else { return false }
-            }),
-            "Filtering to .digest should still produce a grouped row"
-        )
+        let unfiltered = view.groupedFeed(for: nil).flatMap { $0.rows }
+        let notificationOnly = view.groupedFeed(for: .notification).flatMap { $0.rows }
 
-        let nudgeOnly = view.groupedFeed(for: .nudge).flatMap { $0.rows }
-        XCTAssertFalse(
-            nudgeOnly.contains(where: {
+        XCTAssertEqual(
+            unfiltered.map(\.id),
+            notificationOnly.map(\.id),
+            "Filtering to .notification must match unfiltered output now that the type discriminator is gone"
+        )
+        XCTAssertTrue(
+            notificationOnly.contains(where: {
                 if case .group = $0 { return true } else { return false }
             }),
-            "Filtering to .nudge should emit no grouped rows (digests are filtered out before grouping)"
+            "Filtering to .notification should still produce the grouped low-priority run"
         )
-        XCTAssertEqual(nudgeOnly.count, 1, "Only the single nudge should survive the filter")
     }
 }

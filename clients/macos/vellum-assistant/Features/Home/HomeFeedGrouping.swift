@@ -15,32 +15,36 @@ enum HomeFeedGroupedRow: Hashable {
     }
 }
 
-/// Collapses contiguous low-priority digest items into grouped rows.
+/// Collapses contiguous low-priority items into grouped rows.
 ///
-/// A run of ≥ ``minimumGroupSize`` consecutive items of type `.digest`
-/// with `priority < lowPriorityThreshold` is emitted as a single
+/// A run of ≥ ``minimumGroupSize`` consecutive items with
+/// `priority < lowPriorityThreshold` is emitted as a single
 /// ``HomeFeedGroupedRow/group(parent:children:)`` row: the first item in
 /// the run becomes the parent and the remaining items become children in
-/// original order. Items that don't qualify — non-digest items, digests
-/// at or above the threshold, or runs shorter than `minimumGroupSize` —
-/// pass through as ``HomeFeedGroupedRow/single(_:)``.
+/// original order. Items that don't qualify — items at or above the
+/// threshold, or runs shorter than `minimumGroupSize` — pass through as
+/// ``HomeFeedGroupedRow/single(_:)``.
+///
+/// Pre-v2 the eligibility check also required `type == .digest` (the
+/// digest case no longer exists on the v2 schema). Now that the type
+/// discriminator is gone, low-priority is the sole grouping signal.
 ///
 /// Relative input order is preserved across both singles and groups.
 enum HomeFeedGrouping {
-    /// Items with `priority < lowPriorityThreshold` and `type == .digest`
-    /// are eligible to be collapsed into a group.
+    /// Items with `priority < lowPriorityThreshold` are eligible to be
+    /// collapsed into a group.
     static let lowPriorityThreshold: Int = 30
 
     /// A run of eligible items must reach this length to be collapsed.
     static let minimumGroupSize: Int = 3
 
-    /// Collapse contiguous low-priority digest items into a single
-    /// grouped row. A run is eligible when there are ≥ ``minimumGroupSize``
-    /// consecutive items of type `.digest` with
-    /// `priority < lowPriorityThreshold`. The first item in the run
-    /// becomes the parent; remaining items become children in order.
-    /// Non-digest items, and runs shorter than ``minimumGroupSize``,
-    /// pass through as `.single`. Preserves the input's relative order.
+    /// Collapse contiguous low-priority items into a single grouped row.
+    /// A run is eligible when there are ≥ ``minimumGroupSize`` consecutive
+    /// items with `priority < lowPriorityThreshold`. The first item in
+    /// the run becomes the parent; remaining items become children in
+    /// order. Items at or above the threshold, and runs shorter than
+    /// ``minimumGroupSize``, pass through as `.single`. Preserves the
+    /// input's relative order.
     static func group(_ items: [FeedItem]) -> [HomeFeedGroupedRow] {
         var rows: [HomeFeedGroupedRow] = []
         var buffer: [FeedItem] = []
@@ -59,7 +63,7 @@ enum HomeFeedGrouping {
         }
 
         for item in items {
-            if item.type == .digest && item.priority < lowPriorityThreshold {
+            if item.priority < lowPriorityThreshold {
                 buffer.append(item)
             } else {
                 flushBuffer()

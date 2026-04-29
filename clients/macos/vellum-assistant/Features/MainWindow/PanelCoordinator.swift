@@ -871,31 +871,19 @@ extension MainWindowView {
 
 // MARK: - Feed Item Icon Helpers
 
+/// With the v2 schema collapsed to a single `.notification` type these
+/// helpers no longer per-type-dispatch; PR 17 will revisit the visual
+/// language now that the type discriminator is gone.
 private func iconForFeedItem(_ item: FeedItem) -> VIcon {
-    switch item.type {
-    case .nudge:   return .heart
-    case .action:  return .arrowLeft
-    case .digest:  return .bell
-    case .thread:  return .calendar
-    }
+    .bell
 }
 
 private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeStrong
-    case .action:  return VColor.systemInfoStrong
-    case .digest:  return VColor.feedDigestStrong
-    case .thread:  return VColor.feedThreadStrong
-    }
+    VColor.feedDigestStrong
 }
 
 private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeWeak
-    case .action:  return VColor.systemInfoWeak
-    case .digest:  return VColor.feedDigestWeak
-    case .thread:  return VColor.feedThreadWeak
-    }
+    VColor.feedDigestWeak
 }
 
 // MARK: - Wrapper Views

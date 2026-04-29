@@ -762,7 +762,7 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeFeedFilterBar",
-                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed. Empty selection means show everything; non-empty is an inclusion filter."
+                    description: "Single toggleable 26pt icon chip (Notifications) used to filter the Home feed. Empty selection means show everything; the only non-empty value is an inclusion filter for notifications. PR 17 will retire this bar entirely once the type discriminator is fully removed from the UI."
                 )
 
                 VCard(background: VColor.surfaceBase) {
@@ -778,12 +778,12 @@ struct HomeGallerySection: View {
 
                         Divider().background(VColor.borderBase)
 
-                        Text("Heartbeat selected (single-select)")
+                        Text("Notifications selected (single-select)")
                             .font(VFont.bodySmallEmphasised)
                             .foregroundStyle(VColor.contentSecondary)
 
                         HomeFeedFilterBar(
-                            selected: .nudge,
+                            selected: .notification,
                             onToggle: { _ in }
                         )
                     }
