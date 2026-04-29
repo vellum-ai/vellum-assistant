@@ -42,11 +42,10 @@ import type {
 } from "../types.js";
 
 /**
- * True when both v2 gates are on: the `memory-v2-enabled` feature flag and
- * the `memory.v2.enabled` workspace config switch. Single source of truth
- * shared by every read-side path that needs to choose between v1 and v2 —
- * recall sources, the per-turn injection router, and the PKB injector
- * suppressors that fall silent under v2.
+ * True when both v2 gates are on. Single source of truth shared by the recall
+ * `memory` source (which delegates to v2), the `pkb` source (which
+ * short-circuits because v2 absorbs PKB as a read source), and the per-turn
+ * PKB injectors (which go silent so v2 owns the read path end-to-end).
  */
 export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
   return (

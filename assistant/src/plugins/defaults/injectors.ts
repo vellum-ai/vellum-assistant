@@ -44,8 +44,10 @@
 
 import { resolve } from "node:path";
 
+import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
+import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import { searchPkbFiles } from "../../memory/pkb/pkb-search.js";
 import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
@@ -92,6 +94,16 @@ export const DEFAULT_INJECTOR_ORDER = {
 
 function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
   return ctx.injectionInputs ?? {};
+}
+
+/**
+ * v2 read-side cutover guard. PKB-derived injectors (`pkb-context`,
+ * `pkb-reminder`, `now-md`) silence themselves when v2 is reading from
+ * concept pages so they don't double up on retrieval the v2 activation
+ * block already covers. Mirrors the gate the recall sources use.
+ */
+function isPkbInjectionSilencedByV2(): boolean {
+  return isMemoryV2ReadActive(getConfig());
 }
 
 /**
@@ -173,6 +185,7 @@ const pkbContextInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
+    if (isPkbInjectionSilencedByV2()) return null;
     if (!inputs.pkbContext) return null;
     return {
       id: "pkb-context",
@@ -202,6 +215,7 @@ const pkbReminderInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
+    if (isPkbInjectionSilencedByV2()) return null;
     if (!inputs.pkbActive) return null;
     const reminder = await buildPkbReminderWithHints(inputs);
     return {
@@ -314,6 +328,7 @@ const nowMdInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
+    if (isPkbInjectionSilencedByV2()) return null;
     const content = inputs.nowScratchpad;
     if (!content) return null;
     const text = `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`;

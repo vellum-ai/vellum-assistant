@@ -9,9 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
-import { loadConfig } from "../config/loader.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
-import { isMemoryV2ReadActive } from "../memory/context-search/sources/memory-v2.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
@@ -1817,25 +1815,12 @@ export interface RuntimeInjectionOptions {
 function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
 ): TurnInjectionInputs {
-  // Under v2, the concept-page activation block on the user message is the
-  // single memory surface — PKB context, the PKB system_reminder, and NOW.md
-  // become silent. Suppressing the inputs here makes every PKB/NOW injector
-  // short-circuit on its existing null guard without each having to re-derive
-  // the v2 gate.
-  const v2ReadActive = (() => {
-    try {
-      return isMemoryV2ReadActive(loadConfig());
-    } catch {
-      return false;
-    }
-  })();
-
   return {
     mode: options.mode,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
-    pkbContext: v2ReadActive ? undefined : options.pkbContext,
-    pkbActive: v2ReadActive ? false : options.pkbActive,
+    pkbContext: options.pkbContext,
+    pkbActive: options.pkbActive,
     pkbQueryVector: options.pkbQueryVector,
     pkbSparseVector: options.pkbSparseVector,
     pkbScopeId: options.pkbScopeId,
@@ -1843,7 +1828,7 @@ function buildTurnInjectionInputs(
     pkbAutoInjectList: options.pkbAutoInjectList,
     pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
-    nowScratchpad: v2ReadActive ? null : options.nowScratchpad,
+    nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
