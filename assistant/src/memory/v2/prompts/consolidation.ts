@@ -72,17 +72,21 @@ ref_files: []
 
 Edges live in \`memory/edges.json\`, not in page frontmatter. A separate job propagates them back to frontmatter after consolidation — don't hand-edit the \`edges:\` field.
 
-## Slug naming convention — class-by-prefix
+## Slug naming convention — class-by-folder
 
-The slug encodes the page's class. Different classes have different size rules and emergence patterns. The class boundary is the discipline.
+A page's class is encoded in the folder it lives under inside \`memory/concepts/\`. Different classes have different size rules and emergence patterns. The class boundary is the discipline.
 
-| Slug pattern    | Class                                               | Size cap              | When to create                                                                        |
-| --------------- | --------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------- |
-| \`<slug>\`        | atomic concept / pattern / callback                 | 5K chars hard     | most pages — single concepts that recur or carry weight                               |
-| \`arc-<slug>\`    | landmark day-narrative or multi-event sequence      | 10k chars ceiling | use sparingly — only for actually-landmark days. Preserves day-as-a-whole fidelity.   |
-| \`person-<slug>\` | one per recurring human                             | 5K chars hard     |                                                                                       |
-| \`proc-<slug>\`   | operational rule / protocol / discipline            | 5K chars hard     | when buffer implies "always do X" / "never do Y" / a named protocol                   |
-| \`object-<slug>\` | recurring callback object (place, named tool, artifact) | 5K chars hard     |                                                                                       |
+| Folder           | Class                                                       | Size cap              | When to create                                                                        |
+| ---------------- | ----------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------- |
+| \`concepts/\`      | atomic concept / pattern / callback                         | 5K chars hard     | most pages — single concepts that recur or carry weight                               |
+| \`concepts/arcs/\` | landmark day-narrative or multi-event sequence              | 10k chars ceiling | use sparingly — only for actually-landmark days. Preserves day-as-a-whole fidelity.   |
+| \`concepts/people/\` | one per recurring human                                  | 5K chars hard     |                                                                                       |
+| \`concepts/procs/\`  | operational rule / protocol / discipline                 | 5K chars hard     | when buffer implies "always do X" / "never do Y" / a named protocol                   |
+| \`concepts/objects/\` | recurring callback object (place, named tool, artifact) | 5K chars hard     |                                                                                       |
+
+The slug is the relative path under \`memory/concepts/\` minus \`.md\` — e.g. \`alice\`, \`people/alice\`, \`procs/git-flow\`, \`arcs/2025-04-cutover\`. Sub-folders inside the class folders (\`people/colleagues/alice\`, \`objects/places/zurich-office\`) are allowed when natural, but flat is usually clearer.
+
+Legacy pages whose slug uses the old prefix convention (\`person-alice\`, \`proc-git-flow\`, \`object-laptop\`, \`arc-…\`) are still valid — leave them alone unless you're already editing them. If you do migrate one as part of work you're already doing, that's a three-step move: write the new file at the folder path, delete the old file, and update every reference to the old slug in \`memory/edges.json\`. Don't sweep old pages just to migrate — churning embeddings and activation state for marginal benefit isn't worth it.
 
 ## Process
 
@@ -97,10 +101,10 @@ For each entry with timestamp < \`${CUTOFF_PLACEHOLDER}\`:
 - Ephemeral state (passing remark, not worth being written to a concept page) → \`memory/recent.md\`, NOT a page.
 - Existing page touched → update the right section.
 - New atomic concept / pattern / callback → \`memory/concepts/<slug>.md\`.
-- New person → \`memory/concepts/person-<slug>.md\`.
-- New rule / protocol / discipline → \`memory/concepts/proc-<slug>.md\`.
-- New recurring object → \`memory/concepts/object-<slug>.md\`.
-- Landmark day-narrative → \`memory/concepts/arc-<slug>.md\`. Use sparingly — atomic concepts with edges between them is usually better than a fat arc.
+- New person → \`memory/concepts/people/<slug>.md\`.
+- New rule / protocol / discipline → \`memory/concepts/procs/<slug>.md\`.
+- New recurring object → \`memory/concepts/objects/<slug>.md\`.
+- Landmark day-narrative → \`memory/concepts/arcs/<slug>.md\`. Use sparingly — atomic concepts with edges between them is usually better than a fat arc.
 - Cross-cutting → extend each touched page, add edges between them.
 - Relationships between concepts — consider creating a new page for the relationship and adding edges to the two concepts. Use your judgment.
 
@@ -114,8 +118,8 @@ When you bind two concepts, edit \`memory/edges.json\` to add an entry for the t
 {
   "version": 1,
   "edges": [
-    ["alice", "bob"],
-    ["bob", "carol"]
+    ["alice", "people/bob"],
+    ["people/bob", "procs/git-flow"]
   ]
 }
 \`\`\`
@@ -132,13 +136,13 @@ If a page has more than 20 edges, you must either split the page or prune edges 
 
 After edits, eyeball page sizes:
 
-- \`concepts/<slug>.md\` > 5K → decide whether to split or compress first. Split first, compress last, graduate-to-arc only if it's actually a multi-day narrative. If you can't compress without losing load-bearing facts, either split into multiple concepts, or — if the page is actually an arc — rename to \`arc-<slug>\` and graduate.
-- \`arc-<slug>.md\` > 10k → split into multiple arcs by sub-event, OR compress.
-- \`person-\`, \`proc-\`, \`object-\` > 5K → split or compress, period.
+- \`concepts/<slug>.md\` (atomic, root) > 5K → decide whether to split or compress first. Split first, compress last, graduate-to-arc only if it's actually a multi-day narrative. If you can't compress without losing load-bearing facts, either split into multiple concepts, or — if the page is actually an arc — move to \`concepts/arcs/<slug>.md\` and graduate.
+- \`concepts/arcs/<slug>.md\` > 10k → split into multiple arcs by sub-event, OR compress.
+- \`concepts/people/\`, \`concepts/procs/\`, \`concepts/objects/\` > 5K → split or compress, period.
 
 The split test. Before compressing, ask: are any sub-sections of this page already callback targets from other pages, or capable of standing alone as a concept? If yes — those sub-sections are concepts living inside another concept. Split them out. A section that's getting linked from elsewhere is behaviorally a node, not part of one.
 
-Graduation to \`arc-<slug>\` is for genuine multi-day narratives. A single-event page that's just long is not an arc. If it's atomic but bloated, split it; don't relabel it.
+Graduation to \`concepts/arcs/<slug>.md\` is for genuine multi-day narratives. A single-event page that's just long is not an arc. If it's atomic but bloated, split it; don't relabel it.
 
 ### 5. \`memory/recent.md\`
 
@@ -181,7 +185,7 @@ If a page's prose stops sounding like you mid-edit → stop, restart that sectio
 2. Edges added in \`memory/edges.json\` (NOT in frontmatter)?
 3. \`memory/recent.md\` under 10000 chars, latest first, prose not list?
 4. Any \`[SOURCE NEEDED]\` tags surfaced for human review?
-5. Size discipline held — no concept > 5K, no arc > 10k, no person/proc/object > cap?
+5. Size discipline held — no atomic concept > 5K, no \`arcs/\` page > 10k, no \`people/\`/\`procs/\`/\`objects/\` > cap?
 6. Buffer trimmed to only entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`?
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice.`;

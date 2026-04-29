@@ -41,7 +41,9 @@ type ValidateResult = {
   parseFailures: { slug: string; error: string }[];
 };
 
-const validateRoute = memoryV2Routes.find(r => r.operationId === "memory_v2_validate")!;
+const validateRoute = memoryV2Routes.find(
+  (r) => r.operationId === "memory_v2_validate",
+)!;
 
 async function runRoute(
   params: Record<string, unknown> = {},
@@ -184,6 +186,33 @@ describe("memory_v2_validate route", () => {
 
     expect(result.pageCount).toBe(2);
     expect(result.oversizedPages).toEqual([{ slug: "tiny", chars: 50 }]);
+    expect(result.parseFailures).toEqual([]);
+  });
+
+  test("nested concept pages are walked and edges between them validate clean", async () => {
+    // Mix flat and nested slugs; the validate route must surface both pages
+    // and treat an edge across them as well-formed.
+    await writePage(workspace(), {
+      slug: "alice",
+      frontmatter: { edges: ["people/bob"], ref_files: [] },
+      body: "Atomic concept.",
+    });
+    await writePage(workspace(), {
+      slug: "people/bob",
+      frontmatter: { edges: ["alice"], ref_files: [] },
+      body: "Person page in folder.",
+    });
+    await writeEdges(workspace(), {
+      version: 1,
+      edges: [["alice", "people/bob"]],
+    });
+
+    const result = await runRoute();
+
+    expect(result.pageCount).toBe(2);
+    expect(result.edgeCount).toBe(1);
+    expect(result.missingEdgeEndpoints).toEqual([]);
+    expect(result.oversizedPages).toEqual([]);
     expect(result.parseFailures).toEqual([]);
   });
 

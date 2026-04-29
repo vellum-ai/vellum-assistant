@@ -23,7 +23,7 @@
 // still surface lexical hits, and vice versa.
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, sep } from "node:path";
+import { extname, isAbsolute, join, relative } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../../config/schema.js";
@@ -32,7 +32,11 @@ import { embedWithRetry } from "../../embed.js";
 import { generateSparseEmbedding } from "../../embedding-backend.js";
 import { spreadActivation } from "../../v2/activation.js";
 import { readEdges } from "../../v2/edges.js";
-import { getConceptsDir, readPage } from "../../v2/page-store.js";
+import {
+  getConceptsDir,
+  readPage,
+  slugFromConceptPath,
+} from "../../v2/page-store.js";
 import { hybridQueryConceptPages } from "../../v2/qdrant.js";
 import { clampUnitInterval } from "../../validation.js";
 import type {
@@ -559,12 +563,6 @@ function isPathInsideRoot(pathToCheck: string, rootRealPath: string): boolean {
     pathRelativeToRoot === "" ||
     (!pathRelativeToRoot.startsWith("..") && !isAbsolute(pathRelativeToRoot))
   );
-}
-
-function slugFromConceptPath(conceptsRoot: string, filePath: string): string {
-  const rel = relative(conceptsRoot, filePath).split(sep).join("/");
-  const withoutExt = rel.endsWith(".md") ? rel.slice(0, -3) : rel;
-  return withoutExt;
 }
 
 function truncateExcerpt(text: string, maxChars: number): string {

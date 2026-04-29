@@ -1,14 +1,17 @@
 /**
  * Tests for `assistant/src/memory/v2/page-store.ts`.
  *
- * Coverage matrix (from PR 8 acceptance criteria):
+ * Coverage matrix:
  *   - slugify: lowercase / kebab-case / ascii / 80-char cap / empty fallback.
+ *   - validateSlug: accept set, reject set (path-traversal, malformed shapes).
  *   - readPage / writePage round-trip: frontmatter survives, body preserved.
  *   - readPage on missing file: returns null.
  *   - writePage atomicity: a fault between temp-write and rename leaves the
  *     prior file intact (or the new one) — never a half-written page.
- *   - listPages: excludes non-.md entries, returns slugs only, missing dir → [].
- *   - deletePage: idempotent on missing file.
+ *   - writePage creates parent directories for nested slugs.
+ *   - listPages: walks subdirectories, returns nested slugs in `/`-form,
+ *     excludes hidden dirs / non-.md / temp files, missing dir → [].
+ *   - deletePage / pageExists: nested-slug round-trip, idempotent on missing.
  *
  * Tests use temp workspaces under `os.tmpdir()` per the cross-cutting safety
  * rule in the v2 plan; they never touch `~/.vellum/`.
@@ -33,6 +36,7 @@ import {
   pageExists,
   readPage,
   slugify,
+  validateSlug,
   writePage,
 } from "../page-store.js";
 import type { ConceptPage } from "../types.js";
@@ -90,6 +94,12 @@ describe("slugify", () => {
     expect(slugify("café résumé")).toMatch(/^[a-z0-9-]+$/);
   });
 
+  test("collapses '/' to hyphen — slugify produces a single segment", () => {
+    // Path-shaped slugs are constructed by writing to nested paths, not by
+    // passing slash-bearing input through slugify.
+    expect(slugify("People/Alice")).toBe("people-alice");
+  });
+
   test("caps slug length at 80 chars and re-trims trailing hyphen", () => {
     const long = "a".repeat(120);
     const slug = slugify(long);
@@ -106,6 +116,56 @@ describe("slugify", () => {
     // Each call generates a fresh UUID, so distinct empty inputs do not collide.
     expect(a).not.toBe(b);
     expect(b).not.toBe(c);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateSlug
+// ---------------------------------------------------------------------------
+
+describe("validateSlug", () => {
+  test.each([
+    ["alice"],
+    ["a"],
+    ["alice-preferences"],
+    ["people/alice"],
+    ["procs/git-flow"],
+    ["arcs/2025-04-cutover"],
+    ["a/b/c/d/e"],
+    ["people/colleagues/alice"],
+  ])("accepts %p", (slug) => {
+    expect(() => validateSlug(slug)).not.toThrow();
+  });
+
+  test.each([
+    ["empty string", ""],
+    ["leading slash", "/alice"],
+    ["trailing slash", "alice/"],
+    ["double slash", "people//alice"],
+    ["dot-dot segment", "people/../alice"],
+    ["pure dot-dot", ".."],
+    ["leading dot segment", ".hidden/alice"],
+    ["backslash", "people\\alice"],
+    ["null byte", "alice\0evil"],
+    ["whitespace", "alice bob"],
+    ["uppercase", "Alice"],
+    ["non-ascii", "café"],
+    ["leading hyphen", "-alice"],
+    ["non-alphanumeric", "alice!"],
+  ])("rejects %s (%p)", (_label, slug) => {
+    expect(() => validateSlug(slug)).toThrow(/Invalid concept-page slug/);
+  });
+
+  test("rejects slugs longer than 200 chars", () => {
+    expect(() => validateSlug("a".repeat(201))).toThrow(
+      /Invalid concept-page slug/,
+    );
+  });
+
+  test("rejects segments longer than 80 chars even if total is under 200", () => {
+    expect(() => validateSlug("a".repeat(81))).toThrow(
+      /Invalid concept-page slug/,
+    );
   });
 });
 
@@ -188,6 +248,50 @@ describe("writePage + readPage round-trip", () => {
     const read = await readPage(workspaceDir, page1.slug);
     expect(read!.body).toBe("second version\n");
   });
+
+  test("writePage creates parent directories for nested slugs", async () => {
+    const page = makePage({ slug: "people/alice" });
+    await writePage(workspaceDir, page);
+
+    const filePath = join(
+      workspaceDir,
+      "memory",
+      "concepts",
+      "people",
+      "alice.md",
+    );
+    expect(existsSync(filePath)).toBe(true);
+
+    const read = await readPage(workspaceDir, "people/alice");
+    expect(read!.slug).toBe("people/alice");
+    expect(read!.body).toBe(page.body);
+  });
+
+  test("writePage round-trips deeply nested slugs", async () => {
+    const page = makePage({ slug: "people/colleagues/alice" });
+    await writePage(workspaceDir, page);
+
+    const read = await readPage(workspaceDir, "people/colleagues/alice");
+    expect(read!.slug).toBe("people/colleagues/alice");
+    expect(read!.frontmatter.edges).toEqual(page.frontmatter.edges);
+    expect(read!.body).toBe(page.body);
+  });
+
+  test("writePage rejects malicious slugs and writes nothing at the escape target", async () => {
+    await expect(
+      writePage(workspaceDir, makePage({ slug: "../escape" })),
+    ).rejects.toThrow(/Invalid concept-page slug/);
+
+    // `../escape` would resolve to `<workspace>/memory/escape.md`. Confirm
+    // the validation throw fired before any I/O — no file at that target.
+    expect(existsSync(join(workspaceDir, "memory", "escape.md"))).toBe(false);
+  });
+
+  test("readPage rejects malicious slugs", async () => {
+    await expect(readPage(workspaceDir, "../escape")).rejects.toThrow(
+      /Invalid concept-page slug/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -239,6 +343,40 @@ describe("writePage atomicity", () => {
     expect(orphanTmps).toEqual([]);
   });
 
+  test("nested-slug write that fails leaves no orphan tmp in nested folder", async () => {
+    // Seed a nested page so the parent dir exists.
+    const original = makePage({
+      slug: "people/alice",
+      body: "original body\n",
+    });
+    await writePage(workspaceDir, original);
+
+    const targetPath = join(
+      workspaceDir,
+      "memory",
+      "concepts",
+      "people",
+      "alice.md",
+    );
+    rmSync(targetPath);
+    mkdirSync(targetPath);
+    writeFileSync(join(targetPath, "blocker"), "x", "utf-8");
+
+    await expect(
+      writePage(
+        workspaceDir,
+        makePage({ slug: "people/alice", body: "interrupted\n" }),
+      ),
+    ).rejects.toThrow();
+
+    rmSync(targetPath, { recursive: true, force: true });
+
+    const peopleDir = join(workspaceDir, "memory", "concepts", "people");
+    const remaining = readdirSync(peopleDir);
+    const orphanTmps = remaining.filter((name) => name.includes(".tmp."));
+    expect(orphanTmps).toEqual([]);
+  });
+
   test("successful write produces no orphan tmp files", async () => {
     await writePage(workspaceDir, makePage());
 
@@ -274,15 +412,51 @@ describe("listPages", () => {
     expect(slugs).toEqual(["alice"]);
   });
 
-  test("excludes subdirectories (only files count)", async () => {
+  test("walks subdirectories and returns nested slugs in '/'-form", async () => {
     await writePage(workspaceDir, makePage({ slug: "alice" }));
-
-    mkdirSync(join(workspaceDir, "memory", "concepts", "subdir"), {
-      recursive: true,
-    });
+    await writePage(workspaceDir, makePage({ slug: "people/bob" }));
+    await writePage(workspaceDir, makePage({ slug: "people/carol" }));
+    await writePage(workspaceDir, makePage({ slug: "arcs/2025-04/cutover" }));
 
     const slugs = await listPages(workspaceDir);
-    expect(slugs).toEqual(["alice"]);
+    expect(slugs).toEqual([
+      "alice",
+      "arcs/2025-04/cutover",
+      "people/bob",
+      "people/carol",
+    ]);
+  });
+
+  test("skips hidden subdirectories and non-.md files inside nested dirs", async () => {
+    await writePage(workspaceDir, makePage({ slug: "people/alice" }));
+
+    const conceptsDir = join(workspaceDir, "memory", "concepts");
+    mkdirSync(join(conceptsDir, ".git"), { recursive: true });
+    writeFileSync(join(conceptsDir, ".git", "config.md"), "fake", "utf-8");
+    writeFileSync(join(conceptsDir, "people", "notes.txt"), "ignore", "utf-8");
+
+    const slugs = await listPages(workspaceDir);
+    expect(slugs).toEqual(["people/alice"]);
+  });
+
+  test("skips orphaned .tmp.* files at any depth", async () => {
+    const conceptsDir = join(workspaceDir, "memory", "concepts");
+    await writePage(workspaceDir, makePage({ slug: "people/alice" }));
+
+    // Synthesize an orphan tmp file at root and inside the people/ subdir.
+    writeFileSync(
+      join(conceptsDir, "alice.md.tmp.123.abc-def"),
+      "stranded",
+      "utf-8",
+    );
+    writeFileSync(
+      join(conceptsDir, "people", "bob.md.tmp.123.abc-def"),
+      "stranded",
+      "utf-8",
+    );
+
+    const slugs = await listPages(workspaceDir);
+    expect(slugs).toEqual(["people/alice"]);
   });
 
   test("returns [] when the concepts directory does not exist", async () => {
@@ -314,6 +488,15 @@ describe("deletePage", () => {
     await deletePage(workspaceDir, page.slug);
     expect(await pageExists(workspaceDir, page.slug)).toBe(false);
     expect(await readPage(workspaceDir, page.slug)).toBeNull();
+  });
+
+  test("removes nested pages", async () => {
+    const page = makePage({ slug: "people/alice" });
+    await writePage(workspaceDir, page);
+    expect(await pageExists(workspaceDir, "people/alice")).toBe(true);
+
+    await deletePage(workspaceDir, "people/alice");
+    expect(await pageExists(workspaceDir, "people/alice")).toBe(false);
   });
 
   test("is idempotent — deleting a missing page does not throw", async () => {

@@ -2,6 +2,11 @@
  * Memory v2 — Concept page store.
  *
  * Owns the on-disk read/write contract for `memory/concepts/<slug>.md`.
+ * Pages may live directly under `memory/concepts/` or nested in subdirectories
+ * (e.g. `memory/concepts/people/alice.md`); the slug encodes the relative
+ * path from `concepts/` minus the `.md` extension, using forward slashes as
+ * separators (so `people/alice` is a valid slug).
+ *
  * Each page is a YAML-frontmatter Markdown file: a `---`-delimited block
  * (`edges`, `ref_files`) followed by prose body. This module is the only
  * v2 component that knows how to parse or render that format — every other
@@ -14,6 +19,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  mkdir,
   readdir,
   readFile,
   rename,
@@ -21,7 +27,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -31,20 +37,30 @@ import { type ConceptPage, ConceptPageFrontmatterSchema } from "./types.js";
 /** Filename suffix for concept pages. */
 const PAGE_EXTENSION = ".md";
 
-/** Cap slug length so we stay well under filesystem name limits. */
-const MAX_SLUG_LENGTH = 80;
+/** Cap individual slug-segment length so we stay well under filesystem limits. */
+const MAX_SLUG_SEGMENT_LENGTH = 80;
+
+/** Cap the full slug (including any folder separators) to a sane bound. */
+const MAX_SLUG_TOTAL_LENGTH = 200;
+
+/** Each path segment must match this — same shape `slugify` produces. */
+const SLUG_SEGMENT_REGEX = /^[a-z0-9](?:[a-z0-9-]*)$/;
 
 /**
- * Convert an arbitrary input string into a filesystem-safe slug.
+ * Convert an arbitrary input string into a filesystem-safe slug **segment**.
+ *
+ * Returns a single path segment (no `/`). Path-shaped slugs are constructed
+ * by the consolidation LLM writing files at full paths; this helper is for
+ * turning free-form text (e.g. a hint phrase) into one clean segment.
  *
  * Rules:
  *   - Lowercase ASCII letters, digits, and hyphens only.
- *   - Non-ASCII / non-alphanumeric characters collapse to hyphens.
+ *   - Non-ASCII / non-alphanumeric characters (including `/`) collapse to hyphens.
  *   - Consecutive hyphens collapse to one; leading/trailing hyphens trimmed.
- *   - Truncated to {@link MAX_SLUG_LENGTH} characters (with trailing hyphen
- *     re-trimmed after truncation).
+ *   - Truncated to {@link MAX_SLUG_SEGMENT_LENGTH} characters (with trailing
+ *     hyphen re-trimmed after truncation).
  *   - Empty inputs (e.g. emoji-only) fall back to `concept-<random>` so the
- *     caller always gets a non-empty, write-safe slug.
+ *     caller always gets a non-empty, write-safe segment.
  */
 export function slugify(input: string): string {
   let slug = input
@@ -54,8 +70,8 @@ export function slugify(input: string): string {
     .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "");
 
-  if (slug.length > MAX_SLUG_LENGTH) {
-    slug = slug.slice(0, MAX_SLUG_LENGTH).replace(/-+$/, "");
+  if (slug.length > MAX_SLUG_SEGMENT_LENGTH) {
+    slug = slug.slice(0, MAX_SLUG_SEGMENT_LENGTH).replace(/-+$/, "");
   }
 
   if (!slug) {
@@ -63,6 +79,73 @@ export function slugify(input: string): string {
   }
 
   return slug;
+}
+
+/**
+ * Validate a slug — possibly path-shaped — that is about to cross the storage
+ * boundary. Throws on any malformed or unsafe value.
+ *
+ * The on-disk concept-page tree treats slugs as relative paths under
+ * `memory/concepts/`. A malformed slug (e.g. `..`, leading `/`, embedded
+ * null byte) could escape that root via `path.join` if it slipped through,
+ * so we enforce shape here at every read/write/delete entry point rather
+ * than relying on callers.
+ *
+ * Rules:
+ *   - Non-empty, ≤ {@link MAX_SLUG_TOTAL_LENGTH} chars.
+ *   - Each `/`-separated segment matches {@link SLUG_SEGMENT_REGEX}
+ *     (lowercase alphanum + hyphen, no leading hyphen, ≤80 chars).
+ *   - No `..` segments, no empty segments (`a//b`), no leading or trailing `/`.
+ *   - No `\` (Windows separator), no null bytes, no whitespace, no non-ASCII.
+ */
+export function validateSlug(slug: string): void {
+  if (typeof slug !== "string" || slug.length === 0) {
+    throw new Error(`Invalid concept-page slug: empty`);
+  }
+  if (slug.length > MAX_SLUG_TOTAL_LENGTH) {
+    throw new Error(
+      `Invalid concept-page slug: length ${slug.length} exceeds max ${MAX_SLUG_TOTAL_LENGTH}: ${slug}`,
+    );
+  }
+  if (slug.includes("\\")) {
+    throw new Error(
+      `Invalid concept-page slug: backslash not allowed: ${slug}`,
+    );
+  }
+  if (slug.includes("\0")) {
+    throw new Error(`Invalid concept-page slug: null byte not allowed`);
+  }
+  if (/\s/.test(slug)) {
+    throw new Error(
+      `Invalid concept-page slug: whitespace not allowed: ${slug}`,
+    );
+  }
+  if (slug.startsWith("/") || slug.endsWith("/")) {
+    throw new Error(
+      `Invalid concept-page slug: leading or trailing '/' not allowed: ${slug}`,
+    );
+  }
+  const segments = slug.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0) {
+      throw new Error(`Invalid concept-page slug: empty path segment: ${slug}`);
+    }
+    if (segment === "..") {
+      throw new Error(
+        `Invalid concept-page slug: '..' segment not allowed: ${slug}`,
+      );
+    }
+    if (segment.length > MAX_SLUG_SEGMENT_LENGTH) {
+      throw new Error(
+        `Invalid concept-page slug: segment '${segment}' exceeds max ${MAX_SLUG_SEGMENT_LENGTH} chars: ${slug}`,
+      );
+    }
+    if (!SLUG_SEGMENT_REGEX.test(segment)) {
+      throw new Error(
+        `Invalid concept-page slug: segment '${segment}' must match [a-z0-9][a-z0-9-]*: ${slug}`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -73,8 +156,31 @@ export function getConceptsDir(workspaceDir: string): string {
   return join(workspaceDir, "memory", "concepts");
 }
 
+/**
+ * Resolve the absolute path for a slug. Slugs may contain `/` to indicate
+ * folder hierarchy under `memory/concepts/`; `path.join` handles those
+ * correctly on POSIX, and `validateSlug` (called at every public entry point)
+ * rejects shapes that could escape the concepts root.
+ */
 function getPagePath(workspaceDir: string, slug: string): string {
   return join(getConceptsDir(workspaceDir), `${slug}${PAGE_EXTENSION}`);
+}
+
+/**
+ * Compute the slug for a concept-page file, given the concepts root and the
+ * absolute file path. Returns the path-relative location with `.md` stripped
+ * and platform separators normalized to `/`. Tolerant of paths that don't
+ * end in `.md` so callers walking arbitrary content can use it defensively.
+ */
+export function slugFromConceptPath(
+  conceptsRoot: string,
+  filePath: string,
+): string {
+  const rel = relative(conceptsRoot, filePath);
+  const withoutExt = rel.endsWith(PAGE_EXTENSION)
+    ? rel.slice(0, -PAGE_EXTENSION.length)
+    : rel;
+  return sep === "/" ? withoutExt : withoutExt.split(sep).join("/");
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +243,7 @@ export async function readPage(
   workspaceDir: string,
   slug: string,
 ): Promise<ConceptPage | null> {
+  validateSlug(slug);
   const path = getPagePath(workspaceDir, slug);
   let raw: string;
   try {
@@ -155,15 +262,20 @@ export async function readPage(
  * Write a concept page atomically (temp file + rename). A crash between the
  * temp write and the rename leaves the prior file intact; a crash after the
  * rename leaves the new file. Readers therefore never observe a partial page.
+ *
+ * Parent directories are created on demand (`mkdir -p`) so nested-folder
+ * slugs like `people/alice` work without callers pre-creating the folder.
  */
 export async function writePage(
   workspaceDir: string,
   page: ConceptPage,
 ): Promise<void> {
+  validateSlug(page.slug);
   const path = getPagePath(workspaceDir, page.slug);
   const tmpPath = `${path}.tmp.${process.pid}.${randomUUID()}`;
   const content = renderPageContent(page);
   try {
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(tmpPath, content, "utf-8");
     await rename(tmpPath, path);
   } catch (err) {
@@ -176,30 +288,50 @@ export async function writePage(
 }
 
 /**
- * List every concept-page slug present on disk. Slugs are returned without
- * the `.md` suffix so callers can pass them straight back to `readPage`.
+ * List every concept-page slug present on disk, walking subdirectories.
  *
- * Non-`.md` files (e.g. editor swap files, attached media) are filtered out.
- * If the concepts/ directory does not yet exist (fresh workspace pre-migration),
- * returns `[]`.
+ * Slugs are returned in path-relative form with forward slashes as separators
+ * (e.g. `people/alice`) so callers can pass them straight back to `readPage`.
+ *
+ * Hidden directories (segment starts with `.`), non-`.md` files, and atomic-
+ * write temp files (`.tmp.<pid>.<uuid>`) are skipped. If the concepts/
+ * directory does not yet exist (fresh workspace pre-migration), returns `[]`.
  */
 export async function listPages(workspaceDir: string): Promise<string[]> {
-  const dir = getConceptsDir(workspaceDir);
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-    throw err;
-  }
+  const root = getConceptsDir(workspaceDir);
   const slugs: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (!entry.name.endsWith(PAGE_EXTENSION)) continue;
-    slugs.push(entry.name.slice(0, -PAGE_EXTENSION.length));
+  const queue: string[] = [root];
+
+  while (queue.length > 0) {
+    const dir = queue.shift()!;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // Root missing → return []. Nested missing dir is impossible mid-walk
+        // (we only enqueue what readdir surfaced) but treat the same defensively.
+        if (dir === root) return [];
+        continue;
+      }
+      throw err;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(PAGE_EXTENSION)) continue;
+      // Skip orphaned temp files left behind by a crashed atomic write.
+      if (entry.name.includes(".tmp.")) continue;
+      slugs.push(slugFromConceptPath(root, fullPath));
+    }
   }
+
   slugs.sort();
   return slugs;
 }
@@ -213,6 +345,7 @@ export async function deletePage(
   workspaceDir: string,
   slug: string,
 ): Promise<void> {
+  validateSlug(slug);
   const path = getPagePath(workspaceDir, slug);
   try {
     await rm(path);
@@ -232,6 +365,7 @@ export async function pageExists(
   workspaceDir: string,
   slug: string,
 ): Promise<boolean> {
+  validateSlug(slug);
   const path = getPagePath(workspaceDir, slug);
   try {
     await stat(path);
