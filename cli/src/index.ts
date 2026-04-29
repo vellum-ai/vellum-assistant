@@ -27,9 +27,7 @@ import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
 import {
-  getActiveAssistant,
-  findAssistantByName,
-  loadLatestAssistant,
+  resolveAssistant,
   setActiveAssistant,
 } from "./lib/assistant-config";
 import { loadGuardianToken } from "./lib/guardian-token";
@@ -129,10 +127,7 @@ function applyNoColorFlags(argv: string[]): void {
  * Otherwise return false so the caller can fall back to help text.
  */
 async function tryLaunchClient(): Promise<boolean> {
-  const activeName = getActiveAssistant();
-  const entry = activeName
-    ? findAssistantByName(activeName)
-    : loadLatestAssistant();
+  const entry = resolveAssistant();
 
   if (!entry) return false;
 

@@ -1,8 +1,7 @@
 import { spawn } from "child_process";
 
 import {
-  findAssistantByName,
-  loadLatestAssistant,
+  resolveAssistant,
   resolveCloud,
 } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
@@ -135,7 +134,7 @@ export async function exec(): Promise<void> {
 
   const service = normalizeService(serviceRaw);
 
-  const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
+  const entry = resolveAssistant(nameArg);
 
   if (!entry) {
     if (nameArg) {
