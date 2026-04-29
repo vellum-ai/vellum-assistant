@@ -136,8 +136,7 @@ export function supportsHostProxy(
   capability?: HostProxyCapability,
 ): boolean {
   // macOS supports all four host proxy capabilities including host_browser.
-  // The host_browser proxy is provisioned via the SSE sender path (or via the
-  // ChromeExtensionRegistry when an extension connection is present). When no
+  // The host_browser proxy is provisioned via the assistant event hub. When no
   // extension is connected, browser tools fall through to cdp-inspect/local
   // via the CDP factory's candidate chain.
   if (id === "macos") return true;
@@ -146,8 +145,8 @@ export function supportsHostProxy(
 }
 
 /**
- * Whether the interface can service host_browser frames via the
- * ChromeExtensionRegistry (WebSocket) when an extension connection exists.
+ * Whether the interface can service host_browser frames via WebSocket
+ * when an extension connection exists.
  *
  * Returns `true` for interfaces where the daemon should set
  * `hostBrowserSenderOverride` and provision a `HostBrowserProxy` when the
@@ -166,10 +165,9 @@ export function canServiceRegistryBrowser(id: InterfaceId): boolean {
  * hub when a chrome-extension client is connected over SSE (cloud mode).
  *
  * In cloud/platform-hosted deployments the chrome extension connects via
- * SSE (`GET /v1/events`) instead of a direct WebSocket. There is no
- * ChromeExtensionRegistry entry, but the extension is a valid SSE consumer
- * for `host_browser_request` frames and can POST results back to
- * `/v1/host-browser-result`.
+ * SSE (`GET /v1/events`) instead of a direct WebSocket. The extension is
+ * a valid SSE consumer for `host_browser_request` frames and can POST
+ * results back to `/v1/host-browser-result`.
  *
  * Returns `true` for interfaces that should provision a `HostBrowserProxy`
  * with the SSE hub sender when a chrome-extension SSE client is present in

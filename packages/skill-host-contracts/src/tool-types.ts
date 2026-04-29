@@ -389,8 +389,8 @@ export interface ToolContext {
    */
   transportInterface?: string;
   /**
-   * True when the host browser proxy's sender was overridden by a
-   * registry-routed extension connection (ChromeExtensionRegistry WebSocket).
+   * True when the host browser proxy's sender was overridden by an
+   * extension connection (WebSocket browser-relay).
    * The CDP factory uses this to distinguish between an SSE-backed proxy
    * (macOS, no extension) and an extension-backed proxy: only the latter
    * should suppress desktop-auto cdp-inspect when temporarily unavailable,

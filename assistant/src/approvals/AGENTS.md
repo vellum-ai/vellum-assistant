@@ -8,6 +8,10 @@
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 - **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, requester self-cancel) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (approval record updates, grant minting) at individual callsites.
 
+## Single-Guardian Invariant
+
+Each assistant instance serves exactly one guardian. Multi-guardian is not supported and will never be. All connections, browser sessions, approval channels, and trust contexts within a single assistant process belong to the same guardian principal. Do not introduce guardian-keyed maps, per-guardian routing logic, or multi-guardian multiplexing — they add complexity without a real use case and create the false impression that cross-guardian isolation is required.
+
 ## Guardian Verification Invariant
 
 Guardian verification consumption must be identity-bound to the expected recipient identity. Every outbound verification session stores the expected identity (phone E.164, Telegram user/chat ID), and the consume path rejects attempts where the responding actor's identity does not match.
