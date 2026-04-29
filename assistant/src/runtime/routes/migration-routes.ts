@@ -192,19 +192,30 @@ async function resolveAssistantId(): Promise<string> {
  * The export entry points pass every collected credential through to the
  * builder unfiltered, so the bundle is NOT redacted whenever any
  * credentials made it in. Only flip to true when the credential list is
- * empty AND the store was reachable — i.e. there genuinely are no
- * secrets in the bundle.
+ * empty AND every credential read succeeded — i.e. there genuinely are
+ * no secrets in the bundle.
+ *
+ * Two failure modes both force `false`:
+ *   - `storeUnreachable`: the top-level `listSecureKeysAsync()` call
+ *     failed, so we never even discovered which accounts exist.
+ *   - `perAccountUnreachable`: the LIST call succeeded but one or more
+ *     individual `getSecureKeyResultAsync(account)` reads returned
+ *     `unreachable: true`. Those accounts were silently skipped from the
+ *     `credentials` array, so a `credentialCount === 0` outcome could
+ *     reflect "we couldn't read them" rather than "no secrets exist".
+ *     Claiming a clean redaction in that case would be a lie.
  *
  * NOTE: a managed-mode bundle with `secrets_redacted: false` will fail
  * the validator's cross-field refine. That surfaces an existing
  * platform-side enforcement gap — the runtime emits the truthful value
  * and lets the schema flag it.
  */
-function computeSecretsRedacted(
+export function computeSecretsRedacted(
   credentialCount: number,
   storeUnreachable: boolean,
+  perAccountUnreachable: boolean,
 ): boolean {
-  return credentialCount === 0 && !storeUnreachable;
+  return credentialCount === 0 && !storeUnreachable && !perAccountUnreachable;
 }
 
 /**
@@ -304,6 +315,10 @@ export async function handleMigrationExport(
     // Read all stored credentials to include in the export bundle
     const credentialList = await listSecureKeysAsync();
     const credentials: Array<{ account: string; value: string }> = [];
+    // Track per-account read failures separately from the top-level LIST
+    // failure. A single skipped account means we cannot truthfully claim
+    // the bundle is fully redacted — we don't know what we missed.
+    let perAccountUnreachable = false;
     if (credentialList.unreachable) {
       log.warn(
         "Credential store is unreachable — export will not include credentials",
@@ -312,6 +327,7 @@ export async function handleMigrationExport(
       for (const account of credentialList.accounts) {
         const result = await getSecureKeyResultAsync(account);
         if (result.unreachable) {
+          perAccountUnreachable = true;
           log.warn(
             { account },
             "Credential store unreachable when reading credential — skipping",
@@ -326,6 +342,7 @@ export async function handleMigrationExport(
     const secretsRedacted = computeSecretsRedacted(
       credentials.length,
       credentialList.unreachable,
+      perAccountUnreachable,
     );
 
     const result = await streamExportVBundle({
@@ -402,15 +419,23 @@ const MigrationExportToGcsBody = z.object({
 });
 
 /**
- * Collected credentials plus a warning marker if the credential store was
+ * Collected credentials plus warning markers if the credential store was
  * unreachable. The caller surfaces the warning in logs; production callers
  * fail closed on errors (a thrown exception → 500) to avoid shipping a
  * bundle with partial credentials. An unreachable store is NOT an error —
  * `handleMigrationExport` treats that case as "export without credentials".
+ *
+ * - `unreachable`: the top-level `listSecureKeysAsync()` call failed.
+ * - `perAccountUnreachable`: the LIST succeeded but one or more individual
+ *   `getSecureKeyResultAsync(account)` calls returned `unreachable: true`.
+ *   Those accounts were silently skipped from `credentials`, so the count
+ *   here understates reality. The flag is what tells `computeSecretsRedacted`
+ *   it cannot claim a clean redaction.
  */
 interface CollectedCredentials {
   credentials: Array<{ account: string; value: string }>;
   unreachable: boolean;
+  perAccountUnreachable: boolean;
 }
 
 /**
@@ -425,12 +450,18 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
     log.warn(
       "Credential store is unreachable — export will not include credentials",
     );
-    return { credentials: [], unreachable: true };
+    return {
+      credentials: [],
+      unreachable: true,
+      perAccountUnreachable: false,
+    };
   }
   const credentials: Array<{ account: string; value: string }> = [];
+  let perAccountUnreachable = false;
   for (const account of credentialList.accounts) {
     const result = await getSecureKeyResultAsync(account);
     if (result.unreachable) {
+      perAccountUnreachable = true;
       log.warn(
         { account },
         "Credential store unreachable when reading credential — skipping",
@@ -439,7 +470,7 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
       credentials.push({ account, value: result.value });
     }
   }
-  return { credentials, unreachable: false };
+  return { credentials, unreachable: false, perAccountUnreachable };
 }
 
 /**
@@ -531,6 +562,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   const secretsRedacted = computeSecretsRedacted(
     collected.credentials.length,
     collected.unreachable,
+    collected.perAccountUnreachable,
   );
 
   // ── 4. Enqueue the job. The runner captures the collected credentials.
