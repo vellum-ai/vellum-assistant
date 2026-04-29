@@ -37,9 +37,7 @@ import {
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
-import { rewriteFeedTitle } from "../home/rewrite-feed-title.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
@@ -2582,84 +2580,6 @@ export async function runAgentLoopImpl(
             ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
-
-        // Emit a home-feed event for background/scheduled conversation completions.
-        // Scoped to message_complete only (not cancelled/handoff), wrapped in
-        // try-catch so malformed message content can never propagate errors.
-        try {
-          const conv = getConversation(ctx.conversationId);
-          if (
-            conv &&
-            (conv.conversationType === "background" ||
-              conv.conversationType === "scheduled")
-          ) {
-            const lastMsg = state.lastAssistantMessageId
-              ? getMessageById(state.lastAssistantMessageId, ctx.conversationId)
-              : undefined;
-            let summary: string;
-            if (lastMsg) {
-              const parsed: unknown = JSON.parse(lastMsg.content);
-              if (typeof parsed === "string") {
-                summary = parsed.slice(0, 200);
-              } else if (Array.isArray(parsed)) {
-                const textBlock = parsed.find(
-                  (b: { type?: string }) => b.type === "text",
-                );
-                summary =
-                  typeof textBlock?.text === "string"
-                    ? textBlock.text.slice(0, 200)
-                    : (conv.title ?? "Background task completed.");
-              } else {
-                summary = conv.title ?? "Background task completed.";
-              }
-            } else {
-              summary = conv.title ?? "Background task completed.";
-            }
-            const feedTitle =
-              conv.title && !isReplaceableTitle(conv.title)
-                ? conv.title
-                : "Background task";
-            const dedupKey = `bg-conv:${ctx.conversationId}`;
-            void emitFeedEvent({
-              source: "assistant",
-              title: feedTitle,
-              summary,
-              dedupKey,
-              conversationId: ctx.conversationId,
-            }).catch((err) => {
-              log.warn(
-                { err, conversationId: ctx.conversationId },
-                "Failed to emit background conversation feed event",
-              );
-            });
-
-            if (isReplaceableTitle(conv.title ?? null)) {
-              void rewriteFeedTitle(feedTitle)
-                .then((prose) => {
-                  if (prose && prose !== feedTitle) {
-                    return emitFeedEvent({
-                      source: "assistant",
-                      title: prose,
-                      summary,
-                      dedupKey,
-                      conversationId: ctx.conversationId,
-                    });
-                  }
-                })
-                .catch((err) => {
-                  log.warn(
-                    { err, conversationId: ctx.conversationId },
-                    "Failed to update feed event with prose title rewrite",
-                  );
-                });
-            }
-          }
-        } catch (feedErr) {
-          log.warn(
-            { err: feedErr, conversationId: ctx.conversationId },
-            "Failed to build home-feed event for background conversation",
-          );
-        }
       }
     }
 
