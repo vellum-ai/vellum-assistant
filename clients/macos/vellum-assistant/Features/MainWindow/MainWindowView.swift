@@ -148,15 +148,26 @@ struct MainWindowView: View {
         // Eagerly construct the Home store so it's ready the moment the user
         // toggles the `home-tab` flag on — even if the panel is opened
         // without an app relaunch.
-        self._homeStore = State(initialValue: HomeStore(
+        let homeStoreInstance = HomeStore(
             client: DefaultHomeStateClient(),
             messageStream: eventStreamClient.subscribe()
-        ))
+        )
+        self._homeStore = State(initialValue: homeStoreInstance)
         // Same eager-construction rationale for the activity feed store
-        // — ready the instant the `home-feed` flag flips on.
+        // — ready the instant the `home-feed` flag flips on. The
+        // `onSSEUpdate` callback is what turns a `home_feed_updated`
+        // SSE event into the Home toolbar's unread dot — gated on the
+        // tab being off-surface so we don't badge while the user is
+        // already looking at the feed.
         self._feedStore = State(initialValue: HomeFeedStore(
             client: DefaultHomeFeedClient(),
-            messageStream: eventStreamClient.subscribe()
+            messageStream: eventStreamClient.subscribe(),
+            onSSEUpdate: { [weak homeStoreInstance] in
+                guard let homeStoreInstance else { return }
+                if !homeStoreInstance.isHomeTabVisible {
+                    homeStoreInstance.flagUnseenChanges()
+                }
+            }
         ))
         // Meet status panel subscribes to the same shared SSE stream.
         self._meetStatusViewModel = State(initialValue: MeetStatusViewModel(

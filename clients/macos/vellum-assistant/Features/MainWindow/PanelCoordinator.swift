@@ -324,11 +324,10 @@ extension MainWindowView {
             }
         )
         .onAppear {
-            homeStore.isHomeTabVisible = true
-            homeStore.markSeen()
+            homeStore.setHomeTabVisible(true)
         }
         .onDisappear {
-            homeStore.isHomeTabVisible = false
+            homeStore.setHomeTabVisible(false)
             // Codex P2 feedback (#27467): clear the detail panel so
             // re-entering Home doesn't show a stale split layout when the
             // user leaves Home through routes other than the detail panel's
