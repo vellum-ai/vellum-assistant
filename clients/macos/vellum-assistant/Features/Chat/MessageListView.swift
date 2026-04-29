@@ -139,16 +139,16 @@ struct MessageListView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
             let widths = layoutMetrics
-            // .frame(width:) creates _FrameLayout (not _FlexFrameLayout). FrameLayout
-            // returns bounds.midX for alignment without querying children, stopping the
-            // alignment cascade. The old .frame(maxWidth:) pattern created FlexFrameLayout
-            // which queried explicitAlignment on the entire LazyVStack subtree — O(n) per
-            // layout pass, causing 34-70s hangs. See AGENTS.md.
+            // .fixedWidth() uses FixedWidthLayout (Layout protocol) which returns
+            // nil from explicitAlignment, stopping the alignment cascade. _FrameLayout
+            // (from .frame(width:)) is safe for sizeThatFits (O(1)), but its placeSubviews
+            // calls commonPlacement → ViewDimensions[guide] which queries child alignment
+            // — cascading O(n × depth) through the LazyVStack subtree. See AGENTS.md.
             ScrollView {
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     scrollViewContent
-                        .frame(width: widths.chatColumnWidth)
+                        .fixedWidth(widths.chatColumnWidth)
                         .background(
                             MessageListScrollObserver(
                                 onGeometryChange: { newState in
@@ -181,7 +181,7 @@ struct MessageListView: View {
                         )
                     Spacer(minLength: 0)
                 }
-                .frame(width: widths.scrollSurfaceWidth)
+                .fixedWidth(widths.scrollSurfaceWidth)
                 // In the inverted scroll, short content gravity-pulls to the
                 // visual bottom. Pin it to the pre-flip bottom (= visual top)
                 // so the first message always starts at the top of the viewport.
