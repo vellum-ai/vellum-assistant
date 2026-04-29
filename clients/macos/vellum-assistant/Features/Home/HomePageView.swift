@@ -85,15 +85,14 @@ struct HomePageView<DetailPanel: View>: View {
                     skeleton
                 }
             }
-            .frame(maxWidth: .infinity)
 
             if isDetailPanelVisible {
                 detailPanel()
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .layoutHangSignpost("home.detailPanel")
             }
         }
         .padding(isDetailPanelVisible ? VSpacing.lg : 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(VColor.surfaceBase)
         .animation(VAnimation.standard, value: isDetailPanelVisible)
         .task {

@@ -88,56 +88,60 @@ struct HomeNudgeDetailPanel: View {
     // MARK: - Body
 
     private var bodySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            if let description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(cards) { card in
-                    cardView(card)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                if let description, !description.isEmpty {
+                    Text(description)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-        }
-        .padding(EdgeInsets(
-            top: VSpacing.lg,
-            leading: VSpacing.lg,
-            bottom: VSpacing.lg,
-            trailing: VSpacing.lg
-        ))
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 
-    private func cardView(_ card: Card) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(card.title)
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentEmphasized)
-                .accessibilityAddTraits(.isHeader)
-
-            Text(card.description)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !card.actions.isEmpty {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    ForEach(card.actions) { action in
-                        cardActionButton(card: card, action: action)
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    ForEach(cards) { card in
+                        cardView(card)
                     }
                 }
             }
+            .padding(EdgeInsets(
+                top: VSpacing.lg,
+                leading: VSpacing.lg,
+                bottom: VSpacing.lg,
+                trailing: VSpacing.lg
+            ))
+            Spacer(minLength: 0)
         }
-        .padding(EdgeInsets(
-            top: VSpacing.md,
-            leading: VSpacing.md,
-            bottom: VSpacing.lg,
-            trailing: VSpacing.md
-        ))
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func cardView(_ card: Card) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text(card.title)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text(card.description)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !card.actions.isEmpty {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        ForEach(card.actions) { action in
+                            cardActionButton(card: card, action: action)
+                        }
+                    }
+                }
+            }
+            .padding(EdgeInsets(
+                top: VSpacing.md,
+                leading: VSpacing.md,
+                bottom: VSpacing.lg,
+                trailing: VSpacing.md
+            ))
+            Spacer(minLength: 0)
+        }
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .fill(VColor.surfaceOverlay)
