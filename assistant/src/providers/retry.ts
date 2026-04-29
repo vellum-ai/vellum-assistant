@@ -1,5 +1,9 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  resolveUsageAttribution,
+  sanitizeUsageMetadataValue,
+} from "../usage/attribution.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -23,6 +27,14 @@ import {
 } from "./types.js";
 
 const log = getLogger("retry");
+
+const USAGE_ATTRIBUTION_HEADER_NAMES = {
+  callSite: "X-Vellum-LLM-Call-Site",
+  inferenceProfile: "X-Vellum-Inference-Profile",
+  inferenceProfileSource: "X-Vellum-Inference-Profile-Source",
+  resolvedProvider: "X-Vellum-Resolved-Provider",
+  resolvedModel: "X-Vellum-Resolved-Model",
+} as const;
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
@@ -124,6 +136,10 @@ function normalizeSendMessageOptions(
 
   const nextConfig: Record<string, unknown> = { ...config };
 
+  // Internal metadata must be derived here, not accepted from callers, and it
+  // must never leak into provider JSON request bodies.
+  delete nextConfig.usageAttributionHeaders;
+
   // `overrideProfile` is a routing/resolution-time concern (consumed by the
   // resolver below and `CallSiteRoutingProvider`'s provider selection); it is
   // not a wire-format field. Strip unconditionally so it never leaks into
@@ -132,6 +148,10 @@ function normalizeSendMessageOptions(
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
+      overrideProfile: config.overrideProfile,
+    });
+    const attribution = resolveUsageAttribution({
+      callSite: config.callSite,
       overrideProfile: config.overrideProfile,
     });
 
@@ -143,6 +163,16 @@ function normalizeSendMessageOptions(
     // Routing key is consumed by the resolver above and must not leak
     // downstream as a wire-format field.
     delete nextConfig.callSite;
+    const usageAttributionHeaders = buildUsageAttributionHeaders({
+      callSite: attribution.callSite,
+      appliedProfile: attribution.appliedProfile,
+      profileSource: attribution.profileSource,
+      resolvedProvider: attribution.resolvedProvider,
+      resolvedModel: attribution.resolvedModel,
+    });
+    if (Object.keys(usageAttributionHeaders).length > 0) {
+      nextConfig.usageAttributionHeaders = usageAttributionHeaders;
+    }
 
     // Apply resolved values, letting per-call explicit fields win where set.
     nextConfig.model = explicitModel ?? resolved.model;
@@ -272,6 +302,53 @@ function normalizeSendMessageOptions(
     ...options,
     config: nextConfig,
   };
+}
+
+function buildUsageAttributionHeaders(input: {
+  callSite: string | null;
+  appliedProfile: string | null;
+  profileSource: string;
+  resolvedProvider: string;
+  resolvedModel: string;
+}): Record<string, string> {
+  const headers: Record<string, string> = {};
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.callSite,
+    input.callSite,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfile,
+    input.appliedProfile,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfileSource,
+    input.profileSource,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedProvider,
+    input.resolvedProvider,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedModel,
+    input.resolvedModel,
+  );
+  return headers;
+}
+
+function addSanitizedHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: unknown,
+): void {
+  const sanitized = sanitizeUsageMetadataValue(value);
+  if (sanitized != null) {
+    headers[name] = sanitized;
+  }
 }
 
 /**

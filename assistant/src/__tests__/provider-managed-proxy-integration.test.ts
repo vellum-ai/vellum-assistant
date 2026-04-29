@@ -8,6 +8,8 @@ import { credentialKey } from "../security/credential-key.js";
 // assertions. Must be before importing the registry.
 // ---------------------------------------------------------------------------
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
+let lastGeminiGenerateContentStreamParams: Record<string, unknown> | null =
+  null;
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
@@ -15,11 +17,14 @@ mock.module("@google/genai", () => ({
       lastGeminiConstructorOpts = opts;
     }
     models = {
-      generateContentStream: async () => ({
-        [Symbol.asyncIterator]: async function* () {
-          /* no chunks */
-        },
-      }),
+      generateContentStream: async (params: Record<string, unknown>) => {
+        lastGeminiGenerateContentStreamParams = params;
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            /* no chunks */
+          },
+        };
+      },
     };
   },
   ApiError: class FakeApiError extends Error {
@@ -40,6 +45,7 @@ mock.module("@google/genai", () => ({
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
+let mockLlmConfig: Record<string, unknown> = {};
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
@@ -54,6 +60,14 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    llm: mockLlmConfig,
+    services: { inference: { mode: "your-own" } },
+  }),
+}));
+
+import { LLMSchema } from "../config/schemas/llm.js";
 import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
@@ -121,6 +135,8 @@ beforeEach(() => {
   disableManagedProxy();
   mockProviderKeys = {};
   lastGeminiConstructorOpts = null;
+  lastGeminiGenerateContentStreamParams = null;
+  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
 });
 
 describe("managed proxy integration — credential precedence", () => {
@@ -238,6 +254,86 @@ describe("managed proxy integration — credential precedence", () => {
         | undefined;
       expect(httpOptions).toBeDefined();
       expect(httpOptions!.baseUrl).toContain("/v1/runtime-proxy/gemini");
+    });
+
+    test("managed gemini receives attribution headers outside request JSON", async () => {
+      enableManagedProxy();
+      mockProviderKeys = {};
+      mockLlmConfig = LLMSchema.parse({
+        default: { provider: "gemini", model: "gemini-3.1-pro" },
+        profiles: {
+          "conversation-profile": {
+            model: "gemini-3.1-flash",
+            source: "user",
+          },
+        },
+        callSites: {
+          mainAgent: {},
+        },
+      }) as Record<string, unknown>;
+      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+
+      const provider = getProvider("gemini");
+      const response = await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        undefined,
+        undefined,
+        {
+          config: {
+            callSite: "mainAgent",
+            overrideProfile: "conversation-profile",
+          },
+        },
+      );
+
+      const constructorHttpOptions = lastGeminiConstructorOpts!.httpOptions as
+        | { baseUrl?: string }
+        | undefined;
+      expect(constructorHttpOptions?.baseUrl).toContain(
+        "/v1/runtime-proxy/gemini",
+      );
+      const sentConfig = lastGeminiGenerateContentStreamParams!.config as {
+        httpOptions?: { headers?: Record<string, string> };
+        usageAttributionHeaders?: Record<string, string>;
+      };
+      expect(sentConfig.httpOptions?.headers).toEqual({
+        "X-Vellum-LLM-Call-Site": "mainAgent",
+        "X-Vellum-Inference-Profile": "conversation-profile",
+        "X-Vellum-Inference-Profile-Source": "conversation",
+        "X-Vellum-Resolved-Provider": "gemini",
+        "X-Vellum-Resolved-Model": "gemini-3.1-flash",
+      });
+      expect(sentConfig.usageAttributionHeaders).toBeUndefined();
+
+      const rawRequest = response.rawRequest as {
+        config?: Record<string, unknown>;
+      };
+      expect(rawRequest.config?.usageAttributionHeaders).toBeUndefined();
+      expect(rawRequest.config?.httpOptions).toBeUndefined();
+    });
+
+    test("managed gemini omits attribution headers without callSite", async () => {
+      enableManagedProxy();
+      mockProviderKeys = {};
+      mockLlmConfig = LLMSchema.parse({
+        default: { provider: "gemini", model: "gemini-3.1-pro" },
+      }) as Record<string, unknown>;
+      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+
+      const provider = getProvider("gemini");
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        undefined,
+        undefined,
+        { config: { model: "gemini-3.1-pro" } },
+      );
+
+      const sentConfig = lastGeminiGenerateContentStreamParams!.config as {
+        httpOptions?: { headers?: Record<string, string> };
+        usageAttributionHeaders?: Record<string, string>;
+      };
+      expect(sentConfig.httpOptions?.headers).toBeUndefined();
+      expect(sentConfig.usageAttributionHeaders).toBeUndefined();
     });
   });
 
