@@ -387,10 +387,6 @@ async function* streamEvents(
     throw new Error("No response body from SSE endpoint");
   }
 
-  // After SSE connects, verify client registration by querying the
-  // clients endpoint.  Fire-and-forget so it doesn't block streaming.
-  void verifyClientRegistration(baseUrl, assistantId, bearerToken, signal);
-
   const decoder = new TextDecoder();
   let buffer = "";
   for await (const chunk of response.body) {
@@ -419,40 +415,6 @@ async function* streamEvents(
       } catch {
         // skip malformed JSON
       }
-    }
-  }
-}
-
-/**
- * After the SSE stream connects, pause briefly then query the daemon's
- * /clients endpoint to verify this TUI actually registered as a client.
- * Logs the result — never throws.
- */
-async function verifyClientRegistration(
-  baseUrl: string,
-  assistantId: string,
-  bearerToken: string | undefined,
-  signal: AbortSignal,
-): Promise<void> {
-  try {
-    // Give the daemon a moment to process the subscriber registration
-    await new Promise((r) => setTimeout(r, 2_000));
-    if (signal.aborted) return;
-
-    const clientsUrl = `${baseUrl}/v1/assistants/${assistantId}/clients`;
-    const res = await fetch(clientsUrl, {
-      headers: {
-        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      },
-      signal,
-    });
-    const body = await res.text();
-    tuiLog.info("client registration check", { status: res.status, body });
-  } catch (err) {
-    if (!signal.aborted) {
-      tuiLog.warn("client registration check failed", {
-        error: String(err),
-      });
     }
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Structured logger for the `vellum client` TUI.
  *
- * Writes timestamped log lines to `<xdg-log-dir>/client.log`
+ * Writes timestamped log lines to `<xdg-log-dir>/client-cli.log`
  * (same directory used by `vellum logs` for hatch sessions).  The file is
  * reset on each TUI session start so it always reflects the most recent run.
  *
@@ -23,7 +23,7 @@ import {
   writeToLogFile,
 } from "./xdg-log.js";
 
-const LOG_FILE = "client.log";
+const LOG_FILE = "client-cli.log";
 
 let fd: number | "ignore" = "ignore";
 
