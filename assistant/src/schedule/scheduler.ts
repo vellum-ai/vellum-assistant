@@ -1,9 +1,9 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -72,6 +72,14 @@ const TICK_INTERVAL_MS = 15_000;
  * ≈ 5 minutes of total retry window.
  */
 const WAKE_MAX_RETRIES = 20;
+
+/**
+ * Hard timeout for `talk`-mode scheduled jobs. Schedules can do
+ * non-trivial work (research, summarize the day, etc.), so the cap is
+ * generous; it exists primarily so a wedged turn cannot block the next
+ * scheduler tick indefinitely. Mirrors the heartbeat/filing budgets.
+ */
+const SCHEDULE_TALK_TIMEOUT_MS = 30 * 60 * 1000;
 
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
@@ -155,21 +163,11 @@ async function runScheduleOnce(
         });
         if (isOneShot) {
           completeOneShot(job.id);
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Reminder fired.",
-            dedupKey: `schedule-notify-oneshot:${job.id}`,
-          });
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
           // and retryCount clears after a transient failure.
           const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
           completeScheduleRun(runId, { status: "ok" });
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Scheduled notification fired.",
-            dedupKey: `schedule-run:${runId}`,
-          });
         }
       } catch (err) {
         log.warn(
@@ -213,13 +211,6 @@ async function runScheduleOnce(
           error: result.stderr || undefined,
         });
         if (result.exitCode === 0) {
-          if (!job.quiet) {
-            emitScheduleFeedEvent({
-              title: job.name,
-              summary: "Script ran.",
-              dedupKey: `schedule-run:${runId}`,
-            });
-          }
           if (isOneShot) completeOneShot(job.id);
         } else {
           if (isOneShot) failOneShot(job.id);
@@ -310,13 +301,6 @@ async function runScheduleOnce(
         }
 
         if (isOneShot) completeOneShot(job.id);
-        if (!job.quiet) {
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Deferred wake fired.",
-            dedupKey: `schedule-wake:${job.id}`,
-          });
-        }
       } catch (err) {
         log.warn(
           { err, jobId: job.id, name: job.name, wakeConversationId, isOneShot },
@@ -383,13 +367,6 @@ async function runScheduleOnce(
           if (isOneShot) failOneShot(job.id);
         } else {
           completeScheduleRun(runId, { status: "ok" });
-          if (!job.quiet) {
-            emitScheduleFeedEvent({
-              title: job.name,
-              summary: "Scheduled task ran.",
-              dedupKey: `schedule-run:${runId}`,
-            });
-          }
           if (isOneShot) completeOneShot(job.id);
         }
         processed += 1;
@@ -430,71 +407,91 @@ async function runScheduleOnce(
     }
 
     // Reuse the conversation from the last successful run when the flag is set
-    // and a prior conversation still exists; otherwise bootstrap a new one.
-    let conversationId: string | null = null;
-    let conversationReused = false;
+    // and a prior conversation still exists; otherwise route through the
+    // shared `runBackgroundJob` runner (which bootstraps fresh, applies the
+    // standard timeout, and emits `activity.failed` on any failure).
+    const isRruleSetMsg =
+      job.syntax === "rrule" &&
+      job.expression != null &&
+      hasSetConstructs(job.expression);
+
+    let reusedConversationId: string | null = null;
     if (job.reuseConversation && !isOneShot) {
       const lastId = getLastScheduleConversationId(job.id);
       if (lastId && getConversation(lastId)) {
-        conversationId = lastId;
-        conversationReused = true;
+        reusedConversationId = lastId;
       }
     }
-    if (!conversationId) {
-      const conversation = bootstrapConversation({
-        conversationType: "scheduled",
+
+    log.info(
+      {
+        jobId: job.id,
+        name: job.name,
+        syntax: job.syntax,
+        expression: job.expression,
+        isRruleSet: isRruleSetMsg,
+        isOneShot,
+        ...(reusedConversationId
+          ? { conversationId: reusedConversationId }
+          : {}),
+      },
+      isOneShot ? "Executing one-shot schedule" : "Executing schedule",
+    );
+
+    let conversationId: string;
+    let ok: boolean;
+    let errorMsg: string | undefined;
+    const conversationReused = reusedConversationId != null;
+
+    if (reusedConversationId) {
+      // Reuse path: keep using the injected `processMessage` callback so the
+      // existing conversation is continued in place. `runBackgroundJob`
+      // unconditionally bootstraps a new conversation and is therefore not a
+      // drop-in replacement for the reuse semantics.
+      conversationId = reusedConversationId;
+      try {
+        await processMessage(conversationId, job.message, {
+          trustClass: "guardian",
+        });
+        ok = true;
+      } catch (err) {
+        ok = false;
+        errorMsg = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      // Fresh-bootstrap path: route through the shared runner so failures
+      // surface via `activity.failed` and we get the standard timeout +
+      // error-classification policy applied to every background producer.
+      const result = await runBackgroundJob({
+        jobName: `schedule:${job.id}`,
         source: "schedule",
-        scheduleJobId: job.id,
-        groupId: "system:scheduled",
+        prompt: job.message,
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+        callSite: "mainAgent",
+        timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
         origin: "schedule",
-        systemHint: isOneShot
-          ? `Reminder: ${job.name}`
-          : `Schedule: ${job.name}`,
+        groupId: "system:scheduled",
       });
-      conversationId = conversation.id;
+      conversationId = result.conversationId;
+      ok = result.ok;
+      errorMsg = result.error?.message;
     }
+
     onScheduleConversationCreated?.({
       conversationId,
       scheduleJobId: job.id,
       title: job.name,
     });
     const runId = createScheduleRun(job.id, conversationId);
-    const isRruleSetMsg =
-      job.syntax === "rrule" &&
-      job.expression != null &&
-      hasSetConstructs(job.expression);
 
-    try {
-      log.info(
-        {
-          jobId: job.id,
-          name: job.name,
-          syntax: job.syntax,
-          expression: job.expression,
-          isRruleSet: isRruleSetMsg,
-          isOneShot,
-          conversationId,
-        },
-        isOneShot ? "Executing one-shot schedule" : "Executing schedule",
-      );
-      await processMessage(conversationId, job.message, {
-        trustClass: "guardian",
-      });
+    if (ok) {
       completeScheduleRun(runId, { status: "ok" });
-      if (!job.quiet) {
-        emitScheduleFeedEvent({
-          title: job.name,
-          summary: isOneShot ? "One-shot reminder ran." : "Scheduled job ran.",
-          dedupKey: `schedule-run:${runId}`,
-        });
-      }
       if (isOneShot) completeOneShot(job.id);
       processed += 1;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    } else {
       log.warn(
         {
-          err,
+          err: errorMsg,
           jobId: job.id,
           name: job.name,
           syntax: job.syntax,
@@ -506,7 +503,7 @@ async function runScheduleOnce(
           ? "One-shot schedule execution failed"
           : "Schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: message });
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
       if (isOneShot) failOneShot(job.id);
 
       // Only skip invalidation when the conversation was *actually* reused,
@@ -552,33 +549,4 @@ async function runScheduleOnce(
     log.info({ processed }, "Schedule tick complete");
   }
   return processed;
-}
-
-/**
- * Fire-and-forget home-feed emit for a successful schedule run.
- *
- * Wraps {@link emitFeedEvent} with local error handling so a schema
- * failure or writer hiccup can never interrupt the scheduler tick
- * loop. The dedupKey is always derived from the schedule run id (or
- * the job id, for one-shot notify-mode which fires before a run
- * record is created) so each run lands as its own entry in the
- * activity log — the writer's per-source cap keeps total volume
- * bounded.
- */
-function emitScheduleFeedEvent(params: {
-  title: string;
-  summary: string;
-  dedupKey: string;
-}): void {
-  void emitFeedEvent({
-    source: "assistant",
-    title: params.title,
-    summary: params.summary,
-    dedupKey: params.dedupKey,
-  }).catch((err) => {
-    log.warn(
-      { err, dedupKey: params.dedupKey },
-      "Failed to emit schedule feed event",
-    );
-  });
 }
