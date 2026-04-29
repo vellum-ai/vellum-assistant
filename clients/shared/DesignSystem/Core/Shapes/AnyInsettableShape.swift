@@ -3,9 +3,9 @@ import SwiftUI
 /// Type-erased `InsettableShape` enabling runtime shape switching while
 /// preserving `strokeBorder` support (which requires `InsettableShape`).
 public struct AnyInsettableShape: InsettableShape {
-    private let _path: (CGRect) -> Path
-    private let _sizeThatFits: (ProposedViewSize) -> CGSize
-    private let _inset: (CGFloat) -> AnyInsettableShape
+    private let _path: @Sendable (CGRect) -> Path
+    private let _sizeThatFits: @Sendable (ProposedViewSize) -> CGSize
+    private let _inset: @Sendable (CGFloat) -> AnyInsettableShape
 
     public init<S: InsettableShape>(_ shape: S) {
         _path = shape.path
