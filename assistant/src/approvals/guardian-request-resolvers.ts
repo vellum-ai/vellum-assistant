@@ -14,7 +14,6 @@
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -211,21 +210,6 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       undefined,
       ctx.emissionContext,
     );
-
-    const approved = decision.action !== "reject";
-    void emitFeedEvent({
-      source: "assistant",
-      title: approved ? "Tool Request Approved" : "Tool Request Denied",
-      summary: `${approved ? "Approved" : "Denied"} access to ${request.toolName ?? "unknown tool"}.`,
-      dedupKey: `guardian-approval:${request.id}`,
-      urgency: approved ? undefined : "medium",
-      detailPanel: { kind: "toolPermission" },
-    }).catch((err) => {
-      log.warn(
-        { err, requestId: request.id },
-        "Failed to emit guardian approval feed event",
-      );
-    });
 
     log.info(
       {
@@ -473,20 +457,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Access Request Denied",
-        summary: `Denied access request.`,
-        dedupKey: `guardian-access:${request.id}`,
-        urgency: "medium",
-        detailPanel: { kind: "permissionChat" },
-      }).catch((err) => {
-        log.warn(
-          { err, requestId: request.id },
-          "Failed to emit access request feed event",
-        );
-      });
-
       return {
         ok: true,
         applied: true,
@@ -526,20 +496,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         },
         "Access request resolver: voice approval — direct trusted-contact activation (no verification session)",
       );
-
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Access Request Approved",
-        summary: `Granted access request.`,
-        dedupKey: `guardian-access:${request.id}`,
-        urgency: undefined,
-        detailPanel: { kind: "permissionChat" },
-      }).catch((err) => {
-        log.warn(
-          { err, requestId: request.id },
-          "Failed to emit access request feed event",
-        );
-      });
 
       return { ok: true, applied: true };
     }
@@ -759,20 +715,6 @@ const accessRequestResolver: GuardianRequestResolver = {
       ? `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes.`
       : `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
 
-    void emitFeedEvent({
-      source: "assistant",
-      title: "Access Request Approved",
-      summary: `Granted access request.`,
-      dedupKey: `guardian-access:${request.id}`,
-      urgency: undefined,
-      detailPanel: { kind: "permissionChat" },
-    }).catch((err) => {
-      log.warn(
-        { err, requestId: request.id },
-        "Failed to emit access request feed event",
-      );
-    });
-
     return {
       ok: true,
       applied: true,
@@ -845,20 +787,6 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
           );
         }
       }
-
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Tool Grant Denied",
-        summary: `Denied grant request for ${request.toolName ?? "unknown tool"}.`,
-        dedupKey: `guardian-grant:${request.id}`,
-        urgency: "medium",
-        detailPanel: { kind: "toolPermission" },
-      }).catch((err) => {
-        log.warn(
-          { err, requestId: request.id },
-          "Failed to emit tool grant denial feed event",
-        );
-      });
 
       return { ok: true, applied: true };
     }
@@ -956,20 +884,6 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         );
       }
     }
-
-    void emitFeedEvent({
-      source: "assistant",
-      title: "Tool Grant Approved",
-      summary: `Approved grant request for ${request.toolName ?? "unknown tool"}.`,
-      dedupKey: `guardian-grant:${request.id}`,
-      urgency: undefined,
-      detailPanel: { kind: "toolPermission" },
-    }).catch((err) => {
-      log.warn(
-        { err, requestId: request.id },
-        "Failed to emit tool grant approval feed event",
-      );
-    });
 
     return { ok: true, applied: true, grantMinted: false };
   },
