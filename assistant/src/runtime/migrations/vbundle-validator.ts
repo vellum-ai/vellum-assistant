@@ -367,7 +367,7 @@ const MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024;
  * Performs four validation passes:
  * 1. Archive structure (gzip decompression, tar parsing, required entries)
  * 2. Manifest schema (Zod validation of manifest.json)
- * 3. Manifest checksum (SHA-256 of canonicalized JSON without manifest_sha256)
+ * 3. Manifest checksum (SHA-256 of canonicalized JSON with the `checksum` field set to empty string)
  * 4. Per-file content integrity (SHA-256 of each file vs manifest declaration)
  */
 export function validateVBundle(data: Uint8Array): VBundleValidationResult {

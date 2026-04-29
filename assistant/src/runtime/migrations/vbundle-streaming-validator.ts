@@ -9,7 +9,7 @@
  * This module lets a caller validate a bundle while streaming:
  * - `readAndValidateManifest` consumes the first tar entry (which must be
  *   `manifest.json`), validates the schema, and verifies the self-referencing
- *   `manifest_sha256` against the canonicalized JSON.
+ *   `checksum` against the canonicalized JSON.
  * - `createHashVerifier` returns a passthrough `Transform` that hashes bytes
  *   flowing through it and errors the pipeline if the final digest or byte
  *   count does not match the expected values from the manifest.
@@ -38,7 +38,7 @@ import {
 
 export interface ManifestReadResult {
   manifest: ManifestType;
-  /** Fast lookup from archive path -> expected sha256 + size (from manifest.files). */
+  /** Fast lookup from archive path -> expected sha256 + size (from manifest.contents). */
   expected: Map<string, { sha256: string; size: number }>;
 }
 
@@ -78,7 +78,7 @@ const MANIFEST_MAX_BYTES = 1 * 1024 * 1024;
  *   2. Size cap (1 MiB).
  *   3. JSON parse.
  *   4. Zod schema validation.
- *   5. Self-referencing `manifest_sha256` verification against the
+ *   5. Self-referencing `checksum` verification against the
  *      canonicalized JSON (minus that field).
  *
  * On success, returns the parsed manifest plus a `Map` keyed by archive

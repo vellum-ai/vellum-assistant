@@ -362,7 +362,7 @@ function buildManifestObject(input: {
  * Build a .vbundle archive from the given files and metadata.
  *
  * Generates a valid manifest with SHA-256 checksums for all files and
- * a self-referencing manifest_sha256 checksum. The archive is returned
+ * a self-referencing `checksum`. The archive is returned
  * as gzip-compressed tar bytes.
  */
 export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
