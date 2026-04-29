@@ -198,17 +198,25 @@ public class VMenuPanel: NSPanel {
         // Register with coordinator — it installs the unified click monitor
         coordinator.registerRootPanel(panel, sourceWindow: resolvedSourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
-        // Reveal the panel and notify VoiceOver on the next run-loop cycle,
-        // after SwiftUI has completed its first render pass.
+        // Reveal the panel after SwiftUI has completed its full render pass.
+        // A single run-loop cycle is sometimes insufficient — SwiftUI's
+        // Metal-backed rendering pipeline can split across 2+ frames
+        // (background/shadow first, then text layout). Double-pumping
+        // the main queue ensures both phases complete before reveal.
+        // Guard on contentView != nil rather than isVisible: contentView
+        // is set to nil synchronously in close(), making it a reliable
+        // indicator that the panel has been dismissed.
         DispatchQueue.main.async { [weak panel] in
-            guard let panel, panel.isVisible else { return }
-            panel.alphaValue = 1
-            NSAccessibility.post(element: panel, notification: .created)
-            if let contentView = panel.contentView,
-               let firstChild = contentView.accessibilityChildren()?.first {
-                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-            } else if let contentView = panel.contentView {
-                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
+            DispatchQueue.main.async { [weak panel] in
+                guard let panel, panel.contentView != nil else { return }
+                panel.alphaValue = 1
+                NSAccessibility.post(element: panel, notification: .created)
+                if let contentView = panel.contentView,
+                   let firstChild = contentView.accessibilityChildren()?.first {
+                    NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+                } else if let contentView = panel.contentView {
+                    NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
+                }
             }
         }
 
@@ -280,20 +288,21 @@ public class VMenuPanel: NSPanel {
 
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
-        // Fade-in guard — same as show(), prevents ghost flash from
-        // SwiftUI's multi-phase rendering pipeline.
+        // Fade-in guard — same rationale as show().
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak panel] in
-            guard let panel, panel.isVisible else { return }
-            panel.alphaValue = 1
-            NSAccessibility.post(element: panel, notification: .created)
-            if let contentView = panel.contentView,
-               let firstChild = contentView.accessibilityChildren()?.first {
-                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-            } else if let contentView = panel.contentView {
-                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
+            DispatchQueue.main.async { [weak panel] in
+                guard let panel, panel.contentView != nil else { return }
+                panel.alphaValue = 1
+                NSAccessibility.post(element: panel, notification: .created)
+                if let contentView = panel.contentView,
+                   let firstChild = contentView.accessibilityChildren()?.first {
+                    NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+                } else if let contentView = panel.contentView {
+                    NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
+                }
             }
         }
 
@@ -414,7 +423,17 @@ public class VMenuPanel: NSPanel {
         alphaValue = 0
         contentView = nil
 
-        // 2. Explicitly order out before super.close() so the
+        // 2. Detach from parent BEFORE ordering out. Child windows
+        //    are re-ordered when their parent orders front
+        //    (https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)).
+        //    If the parent processes a click-through between orderOut
+        //    and removeChildWindow, it could briefly re-order this
+        //    panel back on screen.
+        if let parentWindow = parent {
+            parentWindow.removeChildWindow(self)
+        }
+
+        // 3. Explicitly order out before super.close() so the
         //    window server removes the surface immediately rather
         //    than waiting for the close→orderOut path which can
         //    leave a stale compositor entry for one frame.
@@ -422,10 +441,6 @@ public class VMenuPanel: NSPanel {
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
-
-        if let parentWindow = parent {
-            parentWindow.removeChildWindow(self)
-        }
 
         let handler = dismissHandler
         dismissHandler = nil
