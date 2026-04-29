@@ -28,6 +28,7 @@ import { pgrepExact } from "../lib/pgrep";
 import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
+import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
 
 // ── Table formatting helpers ────────────────────────────────────
 
@@ -477,6 +478,9 @@ async function listAllAssistants(): Promise<void> {
     default: "default",
   };
   console.log(`Environment: ${envName} (${sourceLabels[envSource]})\n`);
+
+  // Refresh cloud assistants from the platform before listing.
+  await syncCloudAssistants();
 
   const assistants = loadAllAssistants();
   const activeId = getActiveAssistant();
