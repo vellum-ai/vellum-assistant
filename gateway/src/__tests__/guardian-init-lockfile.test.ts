@@ -34,12 +34,14 @@ mock.module("../fetch.js", () => ({
 let testAssistantDb: Database | null = null;
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  async assistantDbQuery(sql: string, bind?: unknown[]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbQuery(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     return bind ? stmt.all(...bind) : stmt.all();
   },
-  async assistantDbRun(sql: string, bind?: unknown[]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbRun(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     const result = bind ? stmt.run(...bind) : stmt.run();
