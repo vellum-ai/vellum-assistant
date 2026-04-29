@@ -94,6 +94,7 @@ export function getAssistantDb(): Database {
 
   assistantDb = new Database(dbPath);
   assistantDb.exec("PRAGMA journal_mode=WAL");
+  assistantDb.exec("PRAGMA synchronous=FULL");
   assistantDb.exec("PRAGMA busy_timeout=5000");
   assistantDb.exec("PRAGMA foreign_keys=ON");
 
