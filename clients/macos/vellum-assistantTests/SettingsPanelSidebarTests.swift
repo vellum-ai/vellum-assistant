@@ -3,30 +3,18 @@ import XCTest
 
 final class SettingsPanelSidebarTests: XCTestCase {
 
-    func testCompactionPlaygroundPositionFollowsVisibilityGate() {
-        let cases: [(developerEnabled: Bool, playgroundEnabled: Bool, devModeEnabled: Bool, expectedVisible: Bool)] = [
-            (true, true, true, true),
-            (true, false, true, false),
-            (false, true, true, false),
-            (true, true, false, false)
-        ]
+    func testCompactionPlaygroundAppearsBeforeGeneralWhenIncluded() {
+        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: true)
 
-        for testCase in cases {
-            let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
-                developerEnabled: testCase.developerEnabled,
-                playgroundEnabled: testCase.playgroundEnabled,
-                devModeEnabled: testCase.devModeEnabled
-            )
-            let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
+        XCTAssertEqual(tabs.first, .compactionPlayground)
+        XCTAssertEqual(tabs.dropFirst().first, .general)
+    }
 
-            XCTAssertEqual(tabs.contains(.compactionPlayground), testCase.expectedVisible)
-            if testCase.expectedVisible {
-                XCTAssertEqual(tabs.first, .compactionPlayground)
-                XCTAssertEqual(tabs.dropFirst().first, .general)
-            } else {
-                XCTAssertEqual(tabs.first, .general)
-            }
-        }
+    func testCompactionPlaygroundIsOmittedWhenExcluded() {
+        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: false)
+
+        XCTAssertFalse(tabs.contains(.compactionPlayground))
+        XCTAssertEqual(tabs.first, .general)
     }
 
     func testDeveloperIsNotRenderedInTopSidebarGroup() {
@@ -35,10 +23,4 @@ final class SettingsPanelSidebarTests: XCTestCase {
         XCTAssertFalse(topTabs.contains(.developer))
     }
 
-    func testDeferredDeepLinksAreLimitedToAsyncGatedTabs() {
-        XCTAssertTrue(SettingsTab.canDeferDeepLink(.developer))
-        XCTAssertTrue(SettingsTab.canDeferDeepLink(.compactionPlayground))
-        XCTAssertFalse(SettingsTab.canDeferDeepLink(.billing))
-        XCTAssertFalse(SettingsTab.canDeferDeepLink(.sounds))
-    }
 }

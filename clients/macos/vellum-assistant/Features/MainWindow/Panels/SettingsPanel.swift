@@ -53,22 +53,6 @@ enum SettingsTab: String {
         return tabs
     }
 
-    static func isCompactionPlaygroundVisible(
-        developerEnabled: Bool,
-        playgroundEnabled: Bool,
-        devModeEnabled: Bool
-    ) -> Bool {
-        developerEnabled && playgroundEnabled && devModeEnabled
-    }
-
-    static func canDeferDeepLink(_ tab: SettingsTab) -> Bool {
-        switch tab {
-        case .developer, .compactionPlayground:
-            return true
-        default:
-            return false
-        }
-    }
 }
 
 @MainActor
@@ -144,7 +128,7 @@ struct SettingsPanel: View {
             )
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
-            } else if SettingsTab.canDeferDeepLink(pending) {
+            } else if Self.deferredDeepLinkTabs.contains(pending) {
                 // Tab may become visible once feature flags load (e.g. .developer).
                 // Preserve it for deferred evaluation in loadFeatureFlags().
                 _deferredDeepLinkTab = State(initialValue: pending)
@@ -188,6 +172,7 @@ struct SettingsPanel: View {
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.developer, .compactionPlayground]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -265,7 +250,7 @@ struct SettingsPanel: View {
             if let tab = newTab {
                 if allVisibleTabs.contains(tab) {
                     selectVisibleTab(tab)
-                } else if !hasLoadedFeatureFlags && SettingsTab.canDeferDeepLink(tab) {
+                } else if !hasLoadedFeatureFlags && Self.deferredDeepLinkTabs.contains(tab) {
                     deferredDeepLinkTab = tab
                 } else {
                     deferredDeepLinkTab = nil
@@ -283,16 +268,16 @@ struct SettingsPanel: View {
             }
         }
         .onChange(of: billingVisible) { _, _ in
-            reconcileSelectedTabVisibility()
+            handleSidebarVisibilityChanged()
         }
         .onChange(of: isDebugVisible) { _, _ in
-            reconcileSelectedTabVisibility()
+            handleSidebarVisibilityChanged()
         }
         .onChange(of: isSoundsEnabled) { _, _ in
-            reconcileSelectedTabVisibility()
+            handleSidebarVisibilityChanged()
         }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
-            reconcileSelectedTabVisibility()
+            handleSidebarVisibilityChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
@@ -314,7 +299,7 @@ struct SettingsPanel: View {
                     visibilityMayHaveChanged = true
                 }
                 if visibilityMayHaveChanged {
-                    reconcileSelectedTabVisibility()
+                    handleSidebarVisibilityChanged()
                 }
             }
         }
@@ -330,7 +315,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
-            reconcileSelectedTabVisibility()
+            handleSidebarVisibilityChanged()
         }
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
@@ -432,11 +417,7 @@ struct SettingsPanel: View {
     }
 
     private var isCompactionPlaygroundVisible: Bool {
-        SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: isDeveloperEnabled,
-            playgroundEnabled: isCompactionPlaygroundEnabled,
-            devModeEnabled: DevModeManager.shared.isDevMode
-        )
+        isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
     }
 
     private var settingsNav: some View {
@@ -460,12 +441,6 @@ struct SettingsPanel: View {
         .padding(.top, VSpacing.lg)
         .padding(.bottom, VSpacing.xl)
         .padding(.trailing, VSpacing.sm)
-    }
-
-    private func ensureSelectedTabIsVisible() {
-        if !allVisibleTabs.contains(selectedTab) {
-            selectedTab = .general
-        }
     }
 
     private func selectVisibleTab(_ tab: SettingsTab) {
@@ -772,7 +747,8 @@ struct SettingsPanel: View {
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
-                finishFeatureFlagLoad()
+                handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
+                hasLoadedFeatureFlags = true
                 return
             } catch {
                 // Fall through to local config fallback.
@@ -798,26 +774,20 @@ struct SettingsPanel: View {
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled
         }
-        finishFeatureFlagLoad()
-    }
-
-    private func finishFeatureFlagLoad() {
-        reconcileSelectedTabVisibility(clearDeferredIfHidden: true)
+        handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
         hasLoadedFeatureFlags = true
     }
 
-    private func reconcileSelectedTabVisibility(clearDeferredIfHidden: Bool = false) {
-        consumeDeferredDeepLinkIfVisible(clearIfHidden: clearDeferredIfHidden)
-        ensureSelectedTabIsVisible()
-    }
-
-    /// If a feature-gated deep-linked tab becomes visible, navigate to it.
-    private func consumeDeferredDeepLinkIfVisible(clearIfHidden: Bool = false) {
-        guard let deferred = deferredDeepLinkTab else { return }
-        if allVisibleTabs.contains(deferred) {
-            selectVisibleTab(deferred)
-        } else if clearIfHidden {
-            deferredDeepLinkTab = nil
+    private func handleSidebarVisibilityChanged(clearDeferredIfHidden: Bool = false) {
+        if let deferred = deferredDeepLinkTab {
+            if allVisibleTabs.contains(deferred) {
+                selectVisibleTab(deferred)
+            } else if clearDeferredIfHidden {
+                deferredDeepLinkTab = nil
+            }
+        }
+        if !allVisibleTabs.contains(selectedTab) {
+            selectedTab = .general
         }
     }
 
