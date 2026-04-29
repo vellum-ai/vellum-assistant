@@ -95,6 +95,7 @@ struct HomeScheduledDetailPanel: View {
                 bottom: VSpacing.lg,
                 trailing: VSpacing.md
             ))
+            .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .background(

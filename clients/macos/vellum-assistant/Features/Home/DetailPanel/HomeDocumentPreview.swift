@@ -43,6 +43,7 @@ struct HomeDocumentPreview: View {
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     preview
+                        .layoutPriority(1)
                     Spacer(minLength: 0)
                 }
                 Spacer(minLength: 0)

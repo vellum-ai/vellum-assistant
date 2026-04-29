@@ -109,6 +109,7 @@ struct HomeNudgeDetailPanel: View {
                 bottom: VSpacing.lg,
                 trailing: VSpacing.lg
             ))
+            .layoutPriority(1)
             Spacer(minLength: 0)
         }
     }
@@ -140,6 +141,7 @@ struct HomeNudgeDetailPanel: View {
                 bottom: VSpacing.lg,
                 trailing: VSpacing.md
             ))
+            .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .background(
