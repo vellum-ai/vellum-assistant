@@ -134,8 +134,10 @@ struct NameExchangeView: View {
             withAnimation(VAnimation.fast) {
                 if isActive {
                     selectedGroupID = nil
+                    assistantName = ""
                 } else {
                     selectedGroupID = group.id
+                    assistantName = group.names.first ?? ""
                 }
             }
         } label: {

@@ -76,7 +76,7 @@ struct PreChatOnboardingFlow: View {
         let context = PreChatOnboardingContext(
             tools: cleanTools,
             tasks: Array(state.selectedTasks).sorted(),
-            tone: state.selectedGroupID ?? "grounded",
+            tone: state.selectedGroupID ?? PersonalityGroup.defaultGroupID,
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )
