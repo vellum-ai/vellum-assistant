@@ -1818,7 +1818,11 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
-        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+        onEvent({
+          type: "assistant_text_delta",
+          text: cannedGreeting,
+          conversationId,
+        });
         onEvent({ type: "message_complete", conversationId });
         conversation.processing = false;
         silentlyWithLog(
@@ -2126,7 +2130,11 @@ export async function handleSendMessage(
         if (modelInfoEvent) {
           onEvent(modelInfoEvent);
         }
-        onEvent({ type: "assistant_text_delta", text: message });
+        onEvent({
+          type: "assistant_text_delta",
+          text: message,
+          conversationId,
+        });
         onEvent({
           type: "message_complete",
           conversationId: conversationId,
@@ -2197,7 +2205,11 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        onEvent({ type: "assistant_text_delta", text: responseText });
+        onEvent({
+          type: "assistant_text_delta",
+          text: responseText,
+          conversationId,
+        });
         onEvent({ type: "message_complete", conversationId });
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");

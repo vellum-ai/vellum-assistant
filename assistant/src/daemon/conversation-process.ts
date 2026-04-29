@@ -532,7 +532,11 @@ async function drainSingleMessage(
       if (isModelSlashCommand(next.content)) {
         next.onEvent(await buildModelInfoEvent());
       }
-      next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: slashResult.message,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Unknown slash command handled",
@@ -621,7 +625,11 @@ async function drainSingleMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      next.onEvent({ type: "assistant_text_delta", text: responseText });
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Compact slash command handled",
@@ -1377,7 +1385,11 @@ export async function processMessage(
     if (isModelSlashCommand(content)) {
       onEvent(await buildModelInfoEvent());
     }
-    onEvent({ type: "assistant_text_delta", text: slashResult.message });
+    onEvent({
+      type: "assistant_text_delta",
+      text: slashResult.message,
+      conversationId: conversation.conversationId,
+    });
     conversation.traceEmitter.emit(
       "message_complete",
       "Unknown slash command handled",
@@ -1445,7 +1457,11 @@ export async function processMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      onEvent({ type: "assistant_text_delta", text: responseText });
+      onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Compact slash command handled",
