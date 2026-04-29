@@ -92,6 +92,36 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["integrations_ingress_config_put", ["settings.write"]],
   ["integrations_oauth_start_post", ["settings.write"]],
 
+  // Integrations / Slack channel
+  ["integrations_slack_channel_config_get", ["settings.read"]],
+  ["integrations_slack_channel_config_post", ["settings.write"]],
+  ["integrations_slack_channel_config_delete", ["settings.write"]],
+
+  // Integrations / Telegram
+  ["integrations_telegram_config_get", ["settings.read"]],
+  ["integrations_telegram_config_post", ["settings.write"]],
+  ["integrations_telegram_config_delete", ["settings.write"]],
+  ["integrations_telegram_commands_post", ["settings.write"]],
+  ["integrations_telegram_setup_post", ["settings.write"]],
+
+  // Integrations / Twilio
+  ["integrations_twilio_config_get", ["settings.read"]],
+  ["integrations_twilio_credentials_post", ["settings.write"]],
+  ["integrations_twilio_credentials_delete", ["settings.write"]],
+  ["integrations_twilio_numbers_get", ["settings.read"]],
+  ["integrations_twilio_numbers_provision_post", ["settings.write"]],
+  ["integrations_twilio_numbers_assign_post", ["settings.write"]],
+  ["integrations_twilio_numbers_release_post", ["settings.write"]],
+
+  // Integrations / Vercel
+  ["integrations_vercel_config_get", ["settings.read"]],
+  ["integrations_vercel_config_post", ["settings.write"]],
+  ["integrations_vercel_config_delete", ["settings.write"]],
+
+  // Slack share
+  ["slack_channels_get", ["settings.read"]],
+  ["slack_share_post", ["settings.write"]],
+
   // Memory items
   ["createMemoryItem", ["settings.write"]],
   ["deleteMemoryItem", ["settings.write"]],
