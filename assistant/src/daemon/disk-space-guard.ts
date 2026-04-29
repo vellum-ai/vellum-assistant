@@ -2,10 +2,15 @@
  * Disk space guard — periodic monitor that locks the assistant when disk
  * usage reaches a critical threshold (95%).
  *
- * When locked, the assistant refuses to process new messages or run agent
- * loops until either:
- *   1. Disk usage drops below the threshold, or
- *   2. A manual override is issued via the `/v1/disk-lock/override` endpoint.
+ * When locked:
+ *   - Background tasks and non-guardian messages are blocked entirely.
+ *   - Guardian messages are allowed through but the agent loop injects
+ *     context forcing the assistant to focus on diagnosing and resolving
+ *     the disk usage problem.
+ *
+ * The lock clears automatically when disk usage drops below the threshold.
+ * A manual override (requiring a typed confirmation phrase) allows full
+ * unrestricted operation despite high disk usage.
  *
  * The guard reuses the same `statfsSync` approach as the `/healthz` endpoint
  * to read disk metrics.
@@ -27,6 +32,9 @@ const DISK_CRITICAL_THRESHOLD = 0.95;
 
 /** How often (ms) to re-check disk usage. */
 const DEFAULT_CHECK_INTERVAL_MS = 30_000;
+
+/** Phrase the user must type to confirm the override. */
+export const OVERRIDE_CONFIRMATION_PHRASE = "I understand the risks";
 
 // ---------------------------------------------------------------------------
 // State
@@ -116,23 +124,37 @@ export function stopDiskSpaceGuard(): void {
 }
 
 /**
- * Returns `true` when the assistant should be prevented from processing.
- * The assistant is locked when disk usage >= 95% AND no manual override
- * is active.
+ * Returns `true` when the assistant is in disk-pressure mode (disk >= 95%).
+ * In this state, guardian messages are allowed through with restricted context
+ * but background tasks and non-guardian messages are blocked entirely.
  */
-export function isDiskSpaceLocked(): boolean {
+export function isDiskSpacePressure(): boolean {
   return locked && !overrideActive;
 }
 
 /**
- * Manually override the disk lock so the assistant can continue operating
- * despite high disk usage. The override persists until disk usage drops
- * below the threshold (which clears both lock and override) or until the
- * daemon restarts.
+ * Returns `true` when the assistant should be fully prevented from processing.
+ * Kept for backward compatibility — equivalent to `isDiskSpacePressure()`.
  */
-export function overrideDiskLock(): void {
+export function isDiskSpaceLocked(): boolean {
+  return isDiskSpacePressure();
+}
+
+/**
+ * Manually override the disk lock so the assistant can continue operating
+ * without restrictions despite high disk usage. Requires the caller to
+ * supply the correct confirmation phrase.
+ *
+ * Returns `true` if the override was accepted, `false` if the phrase was wrong.
+ */
+export function overrideDiskLock(confirmationPhrase: string): boolean {
+  if (confirmationPhrase.trim() !== OVERRIDE_CONFIRMATION_PHRASE) {
+    log.warn("Disk lock override rejected — incorrect confirmation phrase");
+    return false;
+  }
   overrideActive = true;
   log.info("Disk lock manually overridden");
+  return true;
 }
 
 /** Current status snapshot for the `/v1/disk-lock/status` endpoint. */
@@ -146,7 +168,7 @@ export function getDiskLockStatus(): {
   return {
     locked,
     overrideActive,
-    effectivelyLocked: isDiskSpaceLocked(),
+    effectivelyLocked: isDiskSpacePressure(),
     diskUsagePercent:
       lastUsageFraction !== null ? Math.round(lastUsageFraction * 100) : null,
     threshold: Math.round(DISK_CRITICAL_THRESHOLD * 100),

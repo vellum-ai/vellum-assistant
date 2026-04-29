@@ -2,23 +2,33 @@
  * Routes for querying and overriding the disk-space lock.
  *
  * GET  /v1/disk-lock/status   — current lock state and disk usage
- * POST /v1/disk-lock/override — manually override the lock
+ * POST /v1/disk-lock/override — override the lock (requires confirmation phrase)
  */
 
 import { z } from "zod";
 
 import {
   getDiskLockStatus,
+  OVERRIDE_CONFIRMATION_PHRASE,
   overrideDiskLock,
 } from "../../daemon/disk-space-guard.js";
-import type { RouteDefinition } from "./types.js";
+import { RouteError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function handleGetStatus() {
   return getDiskLockStatus();
 }
 
-function handleOverride() {
-  overrideDiskLock();
+function handleOverride(args: RouteHandlerArgs) {
+  const confirmation = (args.body?.confirmation as string | undefined) ?? "";
+  const accepted = overrideDiskLock(confirmation);
+  if (!accepted) {
+    throw new RouteError(
+      `Incorrect confirmation phrase. Please type exactly: "${OVERRIDE_CONFIRMATION_PHRASE}"`,
+      "INVALID_CONFIRMATION",
+      400,
+    );
+  }
   return getDiskLockStatus();
 }
 
@@ -47,8 +57,15 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleOverride,
     summary: "Override disk lock",
     description:
-      "Manually override the disk-space lock so the assistant can continue operating despite high disk usage. The override persists until disk usage drops below the threshold or the daemon restarts.",
+      "Manually override the disk-space lock so the assistant can resume unrestricted operation despite high disk usage. Requires a confirmation phrase in the request body. The override persists until disk usage drops below the threshold or the daemon restarts.",
     tags: ["system"],
+    requestBody: z.object({
+      confirmation: z
+        .string()
+        .describe(
+          "The confirmation phrase the user must type to acknowledge the risk.",
+        ),
+    }),
     responseBody: z.object({
       locked: z.boolean(),
       overrideActive: z.boolean(),
@@ -56,5 +73,8 @@ export const ROUTES: RouteDefinition[] = [
       diskUsagePercent: z.number().nullable(),
       threshold: z.number(),
     }),
+    additionalResponses: {
+      "400": { description: "Incorrect confirmation phrase." },
+    },
   },
 ];

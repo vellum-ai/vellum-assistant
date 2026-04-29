@@ -4281,8 +4281,9 @@ paths:
       operationId: disklock_override_post
       summary: Override disk lock
       description:
-        Manually override the disk-space lock so the assistant can continue operating despite high disk usage. The
-        override persists until disk usage drops below the threshold or the daemon restarts.
+        Manually override the disk-space lock so the assistant can resume unrestricted operation despite high disk
+        usage. Requires a confirmation phrase in the request body. The override persists until disk usage drops below
+        the threshold or the daemon restarts.
       tags:
         - system
       responses:
@@ -4312,6 +4313,21 @@ paths:
                   - diskUsagePercent
                   - threshold
                 additionalProperties: false
+        "400":
+          description: Incorrect confirmation phrase.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation:
+                  type: string
+                  description: The confirmation phrase the user must type to acknowledge the risk.
+              required:
+                - confirmation
+              additionalProperties: false
   /v1/disk-lock/status:
     get:
       operationId: disklock_status_get

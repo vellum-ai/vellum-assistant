@@ -167,7 +167,7 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
-import { isDiskSpaceLocked } from "./disk-space-guard.js";
+import { isDiskSpacePressure } from "./disk-space-guard.js";
 import { deepRepairHistory } from "./history-repair.js";
 import { getAssistantName } from "./identity-helpers.js";
 import type {
@@ -712,15 +712,44 @@ export async function runAgentLoopImpl(
   });
 
   try {
-    if (isDiskSpaceLocked()) {
-      const name = getAssistantName() ?? "The assistant";
-      onEvent({
-        type: "error",
-        code: "DISK_SPACE_CRITICAL",
-        message: `Disk usage has reached 95%. ${name} is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.`,
-        category: "disk_space_locked",
-      });
-      return;
+    // Disk pressure gate — selectively blocks based on caller type.
+    // Background tasks and non-guardian messages are rejected entirely.
+    // Guardian messages are allowed through with injected context that
+    // restricts the assistant to disk-cleanup guidance only.
+    let diskPressureActive = false;
+    if (isDiskSpacePressure()) {
+      const isBackgroundTask = turnCallSite !== "mainAgent";
+      const isGuardianCaller =
+        resolveTrustClass(ctx.trustContext) === "guardian";
+
+      if (isBackgroundTask) {
+        rlog.info(
+          { callSite: turnCallSite },
+          "Blocking background task due to disk pressure",
+        );
+        onEvent({
+          type: "error",
+          code: "DISK_SPACE_CRITICAL",
+          message:
+            "Disk usage has reached 95%. Background tasks are suspended until disk space is freed or an override is issued.",
+          category: "disk_space_locked",
+        });
+        return;
+      }
+
+      if (!isGuardianCaller) {
+        const name = getAssistantName() ?? "The assistant";
+        onEvent({
+          type: "error",
+          code: "DISK_SPACE_CRITICAL",
+          message: `Disk usage has reached 95%. ${name} is locked to prevent data loss. Only the owner can interact until disk space is freed or an override is issued.`,
+          category: "disk_space_locked",
+        });
+        return;
+      }
+
+      // Guardian message — allow through with restricted context.
+      diskPressureActive = true;
     }
 
     // Auto-complete stale interactive surfaces from previous turns.
@@ -1298,6 +1327,37 @@ export async function runAgentLoopImpl(
       turnContext: injectionTurnCtx,
     });
     runMessages = injection.messages;
+
+    // When disk pressure is active and a guardian message was allowed through,
+    // append a context block to the last user message restricting the assistant
+    // to disk-cleanup guidance only.
+    if (diskPressureActive) {
+      const tail = runMessages[runMessages.length - 1];
+      if (tail && tail.role === "user") {
+        const diskPressureContext =
+          "\n\n<disk_pressure_mode>\n" +
+          "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
+          "You MUST only help the user diagnose and resolve the disk usage problem.\n" +
+          "Focus on:\n" +
+          "- Identifying large files and directories consuming disk space\n" +
+          "- Suggesting specific files or directories that can be safely deleted\n" +
+          "- Running commands like `du -sh` to analyze disk usage\n" +
+          "- Clearing caches, logs, temporary files, and other non-essential data\n" +
+          "Do NOT perform any other tasks until disk space is freed.\n" +
+          "The user can override this restriction via the disk lock override endpoint.\n" +
+          "</disk_pressure_mode>";
+        runMessages = [
+          ...runMessages.slice(0, -1),
+          {
+            ...tail,
+            content: [
+              ...tail.content,
+              { type: "text" as const, text: diskPressureContext },
+            ],
+          },
+        ];
+      }
+    }
 
     // Persist injected blocks in message metadata so they survive conversation
     // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
