@@ -42,6 +42,7 @@ struct PreChatOnboardingFlow: View {
                 NameExchangeView(
                     userName: $state.userName,
                     assistantName: $state.assistantName,
+                    selectedGroupID: $state.selectedGroupID,
                     displayedAssistantNames: state.displayedAssistantNames,
                     onBack: { advanceTo(1) },
                     onComplete: { finish() },

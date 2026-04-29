@@ -84,51 +84,46 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(decoded.assistantName, original.assistantName)
     }
 
-    // MARK: - Assistant Name Pool / Sampling
+    // MARK: - PersonalityGroup Name Pool
 
-    func testAssistantNamePoolHasExpectedSize() {
-        // The pool must be large enough that five random draws still leave
-        // meaningful variety; 25 is the product-spec target.
-        XCTAssertEqual(NameExchangeView.assistantNamePool.count, 25)
+    func testAllNamesHasUniqueEntries() {
+        let allNames = PersonalityGroup.allNames
+        XCTAssertEqual(Set(allNames).count, allNames.count, "All names across groups must be unique")
     }
 
-    func testAssistantNamePoolHasUniqueEntries() {
-        let pool = NameExchangeView.assistantNamePool
-        XCTAssertEqual(Set(pool).count, pool.count, "Pool entries must be unique")
-    }
-
-    func testSampleAssistantNamesReturnsFiveUniqueNamesFromPool() {
-        let sample = NameExchangeView.sampleAssistantNames()
-        let pool = Set(NameExchangeView.assistantNamePool)
-
-        XCTAssertEqual(sample.count, NameExchangeView.suggestionCount)
-        XCTAssertEqual(Set(sample).count, sample.count, "Sampled names must be unique")
-        for name in sample {
-            XCTAssertTrue(pool.contains(name), "Sampled name '\(name)' must come from the pool")
-        }
-    }
-
-    func testStateDisplayedNamesMatchSampleContract() {
+    func testStateDisplayedNamesMatchAllNamesWhenNoGroupSelected() {
+        PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
-        let pool = Set(NameExchangeView.assistantNamePool)
 
-        XCTAssertEqual(state.displayedAssistantNames.count, NameExchangeView.suggestionCount)
-        XCTAssertEqual(Set(state.displayedAssistantNames).count, state.displayedAssistantNames.count)
-        for name in state.displayedAssistantNames {
-            XCTAssertTrue(pool.contains(name))
-        }
+        XCTAssertNil(state.selectedGroupID)
+        XCTAssertEqual(state.displayedAssistantNames, PersonalityGroup.allNames)
     }
 
-    func testDefaultAssistantNameIsFromDisplayedSample() {
-        // On a fresh state (no persisted assistantName), the initial pre-fill
-        // should be one of the displayed suggestion pills so the active pill
-        // matches the text field out of the box.
+    func testStateDisplayedNamesPrioritizesSelectedGroup() {
+        PreChatOnboardingState.clearPersistedState()
+        let state = PreChatOnboardingState()
+        state.selectedGroupID = "warm"
+
+        let warmGroup = PersonalityGroup.allGroups.first { $0.id == "warm" }!
+        let displayed = state.displayedAssistantNames
+
+        // Selected group's names should come first
+        let prefix = Array(displayed.prefix(warmGroup.names.count))
+        XCTAssertEqual(prefix, warmGroup.names)
+
+        // All names should still be present
+        XCTAssertEqual(Set(displayed), Set(PersonalityGroup.allNames))
+    }
+
+    func testDefaultAssistantNameIsEmptyOnFreshState() {
+        // On a fresh state (no persisted assistantName), the initial value
+        // should be empty so the user must make a deliberate choice.
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
 
         XCTAssertTrue(
-            state.displayedAssistantNames.contains(state.assistantName),
-            "Initial assistantName '\(state.assistantName)' should be one of the displayed suggestions"
+            state.assistantName.isEmpty,
+            "Initial assistantName should be empty, got '\(state.assistantName)'"
         )
     }
 
@@ -159,6 +154,7 @@ final class PreChatOnboardingTests: XCTestCase {
         state1.selectedTasks = ["code-building"]
         state1.userName = "TestUser"
         state1.assistantName = "TestAssistant"
+        state1.selectedGroupID = "warm"
         state1.persist()
 
         // Create a new instance — it should restore from UserDefaults
@@ -169,6 +165,7 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(state2.selectedTasks, ["code-building"])
         XCTAssertEqual(state2.userName, "TestUser")
         XCTAssertEqual(state2.assistantName, "TestAssistant")
+        XCTAssertEqual(state2.selectedGroupID, "warm")
     }
 
     func testClearPersistedStateResetsToDefaults() {
