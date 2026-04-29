@@ -34,6 +34,7 @@ export type {
   LLMConfig,
   LLMConfigBase,
   LLMConfigFragment,
+  ProfileEntry,
 } from "./schemas/llm.js";
 export { LLMCallSiteEnum, LLMSchema } from "./schemas/llm.js";
 export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
