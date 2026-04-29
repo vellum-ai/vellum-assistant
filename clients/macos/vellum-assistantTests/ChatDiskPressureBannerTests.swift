@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import VellumAssistantLib
 
@@ -27,5 +28,33 @@ struct ChatDiskPressureBannerTests {
 
         #expect(windowState.selection == .panel(.intelligence))
         #expect(windowState.pendingIntelligenceTab == "Workspace")
+    }
+
+    @Test
+    func dismissingAlertSnoozesOnlyThatAlertForTwentyFourHours() {
+        let userDefaults = UserDefaults(suiteName: "ChatDiskPressureBannerTests-\(UUID().uuidString)")!
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        DiskPressureBannerDismissalStore.dismiss(
+            alertId: "disk-pressure:assistant-123:1",
+            now: now,
+            userDefaults: userDefaults
+        )
+
+        #expect(DiskPressureBannerDismissalStore.isDismissed(
+            alertId: "disk-pressure:assistant-123:1",
+            now: now.addingTimeInterval(23 * 60 * 60),
+            userDefaults: userDefaults
+        ))
+        #expect(!DiskPressureBannerDismissalStore.isDismissed(
+            alertId: "disk-pressure:assistant-123:2",
+            now: now,
+            userDefaults: userDefaults
+        ))
+        #expect(!DiskPressureBannerDismissalStore.isDismissed(
+            alertId: "disk-pressure:assistant-123:1",
+            now: now.addingTimeInterval(24 * 60 * 60 + 1),
+            userDefaults: userDefaults
+        ))
     }
 }

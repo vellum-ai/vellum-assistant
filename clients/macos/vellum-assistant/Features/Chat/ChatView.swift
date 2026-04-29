@@ -107,6 +107,8 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
+    @State private var diskPressureDismissalRefreshToken = 0
+    @State private var diskPressureDismissalRefreshTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
         viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
@@ -126,6 +128,13 @@ struct ChatView: View {
     private var currentConversation: ConversationModel? {
         guard let conversationManager, let conversationId else { return nil }
         return conversationManager.conversations.first(where: { $0.id == conversationId })
+    }
+
+    private var visibleDiskPressureAlert: DiskPressureAlert? {
+        _ = diskPressureDismissalRefreshToken
+        guard let diskPressureAlert else { return nil }
+        guard !DiskPressureBannerDismissalStore.isDismissed(alertId: diskPressureAlert.id) else { return nil }
+        return diskPressureAlert
     }
 
     var body: some View {
@@ -222,8 +231,17 @@ struct ChatView: View {
                 showSkeleton = false
             }
         }
+        .onAppear {
+            scheduleDiskPressureDismissalRefresh()
+        }
+        .onChange(of: diskPressureAlert?.id) {
+            diskPressureDismissalRefreshToken += 1
+            scheduleDiskPressureDismissalRefresh()
+        }
         .onDisappear {
             removeDragEndMonitors()
+            diskPressureDismissalRefreshTask?.cancel()
+            diskPressureDismissalRefreshTask = nil
         }
     }
 
@@ -381,11 +399,12 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
-            if let diskPressureAlert, let onReviewDiskUsage {
+            if let visibleDiskPressureAlert, let onReviewDiskUsage {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     DiskPressureBanner(
-                        alert: diskPressureAlert,
-                        onReviewDiskUsage: onReviewDiskUsage
+                        alert: visibleDiskPressureAlert,
+                        onReviewDiskUsage: onReviewDiskUsage,
+                        onDismiss: { dismissDiskPressureAlert(visibleDiskPressureAlert) }
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
@@ -702,6 +721,36 @@ struct ChatView: View {
     private func sendMessage() {
         if viewModel.isRecording { onMicrophoneToggle() }
         viewModel.sendMessage()
+    }
+
+    private func dismissDiskPressureAlert(_ alert: DiskPressureAlert) {
+        DiskPressureBannerDismissalStore.dismiss(alertId: alert.id)
+        diskPressureDismissalRefreshToken += 1
+        scheduleDiskPressureDismissalRefresh()
+    }
+
+    private func scheduleDiskPressureDismissalRefresh() {
+        diskPressureDismissalRefreshTask?.cancel()
+        diskPressureDismissalRefreshTask = nil
+
+        guard let alert = diskPressureAlert,
+              let dismissedUntil = DiskPressureBannerDismissalStore.dismissedUntil(for: alert.id) else {
+            return
+        }
+
+        let delay = dismissedUntil.timeIntervalSinceNow
+        guard delay > 0 else {
+            diskPressureDismissalRefreshToken += 1
+            return
+        }
+
+        let nanoseconds = UInt64(delay * 1_000_000_000)
+        diskPressureDismissalRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            diskPressureDismissalRefreshToken += 1
+            scheduleDiskPressureDismissalRefresh()
+        }
     }
 
     /// Presents an NSOpenPanel as a window-attached sheet for attaching files.
