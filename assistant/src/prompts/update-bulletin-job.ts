@@ -6,9 +6,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { deleteConversation } from "../memory/conversation-crud.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import {
   getWorkspaceDirDisplay,
@@ -19,6 +17,12 @@ const log = getLogger("update-bulletin-job");
 
 const HASH_CHECKPOINT_KEY = "updates:last_processed_hash";
 const EMPTY_HASH = "empty";
+/**
+ * Hard timeout for the update-bulletin agent turn. The agent reads a small
+ * markdown file and (usually) deletes it; 10 minutes is generous headroom for
+ * a slow model + any tool calls (e.g. memory writes).
+ */
+const UPDATE_BULLETIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 function updateBulletinHint(): string {
   const workspace = getWorkspaceDirDisplay();
@@ -46,25 +50,27 @@ function readTrimmedContent(path: string): ReadResult {
 /**
  * Fire-and-forget background processor for the release-notes bulletin.
  *
- * If `<workspace>/UPDATES.md` has new (unprocessed) content, this
- * bootstraps a background conversation and wakes the agent loop with a hint
- * pointing at the file. De-duplication uses a sha256 content hash stored in
- * the `updates:last_processed_hash` memory checkpoint — an `"empty"` sentinel
+ * If `<workspace>/UPDATES.md` has new (unprocessed) content, this drives a
+ * background conversation through `runBackgroundJob` with a hint pointing at
+ * the file. De-duplication uses a sha256 content hash stored in the
+ * `updates:last_processed_hash` memory checkpoint — an `"empty"` sentinel
  * represents a missing/blank file so the job skips the common no-op case.
  *
- * The function never throws: any error inside the bootstrap/wake flow is
- * logged at `warn` and swallowed, so callers can safely invoke it in a
- * non-awaited context.
+ * The function never throws: any error inside `runBackgroundJob` is captured
+ * in its structured result (which already emits an `activity.failed`
+ * notification) and surrounding errors are logged at `warn` and swallowed,
+ * so callers can safely invoke it in a non-awaited context.
  *
  * Checkpoint write rules (intentionally conservative — prefer retry over
  * poisoning the checkpoint when state is ambiguous):
  *   - File missing → checkpoint = `EMPTY_HASH`.
  *   - File present but unreadable → checkpoint UNCHANGED, warn logged.
- *   - Wake not invoked (e.g. resolver not yet registered) → UNCHANGED.
- *   - Wake invoked but no tool calls AND file unchanged → UNCHANGED
- *     (indistinguishable from a silent failure; safer to retry).
- *   - Wake invoked + (produced tool calls OR file deleted) → checkpoint
- *     reflects the post-wake state.
+ *   - `runBackgroundJob` returned `ok: false` → checkpoint UNCHANGED so the
+ *     next startup retries. The runner has already emitted an
+ *     `activity.failed` notification.
+ *   - Job ran successfully + file deleted/empty → checkpoint = `EMPTY_HASH`.
+ *   - Job ran successfully + file unchanged → checkpoint = current hash
+ *     (agent intentionally left the file).
  */
 export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
   if (getConfig().updates.enabled === false) {
@@ -97,59 +103,39 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       return;
     }
 
-    const conv = bootstrapConversation({
-      conversationType: "background",
-      source: "updates_bulletin",
+    const result = await runBackgroundJob({
+      jobName: "update-bulletin",
+      source: "update-bulletin",
       origin: "updates_bulletin",
-      systemHint: "Processing release updates",
-      groupId: "system:background",
-    });
-    const wakeResult = await wakeAgentForOpportunity({
-      conversationId: conv.id,
-      hint: updateBulletinHint(),
-      source: "updates_bulletin",
+      prompt: updateBulletinHint(),
+      trustContext: {
+        sourceChannel: "vellum",
+        trustClass: "guardian",
+      },
+      callSite: "mainAgent",
+      timeoutMs: UPDATE_BULLETIN_TIMEOUT_MS,
     });
 
-    if (!wakeResult.invoked) {
+    if (!result.ok) {
       log.warn(
-        { conversationId: conv.id, reason: wakeResult.reason },
-        "Update bulletin wake silently no-op'd (invoked=false); cleaning up orphan background conversation and leaving checkpoint unchanged so next startup retries",
+        {
+          conversationId: result.conversationId,
+          errorKind: result.errorKind,
+          err: result.error?.message,
+        },
+        "update-bulletin-job: runBackgroundJob returned ok=false; leaving checkpoint unchanged so next startup retries (failure notification already emitted by runner)",
       );
-      // Belt-and-suspenders cleanup: `wakeAgentForOpportunity()` can return
-      // `{invoked: false}` for reasons unrelated to the wake-resolver
-      // registration order (resolver returns null because the conversation
-      // cannot be hydrated, etc.). Without this cleanup each such occurrence
-      // leaks a conversation DB row.
-      //
-      // Wrapped in its own try/catch so a cleanup failure never propagates
-      // out of this fire-and-forget task.
-      //
-      // TODO: the `queueGenerateConversationTitle()` call that
-      // `bootstrapConversation()` fires is already in flight by the time we
-      // reach here. The title service checks `isReplaceableTitle()` before
-      // writing, but the LLM sidechain call itself still runs against the
-      // now-deleted conversation id. Adding a cancellation/existence hook
-      // in `conversation-title-service.ts` would plug this one-call waste,
-      // but this code path is rare, so we accept the one-time cost.
-      try {
-        deleteConversation(conv.id);
-      } catch (err) {
-        log.warn(
-          { err, conversationId: conv.id },
-          "update-bulletin-job: failed to delete orphan background conversation; continuing",
-        );
-      }
       return;
     }
 
-    // Re-read after the wake. We need to know whether the file was deleted
-    // or modified to decide whether to advance the checkpoint.
+    // Re-read after the job completed. We need to know whether the file was
+    // deleted or modified to decide whether to advance the checkpoint.
     const after = readTrimmedContent(updatesPath);
 
     if (after.kind === "error") {
       log.warn(
         { err: after.err, path: updatesPath },
-        "update-bulletin-job: failed to re-read UPDATES.md after wake; leaving checkpoint unchanged so next startup retries",
+        "update-bulletin-job: failed to re-read UPDATES.md after job; leaving checkpoint unchanged so next startup retries",
       );
       return;
     }
@@ -164,26 +150,14 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       return;
     }
 
-    if (!wakeResult.producedToolCalls) {
-      // Wake returned cleanly but the agent did nothing observable AND the
-      // file is still here. We can't distinguish "agent processed and chose
-      // to no-op" from "silent failure", so leave the checkpoint alone and
-      // let the next startup retry.
-      log.warn(
-        { conversationId: conv.id },
-        "update-bulletin-job: wake produced no tool calls and file is unchanged; leaving checkpoint unchanged so next startup retries",
-      );
-      return;
-    }
-
-    // Wake produced tool calls and the file is still present — the agent
-    // intentionally left it (or modified it). Record the current hash so we
-    // don't re-wake on the same content.
+    // Job succeeded and the file is still present — the agent intentionally
+    // left it (or modified it). Record the current hash so we don't re-process
+    // the same content on next startup.
     setMemoryCheckpoint(HASH_CHECKPOINT_KEY, computeHash(after.content));
   } catch (err) {
     log.warn(
       { err },
-      "update-bulletin-job: wake flow threw; swallowing so callers can fire-and-forget",
+      "update-bulletin-job: outer flow threw; swallowing so callers can fire-and-forget",
     );
     return;
   }
