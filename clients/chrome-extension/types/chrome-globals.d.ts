@@ -311,7 +311,16 @@ interface ChromeDebuggerNamespace {
   onDetach: ChromeDebuggerOnDetachEvent;
 }
 
+interface ChromeActionSetIconDetails {
+  path?: Record<string, string> | string;
+}
+
+interface ChromeActionNamespace {
+  setIcon(details: ChromeActionSetIconDetails): Promise<void>;
+}
+
 interface ChromeGlobal {
+  action: ChromeActionNamespace;
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;

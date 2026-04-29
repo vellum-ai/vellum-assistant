@@ -133,6 +133,30 @@ async function invalidateAuthTokens(): Promise<void> {
   await chrome.storage.local.remove(keysToRemove);
 }
 
+// ── Environment-aware toolbar icon ─────────────────────────────────
+
+/**
+ * Update the toolbar icon to match the current environment.
+ *
+ * Each environment has its own set of pre-generated icon PNGs under
+ * `icons/<env>/`. Production is green, staging yellow, dev pink,
+ * local blue — matching the desktop app's environment tinting.
+ */
+async function updateExtensionIcon(env: ExtensionEnvironment): Promise<void> {
+  try {
+    await chrome.action.setIcon({
+      path: {
+        "16": `icons/${env}/icon16.png`,
+        "48": `icons/${env}/icon48.png`,
+        "128": `icons/${env}/icon128.png`,
+      },
+    });
+  } catch {
+    // Best-effort — `chrome.action` may be unavailable in tests or
+    // during early service-worker initialization.
+  }
+}
+
 // ── Stable client instance id ──────────────────────────────────────
 //
 // Generated once per extension install and persisted in
@@ -1214,6 +1238,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // environment are not reused on the next connect cycle.
         if (effectiveEnvironment !== previousEnv) {
           await invalidateAuthTokens();
+          void updateExtensionIcon(effectiveEnvironment);
         }
         sendResponseFn({
           ok: true,
@@ -1250,6 +1275,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const effectiveEnvironment = await getEffectiveEnvironment();
       if (effectiveEnvironment !== previousEnv) {
         await invalidateAuthTokens();
+        void updateExtensionIcon(effectiveEnvironment);
       }
       sendResponseFn({
         ok: true,
@@ -1408,6 +1434,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 // are missing the user will see the disconnected state in the popup
 // and can trigger an interactive connect manually.
 async function bootstrap(): Promise<void> {
+  // Set the toolbar icon to match the current environment on every
+  // service-worker startup, regardless of auto-connect state.
+  void updateExtensionIcon(await getEffectiveEnvironment());
+
   const result = await chrome.storage.local.get(AUTO_CONNECT_KEY);
   if (result[AUTO_CONNECT_KEY] !== true) return;
   shouldConnect = true;
