@@ -30,9 +30,10 @@ export async function up(): Promise<MigrationResult> {
   const gwDb = getRawGatewayDb();
 
   try {
-    const hasActorTokens = await assistantDbQuery<{ "1": number }>(
-      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_token_records'`,
-    );
+    assistantDb = new Database(assistantDbPath);
+    assistantDb.exec("PRAGMA journal_mode=WAL");
+    assistantDb.exec("PRAGMA synchronous=FULL");
+    assistantDb.exec("PRAGMA busy_timeout=5000");
 
     const hasRefreshTokens = await assistantDbQuery<{ "1": number }>(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'actor_refresh_token_records'`,

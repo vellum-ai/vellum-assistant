@@ -170,7 +170,6 @@ import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
-import { createVelayTunnelClient } from "./velay/client.js";
 
 const log = getLogger("main");
 
@@ -1550,8 +1549,13 @@ async function main() {
   });
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
-  logAuthBypassState();
-  velayTunnelClient?.start();
+
+  // Deferred startup tasks that depend on the assistant runtime being
+  // ready (e.g. guardian binding backfill, data migrations that touch
+  // the assistant DB). Runs in the background — does not block startup.
+  runPostAssistantReady().catch((err) => {
+    log.error({ err }, "Post-assistant-ready lifecycle failed");
+  });
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();

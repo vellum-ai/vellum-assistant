@@ -66,6 +66,57 @@ export interface GuardianBootstrapResult {
 }
 
 // ---------------------------------------------------------------------------
+// Assistant DB access (lazy singleton)
+// ---------------------------------------------------------------------------
+
+let assistantDb: Database | null = null;
+
+function getAssistantDbPath(): string {
+  return join(getWorkspaceDir(), "data", "db", "assistant.db");
+}
+
+/**
+ * Open a connection to the assistant's SQLite database.
+ *
+ * Short-term workaround: the gateway accesses the assistant's DB directly
+ * rather than owning its own contacts/token tables. This avoids a risky
+ * data migration (copying contacts + tokens from assistant → gateway while
+ * both processes are running). Once the migration is complete, this will
+ * be replaced with a gateway-owned database.
+ */
+export function getAssistantDb(): Database {
+  if (assistantDb) return assistantDb;
+
+  const dbPath = getAssistantDbPath();
+  if (!existsSync(dbPath)) {
+    throw new Error(
+      `Assistant database not found at ${dbPath} — the assistant may not have started yet`,
+    );
+  }
+
+  assistantDb = new Database(dbPath);
+  assistantDb.exec("PRAGMA journal_mode=WAL");
+  assistantDb.exec("PRAGMA synchronous=FULL");
+  assistantDb.exec("PRAGMA busy_timeout=5000");
+  assistantDb.exec("PRAGMA foreign_keys=ON");
+
+  log.info({ dbPath }, "Opened assistant database for guardian bootstrap");
+  return assistantDb;
+}
+
+/** Close the assistant DB connection. Exported for tests. */
+export function closeAssistantDb(): void {
+  if (assistantDb) {
+    try {
+      assistantDb.close();
+    } catch {
+      // best effort
+    }
+    assistantDb = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
