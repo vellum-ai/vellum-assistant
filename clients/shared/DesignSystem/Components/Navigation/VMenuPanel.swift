@@ -179,6 +179,13 @@ public class VMenuPanel: NSPanel {
             $0.isVisible && $0.frame.contains(screenPoint) && !($0 is VMenuPanel)
         })
 
+        // Show the panel invisible initially. SwiftUI's rendering pipeline
+        // may split into two phases — background/shadow first, then text —
+        // producing a 1-frame flash of an empty rounded rect with shadow
+        // (the "ghost"). Holding alpha at 0 until the next run-loop cycle
+        // guarantees SwiftUI has completed its first full render pass before
+        // the panel becomes visible.
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
 
         // Attach as a child window so the menu stays grouped with its
@@ -191,13 +198,17 @@ public class VMenuPanel: NSPanel {
         // Register with coordinator — it installs the unified click monitor
         coordinator.registerRootPanel(panel, sourceWindow: resolvedSourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
-        // Notify VoiceOver that a new menu appeared so it navigates into it.
-        DispatchQueue.main.async {
+        // Reveal the panel and notify VoiceOver on the next run-loop cycle,
+        // after SwiftUI has completed its first render pass.
+        DispatchQueue.main.async { [weak panel] in
+            guard let panel, panel.isVisible else { return }
+            panel.alphaValue = 1
             NSAccessibility.post(element: panel, notification: .created)
-            if let firstChild = hostingView.accessibilityChildren()?.first {
+            if let contentView = panel.contentView,
+               let firstChild = contentView.accessibilityChildren()?.first {
                 NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-            } else {
-                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            } else if let contentView = panel.contentView {
+                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
             }
         }
 
@@ -269,15 +280,20 @@ public class VMenuPanel: NSPanel {
 
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
+        // Fade-in guard — same as show(), prevents ghost flash from
+        // SwiftUI's multi-phase rendering pipeline.
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
 
-        // Notify VoiceOver that a new submenu appeared.
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak panel] in
+            guard let panel, panel.isVisible else { return }
+            panel.alphaValue = 1
             NSAccessibility.post(element: panel, notification: .created)
-            if let firstChild = hostingView.accessibilityChildren()?.first {
+            if let contentView = panel.contentView,
+               let firstChild = contentView.accessibilityChildren()?.first {
                 NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-            } else {
-                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            } else if let contentView = panel.contentView {
+                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
             }
         }
 

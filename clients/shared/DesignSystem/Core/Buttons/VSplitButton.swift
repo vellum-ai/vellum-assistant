@@ -35,6 +35,10 @@ public struct VSplitButton<MenuContent: View>: View {
     @State private var dropdownFrame: CGRect = .zero
     @State private var activePanel: VMenuPanel?
     @State private var isMenuOpen = false
+    /// Monotonic counter to distinguish stale dismiss handlers from swept
+    /// panels. Each showMenu() increments this; the onDismiss closure
+    /// captures the current value and only resets state if it still matches.
+    @State private var menuGeneration: UInt = 0
     #endif
 
     public init(
@@ -217,6 +221,8 @@ public struct VSplitButton<MenuContent: View>: View {
 
     private func showMenu() {
         guard !isMenuOpen else { return }
+        menuGeneration &+= 1
+        let currentGeneration = menuGeneration
         isMenuOpen = true
 
         guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
@@ -254,7 +260,13 @@ public struct VSplitButton<MenuContent: View>: View {
             VMenu {
                 menuContent()
             }
-        } onDismiss: {
+        } onDismiss: { [currentGeneration] in
+            // Only reset state if this is still the active generation.
+            // VMenuPanel.show() sweeps existing panels before creating a
+            // new one, which fires the old panel's onDismiss synchronously.
+            // Without this guard, the sweep would set isMenuOpen = false
+            // while the new panel is being created, causing state desync.
+            guard self.menuGeneration == currentGeneration else { return }
             isMenuOpen = false
             activePanel = nil
         }
