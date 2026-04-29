@@ -324,7 +324,8 @@ describe("computeOwnActivation", () => {
       nowText: "now",
       config: makeConfig(),
     });
-    expect(out.size).toBe(0);
+    expect(out.activation.size).toBe(0);
+    expect(out.breakdown.size).toBe(0);
     expect(state.embedCalls).toHaveLength(0);
     expect(state.queryCalls).toHaveLength(0);
   });
@@ -357,7 +358,7 @@ describe("computeOwnActivation", () => {
       }),
     });
     // Expected: 0.3*0.6 + 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.18+0.15+0.08+0.04 = 0.45
-    expect(out.get("alice")).toBeCloseTo(0.45, 6);
+    expect(out.activation.get("alice")).toBeCloseTo(0.45, 6);
   });
 
   test("clamps over-1.0 results down to [0, 1]", async () => {
@@ -388,7 +389,7 @@ describe("computeOwnActivation", () => {
         c_now: 0.5,
       }),
     });
-    expect(out.get("alice")).toBe(1);
+    expect(out.activation.get("alice")).toBe(1);
   });
 
   test("missing prior state defaults `prev` to 0", async () => {
@@ -410,7 +411,7 @@ describe("computeOwnActivation", () => {
       }),
     });
     // 0.3*0 + 0.3*1 + 0.2*0 + 0.2*0 = 0.3
-    expect(out.get("fresh")).toBeCloseTo(0.3, 6);
+    expect(out.activation.get("fresh")).toBeCloseTo(0.3, 6);
   });
 
   test("candidate with no sim hits resolves to 0", async () => {
@@ -426,7 +427,60 @@ describe("computeOwnActivation", () => {
       nowText: "n",
       config: makeConfig(),
     });
-    expect(out.get("ghost")).toBe(0);
+    expect(out.activation.get("ghost")).toBe(0);
+  });
+
+  test("breakdown captures `d * prev` and the raw sims for each candidate", async () => {
+    stageHybridResponse([{ slug: "alice", denseScore: 0.5 }]); // simU
+    stageHybridResponse([{ slug: "alice", denseScore: 0.4 }]); // simA
+    stageHybridResponse([{ slug: "alice", denseScore: 0.2 }]); // simN
+
+    const priorState: ActivationState = {
+      messageId: "msg-1",
+      state: { alice: 0.6 },
+      everInjected: [],
+      currentTurn: 1,
+      updatedAt: 1,
+    };
+    const d = 0.3;
+    const out = await computeOwnActivation({
+      candidates: new Set(["alice"]),
+      priorState,
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({
+        d,
+        c_user: 0.3,
+        c_assistant: 0.2,
+        c_now: 0.2,
+      }),
+    });
+    const breakdown = out.breakdown.get("alice");
+    expect(breakdown).toBeDefined();
+    // priorContribution is `d * prev`, not the weighted sim term.
+    expect(breakdown?.priorContribution).toBeCloseTo(d * 0.6, 6);
+    // Raw sims, captured before c_user / c_assistant / c_now weighting.
+    expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
+    expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
+    expect(breakdown?.simNow).toBeCloseTo(0.2, 6);
+  });
+
+  test("breakdown defaults priorContribution to 0 when priorState is null", async () => {
+    stageHybridResponse([{ slug: "fresh", denseScore: 0.5 }]);
+    stageHybridResponse([{ slug: "fresh", denseScore: 0.5 }]);
+    stageHybridResponse([{ slug: "fresh", denseScore: 0.5 }]);
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["fresh"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({ d: 0.9 }),
+    });
+    // No prior state → prev=0 → priorContribution=0 regardless of `d`.
+    expect(out.breakdown.get("fresh")?.priorContribution).toBe(0);
   });
 });
 
@@ -439,7 +493,7 @@ describe("spreadActivation", () => {
     const edges: EdgesIndex = { version: 1, edges: [] };
     const own = new Map([["alice", 0.7]]);
     const out = spreadActivation(own, edges, 0.5, 2);
-    expect(out.get("alice")).toBeCloseTo(0.7, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.7, 6);
   });
 
   test("symmetric two-node ring yields symmetric activation", () => {
@@ -453,9 +507,9 @@ describe("spreadActivation", () => {
     ]);
     const out = spreadActivation(own, edges, 0.5, 2);
     // Both nodes have one neighbor, equal own-activation → equal final A.
-    expect(out.get("alice")).toBeCloseTo(out.get("bob") ?? 0, 6);
+    expect(out.final.get("alice")).toBeCloseTo(out.final.get("bob") ?? 0, 6);
     // Numerator: 0.6 + 0.5*0.6 = 0.9. Denominator: 1 + 0.5*1 = 1.5. A = 0.6.
-    expect(out.get("alice")).toBeCloseTo(0.6, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.6, 6);
   });
 
   test("asymmetric two-node ring picks up neighbor activation", () => {
@@ -470,9 +524,9 @@ describe("spreadActivation", () => {
     const out = spreadActivation(own, edges, 0.5, 2);
     // alice: numerator = 0 + 0.5*0.8 = 0.4. denominator = 1 + 0.5 = 1.5.
     //        A = 0.2666...
-    expect(out.get("alice")).toBeCloseTo(0.4 / 1.5, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.4 / 1.5, 6);
     // bob:   numerator = 0.8 + 0.5*0 = 0.8. denominator = 1.5. A = 0.5333...
-    expect(out.get("bob")).toBeCloseTo(0.8 / 1.5, 6);
+    expect(out.final.get("bob")).toBeCloseTo(0.8 / 1.5, 6);
   });
 
   test("hops=2 reaches second-degree neighbors but stops there", () => {
@@ -497,7 +551,7 @@ describe("spreadActivation", () => {
     //   numerator   = 0 + 0.5*0 + 0.25*1.0 = 0.25
     //   denominator = 1 + 0.5*1 + 0.25*1   = 1.75
     //   A = 0.25 / 1.75 ≈ 0.142857
-    expect(out.get("alice")).toBeCloseTo(0.25 / 1.75, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.25 / 1.75, 6);
   });
 
   test("output is bounded in [0, 1] for arbitrary inputs", () => {
@@ -515,7 +569,7 @@ describe("spreadActivation", () => {
       ["carol", 1.0],
     ]);
     const out = spreadActivation(own, edges, 0.99, 2);
-    for (const [, value] of out) {
+    for (const [, value] of out.final) {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(1);
     }
@@ -531,8 +585,8 @@ describe("spreadActivation", () => {
       ["bob", 0.9],
     ]);
     const out = spreadActivation(own, edges, 0.5, 0);
-    expect(out.get("alice")).toBeCloseTo(0.4, 6);
-    expect(out.get("bob")).toBeCloseTo(0.9, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.4, 6);
+    expect(out.final.get("bob")).toBeCloseTo(0.9, 6);
   });
 
   test("k=0 collapses to A == A_o", () => {
@@ -545,8 +599,8 @@ describe("spreadActivation", () => {
       ["bob", 0.9],
     ]);
     const out = spreadActivation(own, edges, 0, 5);
-    expect(out.get("alice")).toBeCloseTo(0.4, 6);
-    expect(out.get("bob")).toBeCloseTo(0.9, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.4, 6);
+    expect(out.final.get("bob")).toBeCloseTo(0.9, 6);
   });
 
   test("missing neighbor activation contributes 0 to the numerator", () => {
@@ -560,7 +614,7 @@ describe("spreadActivation", () => {
     const own = new Map([["alice", 0.6]]);
     const out = spreadActivation(own, edges, 0.5, 2);
     // numerator = 0.6 + 0.5*0 = 0.6. denominator = 1 + 0.5*1 = 1.5.
-    expect(out.get("alice")).toBeCloseTo(0.4, 6);
+    expect(out.final.get("alice")).toBeCloseTo(0.4, 6);
   });
 
   test("empty own-activation map returns empty result", () => {
@@ -570,7 +624,55 @@ describe("spreadActivation", () => {
       0.5,
       2,
     );
-    expect(out.size).toBe(0);
+    expect(out.final.size).toBe(0);
+    expect(out.contribution.size).toBe(0);
+  });
+
+  test("contribution equals final - own for each slug", () => {
+    const edges: EdgesIndex = {
+      version: 1,
+      edges: [["alice", "bob"]],
+    };
+    const own = new Map([
+      ["alice", 0.0],
+      ["bob", 0.8],
+    ]);
+    const out = spreadActivation(own, edges, 0.5, 2);
+    for (const [slug, finalValue] of out.final) {
+      const ownValue = own.get(slug) ?? 0;
+      expect(out.contribution.get(slug)).toBeCloseTo(finalValue - ownValue, 6);
+    }
+    // alice gained spread; bob lost some (1-hop neighbor's 0 dilutes its 0.8).
+    expect(out.contribution.get("alice")).toBeGreaterThan(0);
+    expect(out.contribution.get("bob")).toBeLessThan(0);
+  });
+
+  test("contribution is 0 for every slug when hops == 0", () => {
+    const edges: EdgesIndex = {
+      version: 1,
+      edges: [["alice", "bob"]],
+    };
+    const own = new Map([
+      ["alice", 0.4],
+      ["bob", 0.9],
+    ]);
+    const out = spreadActivation(own, edges, 0.5, 0);
+    expect(out.contribution.get("alice")).toBe(0);
+    expect(out.contribution.get("bob")).toBe(0);
+  });
+
+  test("contribution is 0 for every slug when k == 0", () => {
+    const edges: EdgesIndex = {
+      version: 1,
+      edges: [["alice", "bob"]],
+    };
+    const own = new Map([
+      ["alice", 0.4],
+      ["bob", 0.9],
+    ]);
+    const out = spreadActivation(own, edges, 0, 5);
+    expect(out.contribution.get("alice")).toBe(0);
+    expect(out.contribution.get("bob")).toBe(0);
   });
 });
 
@@ -766,7 +868,8 @@ describe("computeSkillActivation", () => {
       nowText: "n",
       config: makeConfig(),
     });
-    expect(out.size).toBe(0);
+    expect(out.activation.size).toBe(0);
+    expect(out.breakdown.size).toBe(0);
     expect(state.embedCalls).toHaveLength(0);
     expect(state.queryCalls).toHaveLength(0);
   });
@@ -790,7 +893,7 @@ describe("computeSkillActivation", () => {
       }),
     });
     // No `d · prev` term: 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.15 + 0.08 + 0.04 = 0.27
-    expect(out.get("example-skill-a")).toBeCloseTo(0.27, 6);
+    expect(out.activation.get("example-skill-a")).toBeCloseTo(0.27, 6);
   });
 
   test("output excludes any decay term — d coefficient is unused", async () => {
@@ -824,8 +927,8 @@ describe("computeSkillActivation", () => {
     });
 
     // Both equal `0.3*0.4 + 0.2*0.4 + 0.2*0.4 = 0.28` — d is ignored.
-    expect(withHighD.get("alpha")).toBeCloseTo(0.28, 6);
-    expect(withZeroD.get("alpha")).toBeCloseTo(0.28, 6);
+    expect(withHighD.activation.get("alpha")).toBeCloseTo(0.28, 6);
+    expect(withZeroD.activation.get("alpha")).toBeCloseTo(0.28, 6);
   });
 
   test("clamps over-1.0 results down to [0, 1]", async () => {
@@ -846,7 +949,7 @@ describe("computeSkillActivation", () => {
         c_now: 0.5,
       }),
     });
-    expect(out.get("loud-skill")).toBe(1);
+    expect(out.activation.get("loud-skill")).toBe(1);
   });
 
   test("candidate with no sim hits resolves to 0", async () => {
@@ -861,7 +964,30 @@ describe("computeSkillActivation", () => {
       nowText: "n",
       config: makeConfig(),
     });
-    expect(out.get("ghost-skill")).toBe(0);
+    expect(out.activation.get("ghost-skill")).toBe(0);
+  });
+
+  test("breakdown captures the raw sims for each candidate", async () => {
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]); // simU
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.4 }]); // simA
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.2 }]); // simN
+
+    const out = await computeSkillActivation({
+      candidates: new Set(["example-skill-a"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({
+        c_user: 0.3,
+        c_assistant: 0.2,
+        c_now: 0.2,
+      }),
+    });
+    const breakdown = out.breakdown.get("example-skill-a");
+    expect(breakdown).toBeDefined();
+    expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
+    expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
+    expect(breakdown?.simNow).toBeCloseTo(0.2, 6);
   });
 
   test("uses the dedicated skills collection and never queries concept pages", async () => {

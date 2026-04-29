@@ -141,7 +141,7 @@ export async function injectMemoryV2Block(
   });
 
   // (4) Own activation: A_o = d·prev + c_user·sim_u + c_a·sim_a + c_now·sim_n.
-  const ownActivation = await computeOwnActivation({
+  const { activation: ownActivation } = await computeOwnActivation({
     candidates,
     priorState,
     userText: userMessage,
@@ -152,7 +152,12 @@ export async function injectMemoryV2Block(
 
   // (5) Spreading activation across the edge graph (k, hops from config).
   const { k, hops, top_k, epsilon } = config.memory.v2;
-  const finalActivation = spreadActivation(ownActivation, edgesIdx, k, hops);
+  const { final: finalActivation } = spreadActivation(
+    ownActivation,
+    edgesIdx,
+    k,
+    hops,
+  );
 
   // (6) Pick top-K by activation. Per-turn turns subtract everInjected for the
   // injection delta (cache-stable append-only); context-load renders the
@@ -181,7 +186,7 @@ export async function injectMemoryV2Block(
     config,
     topK: config.memory.v2.top_k_skills,
   });
-  const skillActivation = await computeSkillActivation({
+  const { activation: skillActivation } = await computeSkillActivation({
     candidates: skillCandidates,
     userText: userMessage,
     assistantText: assistantMessage,

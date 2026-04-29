@@ -150,7 +150,10 @@ mock.module("../activation.js", () => ({
   // injection logic introspects. Stub them to empty so the test stays focused
   // on the wiring, not the pipeline internals (covered in activation.test.ts).
   selectSkillCandidates: async () => new Set<string>(),
-  computeSkillActivation: async () => new Map<string, number>(),
+  computeSkillActivation: async () => ({
+    activation: new Map<string, number>(),
+    breakdown: new Map(),
+  }),
   selectSkillInjections: ({ topK }: { topK: number }) => ({
     topNow: skillState.topSkillIds.slice(0, topK),
   }),

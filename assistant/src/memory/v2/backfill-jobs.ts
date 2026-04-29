@@ -328,7 +328,7 @@ async function recomputeForConversation(
     nowText,
     config,
   });
-  const ownActivation = await computeOwnActivation({
+  const { activation: ownActivation } = await computeOwnActivation({
     candidates,
     priorState,
     userText,
@@ -336,7 +336,7 @@ async function recomputeForConversation(
     nowText,
     config,
   });
-  const spread = spreadActivation(
+  const { final: spread } = spreadActivation(
     ownActivation,
     edgesIdx,
     config.memory.v2.k,

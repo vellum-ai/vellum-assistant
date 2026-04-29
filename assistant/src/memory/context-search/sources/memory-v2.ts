@@ -208,7 +208,12 @@ async function activationEvidence(
 
   const edgesIdx = await readEdges(context.workingDir);
   const { k, hops } = context.config.memory.v2;
-  const finalActivation = spreadActivation(ownActivation, edgesIdx, k, hops);
+  const { final: finalActivation } = spreadActivation(
+    ownActivation,
+    edgesIdx,
+    k,
+    hops,
+  );
 
   const ranked = [...finalActivation.entries()]
     .sort(([slugA, valA], [slugB, valB]) => {
