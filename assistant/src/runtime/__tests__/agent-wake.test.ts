@@ -402,6 +402,95 @@ describe("wakeAgentForOpportunity", () => {
     expect(processing).toBe(false);
   });
 
+  test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
+    // Background system jobs (memory consolidation, update-bulletin) need
+    // guardian trust to clear the side-effect approval gate. The wake must
+    // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
+    // captures the elevated trust.
+    const trustCalls: Array<{ ctx: unknown; before: number }> = [];
+    const runCalls: number[] = [];
+    let callOrder = 0;
+
+    const history: Message[] = [];
+    let processing = false;
+    const target: WakeTarget = {
+      conversationId: "conv-trust",
+      agentLoop: {
+        run: async (input) => {
+          runCalls.push(callOrder++);
+          return [...input];
+        },
+      },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+      },
+      persistTailMessage: async () => {},
+      setTrustContext: (ctx) => {
+        trustCalls.push({ ctx, before: callOrder++ });
+      },
+    };
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-trust",
+        hint: "consolidate memory",
+        source: "memory_v2_consolidation",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(trustCalls).toHaveLength(1);
+    expect(trustCalls[0]!.ctx).toEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+    // setTrustContext fired strictly before agentLoop.run.
+    expect(runCalls).toHaveLength(1);
+    expect(trustCalls[0]!.before).toBeLessThan(runCalls[0]!);
+  });
+
+  test("does not call setTrustContext when no trustContext is supplied", async () => {
+    const trustCalls: unknown[] = [];
+    const history: Message[] = [];
+    let processing = false;
+    const target: WakeTarget = {
+      conversationId: "conv-no-trust",
+      agentLoop: {
+        run: async (input) => [...input],
+      },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+      },
+      persistTailMessage: async () => {},
+      setTrustContext: (ctx) => {
+        trustCalls.push(ctx);
+      },
+    };
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-no-trust",
+        hint: "x",
+        source: "t",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    // Inbound-message conversations populate trust via processMessage().
+    // Without an explicit opt-in from the caller, the wake must not
+    // overwrite whatever the conversation already holds.
+    expect(trustCalls).toHaveLength(0);
+  });
+
   test("two concurrent wakes on the same conversation are serialized", async () => {
     // Build a target whose agentLoop.run resolves only when we signal.
     const gate1 = Promise.withResolvers<void>();

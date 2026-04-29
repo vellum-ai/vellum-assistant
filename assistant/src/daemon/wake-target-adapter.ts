@@ -178,6 +178,7 @@ export function conversationToWakeTarget(
     markProcessing: (on) => {
       conversation.processing = on;
     },
+    setTrustContext: (ctx) => conversation.setTrustContext(ctx),
     persistTailMessage: async (message) => {
       const turnChannelCtx = conversation.getTurnChannelContext();
       const turnInterfaceCtx = conversation.getTurnInterfaceContext();
