@@ -101,7 +101,7 @@ describe("pre-chat onboarding contract", () => {
       const context = {
         tools: ["slack", "linear"],
         tasks: ["code-building", "writing"],
-        tone: "balanced",
+        tone: "grounded",
         userName: "Alex",
         assistantName: "Pax",
       };
@@ -128,7 +128,7 @@ describe("pre-chat onboarding contract", () => {
       const context: OnboardingContext = {
         tools: ["figma"],
         tasks: ["design"],
-        tone: "casual",
+        tone: "energetic",
       };
 
       expect(context.userName).toBeUndefined();
@@ -146,7 +146,7 @@ describe("pre-chat onboarding contract", () => {
       const context = {
         tools: ["slack", "linear"],
         tasks: ["code-building"],
-        tone: "professional",
+        tone: "warm",
         userName: "Alex",
         assistantName: "Nova",
       };
@@ -163,7 +163,7 @@ describe("pre-chat onboarding contract", () => {
       expect(dynamic).toContain('"linear"');
       expect(dynamic).toContain('"tasks"');
       expect(dynamic).toContain('"code-building"');
-      expect(dynamic).toContain('"tone": "professional"');
+      expect(dynamic).toContain('"tone": "warm"');
       expect(dynamic).toContain('"userName": "Alex"');
       expect(dynamic).toContain('"assistantName": "Nova"');
       expect(dynamic).toContain("```json");
@@ -177,7 +177,7 @@ describe("pre-chat onboarding contract", () => {
       const context = {
         tools: ["slack"],
         tasks: ["writing"],
-        tone: "casual",
+        tone: "poetic",
         userName: "Alex",
       };
 
@@ -198,7 +198,7 @@ describe("pre-chat onboarding contract", () => {
       const context = {
         tools: ["figma"],
         tasks: ["design"],
-        tone: "balanced",
+        tone: "grounded",
       };
 
       const result = buildSystemPrompt({
@@ -226,6 +226,30 @@ describe("pre-chat onboarding contract", () => {
       expect(dynamic).not.toContain("## Pre-chat Onboarding Context");
     });
 
+    test("accepts all four personality tones", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Bootstrap\n\nOnboarding.",
+      );
+
+      const tones = ["grounded", "warm", "energetic", "poetic"] as const;
+
+      for (const tone of tones) {
+        const context = {
+          tools: ["slack"],
+          tasks: ["writing"],
+          tone,
+          userName: "Alex",
+        };
+
+        const result = buildSystemPrompt({ onboardingContext: context });
+        const dynamic = dynamicBlock(result);
+
+        expect(dynamic).toContain("## Pre-chat Onboarding Context");
+        expect(dynamic).toContain(`"tone": "${tone}"`);
+      }
+    });
+
     test("serializes onboarding context as pretty-printed JSON", () => {
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
@@ -235,7 +259,7 @@ describe("pre-chat onboarding contract", () => {
       const context = {
         tools: ["notion"],
         tasks: ["project-management"],
-        tone: "balanced",
+        tone: "warm",
         userName: "Jane",
         assistantName: "Kit",
       };
