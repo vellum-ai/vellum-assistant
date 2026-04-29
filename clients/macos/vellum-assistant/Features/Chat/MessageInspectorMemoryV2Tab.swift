@@ -603,7 +603,7 @@ private struct ActivationBar: View {
         )
     )
 
-    return MessageInspectorMemoryV2Tab(activation: fixture)
+    MessageInspectorMemoryV2Tab(activation: fixture)
         .frame(width: 600, height: 800)
 }
 
