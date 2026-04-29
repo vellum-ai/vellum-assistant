@@ -58,6 +58,23 @@ function getDirectorySizeBytes(paths: string[]): number | null {
   }
 }
 
+const DU_CACHE_TTL_MS = 60_000;
+let duCacheValue: number | null = null;
+let duCacheTime = 0;
+let duCachePaths: string | null = null;
+
+function getCachedDirectorySizeBytes(paths: string[]): number | null {
+  const key = paths.join("\0");
+  const now = Date.now();
+  if (duCachePaths === key && now - duCacheTime < DU_CACHE_TTL_MS) {
+    return duCacheValue;
+  }
+  duCacheValue = getDirectorySizeBytes(paths);
+  duCacheTime = now;
+  duCachePaths = key;
+  return duCacheValue;
+}
+
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
     const wsDir = getWorkspaceDir();
@@ -81,7 +98,7 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
         if (diskPath !== "/data" && existsSync("/data")) {
           volumePaths.push("/data");
         }
-        const usedBytes = getDirectorySizeBytes(volumePaths);
+        const usedBytes = getCachedDirectorySizeBytes(volumePaths);
         if (usedBytes !== null) {
           return {
             path: diskPath,
