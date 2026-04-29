@@ -90,7 +90,7 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
         XCTAssertFalse(store.hasUnseenChanges)
 
         // User is elsewhere when the event arrives.
-        store.isHomeTabVisible = false
+        store.setHomeTabVisible(false)
 
         let updated = makeRelationshipState(tier: 3, progressPercent: 80, updatedAt: "2026-04-13T11:00:00Z")
         client.setState(updated)
@@ -121,7 +121,7 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
         XCTAssertFalse(store.hasUnseenChanges)
 
         // User is actively looking at the Home tab.
-        store.isHomeTabVisible = true
+        store.setHomeTabVisible(true)
 
         let updated = makeRelationshipState(tier: 3, progressPercent: 80, updatedAt: "2026-04-13T11:00:00Z")
         client.setState(updated)
@@ -156,7 +156,7 @@ final class HomeStoreUnseenChangesTests: XCTestCase {
         let (store, continuation) = makeStore(client: client)
 
         await store.load()
-        store.isHomeTabVisible = false
+        store.setHomeTabVisible(false)
 
         let updated = makeRelationshipState(tier: 3, progressPercent: 80, updatedAt: "2026-04-13T11:00:00Z")
         client.setState(updated)
