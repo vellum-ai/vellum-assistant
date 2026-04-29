@@ -6,10 +6,8 @@
  * sends through the messaging layer.
  */
 
-import { emitFeedEvent } from "../home/emit-feed-event.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import type { ScheduleMessageProcessor } from "../schedule/scheduler.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import { recordEvent } from "./analytics.js";
 import { checkAllPreSend, recordSend } from "./guardrails.js";
@@ -28,14 +26,13 @@ const log = getLogger("sequence-engine");
 
 const BATCH_SIZE = 10;
 const ERROR_RETRY_DELAY_MS = 60_000;
+const STEP_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes per step
 
 /**
  * Process due sequence enrollments. Called by the scheduler on each tick.
  * Returns the number of enrollments processed.
  */
-export async function runSequencesOnce(
-  processMessage: ScheduleMessageProcessor,
-): Promise<number> {
+export async function runSequencesOnce(): Promise<number> {
   const now = Date.now();
   const claimed = claimDueEnrollments(now, BATCH_SIZE);
   if (claimed.length === 0) return 0;
@@ -43,7 +40,7 @@ export async function runSequencesOnce(
   let processed = 0;
   for (const enrollment of claimed) {
     try {
-      await processEnrollment(enrollment, processMessage);
+      await processEnrollment(enrollment);
       processed += 1;
     } catch (err) {
       log.error(
@@ -83,7 +80,6 @@ export async function runSequencesOnce(
 
 async function processEnrollment(
   enrollment: SequenceEnrollment,
-  processMessage: ScheduleMessageProcessor,
 ): Promise<void> {
   const sequence = getSequence(enrollment.sequenceId);
   if (!sequence) {
@@ -146,30 +142,40 @@ async function processEnrollment(
   // Build the prompt for the assistant to generate and send the email
   const prompt = buildStepPrompt(enrollment, sequence, step);
 
-  // Create a conversation for this step execution
-  const conversation = bootstrapConversation({
-    source: "sequence",
-    origin: "sequence",
-    systemHint: `Sequence: ${sequence.name} — Step ${step.index + 1}`,
-  });
-
   log.info(
     {
       enrollmentId: enrollment.id,
       sequenceId: sequence.id,
       step: step.index,
       contactEmail: enrollment.contactEmail,
-      conversationId: conversation.id,
     },
     "Processing sequence step",
   );
 
-  await processMessage(conversation.id, prompt);
+  const result = await runBackgroundJob({
+    jobName: "sequence-step",
+    source: "sequence",
+    prompt,
+    trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+    callSite: "mainAgent",
+    timeoutMs: STEP_TIMEOUT_MS,
+    origin: "sequence",
+  });
+
+  // Re-throw on failure so `runSequencesOnce` reschedules the enrollment
+  // for retry. The runner does not throw on failure (it returns a
+  // structured result), but the existing retry path in the outer loop
+  // expects an exception to trigger `rescheduleEnrollment`.
+  if (!result.ok) {
+    throw (
+      result.error ?? new Error(`Background job failed: ${result.errorKind}`)
+    );
+  }
 
   // Try to extract the email thread ID from conversation tool results so
   // subsequent steps can reply in the same conversation.
   const extractedConversationId =
-    extractThreadIdFromConversation(conversation.id) ?? undefined;
+    extractThreadIdFromConversation(result.conversationId) ?? undefined;
   if (extractedConversationId) {
     log.info(
       { enrollmentId: enrollment.id, conversationId: extractedConversationId },
@@ -200,28 +206,6 @@ async function processEnrollment(
   // rate-limit counters — only actual sends are counted.
   recordSend(sequence.id);
   recordEvent(sequence.id, enrollment.id, "send", step.index);
-
-  // Fire-and-forget home-feed activity log entry. Each (enrollment,
-  // step) pair is a distinct real signal (an email actually went
-  // out), so the dedupKey embeds both — repeat emits for the same
-  // step are impossible because the enrollment advances after this
-  // line, but if they did occur they'd land on the same entry.
-  void emitFeedEvent({
-    source: "assistant",
-    title: sequence.name,
-    summary: `Sent step ${step.index + 1} of ${sequence.steps.length} to ${enrollment.contactEmail}.`,
-    dedupKey: `sequence-step:${enrollment.id}:${step.index}`,
-  }).catch((err) => {
-    log.warn(
-      {
-        err,
-        sequenceId: sequence.id,
-        enrollmentId: enrollment.id,
-        step: step.index,
-      },
-      "Failed to emit sequence step feed event",
-    );
-  });
 
   // Advance to the next step
   const nextStepIndex = enrollment.currentStep + 1;
