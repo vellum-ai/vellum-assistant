@@ -29,6 +29,19 @@ mock.module("../../memory/conversation-bootstrap.js", () => ({
   },
 }));
 
+const addMessageCalls: Array<{
+  conversationId: string;
+  role: string;
+  content: string;
+}> = [];
+
+mock.module("../../memory/conversation-crud.js", () => ({
+  addMessage: async (conversationId: string, role: string, content: string) => {
+    addMessageCalls.push({ conversationId, role, content });
+    return { id: `msg-${addMessageCalls.length}` };
+  },
+}));
+
 let processMessageImpl: (
   conversationId: string,
   content: string,
@@ -99,6 +112,7 @@ beforeEach(() => {
   bootstrapLastArgs = null;
   processMessageCalls.length = 0;
   emitCalls.length = 0;
+  addMessageCalls.length = 0;
   processMessageImpl = async () => ({ messageId: "msg-1" });
   emitImpl = async () => ({
     signalId: "sig-1",
@@ -137,7 +151,7 @@ describe("runBackgroundJob", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
-  test("generic exception: returns ok=false with errorKind=exception and emits activity.failed", async () => {
+  test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
     processMessageImpl = async () => {
       throw new Error("boom");
     };
@@ -166,6 +180,11 @@ describe("runBackgroundJob", () => {
       isAsyncBackground: true,
       visibleInSourceNow: false,
     });
+    // Dedupe key collapses repeated failures of the same job per UTC day.
+    expect(typeof emitted.dedupeKey).toBe("string");
+    expect(emitted.dedupeKey as string).toMatch(
+      /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
@@ -197,5 +216,105 @@ describe("runBackgroundJob", () => {
     expect(result.errorKind).toBe("exception");
     expect(result.error?.message).toBe("suppressed");
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("onConversationCreated fires synchronously after bootstrap, BEFORE processMessage", async () => {
+    let processMessageStarted = false;
+    let callbackFiredBeforeProcessMessage = false;
+
+    processMessageImpl = async () => {
+      processMessageStarted = true;
+      // Delay completion so we can observe the ordering — even with the
+      // delay, the callback should already have fired.
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      return { messageId: "msg-after" };
+    };
+
+    const seenConversationIds: string[] = [];
+    const onConversationCreated = (conversationId: string) => {
+      seenConversationIds.push(conversationId);
+      callbackFiredBeforeProcessMessage = !processMessageStarted;
+    };
+
+    const result = await runBackgroundJob(baseOpts({ onConversationCreated }));
+
+    expect(result.ok).toBe(true);
+    expect(seenConversationIds).toEqual([STUB_CONVERSATION_ID]);
+    expect(callbackFiredBeforeProcessMessage).toBe(true);
+  });
+
+  test("onConversationCreated callback throws are swallowed and the job still runs", async () => {
+    const result = await runBackgroundJob(
+      baseOpts({
+        onConversationCreated: () => {
+          throw new Error("callback boom");
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(processMessageCalls).toHaveLength(1);
+  });
+
+  test("conversationType=scheduled and scheduleJobId are propagated to bootstrapConversation", async () => {
+    await runBackgroundJob(
+      baseOpts({
+        conversationType: "scheduled",
+        scheduleJobId: "job-abc",
+      }),
+    );
+
+    expect(bootstrapLastArgs).toMatchObject({
+      conversationType: "scheduled",
+      scheduleJobId: "job-abc",
+    });
+  });
+
+  test("default conversationType is 'background' when not specified", async () => {
+    await runBackgroundJob(baseOpts());
+    expect(bootstrapLastArgs).toMatchObject({ conversationType: "background" });
+    // No scheduleJobId by default.
+    expect(bootstrapLastArgs).not.toHaveProperty("scheduleJobId");
+  });
+
+  test("assistantSandwich seeds three messages in user/assistant/user order, with sandwich written before processMessage runs", async () => {
+    let addMessageCountAtProcessMessageStart = -1;
+    processMessageImpl = async () => {
+      addMessageCountAtProcessMessageStart = addMessageCalls.length;
+      return { messageId: "msg-final" };
+    };
+
+    await runBackgroundJob(
+      baseOpts({
+        prompt: "",
+        assistantSandwich: {
+          preamble: "TRUSTED_PRE",
+          content: "UNTRUSTED_PAYLOAD",
+          postamble: "TRUSTED_POST",
+        },
+      }),
+    );
+
+    // All three sandwich addMessage calls happened.
+    expect(addMessageCalls).toHaveLength(3);
+    expect(addMessageCalls[0]).toMatchObject({
+      conversationId: STUB_CONVERSATION_ID,
+      role: "user",
+      content: "TRUSTED_PRE",
+    });
+    expect(addMessageCalls[1]).toMatchObject({
+      conversationId: STUB_CONVERSATION_ID,
+      role: "assistant",
+      content: "UNTRUSTED_PAYLOAD",
+    });
+    expect(addMessageCalls[2]).toMatchObject({
+      conversationId: STUB_CONVERSATION_ID,
+      role: "user",
+      content: "TRUSTED_POST",
+    });
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toBe("");
+    // processMessage observed all 3 sandwich messages already in place.
+    expect(addMessageCountAtProcessMessageStart).toBe(3);
   });
 });

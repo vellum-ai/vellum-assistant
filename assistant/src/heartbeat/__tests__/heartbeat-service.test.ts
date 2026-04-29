@@ -109,10 +109,11 @@ interface RunBackgroundJobCall {
   timeoutMs: number;
   origin: string;
   groupId?: string;
+  onConversationCreated?: (id: string) => void;
 }
 
 const runBackgroundJobCalls: RunBackgroundJobCall[] = [];
-let runBackgroundJobImpl: () => Promise<{
+let runBackgroundJobImpl: (opts: RunBackgroundJobCall) => Promise<{
   conversationId: string;
   ok: boolean;
   error?: Error;
@@ -125,7 +126,11 @@ let runBackgroundJobImpl: () => Promise<{
 mock.module("../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: RunBackgroundJobCall) => {
     runBackgroundJobCalls.push(opts);
-    return runBackgroundJobImpl();
+    // Mirror the real runner's contract: fire onConversationCreated with the
+    // bootstrap-returned id BEFORE the job's processMessage finishes. Stub
+    // it here so HeartbeatService tests can observe sidebar timing.
+    opts.onConversationCreated?.(STUB_CONVERSATION_ID);
+    return runBackgroundJobImpl(opts);
   },
 }));
 
@@ -178,7 +183,9 @@ describe("HeartbeatService", () => {
     expect(call.source).toBe("heartbeat");
     expect(call.callSite).toBe("heartbeatAgent");
     expect(call.origin).toBe("heartbeat");
-    expect(call.groupId).toBe("system:background");
+    // groupId is intentionally NOT passed — `system:background` is the
+    // runner's default, so passing it explicitly was redundant.
+    expect(call.groupId).toBeUndefined();
     expect(call.timeoutMs).toBeGreaterThan(0);
     expect(call.trustContext).toEqual({
       sourceChannel: "vellum",
@@ -188,11 +195,25 @@ describe("HeartbeatService", () => {
     expect(call.prompt).toContain("<heartbeat-disposition>");
   });
 
-  test("fires onConversationCreated with the runner-returned conversationId", async () => {
+  test("fires onConversationCreated synchronously via the runner BEFORE the runner returns", async () => {
     const created: Array<{ conversationId: string; title: string }> = [];
+    let runnerHasResolved = false;
+    let callbackFiredBeforeRunnerResolved = false;
+
+    runBackgroundJobImpl = async () => {
+      // Force the runner to take longer than the synchronous callback so
+      // we can verify the SSE entry is created before the job finishes.
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      runnerHasResolved = true;
+      return { conversationId: STUB_CONVERSATION_ID, ok: true };
+    };
+
     const service = new HeartbeatService({
       alerter: () => {},
-      onConversationCreated: (info) => created.push(info),
+      onConversationCreated: (info) => {
+        created.push(info);
+        callbackFiredBeforeRunnerResolved = !runnerHasResolved;
+      },
     });
 
     await service.runOnce({ force: true });
@@ -200,6 +221,32 @@ describe("HeartbeatService", () => {
     expect(created).toEqual([
       { conversationId: STUB_CONVERSATION_ID, title: "Heartbeat" },
     ]);
+    expect(callbackFiredBeforeRunnerResolved).toBe(true);
+  });
+
+  test("does not race processMessage with an outer timeout — runner timeout is authoritative", async () => {
+    // If the heartbeat were still running an outer Promise.race, a
+    // long-running runner would surface as a 'Heartbeat execution timed out'
+    // log entry. With the outer race removed, runOnce just awaits the
+    // runner and returns whatever it produces.
+    let runnerCompleted = false;
+    runBackgroundJobImpl = async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      runnerCompleted = true;
+      return { conversationId: STUB_CONVERSATION_ID, ok: true };
+    };
+
+    const alerts: unknown[] = [];
+    const service = new HeartbeatService({
+      alerter: (alert) => alerts.push(alert),
+    });
+
+    await service.runOnce({ force: true });
+
+    expect(runnerCompleted).toBe(true);
+    // No alerter call because the runner returned ok=true and there was no
+    // outer-timeout failure to surface.
+    expect(alerts).toHaveLength(0);
   });
 
   test("calls alerter with the failure message when the runner reports ok=false", async () => {

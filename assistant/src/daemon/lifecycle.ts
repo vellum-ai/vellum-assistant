@@ -861,24 +861,6 @@ export async function runDaemon(): Promise<void> {
           dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
-      (params) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.escalation",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-escalation-${Date.now()}`,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: params.title,
-            body: params.body,
-          },
-          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
-        });
-      },
       (info) => {
         server.broadcast({
           type: "schedule_conversation_created",
