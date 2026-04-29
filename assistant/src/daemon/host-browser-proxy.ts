@@ -70,13 +70,13 @@ export class HostBrowserProxy {
   }
 
   /**
-   * Publish a ServerMessage through the assistant event hub, targeted at the
-   * chrome extension subscriber.
+   * Publish a ServerMessage through the assistant event hub, targeted at
+   * subscribers with the `host_browser` capability.
    */
-  private sendToExtension(msg: ServerMessage): void {
+  private send(msg: ServerMessage): void {
     void assistantEventHub
       .publish(buildAssistantEvent(msg), {
-        targetInterfaceId: "chrome-extension",
+        targetCapability: "host_browser",
       })
       .catch((err) => {
         log.warn({ err }, "failed to publish host_browser event to hub");
@@ -125,7 +125,7 @@ export class HostBrowserProxy {
             // so callers can rely on detachAbort being idempotent.
             detachAbort();
             try {
-              this.sendToExtension({
+              this.send({
                 type: "host_browser_cancel",
                 requestId,
               } as ServerMessage);
@@ -154,7 +154,7 @@ export class HostBrowserProxy {
           return;
         }
 
-        this.sendToExtension({
+        this.send({
           ...input,
           type: "host_browser_request",
           requestId,
@@ -211,7 +211,7 @@ export class HostBrowserProxy {
       clearTimeout(entry.timer);
       entry.detachAbort();
       try {
-        this.sendToExtension({
+        this.send({
           type: "host_browser_cancel",
           requestId,
         } as ServerMessage);

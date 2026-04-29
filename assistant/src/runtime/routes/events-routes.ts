@@ -18,11 +18,13 @@
  *   handles registration, touch (heartbeat), and unregistration (dispose).
  */
 
-import { parseInterfaceId } from "../../channels/types.js";
+import type { HostProxyCapability } from "../../channels/types.js";
+import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
+  AssistantEventCallback,
   AssistantEventFilter,
   AssistantEventSubscription,
 } from "../assistant-event-hub.js";
@@ -94,13 +96,17 @@ export function handleSubscribeAssistantEvents(
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
+  const ALL_CAPABILITIES: HostProxyCapability[] = [
+    "host_bash",
+    "host_file",
+    "host_cu",
+    "host_browser",
+  ];
+
   const filter: AssistantEventFilter = {};
   if (conversationKey) {
     const mapping = getOrCreateConversation(conversationKey);
     filter.conversationId = mapping.conversationId;
-  }
-  if (interfaceId) {
-    filter.interfaceId = interfaceId;
   }
 
   const encoder = new TextEncoder();
@@ -126,29 +132,44 @@ export function handleSubscribeAssistantEvents(
     }
   }
 
+  const callback: AssistantEventCallback = (event) => {
+    const controller = controllerRef;
+    if (!controller) return;
+    try {
+      if (controller.desiredSize != null && controller.desiredSize <= 0) {
+        sub.dispose();
+        cleanup();
+        return;
+      }
+      controller.enqueue(encoder.encode(formatSseFrame(event)));
+    } catch {
+      sub.dispose();
+      cleanup();
+    }
+  };
+
   try {
-    sub = hub.subscribe(
+    const subscriberBase = {
       filter,
-      (event) => {
-        const controller = controllerRef;
-        if (!controller) return;
-        try {
-          if (controller.desiredSize != null && controller.desiredSize <= 0) {
-            sub.dispose();
-            cleanup();
-            return;
-          }
-          controller.enqueue(encoder.encode(formatSseFrame(event)));
-        } catch {
-          sub.dispose();
-          cleanup();
-        }
-      },
-      {
-        onEvict: cleanup,
-        client: clientId && interfaceId ? { clientId, interfaceId } : undefined,
-      },
-    );
+      callback,
+      onEvict: cleanup,
+    };
+
+    sub =
+      clientId && interfaceId
+        ? hub.subscribe({
+            ...subscriberBase,
+            type: "client" as const,
+            clientId,
+            interfaceId,
+            capabilities: ALL_CAPABILITIES.filter((cap) =>
+              supportsHostProxy(interfaceId, cap),
+            ),
+          })
+        : hub.subscribe({
+            ...subscriberBase,
+            type: "process" as const,
+          });
   } catch (err) {
     if (err instanceof RangeError) {
       throw new ServiceUnavailableError("Too many concurrent connections");

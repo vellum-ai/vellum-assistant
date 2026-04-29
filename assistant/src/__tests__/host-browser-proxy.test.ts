@@ -20,7 +20,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     },
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_browser" && mockHasConnection
-        ? { clientId: "test-client" }
+        ? {
+            type: "client",
+            clientId: "test-client",
+            interfaceId: "macos",
+            capabilities: ["host_browser"],
+          }
         : undefined,
   },
 }));

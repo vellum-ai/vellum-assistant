@@ -4,13 +4,15 @@
  * Provides subscribe / publish primitives used by the daemon send paths
  * and the SSE route.
  *
- * Client connections (SSE) register as subscribers with metadata (clientId,
- * interfaceId, capabilities). The hub replaces the former ClientRegistry —
- * client-oriented queries (list, find-by-capability) are methods on the hub.
+ * Subscribers are typed via a discriminated union:
+ *   - **ClientEntry** — an SSE-connected client (macos, chrome-extension, …)
+ *     with identity, capabilities, and timestamps.
+ *   - **ProcessEntry** — an in-process consumer (future: file-append logger).
+ *
+ * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import { supportsHostProxy } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
@@ -21,20 +23,10 @@ const log = getLogger("assistant-event-hub");
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-/** All host-proxy capabilities checked against each interface on register. */
-const ALL_CAPABILITIES: HostProxyCapability[] = [
-  "host_bash",
-  "host_file",
-  "host_cu",
-  "host_browser",
-];
-
 /** Filter that determines which events a subscriber receives. */
 export type AssistantEventFilter = {
   /** When set, restrict delivery to events for this conversation. */
   conversationId?: string;
-  /** When set, only receive events targeted at this interfaceId (plus untargeted). */
-  interfaceId?: InterfaceId;
 };
 
 export type AssistantEventCallback = (
@@ -48,20 +40,40 @@ export interface AssistantEventSubscription {
   readonly active: boolean;
 }
 
-/** Optional metadata for client subscribers. */
-export interface ClientSubscriberMeta {
-  clientId: string;
-  interfaceId: InterfaceId;
+// ── Subscriber entries (discriminated union) ─────────────────────────────────
+
+interface BaseSubscriberEntry {
+  filter: AssistantEventFilter;
+  callback: AssistantEventCallback;
+  active: boolean;
+  onEvict: () => void;
+  connectedAt: Date;
+  lastActiveAt: Date;
 }
 
-/** Internal client metadata attached to a hub subscriber. */
-export interface ClientMeta {
+export interface ClientEntry extends BaseSubscriberEntry {
+  type: "client";
   clientId: string;
   interfaceId: InterfaceId;
   capabilities: HostProxyCapability[];
-  connectedAt: number;
-  lastActiveAt: number;
 }
+
+export interface ProcessEntry extends BaseSubscriberEntry {
+  type: "process";
+}
+
+export type SubscriberEntry = ClientEntry | ProcessEntry;
+
+/** Distributive Omit that preserves union discrimination. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`. */
+export type SubscriberInput = DistributiveOmit<
+  SubscriberEntry,
+  "active" | "connectedAt" | "lastActiveAt"
+>;
 
 /** Serialized form returned by the IPC route / CLI command. */
 export interface ClientEntryJSON {
@@ -72,17 +84,22 @@ export interface ClientEntryJSON {
   lastActiveAt: string;
 }
 
-// ── Hub ───────────────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
-interface SubscriberEntry {
-  filter: AssistantEventFilter;
-  callback: AssistantEventCallback;
-  active: boolean;
-  /** Called by the hub when this entry is evicted to make room for a new subscriber. */
-  onEvict?: () => void;
-  /** Present when this subscriber represents a connected client. */
-  client?: ClientMeta;
+/** Convert any object's Date-valued fields to ISO strings. */
+export function datesToISO<T extends Record<string, unknown>>(
+  obj: T,
+): { [K in keyof T]: T[K] extends Date ? string : T[K] } {
+  const result = { ...obj } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(result)) {
+    if (value instanceof Date) {
+      result[key] = value.toISOString();
+    }
+  }
+  return result as { [K in keyof T]: T[K] extends Date ? string : T[K] };
 }
+
+// ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
  * Lightweight pub/sub hub for `AssistantEvent` messages.
@@ -90,12 +107,11 @@ interface SubscriberEntry {
  * Filtering is applied at subscription level:
  *   - `conversationId`: scoped events match subscribers with same conversationId
  *     or no conversationId filter (broadcast to all).
- *   - `interfaceId` (targeting): events with `targetInterfaceId` only go to
- *     subscribers whose filter.interfaceId matches. Events without a target
- *     go to all matching subscribers.
+ *   - `targetCapability` (on publish): targeted events only reach subscribers
+ *     whose capabilities include the target. Untargeted events fan out to all.
  *
  * Client connections register as subscribers with metadata and are queryable
- * via `listClients()`, `getClientByCapability()`, etc.
+ * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
@@ -111,19 +127,8 @@ export class AssistantEventHub {
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
    * it can close its SSE stream) and its entry is removed from the hub.
-   *
-   * @param options.onEvict  Called if this subscriber is later evicted by a newer one.
-   * @param options.client   When provided, marks this subscriber as a connected client.
-   * @returns A subscription handle. Call `dispose()` to unsubscribe.
    */
-  subscribe(
-    filter: AssistantEventFilter,
-    callback: AssistantEventCallback,
-    options?: {
-      onEvict?: () => void;
-      client?: ClientSubscriberMeta;
-    },
-  ): AssistantEventSubscription {
+  subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
     if (this.subscribers.size >= this.maxSubscribers) {
       const [oldest] = this.subscribers;
       if (!oldest) {
@@ -134,42 +139,33 @@ export class AssistantEventHub {
       oldest.active = false;
       this.subscribers.delete(oldest);
       try {
-        oldest.onEvict?.();
+        oldest.onEvict();
       } catch {
         /* ignore eviction callback errors */
       }
     }
 
-    const now = Date.now();
-    let clientMeta: SubscriberEntry["client"] | undefined;
-    if (options?.client) {
-      const { clientId, interfaceId } = options.client;
-      clientMeta = {
-        clientId,
-        interfaceId,
-        capabilities: ALL_CAPABILITIES.filter((cap) =>
-          supportsHostProxy(interfaceId, cap),
-        ),
-        connectedAt: now,
-        lastActiveAt: now,
-      };
+    const now = new Date();
+    const entry: SubscriberEntry = {
+      ...subscriber,
+      active: true,
+      connectedAt: now,
+      lastActiveAt: now,
+    } as SubscriberEntry;
+
+    if (entry.type === "client") {
       log.info(
         {
-          clientId,
-          interfaceId,
-          capabilities: clientMeta.capabilities,
+          clientId: entry.clientId,
+          interfaceId: entry.interfaceId,
+          capabilities: entry.capabilities,
         },
-        "client registered",
+        "subscriber registered (client)",
       );
+    } else {
+      log.info("subscriber registered (process)");
     }
 
-    const entry: SubscriberEntry = {
-      filter,
-      callback,
-      active: true,
-      onEvict: options?.onEvict,
-      client: clientMeta,
-    };
     this.subscribers.add(entry);
 
     return {
@@ -177,14 +173,16 @@ export class AssistantEventHub {
         if (entry.active) {
           entry.active = false;
           this.subscribers.delete(entry);
-          if (entry.client) {
+          if (entry.type === "client") {
             log.info(
               {
-                clientId: entry.client.clientId,
-                interfaceId: entry.client.interfaceId,
+                clientId: entry.clientId,
+                interfaceId: entry.interfaceId,
               },
-              "client unregistered",
+              "subscriber unregistered (client)",
             );
+          } else {
+            log.info("subscriber unregistered (process)");
           }
         }
       },
@@ -199,15 +197,15 @@ export class AssistantEventHub {
    *
    * Matching rules:
    * - if `filter.conversationId` is set, `event.conversationId` must equal it
-   * - if `event.targetInterfaceId` is set, only subscribers whose
-   *   `filter.interfaceId` matches receive it; untargeted events go to all
+   * - if `targetCapability` is set, only subscribers whose capabilities include
+   *   it receive the event; untargeted events go to all
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
    */
   async publish(
     event: AssistantEvent,
-    options?: { targetInterfaceId?: InterfaceId },
+    options?: { targetCapability?: HostProxyCapability },
   ): Promise<void> {
     if (event.conversationId) {
       try {
@@ -217,7 +215,7 @@ export class AssistantEventHub {
       }
     }
 
-    const targetInterfaceId = options?.targetInterfaceId;
+    const targetCapability = options?.targetCapability;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
@@ -233,18 +231,15 @@ export class AssistantEventHub {
       )
         continue;
 
-      // Interface targeting: targeted events only go to matching subscribers.
-      if (
-        targetInterfaceId != null &&
-        entry.filter.interfaceId != null &&
-        entry.filter.interfaceId !== targetInterfaceId
-      )
-        continue;
-
-      // If event is targeted but subscriber has no interfaceId filter, skip it.
-      // Only subscribers that declared an interfaceId should receive targeted events.
-      if (targetInterfaceId != null && entry.filter.interfaceId == null)
-        continue;
+      // Capability targeting: targeted events only go to subscribers that
+      // declare the required capability.
+      if (targetCapability != null) {
+        if (
+          entry.type !== "client" ||
+          !entry.capabilities.includes(targetCapability)
+        )
+          continue;
+      }
 
       try {
         await entry.callback(event);
@@ -284,21 +279,22 @@ export class AssistantEventHub {
 
   // ── Client queries ──────────────────────────────────────────────────────────
 
-  /** Client metadata shape (non-optional). */
-  private clientEntries(): ClientMeta[] {
-    const clients: ClientMeta[] = [];
+  private clientEntries(): ClientEntry[] {
+    const clients: ClientEntry[] = [];
     for (const entry of this.subscribers) {
-      if (entry.active && entry.client) {
-        clients.push(entry.client);
+      if (entry.active && entry.type === "client") {
+        clients.push(entry);
       }
     }
-    return clients.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    return clients.sort(
+      (a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+    );
   }
 
   /**
    * Return all active client subscribers, sorted by `lastActiveAt` descending.
    */
-  listClients(): ClientMeta[] {
+  listClients(): ClientEntry[] {
     return this.clientEntries();
   }
 
@@ -306,7 +302,7 @@ export class AssistantEventHub {
    * Return all client subscribers that support the given capability,
    * sorted by `lastActiveAt` descending.
    */
-  listClientsByCapability(capability: HostProxyCapability): ClientMeta[] {
+  listClientsByCapability(capability: HostProxyCapability): ClientEntry[] {
     return this.clientEntries().filter((c) =>
       c.capabilities.includes(capability),
     );
@@ -318,7 +314,7 @@ export class AssistantEventHub {
    */
   getMostRecentClientByCapability(
     capability: HostProxyCapability,
-  ): ClientMeta | undefined {
+  ): ClientEntry | undefined {
     return this.listClientsByCapability(capability)[0];
   }
 
@@ -326,7 +322,7 @@ export class AssistantEventHub {
    * Return all client subscribers with the given interface type,
    * sorted by `lastActiveAt` descending.
    */
-  listClientsByInterface(interfaceId: InterfaceId): ClientMeta[] {
+  listClientsByInterface(interfaceId: InterfaceId): ClientEntry[] {
     return this.clientEntries().filter((c) => c.interfaceId === interfaceId);
   }
 
@@ -335,24 +331,15 @@ export class AssistantEventHub {
    */
   touchClient(clientId: string): void {
     for (const entry of this.subscribers) {
-      if (entry.active && entry.client?.clientId === clientId) {
-        entry.client.lastActiveAt = Date.now();
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        entry.lastActiveAt = new Date();
         return;
       }
     }
-  }
-
-  /**
-   * Serialize a client entry to JSON (ISO timestamps).
-   */
-  static clientToJSON(client: ClientMeta): ClientEntryJSON {
-    return {
-      clientId: client.clientId,
-      interfaceId: client.interfaceId,
-      capabilities: client.capabilities,
-      connectedAt: new Date(client.connectedAt).toISOString(),
-      lastActiveAt: new Date(client.lastActiveAt).toISOString(),
-    };
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */

@@ -65,6 +65,7 @@ describe("events client registration", () => {
     expect(entry).toBeDefined();
     expect(entry?.interfaceId).toBe("macos");
     expect(entry?.capabilities).toContain("host_bash");
+    expect(entry?.type).toBe("client");
 
     ac.abort();
   });
@@ -209,7 +210,7 @@ describe("events client registration", () => {
     const clients = hub.listClients();
     const entry = clients.find((c) => c.clientId === "test-mac-004");
     expect(entry).toBeDefined();
-    const initialActive = entry?.lastActiveAt ?? 0;
+    const initialActive = entry?.lastActiveAt.getTime() ?? 0;
 
     const reader = stream.getReader();
     await reader.read();
@@ -218,7 +219,7 @@ describe("events client registration", () => {
 
     // Re-query — the entry object is the same reference, so lastActiveAt
     // should have been bumped by touchClient().
-    expect(entry?.lastActiveAt).toBeGreaterThanOrEqual(initialActive);
+    expect(entry?.lastActiveAt.getTime()).toBeGreaterThanOrEqual(initialActive);
 
     ac.abort();
   });

@@ -143,8 +143,13 @@ async function waitForSubscriberCount(
 describe("host.events.publish", () => {
   test("publish round-trip reaches assistantEventHub subscribers", async () => {
     const received: AssistantEvent[] = [];
-    const subscription = assistantEventHub.subscribe({}, (evt) => {
-      received.push(evt);
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: {},
+      callback: (evt) => {
+        received.push(evt);
+      },
+      onEvict: () => {},
     });
 
     try {
