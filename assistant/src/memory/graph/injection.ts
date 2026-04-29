@@ -381,7 +381,7 @@ export function assembleContextBlock(
   }
 
   if (parts.length === 0) return "";
-  return `## What I Remember Right Now\n\n${parts.join("\n\n")}`;
+  return parts.join("\n\n");
 }
 
 function buildSection(nodes: ScoredNode[], maxItems: number): string[] {

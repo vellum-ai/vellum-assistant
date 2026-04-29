@@ -238,7 +238,7 @@ export async function injectMemoryV2Block(
   // the render order. Per-turn: only the new slugs render (prior turns'
   // attachments stay cached on prior user messages). Context-load: full
   // top-K renders so the fresh user message gets a complete activation dump.
-  // Skills are appended after concept-page sections under the same header.
+  // Skills are appended after concept-page sections.
   const block = await renderInjectionBlock(
     workspaceDir,
     slugsToRender,
@@ -269,7 +269,6 @@ export async function injectMemoryV2Block(
  * trailing skills subsection:
  *
  *   <memory>
- *   ## What I Remember Right Now
  *   ### <slug-1>
  *   <body-1>
  *
@@ -281,13 +280,9 @@ export async function injectMemoryV2Block(
  *   - <skill-2 content>
  *   </memory>
  *
- * The same `## What I Remember Right Now` header wraps the block whether
- * the skills section is alone, the concept-page sections are alone, or
- * both are present — keeping the renderer one shape.
- *
  * Returns `null` when both lists collapse to empty after cache misses so
  * the caller can fall through to its empty-block path instead of attaching
- * a header with no contents.
+ * an empty `<memory>` wrapper.
  */
 async function renderInjectionBlock(
   workspaceDir: string,
@@ -320,6 +315,5 @@ async function renderInjectionBlock(
 
   if (sections.length === 0) return null;
 
-  const inner = `## What I Remember Right Now\n\n${sections.join("\n\n")}`;
-  return `<memory>\n${inner}\n</memory>`;
+  return `<memory>\n${sections.join("\n\n")}\n</memory>`;
 }

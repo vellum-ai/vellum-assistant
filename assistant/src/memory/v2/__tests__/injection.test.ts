@@ -365,7 +365,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).not.toBeNull();
     expect(result.block).toContain("<memory>");
-    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).toContain("VS Code");
     expect(result.block).toContain("</memory>");
@@ -594,7 +594,7 @@ describe("injectMemoryV2Block", () => {
   // Skill subsection rendering
   // ---------------------------------------------------------------------------
 
-  test("renders a skill-only block under the same `What I Remember Right Now` header", async () => {
+  test("renders a skill-only block in the same `<memory>` wrapper as concept-page-only blocks", async () => {
     // No concept-page candidates this turn — the candidate query and the three
     // simBatch queries all return empty. The skill pipeline is mocked to
     // surface a single skill.
@@ -625,7 +625,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toBeNull();
     // Same outer wrapping as concept-page-only blocks.
     expect(result.block).toContain("<memory>");
-    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).toContain("</memory>");
     // No concept-page sections; skills subsection present with the right
     // bullet shape and the unconditional `→ use skill_load to activate` suffix.
