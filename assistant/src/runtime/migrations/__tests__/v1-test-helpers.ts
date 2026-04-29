@@ -7,6 +7,8 @@
  * keeps every test from re-spelling the same six required option fields.
  */
 
+import { randomUUID } from "node:crypto";
+
 import type {
   BuildVBundleOptions,
   VBundleAssistantInfo,
@@ -14,6 +16,11 @@ import type {
   VBundleExportOptions,
   VBundleOriginInfo,
 } from "../vbundle-builder.js";
+import {
+  computeManifestChecksum,
+  type ManifestFileEntryType,
+  type ManifestType,
+} from "../vbundle-validator.js";
 
 export interface DefaultV1Options {
   assistant: VBundleAssistantInfo;
@@ -66,4 +73,40 @@ export function buildVBundleTestOptions(
     ...defaultV1Options(),
     ...overrides,
   };
+}
+
+/**
+ * Build a v1 ManifestType for tests, mirroring buildManifestObject() in
+ * vbundle-builder.ts. Use this in test fixtures that need a synthetic
+ * manifest rather than calling buildVBundle (e.g. cross-version compat
+ * tests that need to mutate fields between emit and validate).
+ *
+ * Pass `overrides` to override any field after the defaults are applied —
+ * useful for negative-path tests that exercise specific schema rejections.
+ * `schema_version` is widened to `number` so negative tests can write 0/2/etc.
+ * The checksum is computed on the merged shape so overrides take effect.
+ */
+export type BuildTestManifestOverrides = Partial<
+  Omit<ManifestType, "schema_version">
+> & { schema_version?: number };
+
+export function buildTestManifest(input: {
+  contents: ManifestFileEntryType[];
+  overrides?: BuildTestManifestOverrides;
+}): ManifestType {
+  const base = defaultV1Options();
+  const merged = {
+    schema_version: 1,
+    bundle_id: randomUUID(),
+    created_at: new Date().toISOString(),
+    assistant: base.assistant,
+    origin: base.origin,
+    compatibility: base.compatibility,
+    contents: input.contents,
+    checksum: "",
+    secrets_redacted: base.secretsRedacted,
+    export_options: base.exportOptions,
+    ...(input.overrides ?? {}),
+  } as ManifestType;
+  return { ...merged, checksum: computeManifestChecksum(merged) };
 }
