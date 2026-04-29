@@ -3,54 +3,26 @@ import XCTest
 
 final class SettingsPanelSidebarTests: XCTestCase {
 
-    func testCompactionPlaygroundAppearsFirstInTopSidebarWhenAllGatesEnabled() {
-        let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: true,
-            playgroundEnabled: true,
-            devModeEnabled: true
-        )
+    func testCompactionPlaygroundPositionFollowsVisibilityGate() {
+        let cases: [(developerEnabled: Bool, playgroundEnabled: Bool, devModeEnabled: Bool, expectedVisible: Bool)] = [
+            (true, true, true, true),
+            (true, false, true, false),
+            (false, true, true, false),
+            (true, true, false, false)
+        ]
 
-        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
+        for testCase in cases {
+            let includePlayground = testCase.developerEnabled && testCase.playgroundEnabled && testCase.devModeEnabled
+            let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
 
-        XCTAssertEqual(tabs.first, .compactionPlayground)
-        XCTAssertEqual(tabs.dropFirst().first, .general)
-    }
-
-    func testCompactionPlaygroundIsOmittedWhenFeatureFlagDisabled() {
-        let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: true,
-            playgroundEnabled: false,
-            devModeEnabled: true
-        )
-
-        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
-
-        XCTAssertFalse(tabs.contains(.compactionPlayground))
-        XCTAssertEqual(tabs.first, .general)
-    }
-
-    func testCompactionPlaygroundIsOmittedWhenDeveloperNavDisabled() {
-        let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: false,
-            playgroundEnabled: true,
-            devModeEnabled: true
-        )
-
-        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
-
-        XCTAssertFalse(tabs.contains(.compactionPlayground))
-    }
-
-    func testCompactionPlaygroundIsOmittedWhenDevModeDisabled() {
-        let includePlayground = SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: true,
-            playgroundEnabled: true,
-            devModeEnabled: false
-        )
-
-        let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
-
-        XCTAssertFalse(tabs.contains(.compactionPlayground))
+            XCTAssertEqual(tabs.contains(.compactionPlayground), testCase.expectedVisible)
+            if testCase.expectedVisible {
+                XCTAssertEqual(tabs.first, .compactionPlayground)
+                XCTAssertEqual(tabs.dropFirst().first, .general)
+            } else {
+                XCTAssertEqual(tabs.first, .general)
+            }
+        }
     }
 
     func testDeveloperIsNotRenderedInTopSidebarGroup() {
