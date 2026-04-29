@@ -1,15 +1,16 @@
 /**
- * v2 read-side cutover guard for the PKB-derived default injectors.
+ * v2 read-side cutover behavior for the PKB-derived default injectors.
  *
- * When `isMemoryV2ReadActive(getConfig())` is true, the three PKB-shaped
- * injectors (`pkb-context`, `pkb-reminder`, `now-md`) silence themselves so
- * the v2 activation block on the user message owns the read path
- * end-to-end. When v2 is off, they keep producing their existing blocks.
+ * When `isMemoryV2ReadActive(getConfig())` is true:
+ *   - `pkb-context` silences itself (concept pages own retrieval).
+ *   - `pkb-reminder` still fires (its body is generic recall/remember
+ *     guidance) but skips the PKB-search hints — those name PKB paths.
+ *   - `now-md` fires unchanged (workspace state, independent of PKB).
  *
  * Mocks `isMemoryV2ReadActive` at the module level so each test can flip the
  * effective gate state without standing up a full feature-flag + config
  * stack. Mocks the PKB hybrid search so the reminder-with-hints branch can
- * resolve deterministically.
+ * resolve deterministically when called.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -57,7 +58,7 @@ const RUN_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "What next?" }] },
 ];
 
-describe("PKB injectors gated on v2 read activity", () => {
+describe("PKB injector v2 cutover behavior", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
@@ -81,7 +82,7 @@ describe("PKB injectors gated on v2 read activity", () => {
     expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
   });
 
-  test("v2 active → all three PKB injectors return null", async () => {
+  test("v2 active → pkb-context silenced; pkb-reminder + now-md still fire", async () => {
     v2Active = true;
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
@@ -95,9 +96,29 @@ describe("PKB injectors gated on v2 read activity", () => {
 
     const texts = tailTexts(result.messages);
     expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
-    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
-    expect(texts.some((t) => t.includes("<NOW.md"))).toBe(false);
-    // The user's typed text should still survive untouched.
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(true);
+    expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
     expect(texts).toContain("What next?");
+  });
+
+  test("v2 active → pkb-reminder body fires without the hybrid-search hints", async () => {
+    v2Active = true;
+    const result = await applyRuntimeInjections(RUN_MESSAGES, {
+      turnContext: makeTurnContext(),
+      pkbActive: true,
+      pkbScopeId: "scope-default",
+      pkbRoot: "/tmp/pkb",
+      pkbConversation: { messages: [] },
+      // Provide a query vector so the v1 path WOULD have called searchPkbFiles
+      // and rendered hints. Under v2, the call is skipped and the reminder
+      // is rendered with empty hints — i.e. no "files look especially
+      // relevant" line.
+      pkbQueryVector: [0.1, 0.2, 0.3],
+    });
+
+    const texts = tailTexts(result.messages);
+    const reminder = texts.find((t) => t.includes("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).not.toContain("files look especially relevant");
   });
 });

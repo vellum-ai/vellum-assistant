@@ -97,10 +97,12 @@ function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
 }
 
 /**
- * v2 read-side cutover guard. PKB-derived injectors (`pkb-context`,
- * `pkb-reminder`, `now-md`) silence themselves when v2 is reading from
- * concept pages so they don't double up on retrieval the v2 activation
- * block already covers. Mirrors the gate the recall sources use.
+ * v2 read-side cutover guard. The `pkb-context` injector silences itself
+ * under v2 because the `<knowledge_base>` block surfaces PKB content the v2
+ * activation block already covers. The `pkb-reminder` injector still fires
+ * (its body is generic recall/remember guidance) but skips the hybrid-search
+ * hints — those name PKB paths v2 is moving away from. NOW.md is workspace
+ * state independent of PKB and fires unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
   return isMemoryV2ReadActive(getConfig());
@@ -215,9 +217,10 @@ const pkbReminderInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    if (isPkbInjectionSilencedByV2()) return null;
     if (!inputs.pkbActive) return null;
-    const reminder = await buildPkbReminderWithHints(inputs);
+    const reminder = isPkbInjectionSilencedByV2()
+      ? buildPkbReminder([])
+      : await buildPkbReminderWithHints(inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
@@ -328,7 +331,6 @@ const nowMdInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    if (isPkbInjectionSilencedByV2()) return null;
     const content = inputs.nowScratchpad;
     if (!content) return null;
     const text = `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`;
