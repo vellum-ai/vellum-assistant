@@ -86,7 +86,8 @@ do_build() {
     --target browser \
     --format esm \
     --minify \
-    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
+    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\"" \
+    || { echo "❌ Service worker bundle failed."; return 1; }
 
   echo "Bundling popup script with bun build..."
   bun build \
@@ -95,12 +96,15 @@ do_build() {
     --target browser \
     --format esm \
     --minify \
-    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
+    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\"" \
+    || { echo "❌ Popup bundle failed."; return 1; }
 
-  cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"
+  cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json" \
+    || { echo "❌ Failed to copy manifest."; return 1; }
 
   jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
-    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json" \
+    || { echo "❌ Failed to stamp version."; return 1; }
   echo "  Extension version: $EXT_VERSION"
 
   case "$VELLUM_ENV" in
@@ -108,10 +112,12 @@ do_build() {
     *)          EXT_NAME="Vellum Assistant $(echo "$VELLUM_ENV" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')" ;;
   esac
   jq --arg n "$EXT_NAME" '.name = $n' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
-    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+    && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json" \
+    || { echo "❌ Failed to stamp name."; return 1; }
   echo "  Extension name: $EXT_NAME"
 
-  cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html"
+  cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html" \
+    || { echo "❌ Failed to copy popup HTML."; return 1; }
 
   if [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
     cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
@@ -130,7 +136,17 @@ do_build() {
 # ---------------------------------------------------------------------------
 # Initial build
 # ---------------------------------------------------------------------------
-do_build
+if [ "$CMD" = "run" ]; then
+  # In run mode, don't exit on initial build failure — enter the watch loop
+  # so the developer can fix files and get an automatic rebuild.
+  if ! do_build; then
+    echo ""
+    echo "⚠️  Initial build failed. Entering watch mode — will rebuild on next change."
+    echo ""
+  fi
+else
+  do_build
+fi
 
 # ---------------------------------------------------------------------------
 # Watch mode (run only) — poll for source changes and rebuild automatically.
@@ -156,10 +172,14 @@ if [ "$CMD" = "run" ]; then
   trap 'echo ""; echo "🛑 Watch stopped."; exit 0' INT TERM
 
   while true; do
-    sleep "$POLL_INTERVAL"
+  sleep "$POLL_INTERVAL"
 
-    # Check if any source file is newer than the last build output.
-    CHANGED=0
+  # Check if any source file is newer than the last build output.
+  # If dist/manifest.json doesn't exist (build never succeeded), always rebuild.
+  CHANGED=0
+  if [ ! -f "$DIST_DIR/manifest.json" ]; then
+    CHANGED=1
+  else
     for d in "${WATCH_DIRS[@]}"; do
       [ -d "$SCRIPT_DIR/$d" ] || continue
       if [ -n "$(find "$SCRIPT_DIR/$d" -type f -newer "$DIST_DIR/manifest.json" -print -quit 2>/dev/null)" ]; then
@@ -177,8 +197,9 @@ if [ "$CMD" = "run" ]; then
         fi
       done
     fi
+  fi
 
-    [ "$CHANGED" -eq 0 ] && continue
+  [ "$CHANGED" -eq 0 ] && continue
 
     # Debounce — wait for rapid saves to settle.
     sleep "$DEBOUNCE"
