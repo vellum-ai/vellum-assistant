@@ -2,41 +2,26 @@
  * Home activity feed writer.
  *
  * Owns `<workspace>/data/home-feed.json`, the daemon-side source of
- * truth for the macOS Home page activity feed. Handles the merge
- * semantics defined by the TDD / plan:
+ * truth for the macOS Home page activity feed.
  *
- *   - Digest replacement: at most one digest per `source`. A fresh
- *     digest for a source replaces any prior digest for the same
- *     source in place.
- *   - Thread in-place update: if an incoming `thread` item shares its
+ * **v2 merge semantics** — the schema collapse to a single
+ * `notification` type also collapses the writer's merge rules to a
+ * single rule:
+ *
+ *   - **Same `id` replaces in place**: if an incoming item shares its
  *     `id` with an existing item, replace that item while preserving
  *     its array position so the UI does not jitter on updates.
- *   - Author resolution: for matching `(type, source)` pairs the
- *     hybrid-authoring precedence is `assistant` beats `platform` —
- *     an assistant item overwrites an existing platform item for the
- *     same pair, but a platform item never overwrites an existing
- *     assistant item (no-op). Applies to nudges; actions are exempt
- *     (see next bullet).
- *   - Action append-without-replace: `action` items are the feed's
- *     activity log and never merge by `(type, source)` — each append
- *     becomes a distinct entry so successive background-job events
- *     don't collapse onto each other. A same-`id` action is the one
- *     exception: it performs an in-place update (same semantics as
- *     threads) so callers using a deterministic dedup id via
- *     `emit-feed-event.ts` can refresh an entry without appending a
- *     duplicate. Callers that want to auto-expire an action item
- *     must set `expiresAt` explicitly; the writer does NOT fill in
- *     a default expiry.
- *   - Per-source action cap: after merge, each source keeps at most
- *     {@link MAX_ACTIONS_PER_SOURCE} action items (most recent by
- *     `createdAt`). Older actions for that source are dropped so the
- *     on-disk file can't balloon as background jobs emit events.
- *     Action items without a `source` are unbounded and passed
- *     through untouched.
- *   - TTL filter on read: `readHomeFeed` drops any item whose
+ *     Otherwise, append. The pre-v2 type-specific branches (digest
+ *     replacement by source, thread same-id update, action
+ *     append-without-replace, hybrid-author resolution, per-source
+ *     action cap) are gone — they were holdovers from a multi-type
+ *     vocabulary that no longer exists.
+ *
+ *   - **TTL filter on read**: `readHomeFeed` drops any item whose
  *     `expiresAt` is in the past. This is a stateless sweep — the
  *     writer does not rewrite the file on read, so concurrent reads
- *     never race the writer.
+ *     never race the writer. Callers that want auto-expiry must set
+ *     `expiresAt` explicitly; the writer does NOT fill in a default.
  *
  * Concurrent writers are coalesced with the exact same "latest wins"
  * pattern as `relationship-state-writer.ts`: at most one compute+write
@@ -69,16 +54,7 @@ const log = getLogger("home-feed-writer");
 export const HOME_FEED_FILENAME = "home-feed.json";
 
 /** On-disk file-format version. Bump + migrate if the shape changes. */
-export const HOME_FEED_VERSION = 1;
-
-/**
- * Per-source volume cap for `action` items. When the post-merge item
- * list has more than this many action items for a single source, the
- * oldest (by `createdAt`) are dropped until the count is back within
- * the cap. Other item types are unaffected, and action items without
- * a `source` are also unaffected.
- */
-export const MAX_ACTIONS_PER_SOURCE = 20;
+export const HOME_FEED_VERSION = 2;
 
 /**
  * Canonical path to the home-feed snapshot
@@ -238,8 +214,6 @@ async function runWrite(): Promise<void> {
     items = mergeIncoming(items, incoming);
   }
 
-  items = pruneActionsPerSource(items);
-
   // Track the per-patch result so callers can distinguish an update
   // from an unknown-id no-op. We collect resolvers first and fire them
   // after the write lands so the resolved `FeedItem` matches on-disk
@@ -298,126 +272,21 @@ async function runWrite(): Promise<void> {
 }
 
 /**
- * Apply the merge semantics for a single incoming item against the
+ * Apply the v2 merge rule for a single incoming item against the
  * current item list and return a new list. Pure function — the input
  * array is not mutated.
+ *
+ * Same-`id` replaces in place (preserving array position so the UI
+ * does not jitter); otherwise the item is appended.
  */
 function mergeIncoming(items: FeedItem[], incoming: FeedItem): FeedItem[] {
-  // Digest replacement: one digest per source wins.
-  if (incoming.type === "digest" && incoming.source) {
-    const filtered = items.filter(
-      (i) => !(i.type === "digest" && i.source === incoming.source),
-    );
-    filtered.push(incoming);
-    return filtered;
+  const idx = items.findIndex((i) => i.id === incoming.id);
+  if (idx !== -1) {
+    const copy = items.slice();
+    copy[idx] = incoming;
+    return copy;
   }
-
-  // Thread in-place update: same id wins, preserve position.
-  if (incoming.type === "thread") {
-    const idx = items.findIndex(
-      (i) => i.type === "thread" && i.id === incoming.id,
-    );
-    if (idx !== -1) {
-      const copy = items.slice();
-      copy[idx] = incoming;
-      return copy;
-    }
-  }
-
-  // Action append-without-replace: each action item is a distinct
-  // activity-log entry and must NOT collapse onto an existing action
-  // for the same (type, source) pair. The per-source volume cap in
-  // `pruneActionsPerSource` keeps the log from growing unbounded.
-  //
-  // Exception: same-id in-place update. Callers that want
-  // deterministic dedup (e.g. via `emit-feed-event.ts`'s `dedupKey`)
-  // produce a stable id per logical event; a second emit with the
-  // same id refreshes the existing entry in place rather than
-  // appending a duplicate.
-  if (incoming.type === "action") {
-    const idx = items.findIndex(
-      (i) => i.type === "action" && i.id === incoming.id,
-    );
-    if (idx !== -1) {
-      const copy = items.slice();
-      copy[idx] = incoming;
-      return copy;
-    }
-    return [...items, incoming];
-  }
-
-  // Author resolution: for matching (type, source) pairs, assistant
-  // beats platform. A platform-authored incoming item against an
-  // existing assistant item is a no-op. Applies to nudges (actions
-  // short-circuit above).
-  if (incoming.source) {
-    const existingIdx = items.findIndex(
-      (i) => i.type === incoming.type && i.source === incoming.source,
-    );
-    if (existingIdx !== -1) {
-      const existing = items[existingIdx]!;
-      if (existing.author === "assistant" && incoming.author === "platform") {
-        // Platform can't overwrite assistant — no-op.
-        return items;
-      }
-      if (existing.author === "platform" && incoming.author === "assistant") {
-        const copy = items.slice();
-        copy[existingIdx] = incoming;
-        return copy;
-      }
-    }
-  }
-
   return [...items, incoming];
-}
-
-/**
- * Enforce the per-source volume cap on `action` items. For each
- * source that has more than {@link MAX_ACTIONS_PER_SOURCE} actions in
- * the post-merge list, keep the most recent by `createdAt` and drop
- * the rest. Other item types and action items without a `source` are
- * passed through untouched. Stable with respect to non-affected items.
- */
-function pruneActionsPerSource(items: FeedItem[]): FeedItem[] {
-  const actionsBySource = new Map<string, FeedItem[]>();
-  for (const item of items) {
-    if (item.type !== "action" || !item.source) continue;
-    const bucket = actionsBySource.get(item.source);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      actionsBySource.set(item.source, [item]);
-    }
-  }
-
-  const overflowing: string[] = [];
-  for (const [source, bucket] of actionsBySource) {
-    if (bucket.length > MAX_ACTIONS_PER_SOURCE) overflowing.push(source);
-  }
-  if (overflowing.length === 0) return items;
-
-  const keepIds = new Set<string>();
-  for (const source of overflowing) {
-    const bucket = actionsBySource.get(source)!.slice();
-    bucket.sort((a, b) => {
-      const am = Date.parse(a.createdAt);
-      const bm = Date.parse(b.createdAt);
-      if (Number.isNaN(am) && Number.isNaN(bm)) return 0;
-      if (Number.isNaN(am)) return 1;
-      if (Number.isNaN(bm)) return -1;
-      return bm - am;
-    });
-    for (const item of bucket.slice(0, MAX_ACTIONS_PER_SOURCE)) {
-      keepIds.add(item.id);
-    }
-  }
-
-  return items.filter((item) => {
-    if (item.type !== "action") return true;
-    if (!item.source) return true;
-    if (!overflowing.includes(item.source)) return true;
-    return keepIds.has(item.id);
-  });
 }
 
 /**

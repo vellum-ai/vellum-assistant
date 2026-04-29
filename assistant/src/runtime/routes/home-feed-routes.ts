@@ -118,10 +118,11 @@ export async function handleGetHomeFeed({
   const timeAwaySeconds = parsed;
 
   const feed = readHomeFeed();
-  const filtered = feed.items.filter((item) => {
-    if (item.minTimeAway === undefined) return true;
-    return item.minTimeAway <= timeAwaySeconds;
-  });
+  // v2 schema dropped per-item `minTimeAway` gating; surface every item
+  // and let the client decide what to render based on its own
+  // session state. `timeAwaySeconds` survives only to feed the
+  // context-banner relative-time label.
+  const filtered = feed.items;
 
   const LOW_PRIORITY_THRESHOLD = 30;
   const lowPriorityItems = filtered.filter(

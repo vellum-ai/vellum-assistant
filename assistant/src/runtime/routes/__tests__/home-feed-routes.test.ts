@@ -147,17 +147,14 @@ function homeFeedRouteDefinitions() {
 
 type FeedItemFixture = {
   id: string;
-  type: "nudge" | "digest" | "action" | "thread";
+  type: "notification";
   priority: number;
   title: string;
   summary: string;
-  source?: "gmail" | "slack" | "calendar" | "assistant";
   timestamp: string;
   status: "new" | "seen" | "acted_on";
   expiresAt?: string;
-  minTimeAway?: number;
   actions?: Array<{ id: string; label: string; prompt: string }>;
-  author: "assistant" | "platform";
   createdAt: string;
 };
 
@@ -165,13 +162,12 @@ function makeItem(
   overrides: Partial<FeedItemFixture> & { id: string },
 ): FeedItemFixture {
   return {
-    type: "nudge",
+    type: "notification",
     priority: 50,
     title: "Test",
     summary: "Test summary",
     timestamp: "2026-04-14T12:00:00.000Z",
     status: "new",
-    author: "platform",
     createdAt: "2026-04-14T12:00:00.000Z",
     ...overrides,
   };
@@ -184,7 +180,7 @@ function writeFeedFile(items: FeedItemFixture[]): void {
     path,
     JSON.stringify(
       {
-        version: 1,
+        version: 2,
         updatedAt: "2026-04-14T12:00:00.000Z",
         items,
       },
@@ -350,18 +346,12 @@ describe("handleGetHomeFeed", () => {
     expect(typeof body.contextBanner.greeting).toBe("string");
   });
 
-  test("filters out items whose minTimeAway exceeds timeAwaySeconds", async () => {
-    writeFeedFile([
-      makeItem({
-        id: "gated",
-        type: "nudge",
-        minTimeAway: 3600,
-      }),
-      makeItem({
-        id: "ungated",
-        type: "nudge",
-      }),
-    ]);
+  test("returns every item regardless of timeAwaySeconds (v2 dropped minTimeAway gating)", async () => {
+    // The v2 schema no longer carries `minTimeAway`, and the route
+    // handler no longer gates on it — every item flows through. The
+    // `timeAwaySeconds` query parameter survives only because the
+    // context banner's relative-time label is derived from it.
+    writeFeedFile([makeItem({ id: "a" }), makeItem({ id: "b" })]);
 
     const res = await handleGetHomeFeed(
       new Request("http://localhost/v1/home/feed?timeAwaySeconds=60"),
@@ -371,20 +361,13 @@ describe("handleGetHomeFeed", () => {
       items: Array<{ id: string }>;
       contextBanner: { newCount: number };
     };
-    const ids = body.items.map((i) => i.id);
-    expect(ids).toContain("ungated");
-    expect(ids).not.toContain("gated");
-    expect(body.contextBanner.newCount).toBe(1);
+    const ids = body.items.map((i) => i.id).sort();
+    expect(ids).toEqual(["a", "b"]);
+    expect(body.contextBanner.newCount).toBe(2);
   });
 
-  test("includes items when timeAwaySeconds >= minTimeAway", async () => {
-    writeFeedFile([
-      makeItem({
-        id: "gated",
-        type: "nudge",
-        minTimeAway: 3600,
-      }),
-    ]);
+  test("contextBanner.timeAwayLabel reflects the supplied timeAwaySeconds", async () => {
+    writeFeedFile([makeItem({ id: "any" })]);
 
     const res = await handleGetHomeFeed(
       new Request("http://localhost/v1/home/feed?timeAwaySeconds=7200"),
@@ -395,7 +378,7 @@ describe("handleGetHomeFeed", () => {
       contextBanner: { newCount: number; timeAwayLabel: string };
     };
     expect(body.items).toHaveLength(1);
-    expect(body.items[0]!.id).toBe("gated");
+    expect(body.items[0]!.id).toBe("any");
     expect(body.contextBanner.newCount).toBe(1);
     expect(body.contextBanner.timeAwayLabel).toBe("2 hours ago");
   });
@@ -496,7 +479,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-1",
-        type: "action",
         actions: [
           {
             id: "reply",
@@ -547,7 +529,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-2",
-        type: "action",
         actions: [{ id: "reply", label: "Reply", prompt: "hi" }],
       }),
     ]);
@@ -567,7 +548,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-3",
-        type: "action",
         actions: [{ id: "reply", label: "Reply", prompt: "hi" }],
       }),
     ]);

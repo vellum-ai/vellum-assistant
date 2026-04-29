@@ -2,9 +2,8 @@
  * Home activity feed data contract.
  *
  * Defines the shape of `FeedItem`s shown in the macOS Home page feed
- * section (nudges, digests, actions, threads) plus the on-disk file
- * format written by the daemon feed writer (PR 5) and served by the
- * daemon HTTP route (PR 6).
+ * section plus the on-disk file format written by the daemon feed
+ * writer (PR 5) and served by the daemon HTTP route (PR 6).
  *
  * The TDD contract field originally named `ttl` is renamed internally
  * to `expiresAt` — it is an absolute ISO-8601 timestamp, not a
@@ -14,6 +13,15 @@
  * a translation layer at the route boundary; within the daemon, all
  * internal types use `expiresAt`.
  *
+ * **v2 schema collapse** — feed items now have a single `notification`
+ * type. The legacy `nudge | digest | action | thread` distinctions
+ * (and the `source` / `author` / `minTimeAway` fields that supported
+ * them) have been removed; everything that lands in the home feed is
+ * a notification, with the writer's only merge rule being "same `id`
+ * replaces in place, otherwise append". Workspace migration
+ * `061-home-feed-notification-only` rewrites pre-v2 files on first
+ * boot.
+ *
  * A structurally compatible Swift mirror lives at
  * `clients/shared/Network/FeedItem.swift` (PR 3). Any change here
  * must be mirrored there.
@@ -22,34 +30,10 @@
 import { z } from "zod";
 
 /** High-level kind of feed item — drives which Swift view renders it. */
-export type FeedItemType = "nudge" | "digest" | "action" | "thread";
+export type FeedItemType = "notification";
 
 /** User-facing lifecycle of a feed item. */
 export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
-
-/**
- * Origin of the underlying event.
- *
- * In v1 this is constrained to a closed set so the Swift icon mapping
- * stays exhaustive. Future sources will be added explicitly rather
- * than letting arbitrary strings slip through.
- */
-export type FeedItemSource =
-  | "gmail"
-  | "slack"
-  | "calendar"
-  | "assistant"
-  | "telegram";
-
-/**
- * Internal field used by the hybrid authoring resolver (PR 5 writer).
- *
- * Not part of the TDD public interface — it distinguishes items the
- * assistant produced on its own from items the platform baseline
- * generators (e.g. Gmail digest in PR 12) produced, so assistant
- * overrides can win over platform defaults for the same source.
- */
-export type FeedItemAuthor = "assistant" | "platform";
 
 /** Visual urgency treatment — controls badge color independently of sort priority. */
 export type FeedItemUrgency = "low" | "medium" | "high" | "critical";
@@ -84,8 +68,7 @@ export interface FeedItemDetailPanel {
 /**
  * A single item rendered in the Home feed.
  *
- * Mirrors the TDD contract plus two internal-only fields:
- *   - `author`  — hybrid-authoring resolver discriminator
+ * Mirrors the TDD contract plus one internal-only field:
  *   - `createdAt` — when the writer recorded the item (distinct from
  *                   `timestamp`, which is the event time). Used for
  *                   TTL sweeps and stable ordering.
@@ -100,16 +83,12 @@ export interface FeedItem {
   priority: number;
   title: string;
   summary: string;
-  /** Optional; when present must be one of the v1 sources. */
-  source?: FeedItemSource;
   /** Event time (ISO-8601). */
   timestamp: string;
   /** Defaults to `"new"` at parse time. */
   status: FeedItemStatus;
   /** Absolute ISO-8601 expiry timestamp (renamed from TDD `ttl`). */
   expiresAt?: string;
-  /** Minimum seconds the user must be away before the item is shown. */
-  minTimeAway?: number;
   actions?: FeedAction[];
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
@@ -117,8 +96,6 @@ export interface FeedItem {
   conversationId?: string;
   /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
   detailPanel?: FeedItemDetailPanel;
-  /** Internal: who authored this item. */
-  author: FeedItemAuthor;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
   createdAt: string;
 }
@@ -137,11 +114,12 @@ export interface LowPriorityCollapsed {
  * On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
  *
  * Written by the PR 5 writer, read by the PR 6 HTTP route and
- * `parseFeedFile` below. `version` is pinned to `1`; future format
- * changes bump this and live behind a workspace migration.
+ * `parseFeedFile` below. `version` is pinned to `2` (collapsed schema);
+ * pre-v2 files are rewritten by workspace migration
+ * `061-home-feed-notification-only`.
  */
 export interface HomeFeedFile {
-  version: 1;
+  version: 2;
   items: FeedItem[];
   updatedAt: string;
 }
@@ -171,19 +149,9 @@ export interface SuggestedPrompt {
 // Zod schemas
 // ---------------------------------------------------------------------------
 
-const feedItemTypeSchema = z.enum(["nudge", "digest", "action", "thread"]);
+const feedItemTypeSchema = z.literal("notification");
 
 const feedItemStatusSchema = z.enum(["new", "seen", "acted_on", "dismissed"]);
-
-const feedItemSourceSchema = z.enum([
-  "gmail",
-  "slack",
-  "calendar",
-  "assistant",
-  "telegram",
-]);
-
-const feedItemAuthorSchema = z.enum(["assistant", "platform"]);
 
 const feedItemUrgencySchema = z.enum(["low", "medium", "high", "critical"]);
 
@@ -215,10 +183,6 @@ const feedItemDetailPanelSchema = z.object({
  *     silent coercion tends to mask writer bugs.
  *   - `status` defaults to `"new"` so the writer does not need to
  *     set it on every append.
- *   - `source` is optional but, when present, must be one of the
- *     four v1 sources — unknown values (e.g. `"facebook"`) are
- *     rejected rather than silently passed through.
- *   - `minTimeAway` is a non-negative integer number of seconds.
  */
 export const feedItemSchema = z.object({
   id: z.string(),
@@ -226,16 +190,13 @@ export const feedItemSchema = z.object({
   priority: z.number().int().min(0).max(100),
   title: z.string(),
   summary: z.string(),
-  source: feedItemSourceSchema.optional(),
   timestamp: z.string(),
   status: feedItemStatusSchema.default("new"),
   expiresAt: z.string().optional(),
-  minTimeAway: z.number().int().min(0).optional(),
   actions: z.array(feedActionSchema).optional(),
   urgency: feedItemUrgencySchema.optional(),
   conversationId: z.string().optional(),
   detailPanel: feedItemDetailPanelSchema.optional(),
-  author: feedItemAuthorSchema,
   createdAt: z.string(),
 });
 
@@ -256,7 +217,7 @@ export const lowPriorityCollapsedSchema = z.object({
 
 /** Schema for the on-disk `home-feed.json` file. */
 const homeFeedFileSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   items: z.array(feedItemSchema),
   updatedAt: z.string(),
 });
