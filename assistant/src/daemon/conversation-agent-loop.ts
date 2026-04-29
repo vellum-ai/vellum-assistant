@@ -169,6 +169,7 @@ import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { isDiskSpaceLocked } from "./disk-space-guard.js";
 import { deepRepairHistory } from "./history-repair.js";
+import { getAssistantName } from "./identity-helpers.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -712,11 +713,11 @@ export async function runAgentLoopImpl(
 
   try {
     if (isDiskSpaceLocked()) {
+      const name = getAssistantName() ?? "The assistant";
       onEvent({
         type: "error",
         code: "DISK_SPACE_CRITICAL",
-        message:
-          "Disk usage has reached 95%. The assistant is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.",
+        message: `Disk usage has reached 95%. ${name} is locked to prevent data loss. Free disk space or issue a manual override via POST /v1/disk-lock/override.`,
         category: "disk_space_locked",
       });
       return;
