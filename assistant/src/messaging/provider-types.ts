@@ -66,6 +66,8 @@ export interface HistoryOptions {
   limit?: number;
   before?: string;
   after?: string;
+  cursor?: string;
+  inclusive?: boolean;
 }
 
 export interface SearchOptions {

@@ -395,6 +395,8 @@ export const slackProvider: MessagingProvider = {
         options?.limit ?? 50,
         options?.before,
         options?.after,
+        options?.cursor,
+        options?.inclusive,
       );
     });
 
@@ -456,6 +458,10 @@ export const slackProvider: MessagingProvider = {
         conversationId,
         threadId,
         options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
       );
     });
     const messages: Message[] = [];

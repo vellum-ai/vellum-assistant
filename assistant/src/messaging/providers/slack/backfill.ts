@@ -41,6 +41,27 @@ export async function backfillThread(
   threadTs: string,
   opts?: { limit?: number; account?: string },
 ): Promise<Message[]> {
+  return backfillThreadWindow(channelId, threadTs, opts);
+}
+
+/**
+ * Fetch a bounded window of messages in a Slack thread.
+ *
+ * `after` and `before` are passed through to Slack as `oldest` and `latest`;
+ * callers can also pass a Slack pagination cursor when continuing a bounded
+ * scan. Returns `[]` on transient errors; rethrows `channel_not_found`.
+ */
+export async function backfillThreadWindow(
+  channelId: string,
+  threadTs: string,
+  opts?: {
+    limit?: number;
+    after?: string;
+    before?: string;
+    cursor?: string;
+    account?: string;
+  },
+): Promise<Message[]> {
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   try {
     const connection = await slackProvider.resolveConnection?.(opts?.account);
@@ -51,18 +72,32 @@ export async function backfillThread(
       );
       return [];
     }
+    const historyOptions = {
+      limit,
+      ...(opts?.after !== undefined ? { after: opts.after } : {}),
+      ...(opts?.before !== undefined ? { before: opts.before } : {}),
+      ...(opts?.cursor !== undefined ? { cursor: opts.cursor } : {}),
+    };
     return await slackProvider.getThreadReplies(
       connection,
       channelId,
       threadTs,
-      { limit },
+      historyOptions,
     );
   } catch (err) {
     if (isChannelNotFound(err)) {
       throw err;
     }
     log.warn(
-      { channelId, threadTs, account: opts?.account, err },
+      {
+        channelId,
+        threadTs,
+        after: opts?.after,
+        before: opts?.before,
+        cursor: opts?.cursor,
+        account: opts?.account,
+        err,
+      },
       "Slack thread backfill failed — returning []",
     );
     return [];

@@ -17,7 +17,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import type { Message } from "../../provider-types.js";
+import type { HistoryOptions, Message } from "../../provider-types.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 
@@ -27,13 +27,13 @@ type ResolveConnectionFn = (
 type GetHistoryFn = (
   connection: OAuthConnection | undefined,
   conversationId: string,
-  options?: { limit?: number; before?: string; after?: string },
+  options?: HistoryOptions,
 ) => Promise<Message[]>;
 type GetThreadRepliesFn = (
   connection: OAuthConnection | undefined,
   conversationId: string,
   threadId: string,
-  options?: { limit?: number },
+  options?: HistoryOptions,
 ) => Promise<Message[]>;
 
 const resolveConnectionMock = mock<ResolveConnectionFn>(async () => undefined);
@@ -50,13 +50,13 @@ mock.module("./adapter.js", () => ({
     getHistory: (
       connection: OAuthConnection | undefined,
       conversationId: string,
-      options?: { limit?: number; before?: string; after?: string },
+      options?: HistoryOptions,
     ) => getHistoryMock(connection, conversationId, options),
     getThreadReplies: (
       connection: OAuthConnection | undefined,
       conversationId: string,
       threadId: string,
-      options?: { limit?: number },
+      options?: HistoryOptions,
     ) => getThreadRepliesMock(connection, conversationId, threadId, options),
     // Stub the rest of the MessagingProvider surface as no-ops; the backfill
     // helpers should never reach for these.
@@ -71,7 +71,11 @@ mock.module("./adapter.js", () => ({
   },
 }));
 
-import { backfillDm, backfillThread } from "./backfill.js";
+import {
+  backfillDm,
+  backfillThread,
+  backfillThreadWindow,
+} from "./backfill.js";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -120,6 +124,33 @@ describe("backfillThread", () => {
     await backfillThread("C123", "1700000000.000100", { limit: 10 });
     const [, , , opts] = getThreadRepliesMock.mock.calls[0];
     expect(opts).toEqual({ limit: 10 });
+  });
+
+  test("forwards explicit before/after window through window helper", async () => {
+    await backfillThreadWindow("C123", "1700000000.000100", {
+      limit: 10,
+      after: "1700000000.000100",
+      before: "1700000005.000100",
+    });
+
+    const [, , , opts] = getThreadRepliesMock.mock.calls[0];
+    expect(opts).toEqual({
+      limit: 10,
+      after: "1700000000.000100",
+      before: "1700000005.000100",
+    });
+  });
+
+  test("forwards cursor through window helper", async () => {
+    await backfillThreadWindow("C123", "1700000000.000100", {
+      cursor: "cursor-123",
+    });
+
+    const [, , , opts] = getThreadRepliesMock.mock.calls[0];
+    expect(opts).toEqual({
+      limit: 50,
+      cursor: "cursor-123",
+    });
   });
 
   test("returns [] when getThreadReplies throws (generic Slack API error)", async () => {
