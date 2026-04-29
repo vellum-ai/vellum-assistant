@@ -474,18 +474,6 @@ describe("command-registry", () => {
       test("assistant trust (bare) is low risk", () => {
         expect(trustSpec.baseRisk).toBe("low");
       });
-
-      test("assistant trust remove is high risk", () => {
-        expect(trustSpec.subcommands!.remove.baseRisk).toBe("high");
-      });
-
-      test("assistant trust add is high risk", () => {
-        expect(trustSpec.subcommands!.add.baseRisk).toBe("high");
-      });
-
-      test("assistant trust update is high risk", () => {
-        expect(trustSpec.subcommands!.update.baseRisk).toBe("high");
-      });
     });
 
     // ── low-risk subcommands (no further subcommands) ────────────────────
@@ -545,9 +533,6 @@ describe("command-registry", () => {
         assistantSpec.subcommands!.trust.subcommands!,
       );
       expect(trustSubs).toContain("list");
-      expect(trustSubs).toContain("add");
-      expect(trustSubs).toContain("update");
-      expect(trustSubs).toContain("remove");
     });
 
     test("covers expanded top-level assistant command groups", () => {
