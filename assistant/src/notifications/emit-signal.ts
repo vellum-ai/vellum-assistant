@@ -28,6 +28,7 @@ import {
   runDeterministicChecks,
 } from "./deterministic-checks.js";
 import { createEvent, updateEventDedupeKey } from "./events-store.js";
+import { writeHomeFeedItemForSignal } from "./home-feed-side-effect.js";
 import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
   AttentionHints,
@@ -348,6 +349,17 @@ export async function emitNotificationSignal<TEventName extends string>(
         ? { onConversationCreated: params.onConversationCreated }
         : undefined,
     );
+
+    // Step 5: Mirror background-origin signals into the home activity feed.
+    // The helper itself decides whether to write (background filter); we
+    // catch and log so a feed-write failure cannot poison the dispatch result.
+    await writeHomeFeedItemForSignal(
+      signal,
+      decision,
+      dispatchResult.deliveryResults,
+    ).catch((err) => {
+      log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
+    });
 
     log.info(
       {
