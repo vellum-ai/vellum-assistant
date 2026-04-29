@@ -53,14 +53,6 @@ enum SettingsTab: String {
         return tabs
     }
 
-    static func isCompactionPlaygroundVisible(
-        developerEnabled: Bool,
-        playgroundEnabled: Bool,
-        devModeEnabled: Bool
-    ) -> Bool {
-        developerEnabled && playgroundEnabled && devModeEnabled
-    }
-
     static func canDeferDeepLink(_ tab: SettingsTab) -> Bool {
         switch tab {
         case .developer, .compactionPlayground:
@@ -401,16 +393,20 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (top nav + gated bottom nav).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.sidebarTopTabs(
+        var tabs = visibleSidebarTopTabs
+        if isDeveloperEnabled {
+            tabs.append(.developer)
+        }
+        return tabs
+    }
+
+    private var visibleSidebarTopTabs: [SettingsTab] {
+        SettingsTab.sidebarTopTabs(
             billingEnabled: billingVisible,
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
         )
-        if isDeveloperEnabled {
-            tabs.append(.developer)
-        }
-        return tabs
     }
 
     private var billingVisible: Bool {
@@ -427,24 +423,12 @@ struct SettingsPanel: View {
     }
 
     private var isCompactionPlaygroundVisible: Bool {
-        SettingsTab.isCompactionPlaygroundVisible(
-            developerEnabled: isDeveloperEnabled,
-            playgroundEnabled: isCompactionPlaygroundEnabled,
-            devModeEnabled: DevModeManager.shared.isDevMode
-        )
+        isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
     }
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(
-                SettingsTab.sidebarTopTabs(
-                    billingEnabled: billingVisible,
-                    soundsEnabled: isSoundsEnabled,
-                    debugEnabled: isDebugVisible,
-                    includeCompactionPlayground: isCompactionPlaygroundVisible
-                ),
-                id: \.self
-            ) { tab in
+            ForEach(visibleSidebarTopTabs, id: \.self) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectVisibleTab(tab)
                 }
@@ -808,11 +792,6 @@ struct SettingsPanel: View {
     /// hadn't loaded, check whether it's now visible and navigate to it.
     private func consumeDeferredDeepLinkIfVisible() {
         guard let deferred = deferredDeepLinkTab else {
-            ensureSelectedTabIsVisible()
-            return
-        }
-        guard SettingsTab.canDeferDeepLink(deferred) else {
-            deferredDeepLinkTab = nil
             ensureSelectedTabIsVisible()
             return
         }
