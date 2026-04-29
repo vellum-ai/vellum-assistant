@@ -87,7 +87,10 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
+import {
+  buildTestManifest,
+  defaultV1Options,
+} from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   analyzeImport,
@@ -233,19 +236,6 @@ function sha256Hex(data: Uint8Array | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-function canonicalizeJson(obj: unknown): string {
-  return JSON.stringify(obj, (_key, value) => {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const sorted: Record<string, unknown> = {};
-      for (const k of Object.keys(value as Record<string, unknown>).sort()) {
-        sorted[k] = (value as Record<string, unknown>)[k];
-      }
-      return sorted;
-    }
-    return value;
-  });
-}
-
 interface VBundleFile {
   path: string;
   data: Uint8Array;
@@ -264,28 +254,15 @@ function createValidVBundle(
     size_bytes: f.data.length,
   }));
 
-  const manifestWithEmptyChecksum = {
-    schema_version: overrides?.schema_version ?? 1,
-    bundle_id: "00000000-0000-4000-8000-000000000000",
-    created_at: new Date().toISOString(),
-    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-    origin: { mode: "self-hosted-local" as const },
-    compatibility: {
-      min_runtime_version: "0.0.0-test",
-      max_runtime_version: null,
-    },
+  const manifest = buildTestManifest({
     contents,
-    checksum: "",
-    secrets_redacted: false,
-    export_options: {
-      include_logs: false,
-      include_browser_state: false,
-      include_memory_vectors: false,
+    overrides: {
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      ...(overrides?.schema_version !== undefined
+        ? { schema_version: overrides.schema_version }
+        : {}),
     },
-  };
-
-  const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-  const manifest = { ...manifestWithEmptyChecksum, checksum };
+  });
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
@@ -998,34 +975,16 @@ describe("edge cases", () => {
     const dbData2 = new Uint8Array([0x04, 0x05, 0x06]);
 
     // Build a valid v1 manifest that references the second data.
-    const contents = [
-      {
-        path: "data/db/assistant.db",
-        sha256: sha256Hex(dbData2),
-        size_bytes: dbData2.length,
-      },
-    ];
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
-      contents,
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(dbData2),
+          size_bytes: dbData2.length,
+        },
+      ],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     // Build tar with duplicate data/db/assistant.db entries
@@ -1048,16 +1007,7 @@ describe("edge cases", () => {
     const wrongChecksum =
       "0000000000000000000000000000000000000000000000000000000000000000";
 
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
+    const manifest = buildTestManifest({
       contents: [
         {
           path: "data/db/assistant.db",
@@ -1065,16 +1015,8 @@ describe("edge cases", () => {
           size_bytes: dbData.length,
         },
       ],
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1098,16 +1040,7 @@ describe("edge cases", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const ghostSha = sha256Hex(new TextEncoder().encode("ghost-content"));
 
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
+    const manifest = buildTestManifest({
       contents: [
         {
           path: "data/db/assistant.db",
@@ -1120,16 +1053,8 @@ describe("edge cases", () => {
           size_bytes: 13,
         },
       ],
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1155,31 +1080,10 @@ describe("edge cases", () => {
     // empty contents array is valid at the field level but rejected by
     // the refine.
     const dbBytes = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
-      contents: [] as Array<{
-        path: string;
-        sha256: string;
-        size_bytes: number;
-      }>,
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+    const manifest = buildTestManifest({
+      contents: [],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1240,34 +1144,16 @@ describe("edge cases", () => {
     const extraData = new TextEncoder().encode("bonus content");
 
     // Manifest only declares the db file
-    const contents = [
-      {
-        path: "data/db/assistant.db",
-        sha256: sha256Hex(dbData),
-        size_bytes: dbData.length,
-      },
-    ];
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
-      contents,
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(dbData),
+          size_bytes: dbData.length,
+        },
+      ],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     // Archive has an extra file not in the manifest
@@ -1361,16 +1247,7 @@ describe("diagnostic quality", () => {
     const wrongSha =
       "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
+    const manifest = buildTestManifest({
       contents: [
         {
           path: "data/db/assistant.db",
@@ -1378,16 +1255,8 @@ describe("diagnostic quality", () => {
           size_bytes: dbData.length,
         },
       ],
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
@@ -1406,16 +1275,7 @@ describe("diagnostic quality", () => {
   test("FILE_SIZE_MISMATCH includes file path and both sizes", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
 
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
+    const manifest = buildTestManifest({
       contents: [
         {
           path: "data/db/assistant.db",
@@ -1423,16 +1283,8 @@ describe("diagnostic quality", () => {
           size_bytes: 99999,
         },
       ],
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
@@ -1502,16 +1354,7 @@ describe("multiple error accumulation", () => {
 
     // Manifest declares correct db checksum but wrong config checksum and
     // also wrong config size
-    const manifestWithEmptyChecksum = {
-      schema_version: 1,
-      bundle_id: "00000000-0000-4000-8000-000000000000",
-      created_at: new Date().toISOString(),
-      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-      origin: { mode: "self-hosted-local" as const },
-      compatibility: {
-        min_runtime_version: "0.0.0-test",
-        max_runtime_version: null,
-      },
+    const manifest = buildTestManifest({
       contents: [
         {
           path: "data/db/assistant.db",
@@ -1524,16 +1367,8 @@ describe("multiple error accumulation", () => {
           size_bytes: 999,
         },
       ],
-      checksum: "",
-      secrets_redacted: false,
-      export_options: {
-        include_logs: false,
-        include_browser_state: false,
-        include_memory_vectors: false,
-      },
-    };
-    const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
-    const manifest = { ...manifestWithEmptyChecksum, checksum };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1719,16 +1554,7 @@ describe("import analyzer edge cases", () => {
     );
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: 1,
-        bundle_id: "00000000-0000-4000-8000-000000000000",
-        created_at: "2026-03-01T00:00:00Z",
-        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-        origin: { mode: "self-hosted-local" },
-        compatibility: {
-          min_runtime_version: "0.0.0-test",
-          max_runtime_version: null,
-        },
+      manifest: buildTestManifest({
         contents: [
           {
             path: "data/db/assistant.db",
@@ -1741,14 +1567,11 @@ describe("import analyzer edge cases", () => {
             size_bytes: 1,
           },
         ],
-        checksum: "test",
-        secrets_redacted: false,
-        export_options: {
-          include_logs: false,
-          include_browser_state: false,
-          include_memory_vectors: false,
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
         },
-      },
+      }),
       pathResolver: resolver,
     });
 
@@ -1766,16 +1589,7 @@ describe("import analyzer edge cases", () => {
     const existingConfig = new Uint8Array(readFileSync(testConfigPath));
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: 1,
-        bundle_id: "00000000-0000-4000-8000-000000000000",
-        created_at: "2026-03-01T00:00:00Z",
-        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-        origin: { mode: "self-hosted-local" },
-        compatibility: {
-          min_runtime_version: "0.0.0-test",
-          max_runtime_version: null,
-        },
+      manifest: buildTestManifest({
         contents: [
           {
             path: "data/db/assistant.db",
@@ -1788,14 +1602,11 @@ describe("import analyzer edge cases", () => {
             size_bytes: existingConfig.length,
           },
         ],
-        checksum: "test",
-        secrets_redacted: false,
-        export_options: {
-          include_logs: false,
-          include_browser_state: false,
-          include_memory_vectors: false,
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
         },
-      },
+      }),
       pathResolver: resolver,
     });
 
@@ -1808,16 +1619,7 @@ describe("import analyzer edge cases", () => {
     const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: 1,
-        bundle_id: "00000000-0000-4000-8000-000000000000",
-        created_at: "2026-03-01T00:00:00Z",
-        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
-        origin: { mode: "self-hosted-local" },
-        compatibility: {
-          min_runtime_version: "0.0.0-test",
-          max_runtime_version: null,
-        },
+      manifest: buildTestManifest({
         contents: [
           {
             path: "data/db/assistant.db",
@@ -1830,14 +1632,11 @@ describe("import analyzer edge cases", () => {
             size_bytes: 1,
           },
         ],
-        checksum: "test",
-        secrets_redacted: false,
-        export_options: {
-          include_logs: false,
-          include_browser_state: false,
-          include_memory_vectors: false,
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
         },
-      },
+      }),
       pathResolver: resolver,
     });
 
