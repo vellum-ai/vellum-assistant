@@ -2036,11 +2036,13 @@ fi
 # $_VELLUM_CONFIG_DIR/builds/ keyed by BUILD_VERSION, and a companion ZIP
 # of the .app bundle for download.
 if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -d "$APP_DIR" ]; then
-    _BUILDS_DIR="$_VELLUM_CONFIG_DIR/builds"
+    _BUILDS_DIR="$_VELLUM_CONFIG_DIR/builds/macos"
     mkdir -p "$_BUILDS_DIR"
 
-    _BUILD_ZIP="$_BUILDS_DIR/${BUILD_VERSION}.zip"
-    _BUILD_MANIFEST="$_BUILDS_DIR/${BUILD_VERSION}.json"
+    # DISPLAY_VERSION is unique per local build (e.g. 0.6.6-local.20260429143709.b8d2555c5).
+    # BUILD_VERSION defaults to "1" for local builds and would overwrite on every build.
+    _BUILD_ZIP="$_BUILDS_DIR/${DISPLAY_VERSION}.zip"
+    _BUILD_MANIFEST="$_BUILDS_DIR/${DISPLAY_VERSION}.json"
 
     # Create ZIP of the .app bundle (ditto preserves macOS metadata + code signatures)
     echo "Registering local build $DISPLAY_VERSION (build $BUILD_VERSION)..."
