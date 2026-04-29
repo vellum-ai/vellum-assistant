@@ -164,6 +164,30 @@ mock.module("../skill-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Activation-log store mock
+// ---------------------------------------------------------------------------
+//
+// The real `recordMemoryV2ActivationLog` writes to the singleton
+// `getDb()` — but this test uses an isolated in-memory database, so we mock
+// the writer to capture calls in-process. `recordCalls` is the captured log
+// array; `recordShouldThrow` makes the next call throw to verify the caller
+// swallows the failure.
+
+const telemetryState = {
+  recordCalls: [] as Array<Record<string, unknown>>,
+  recordShouldThrow: false,
+};
+
+mock.module("../../memory-v2-activation-log-store.js", () => ({
+  recordMemoryV2ActivationLog: (params: Record<string, unknown>) => {
+    if (telemetryState.recordShouldThrow) {
+      throw new Error("simulated telemetry write failure");
+    }
+    telemetryState.recordCalls.push(params);
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Workspace + DB setup
 // ---------------------------------------------------------------------------
 
@@ -322,6 +346,8 @@ function resetState(): void {
   state.queryResponses.sparse.length = 0;
   skillState.topSkillIds.length = 0;
   skillState.entries.clear();
+  telemetryState.recordCalls.length = 0;
+  telemetryState.recordShouldThrow = false;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -878,5 +904,109 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).not.toContain("### Skills You Can Use");
     expect(result.block).not.toContain("example-skill-a");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Activation-log telemetry
+  // ---------------------------------------------------------------------------
+
+  test("writes one activation-log row per turn with concept rows partitioned and sorted", async () => {
+    // Turn 1: seed alice as injected so turn 2 has an `in_context` candidate.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(telemetryState.recordCalls.length).toBe(1);
+
+    // Turn 2: alice carries forward (now `in_context`); carol is freshly
+    // surfaced (`injected`); bob would be a candidate only if it carried
+    // forward, but with no prior bob entry it doesn't appear here.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.6 },
+      { slug: "carol-jazz", denseScore: 0.95 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Carol's music",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      conversationId: string;
+      turn: number;
+      mode: string;
+      concepts: Array<{
+        slug: string;
+        finalActivation: number;
+        status: string;
+        source: string;
+      }>;
+      skills: unknown[];
+      config: { top_k: number };
+    };
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.turn).toBe(2);
+    expect(row.mode).toBe("per-turn");
+    expect(row.config.top_k).toBe(20);
+
+    // The candidate set is the union of fromPrior (alice) and fromAnn
+    // (alice + carol) → two concept rows.
+    expect(row.concepts.length).toBe(2);
+    const slugs = row.concepts.map((c) => c.slug);
+    expect(new Set(slugs)).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+
+    // Sorted descending by finalActivation.
+    for (let i = 1; i < row.concepts.length; i++) {
+      expect(row.concepts[i - 1]!.finalActivation).toBeGreaterThanOrEqual(
+        row.concepts[i]!.finalActivation,
+      );
+    }
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Alice was attached on turn 1 → status `in_context` on turn 2.
+    expect(byslug.get("alice-vscode")!.status).toBe("in_context");
+    // Carol is freshly injected on turn 2.
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+  });
+
+  test("telemetry write failure is non-fatal — injection still returns a normal result", async () => {
+    telemetryState.recordShouldThrow = true;
+
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // No row captured (the throw aborted the push), but the caller still
+    // produced a regular block + toInject result and persisted state.
+    expect(telemetryState.recordCalls.length).toBe(0);
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("### alice-vscode");
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+    ]);
   });
 });

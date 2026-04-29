@@ -24,8 +24,14 @@
 // cached prefix bytes-identical across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { DrizzleDb } from "../db-connection.js";
+import {
+  type MemoryV2ConceptRowRecord,
+  type MemoryV2SkillRowRecord,
+  recordMemoryV2ActivationLog,
+} from "../memory-v2-activation-log-store.js";
 import {
   computeOwnActivation,
   computeSkillActivation,
@@ -40,6 +46,8 @@ import { readEdges } from "./edges.js";
 import { readPage } from "./page-store.js";
 import { getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
+
+const log = getLogger("memory-v2-injection");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -132,9 +140,9 @@ export async function injectMemoryV2Block(
   const edgesIdx = await readEdges(workspaceDir);
 
   // (3) Candidate set: prior-state survivors above epsilon ∪ ANN top-50.
-  // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets;
-  // they are unused here today and will be consumed by upcoming telemetry.
-  const { candidates } = await selectCandidates({
+  // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets so
+  // telemetry can attribute each candidate back to its source.
+  const { candidates, fromPrior, fromAnn } = await selectCandidates({
     priorState,
     userText: userMessage,
     assistantText: assistantMessage,
@@ -143,23 +151,20 @@ export async function injectMemoryV2Block(
   });
 
   // (4) Own activation: A_o = d·prev + c_user·sim_u + c_a·sim_a + c_now·sim_n.
-  const { activation: ownActivation } = await computeOwnActivation({
-    candidates,
-    priorState,
-    userText: userMessage,
-    assistantText: assistantMessage,
-    nowText,
-    config,
-  });
+  const { activation: ownActivation, breakdown: ownBreakdown } =
+    await computeOwnActivation({
+      candidates,
+      priorState,
+      userText: userMessage,
+      assistantText: assistantMessage,
+      nowText,
+      config,
+    });
 
   // (5) Spreading activation across the edge graph (k, hops from config).
   const { k, hops, top_k, epsilon } = config.memory.v2;
-  const { final: finalActivation } = spreadActivation(
-    ownActivation,
-    edgesIdx,
-    k,
-    hops,
-  );
+  const { final: finalActivation, contribution: spreadContribution } =
+    spreadActivation(ownActivation, edgesIdx, k, hops);
 
   // (6) Pick top-K by activation. Per-turn turns subtract everInjected for the
   // injection delta (cache-stable append-only); context-load renders the
@@ -188,13 +193,14 @@ export async function injectMemoryV2Block(
     config,
     topK: config.memory.v2.top_k_skills,
   });
-  const { activation: skillActivation } = await computeSkillActivation({
-    candidates: skillCandidates,
-    userText: userMessage,
-    assistantText: assistantMessage,
-    nowText,
-    config,
-  });
+  const { activation: skillActivation, breakdown: skillBreakdown } =
+    await computeSkillActivation({
+      candidates: skillCandidates,
+      userText: userMessage,
+      assistantText: assistantMessage,
+      nowText,
+      config,
+    });
   const { topNow: topSkillIds } = selectSkillInjections({
     A: skillActivation,
     topK: config.memory.v2.top_k_skills,
@@ -234,6 +240,80 @@ export async function injectMemoryV2Block(
   };
 
   await save(database, conversationId, nextActivationState);
+
+  // Record per-turn activation telemetry. This runs *before* the cache-stable
+  // empty-block return so we capture diagnostics even on no-op turns. Failures
+  // are warn-logged and never block memory injection.
+  const toInjectSet = new Set(toInject);
+  const topSkillIdSet = new Set(topSkillIds);
+  const conceptRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
+    (slug) => {
+      const breakdown = ownBreakdown.get(slug);
+      const inPrior = fromPrior.has(slug);
+      const inAnn = fromAnn.has(slug);
+      const status: MemoryV2ConceptRowRecord["status"] = everInjectedSet.has(
+        slug,
+      )
+        ? "in_context"
+        : toInjectSet.has(slug)
+          ? "injected"
+          : "not_injected";
+      return {
+        slug,
+        finalActivation: finalActivation.get(slug) ?? 0,
+        ownActivation: ownActivation.get(slug) ?? 0,
+        priorActivation: breakdown?.priorContribution ?? 0,
+        simUser: breakdown?.simUser ?? 0,
+        simAssistant: breakdown?.simAssistant ?? 0,
+        simNow: breakdown?.simNow ?? 0,
+        spreadContribution: spreadContribution.get(slug) ?? 0,
+        source:
+          inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",
+        status,
+      };
+    },
+  );
+  conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
+
+  const skillRows: MemoryV2SkillRowRecord[] = [...skillCandidates].map((id) => {
+    const breakdown = skillBreakdown.get(id);
+    return {
+      id,
+      activation: skillActivation.get(id) ?? 0,
+      simUser: breakdown?.simUser ?? 0,
+      simAssistant: breakdown?.simAssistant ?? 0,
+      simNow: breakdown?.simNow ?? 0,
+      status: topSkillIdSet.has(id) ? "injected" : "not_injected",
+    };
+  });
+  skillRows.sort((a, b) => b.activation - a.activation);
+
+  const v2Cfg = config.memory.v2;
+  try {
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: currentTurn,
+      mode,
+      concepts: conceptRows,
+      skills: skillRows,
+      config: {
+        d: v2Cfg.d,
+        c_user: v2Cfg.c_user,
+        c_assistant: v2Cfg.c_assistant,
+        c_now: v2Cfg.c_now,
+        k: v2Cfg.k,
+        hops: v2Cfg.hops,
+        top_k: v2Cfg.top_k,
+        top_k_skills: v2Cfg.top_k_skills,
+        epsilon: v2Cfg.epsilon,
+      },
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId, turn: currentTurn },
+      "Failed to record memory v2 activation telemetry — continuing",
+    );
+  }
 
   // (7) Cache-stable empty path: nothing to render AND no ranked skills.
   if (slugsToRender.length === 0 && topSkillIds.length === 0) {
