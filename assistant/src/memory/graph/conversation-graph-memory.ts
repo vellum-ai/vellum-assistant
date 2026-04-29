@@ -403,11 +403,17 @@ export class ConversationGraphMemory {
     // assistantMessage is empty: context-load fires on turn 1 / post-
     // compaction, so there is no immediately-prior assistant turn to
     // weight the activation against.
+    //
+    // Use the raw user text (no >10-char filter) so even short greetings
+    // ("hi") get a fresh top-K activation dump on the first user message.
+    // The activation pipeline is robust to weak ANN signal — it still falls
+    // back to spreading + nowText to surface candidates.
+    const rawUserText = readRawUserText(messages[messages.length - 1]);
     const v2 = await this.maybeRouteV2Injection(
       messages,
       config,
       "context-load",
-      userQuery ?? "",
+      rawUserText ?? userQuery ?? "",
       "",
     );
     if (v2.routed) {
@@ -849,16 +855,31 @@ function injectMemoryBlock(
   ];
 }
 
-/** Extract text content from a user message. */
+/**
+ * Extract text content from a user message for v1's `loadContextMemory`,
+ * skipping very short messages because v1's path embeds a single dense
+ * vector and short queries produce vague results.
+ */
 function extractUserText(message: Message): string | null {
+  const joined = readRawUserText(message);
+  if (!joined) return null;
+  return joined.length > 10 ? joined : null;
+}
+
+/**
+ * Raw user-text reader (no length filter). The v2 activation pipeline can
+ * use even short queries because it spreads activation through the edge
+ * graph and combines user/assistant/now signals, so the ≤10-char guard
+ * v1 needs would unnecessarily starve v2 on short greetings.
+ */
+function readRawUserText(message: Message | undefined): string | null {
+  if (!message) return null;
   const texts = message.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
     .map((b) => b.text.trim())
     .filter((t) => t.length > 0);
   if (texts.length === 0) return null;
-  const joined = texts.join(" ");
-  // Skip very short messages ("hi", "yes") — they produce vague embeddings
-  return joined.length > 10 ? joined : null;
+  return texts.join(" ");
 }
 
 /**
