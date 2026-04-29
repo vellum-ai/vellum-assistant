@@ -101,6 +101,7 @@ mock.module("../../prompts/system-prompt.js", () => ({
   buildCliReferenceSection: () => "",
   ensurePromptFiles: () => {},
   stripCommentLines: (s: string) => s,
+  readPromptFile: () => null,
 }));
 
 // Mock processMessage — HeartbeatService now imports it directly.
