@@ -40,10 +40,10 @@ interface PairingCredentials {
 // Credential minting (delegates to gateway's guardian-bootstrap)
 // ---------------------------------------------------------------------------
 
-function mintPairingCredentials(
+async function mintPairingCredentials(
   deviceId: string,
   platform: string,
-): PairingCredentials | null {
+): Promise<PairingCredentials | null> {
   try {
     const result = await bootstrapGuardian({ platform, deviceId });
     log.info({ platform }, "Minted credentials during pairing");
@@ -263,7 +263,7 @@ export function createPairingHandler(deps: {
             { pairingRequestId, hashedDeviceId },
             "Auto-approved allowlisted device",
           );
-          const credentials = mintPairingCredentials(deviceId, "ios");
+          const credentials = await mintPairingCredentials(deviceId, "ios");
           return Response.json({
             status: "approved",
             bearerToken,
@@ -340,7 +340,7 @@ export function createPairingHandler(deps: {
           if (mintDeviceId) {
             mintingInFlight.add(id);
             try {
-              const credentials = mintPairingCredentials(mintDeviceId, "ios");
+              const credentials = await mintPairingCredentials(mintDeviceId, "ios");
               if (credentials) {
                 pendingDeviceIds.delete(id);
                 credentialEntry = { credentials, approvedAt: Date.now() };

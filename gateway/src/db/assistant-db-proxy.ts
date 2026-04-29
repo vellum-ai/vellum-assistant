@@ -38,7 +38,7 @@ async function dbProxy(
 /**
  * Execute a SELECT and return all matching rows.
  */
-export async function assistantDbQuery<T extends Record<string, SqliteValue>>(
+export async function assistantDbQuery<T = Record<string, SqliteValue>>(
   sql: string,
   bind?: SqliteValue[],
 ): Promise<T[]> {

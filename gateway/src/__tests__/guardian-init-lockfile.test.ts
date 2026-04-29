@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
-import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -140,7 +139,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  closeAssistantDb();
   resetGatewayDb();
   fetchMock = mock(async () => new Response());
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
