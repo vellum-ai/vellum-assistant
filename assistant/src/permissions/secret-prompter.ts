@@ -33,13 +33,6 @@ export interface SecretPrompterChannelContext {
   supportsDynamicUi?: boolean;
 }
 
-/**
- * Per-conversation secret prompter.
- *
- * Promise/timer state lives here (per-conversation lifecycle), while the
- * global {@link pendingInteractions} map provides the requestId→conversationId
- * lookup that standalone HTTP endpoints (POST /v1/secret) need.
- */
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
   private channelContext?: SecretPrompterChannelContext;

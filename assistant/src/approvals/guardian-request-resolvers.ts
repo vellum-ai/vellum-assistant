@@ -206,7 +206,10 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       decision.action === "reject" ? "deny" : "allow";
     const conversation = findConversation(resolved.conversationId);
     if (!conversation) {
-      return { ok: false, reason: "conversation_not_found" };
+      return {
+        ok: false,
+        reason: `conversation_not_found: ${resolved.conversationId}`,
+      };
     }
     conversation.handleConfirmationResponse(
       request.id,
