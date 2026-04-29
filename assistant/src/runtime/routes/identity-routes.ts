@@ -11,7 +11,7 @@ import { z } from "zod";
 import {
   getCpuLimit,
   getIsPlatform,
-  getStorageSize,
+  getMinikubeStorageSize,
 } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
@@ -85,12 +85,12 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
     const bytesToMb = (b: number) =>
       Math.round((b / (1024 * 1024)) * 100) / 100;
 
-    // When the platform passes the PVC storage size, use it as the capacity.
-    // On hostPath-backed PVCs (e.g. minikube) statfsSync reports the host's
-    // entire filesystem rather than the PVC. Detect this by comparing the
-    // filesystem size against the PVC size — if the filesystem is larger,
-    // measure actual directory usage with `du` instead.
-    const storageSizeRaw = getStorageSize();
+    // Minikube mode: the platform passes the PVC storage size so we can
+    // report accurate capacity. On hostPath-backed PVCs statfsSync reports
+    // the host's entire filesystem rather than the PVC. Detect this by
+    // comparing filesystem size against PVC size — if the filesystem is
+    // larger, measure actual directory usage with `du` instead.
+    const storageSizeRaw = getMinikubeStorageSize();
     if (storageSizeRaw) {
       const pvcTotalBytes = parseK8sMemoryBytes(storageSizeRaw);
       if (pvcTotalBytes !== null && fsTotalBytes > pvcTotalBytes * 1.1) {

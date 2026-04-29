@@ -117,14 +117,14 @@ export function getCpuLimit(): string | undefined {
 }
 
 /**
- * VELLUM_STORAGE_SIZE — string (K8s resource format), default: undefined
+ * VELLUM_MINIKUBE_STORAGE_SIZE — string (K8s resource format), default: undefined
  * The PVC storage request size for the assistant volume (e.g. "10Gi").
- * Set by the platform StatefulSet template. Used by the health endpoint to
- * report accurate disk capacity on hostPath-backed PVCs (e.g. minikube)
- * where statfsSync reports the host's entire filesystem instead of the PVC.
+ * Only set in minikube (local dev) mode. Used by the health endpoint to
+ * report accurate disk capacity on hostPath-backed PVCs where statfsSync
+ * reports the host's entire filesystem instead of the PVC.
  */
-export function getStorageSize(): string | undefined {
-  return str("VELLUM_STORAGE_SIZE");
+export function getMinikubeStorageSize(): string | undefined {
+  return str("VELLUM_MINIKUBE_STORAGE_SIZE");
 }
 
 /**
@@ -213,7 +213,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_WORKSPACE_DIR",
   "VELLUM_CPU_LIMIT",
   "VELLUM_MEMORY_LIMIT",
-  "VELLUM_STORAGE_SIZE",
+  "VELLUM_MINIKUBE_STORAGE_SIZE",
 ]);
 
 /**
