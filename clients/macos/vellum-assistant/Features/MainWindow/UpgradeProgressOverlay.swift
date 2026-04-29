@@ -8,6 +8,11 @@ import VellumAssistantShared
 /// The overlay is driven entirely by `GatewayConnectionManager`'s observable
 /// properties (`isUpdateInProgress`, `updateStatusMessage`, `lastUpdateOutcome`)
 /// which are set from SSE events in `handleServerMessage`.
+///
+/// **Outcome capture:** `MainWindowView+Lifecycle` clears `lastUpdateOutcome`
+/// immediately after reading it, so this view snapshots the outcome into local
+/// `@State` to avoid a race where the overlay stays stuck on `progressCard`
+/// with no dismiss path.
 struct UpgradeProgressOverlay: View {
     var connectionManager: GatewayConnectionManager
 
@@ -17,6 +22,8 @@ struct UpgradeProgressOverlay: View {
 
     /// Whether to show the outcome card (success/failure) before auto-dismissing.
     @State private var showOutcome: Bool = false
+    /// Local snapshot of the outcome — survives `clearLastUpdateOutcome()`.
+    @State private var capturedOutcome: UpdateOutcome?
     /// Auto-dismiss task for the success outcome.
     @State private var dismissTask: Task<Void, Never>?
 
@@ -26,10 +33,10 @@ struct UpgradeProgressOverlay: View {
                 VColor.auxBlack.opacity(0.45)
                     .ignoresSafeArea()
 
-                if showOutcome, let outcome = connectionManager.lastUpdateOutcome {
+                if showOutcome, let outcome = capturedOutcome {
                     outcomeCard(outcome)
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                } else {
+                } else if connectionManager.isUpdateInProgress {
                     progressCard
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
@@ -40,26 +47,30 @@ struct UpgradeProgressOverlay: View {
             .onDisappear { stopTimer() }
             .onChange(of: connectionManager.isUpdateInProgress) { _, inProgress in
                 if !inProgress {
-                    // Upgrade finished — show outcome briefly
+                    // Snapshot the outcome before lifecycle clears it.
+                    let outcome = connectionManager.lastUpdateOutcome
+                    capturedOutcome = outcome
+                    stopTimer()
+
+                    guard outcome != nil else {
+                        // No outcome (e.g. reconfigure() reset) — dismiss cleanly.
+                        showOutcome = false
+                        return
+                    }
+
+                    // Show the outcome card briefly.
                     withAnimation(VAnimation.standard) {
                         showOutcome = true
                     }
-                    stopTimer()
 
-                    // Auto-dismiss success after 3 seconds
-                    if case .succeeded = connectionManager.lastUpdateOutcome?.result {
-                        dismissTask = Task {
-                            try? await Task.sleep(nanoseconds: 3_000_000_000)
-                            guard !Task.isCancelled else { return }
-                            withAnimation(VAnimation.standard) {
-                                showOutcome = false
-                            }
-                            connectionManager.clearLastUpdateOutcome()
-                        }
+                    // Auto-dismiss success after 3 seconds.
+                    if case .succeeded = outcome?.result {
+                        scheduleDismiss()
                     }
                 } else {
                     // New upgrade starting
                     showOutcome = false
+                    capturedOutcome = nil
                     dismissTask?.cancel()
                     elapsedSeconds = 0
                     startTimer()
@@ -127,10 +138,7 @@ struct UpgradeProgressOverlay: View {
 
             if !isSuccessOutcome(outcome.result) {
                 VButton(label: "Dismiss", style: .outlined, size: .regular) {
-                    withAnimation(VAnimation.standard) {
-                        showOutcome = false
-                    }
-                    connectionManager.clearLastUpdateOutcome()
+                    dismiss()
                 }
             }
         }
@@ -195,6 +203,24 @@ struct UpgradeProgressOverlay: View {
     private func isSuccessOutcome(_ result: UpdateOutcome.Result) -> Bool {
         if case .succeeded = result { return true }
         return false
+    }
+
+    // MARK: - Dismiss
+
+    private func dismiss() {
+        dismissTask?.cancel()
+        withAnimation(VAnimation.standard) {
+            showOutcome = false
+        }
+        capturedOutcome = nil
+    }
+
+    private func scheduleDismiss() {
+        dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            dismiss()
+        }
     }
 
     // MARK: - Timer
