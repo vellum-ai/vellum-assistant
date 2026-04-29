@@ -662,6 +662,8 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         "IS_CONTAINERIZED=true",
         "-e",
+        "DEBUG_STDOUT_LOGS=1",
+        "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
         "VELLUM_CLOUD=docker",
