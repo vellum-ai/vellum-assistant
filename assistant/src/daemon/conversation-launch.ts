@@ -5,11 +5,6 @@
  * Called from `handleSurfaceAction` when a persistent `ui_show` card fires a
  * `launch_conversation` action — the origin conversation's `TrustContext` is
  * forwarded so spawned conversations inherit guardian / trust class.
- *
- * The helper depends on DaemonServer state (conversation map,
- * `persistAndProcessMessage`, assistant ID, hub publisher) and is wired via
- * {@link registerLaunchConversationDeps} at daemon startup. Tests can stub
- * deps directly via the same registration.
  */
 
 import { randomUUID } from "node:crypto";
@@ -17,68 +12,17 @@ import { randomUUID } from "node:crypto";
 import { updateConversationTitle } from "../memory/conversation-crud.js";
 import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
-import type { Conversation } from "./conversation.js";
-import type { ConversationCreateOptions } from "./handlers/shared.js";
+import { getOrCreateConversation } from "./conversation-store.js";
 import type { ServerMessage } from "./message-protocol.js";
+import { processMessageInBackground } from "./process-message.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-launch");
-
-// ── Dependency registry ─────────────────────────────────────────────
-
-export interface LaunchConversationDeps {
-  /**
-   * Return the live {@link Conversation} instance for the given id,
-   * creating + hydrating it if necessary. Wraps `DaemonServer.getOrCreateConversation`.
-   */
-  getOrCreateConversation: (
-    conversationId: string,
-    options?: ConversationCreateOptions,
-  ) => Promise<Conversation>;
-  /**
-   * Persist the seed message and run the agent loop. Wraps
-   * `DaemonServer.persistAndProcessMessage`.
-   */
-  persistAndProcessMessage: (
-    conversationId: string,
-    content: string,
-    attachmentIds?: string[],
-    options?: ConversationCreateOptions,
-    sourceChannel?: string,
-    sourceInterface?: string,
-  ) => Promise<{ messageId: string }>;
-  /**
-   * Forward a `ServerMessage` to the process-level assistant event hub.
-   * Wraps `DaemonServer.publishAssistantEvent`.
-   */
-  publishAssistantEvent: (msg: ServerMessage, conversationId?: string) => void;
-}
-
-let _deps: LaunchConversationDeps | null = null;
-
-/**
- * Register the daemon-side dependencies the helper needs. Called once by
- * `DaemonServer.start()` and (in tests) by unit tests that exercise
- * {@link launchConversation} directly.
- */
-export function registerLaunchConversationDeps(
-  deps: LaunchConversationDeps,
-): void {
-  _deps = deps;
-}
-
-/**
- * Test-only helper: reset the module-level `_deps` between test cases so
- * accidental coupling between tests can't hide bugs (e.g. a test that does
- * not register deps but happens to pass because an earlier test in the same
- * file left deps registered and the validation short-circuit hides the
- * "deps not registered" throw).
- */
-export function resetLaunchConversationDeps(): void {
-  _deps = null;
-}
 
 // ── Helper ──────────────────────────────────────────────────────────
 
@@ -106,73 +50,37 @@ export interface LaunchConversationParams {
  * spawning context. When absent, the conversation runs without an inherited
  * trust context.
  *
- * The seed turn (`persistAndProcessMessage`) runs **fire-and-forget** so this
- * helper returns as soon as the conversation is created, titled, and the
- * `open_conversation` event has been published. Callers driving a fan-out
- * UX (multiple launches from a single click) rely on this: blocking on the
- * full LLM turn would hold the HTTP request open for tens of seconds.
- * Errors from the seed turn are logged but not surfaced — the new
- * conversation still exists in the sidebar so the user can retry from there.
+ * The seed turn runs **fire-and-forget** so this helper returns as soon as
+ * the conversation is created, titled, and the `open_conversation` event has
+ * been published. Errors from the seed turn are logged but not surfaced.
  *
- * Throws if the helper's daemon-side dependencies have not been registered
- * or if conversation creation / titling itself fails.
+ * Throws if conversation creation / titling itself fails.
  */
 export async function launchConversation(
   params: LaunchConversationParams,
 ): Promise<{ conversationId: string }> {
-  // Belt-and-suspenders validation: callers (handleSurfaceAction) also check
-  // for these, but enforcing here keeps the helper self-contained so future
-  // direct callers can't accidentally emit `open_conversation` events with a
-  // blank title (which would create a blank-titled sidebar entry on macOS).
   if (!params.title || !params.seedPrompt) {
     throw new Error("launchConversation: title and seedPrompt are required");
   }
-  if (!_deps) {
-    throw new Error(
-      "launchConversation dependencies not registered — daemon may not be ready",
-    );
-  }
-  const deps = _deps;
 
-  // Each launch gets a globally unique conversation key so the skill always
-  // creates a fresh conversation rather than reusing any prior mapping.
-  // `getOrCreateConversation` will insert a new row.
   const conversationKey = `launcher-${randomUUID()}`;
   const { conversationId } = getOrCreateConversationKey(conversationKey);
 
-  // Hydrate the live Conversation instance so we can apply trust context
-  // before the seed turn begins. persistAndProcessMessage will reuse this
-  // instance from the conversations map.
-  const conversation = await deps.getOrCreateConversation(conversationId);
+  const conversation = await getOrCreateConversation(conversationId);
 
-  // Inherit guardian / trust-class state from the caller when available.
-  // `handleSurfaceAction` passes the origin conversation's trustContext.
   if (params.originTrustContext) {
     conversation.setTrustContext(params.originTrustContext);
   }
 
-  // Set the user-facing title immediately so clients that stub a sidebar
-  // entry from the open_conversation event see the right label even before
-  // the turn completes.
   if (params.title) {
     updateConversationTitle(conversationId, params.title, 0);
   }
 
-  // Tell connected clients about the new conversation BEFORE kicking off the
-  // seed turn so the sidebar entry appears instantly. This helper is the sole
-  // emitter of `open_conversation` for this launch path. Pass through the
-  // caller-specified `focus` so fan-out launchers can avoid stealing focus
-  // from the origin.
   await assistantEventHub.publish(
     buildAssistantEvent(
       {
         type: "open_conversation",
         conversationId,
-        // Conditional spread so an empty / falsy title is omitted entirely
-        // instead of leaking into the Swift handler (`if let title = msg.title`
-        // accepts empty strings and would create a blank-titled sidebar entry).
-        // The validation guard above already rejects empty titles for our
-        // current callers, but this is defense-in-depth for future ones.
         ...(params.title ? { title: params.title } : {}),
         ...(params.anchorMessageId
           ? { anchorMessageId: params.anchorMessageId }
@@ -183,34 +91,28 @@ export async function launchConversation(
     ),
   );
 
-  // Seed the conversation by running the seed prompt through the same
-  // pipeline POST /v1/messages uses. Publishing to the hub lets any
-  // connected client stream the turn live. Fire-and-forget so callers
-  // aren't blocked on the full LLM turn — errors are logged but swallowed.
   const hubSender = (msg: ServerMessage) => {
     const msgConversationId =
       "conversationId" in msg &&
       typeof (msg as { conversationId?: unknown }).conversationId === "string"
         ? (msg as { conversationId: string }).conversationId
         : undefined;
-    deps.publishAssistantEvent(msg, msgConversationId ?? conversationId);
+    broadcastMessage(msg, msgConversationId ?? conversationId);
   };
 
-  deps
-    .persistAndProcessMessage(
-      conversationId,
-      params.seedPrompt,
-      undefined,
-      { onEvent: hubSender },
-      "vellum",
-      "cli",
-    )
-    .catch((err) => {
-      log.error(
-        { err, conversationId },
-        "Seed turn failed for launched conversation (non-fatal)",
-      );
-    });
+  processMessageInBackground(
+    conversationId,
+    params.seedPrompt,
+    undefined,
+    { onEvent: hubSender },
+    "vellum",
+    "cli",
+  ).catch((err) => {
+    log.error(
+      { err, conversationId },
+      "Seed turn failed for launched conversation (non-fatal)",
+    );
+  });
 
   return { conversationId };
 }

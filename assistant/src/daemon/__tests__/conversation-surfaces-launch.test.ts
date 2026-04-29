@@ -75,12 +75,55 @@ mock.module("../../memory/conversation-crud.js", () => ({
   },
 }));
 
+// Stub conversation-store so the real `launchConversation` can hydrate
+// a fake Conversation without touching the real map.
+let trustContextOnConversation: unknown | null = null;
+const fakeConversation = {
+  setTrustContext: (c: unknown) => {
+    trustContextOnConversation = c;
+  },
+};
+const getOrCreateConversationCalls: string[] = [];
+const realConvStore = await import("../conversation-store.js");
+mock.module("../conversation-store.js", () => ({
+  ...realConvStore,
+  getOrCreateConversation: async (id: string) => {
+    getOrCreateConversationCalls.push(id);
+    return fakeConversation as never;
+  },
+}));
+
+// Stub processMessageInBackground so the seed turn is controllable.
+const processMessageCalls: Array<{
+  conversationId: string;
+  content: string;
+}> = [];
+let resolveProcess = () => {};
+let rejectProcess: (err: Error) => void = () => {};
+let markProcessStarted = () => {};
+let processStartedPromise = new Promise<void>((resolve) => {
+  markProcessStarted = resolve;
+});
+const realProcessMessage = await import("../process-message.js");
+mock.module("../process-message.js", () => ({
+  ...realProcessMessage,
+  processMessageInBackground: (
+    conversationId: string,
+    content: string,
+  ) => {
+    processMessageCalls.push({ conversationId, content });
+    markProcessStarted();
+    return new Promise((resolve, reject) => {
+      resolveProcess = () => resolve({ messageId: "msg-1" });
+      rejectProcess = (err) => reject(err);
+    });
+  },
+}));
+
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
 const { createSurfaceMutex, handleSurfaceAction } =
   await import("../conversation-surfaces.js");
-const { registerLaunchConversationDeps, resetLaunchConversationDeps } =
-  await import("../conversation-launch.js");
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
 type TrustContext = import("../trust-context.js").TrustContext;
@@ -88,59 +131,17 @@ type ServerMessage = import("../message-protocol.js").ServerMessage;
 type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
-// ── launchConversation deps harness ────────────────────────────────
+// ── Harness reset helper ───────────────────────────────────────────
 
-interface DepsHarness {
-  getOrCreateCalls: Array<string>;
-  processCalls: Array<{ conversationId: string; content: string }>;
-  lastTrustContext(): unknown | null;
-  resolveProcess: () => void;
-  rejectProcess: (err: Error) => void;
-  /** Resolves once `persistAndProcessMessage` has actually been invoked. */
-  processStarted: Promise<void>;
-}
-
-function setupLaunchDeps(): DepsHarness {
-  const getOrCreateCalls: Array<string> = [];
-  const processCalls: Array<{ conversationId: string; content: string }> = [];
-  let trustContextOnConversation: unknown | null = null;
-  let resolveProcess = () => {};
-  let rejectProcess: (err: Error) => void = () => {};
-  let markProcessStarted = () => {};
-  const processStarted = new Promise<void>((resolve) => {
+function resetProcessHarness(): void {
+  processMessageCalls.length = 0;
+  getOrCreateConversationCalls.length = 0;
+  trustContextOnConversation = null;
+  resolveProcess = () => {};
+  rejectProcess = () => {};
+  processStartedPromise = new Promise<void>((resolve) => {
     markProcessStarted = resolve;
   });
-
-  const fakeConversation = {
-    setTrustContext: (c: unknown) => {
-      trustContextOnConversation = c;
-    },
-  };
-
-  registerLaunchConversationDeps({
-    getOrCreateConversation: async (id: string) => {
-      getOrCreateCalls.push(id);
-      return fakeConversation as never;
-    },
-    persistAndProcessMessage: (conversationId: string, content: string) => {
-      processCalls.push({ conversationId, content });
-      markProcessStarted();
-      return new Promise((resolve, reject) => {
-        resolveProcess = () => resolve({ messageId: "msg-1" });
-        rejectProcess = (err) => reject(err);
-      });
-    },
-    publishAssistantEvent: () => {},
-  });
-
-  return {
-    getOrCreateCalls,
-    processCalls,
-    lastTrustContext: () => trustContextOnConversation,
-    resolveProcess: () => resolveProcess(),
-    rejectProcess: (err: Error) => rejectProcess(err),
-    processStarted,
-  };
 }
 
 // ── Surface-context harness ────────────────────────────────────────
@@ -250,16 +251,12 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     publishCalls.length = 0;
     updateTitleCalls.length = 0;
     nextKeyStoreResult = { conversationId: "conv-new" };
-    // Reset module-level `_deps` so a test that forgets to call
-    // `setupLaunchDeps()` cannot accidentally piggy-back on deps left
-    // registered by a previous test. Each test that exercises the launch
-    // helper must call `setupLaunchDeps()` explicitly.
-    resetLaunchConversationDeps();
+    resetProcessHarness();
   });
 
   test("launches new conversation with inherited trust context and no chat message", async () => {
     nextKeyStoreResult = { conversationId: "conv-launched-1" };
-    const harness = setupLaunchDeps();
+    
     const originTrustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -291,14 +288,14 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     expect(openEvents[0].message.title).toBe("New Thread");
 
     // 3. The spawned conversation inherited the origin's trust context.
-    expect(harness.lastTrustContext()).toEqual(originTrustContext);
+    expect(trustContextOnConversation).toEqual(originTrustContext);
 
     // 4. Seed turn was kicked off fire-and-forget — resolve it to clean
     //    up the pending promise the harness stubbed.
-    await harness.processStarted;
-    expect(harness.processCalls).toHaveLength(1);
-    expect(harness.processCalls[0].content).toBe("S");
-    harness.resolveProcess();
+    await processStartedPromise;
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toBe("S");
+    resolveProcess();
 
     // 5. No chat message side effect on the origin conversation — neither
     //    the LLM pipeline nor the `[User action on app: ...]` text echo.
@@ -354,7 +351,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
   test("omits originTrustContext when origin conversation has none", async () => {
     nextKeyStoreResult = { conversationId: "conv-launched-3" };
-    const harness = setupLaunchDeps();
+    
     // No `trustContext` on the origin context — simulating the
     // no-inherited-guardian path.
     const ctx = makeContext();
@@ -372,20 +369,20 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     });
 
     // Trust context was never applied to the spawned conversation.
-    expect(harness.lastTrustContext()).toBeNull();
+    expect(trustContextOnConversation).toBeNull();
 
     // Still exactly one open_conversation event with focus: false.
     const openEvents = openConversationEvents();
     expect(openEvents).toHaveLength(1);
     expect(openEvents[0].message.focus).toBe(false);
 
-    await harness.processStarted;
-    harness.resolveProcess();
+    await processStartedPromise;
+    resolveProcess();
   });
 
   test("handler returns before the seed turn resolves (fire-and-forget)", async () => {
     nextKeyStoreResult = { conversationId: "conv-nonblocking" };
-    const harness = setupLaunchDeps();
+    
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-4");
 
@@ -409,14 +406,14 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // Seed turn is in-flight but not yet resolved. Prove the helper
     // actually invoked it (so we know fire-and-forget is wired), then
     // resolve it to clean up.
-    await harness.processStarted;
-    expect(harness.processCalls).toHaveLength(1);
-    harness.resolveProcess();
+    await processStartedPromise;
+    expect(processMessageCalls).toHaveLength(1);
+    resolveProcess();
   });
 
   test("seed turn rejection is swallowed by the helper's .catch()", async () => {
     nextKeyStoreResult = { conversationId: "conv-seed-fails" };
-    const harness = setupLaunchDeps();
+    
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-5");
 
@@ -434,8 +431,8 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // Reject the pending seed turn — the helper's `.catch()` handler
     // must swallow it. If it didn't, Bun would surface the unhandled
     // rejection at test-end and this test would fail.
-    await harness.processStarted;
-    harness.rejectProcess(new Error("seed-turn-failed"));
+    await processStartedPromise;
+    rejectProcess(new Error("seed-turn-failed"));
     // Give the microtask queue a tick so the `.catch()` runs before
     // the test completes.
     await Promise.resolve();
@@ -452,7 +449,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // message and triggering a full LLM round-trip on every click. The plan
     // claimed to eliminate that round-trip; this test enforces it.
     nextKeyStoreResult = { conversationId: "conv-pending-set" };
-    const harness = setupLaunchDeps();
+    
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-pending");
     // Simulate `ui_show` having stamped a pending entry for this surface
@@ -487,7 +484,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // persistent card aren't blocked behind a stale "owes-an-answer" flag.
     expect(ctx.pendingSurfaceActions.has("surface-pending")).toBe(false);
 
-    await harness.processStarted;
-    harness.resolveProcess();
+    await processStartedPromise;
+    resolveProcess();
   });
 });

@@ -1152,7 +1152,6 @@ describe("voice-session-bridge", () => {
       ) => {
         handleSecretCalls.push({ requestId, value, delivery });
       },
-      wasSecretBroadcast: () => false,
       abort: () => {},
     } as unknown as Conversation;
 

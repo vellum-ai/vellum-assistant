@@ -67,15 +67,27 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 // run in the same Bun process because `mock.module` replacements persist
 // across files.
 mock.module("../config/loader.js", () => ({
+  API_KEY_PROVIDERS: [],
+  applyNestedDefaults: (c: unknown) => c,
+  deepMergeMissing: (a: unknown) => a,
+  deepMergeOverwrite: (a: unknown) => a,
+  mergeDefaultWorkspaceConfig: () => {},
   getConfig: () => ({
+    memory: { v2: { enabled: flagsState.configV2Enabled } },
+  }),
+  getConfigReadOnly: () => ({
     memory: { v2: { enabled: flagsState.configV2Enabled } },
   }),
   loadConfig: () => ({
     memory: { v2: { enabled: flagsState.configV2Enabled } },
   }),
+  saveConfig: () => {},
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  _appendQuarantineBulletin: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -116,12 +128,17 @@ mock.module("../skills/install-meta.js", () => ({
 }));
 
 mock.module("../providers/provider-send-message.js", () => ({
+  ContextOverflowError: class extends Error {},
+  isContextOverflowError: () => false,
+  resolveConfiguredProvider: async () => null,
+  getConfiguredProvider: async () => null,
   createTimeout: () => ({
     signal: AbortSignal.timeout(1000),
     cleanup: () => {},
   }),
   extractText: () => "",
-  getConfiguredProvider: async () => null,
+  extractAllText: () => "",
+  extractToolUse: () => [],
   userMessage: () => ({}),
 }));
 
@@ -160,6 +177,7 @@ mock.module("../memory/graph/capability-seed.js", () => ({
 
 mock.module("../memory/v2/skill-store.js", () => ({
   seedV2SkillEntries: mock(async () => {}),
+  getSkillCapability: () => null,
 }));
 
 mock.module("../daemon/memory-v2-startup.js", () => ({
@@ -181,13 +199,22 @@ mock.module("../daemon/handlers/shared.js", () => ({
   },
 }));
 
+mock.module("../daemon/config-watcher.js", () => ({
+  ConfigWatcher: class {},
+  getConfigWatcher: () => ({
+    suppressConfigReload: false,
+    timers: { schedule: (_k: string, _ms: number, fn: () => void) => fn() },
+    updateFingerprint: () => {},
+  }),
+  cleanupSettingsChanged: () => false,
+}));
+
 // Import after mocking
 const { installSkill } = await import("../daemon/handlers/skills.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // Tests
