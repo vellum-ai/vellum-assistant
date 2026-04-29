@@ -1,17 +1,14 @@
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
-import { type BroadcastContext, log } from "./shared.js";
+import { log } from "./shared.js";
 
 /**
  * Send a client_settings_update message to all connected clients.
  * Used to push configuration changes (e.g. activation key) from the daemon
  * to macOS/iOS clients so they can apply settings immediately.
  */
-function broadcastClientSettingsUpdate(
-  key: string,
-  value: string,
-  ctx: BroadcastContext,
-): void {
-  ctx.broadcast({
+function broadcastClientSettingsUpdate(key: string, value: string): void {
+  broadcastMessage({
     type: "client_settings_update",
     key,
     value,
@@ -199,7 +196,6 @@ export function normalizeActivationKey(
  */
 export function handleVoiceConfigUpdate(
   msg: VoiceConfigUpdateRequest,
-  ctx: BroadcastContext,
 ): void {
   const result = normalizeActivationKey(msg.activationKey);
   if (!result.ok) {
@@ -207,7 +203,7 @@ export function handleVoiceConfigUpdate(
     return;
   }
 
-  broadcastClientSettingsUpdate("activationKey", result.value, ctx);
+  broadcastClientSettingsUpdate("activationKey", result.value);
   log.info(
     { activationKey: result.value },
     "Voice config updated: activation key",

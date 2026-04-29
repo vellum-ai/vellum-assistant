@@ -14,13 +14,13 @@
  * shared rate-limit timestamps, broadcast).
  */
 
-import { broadcastToAllClients } from "../acp/index.js";
 import { getConfig } from "../config/loader.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
@@ -268,7 +268,6 @@ export async function getOrCreateConversation(
       const sharedCesClient = _cesClientPromise
         ? await _cesClientPromise
         : undefined;
-      const broadcast = broadcastToAllClients ?? (() => {});
       const newConversation = new Conversation(
         conversationId,
         provider,
@@ -276,7 +275,7 @@ export async function getOrCreateConversation(
         maxTokens,
         sendToClient,
         workingDir,
-        broadcast,
+        broadcastMessage,
         DEFAULT_MEMORY_POLICY,
         sharedCesClient,
         storedOptions?.speed,

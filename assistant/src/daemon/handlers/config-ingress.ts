@@ -20,12 +20,10 @@ import {
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { getConfigWatcher } from "../config-watcher.js";
 import type { IngressConfigRequest } from "../message-protocol.js";
-import {
-  CONFIG_RELOAD_DEBOUNCE_MS,
-  type IngressConfigContext,
-  log,
-} from "./shared.js";
+import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 
 export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
@@ -120,13 +118,13 @@ export async function syncTwilioWebhooks(
 
 export async function handleIngressConfig(
   msg: IngressConfigRequest,
-  ctx: IngressConfigContext,
 ): Promise<void> {
+  const cw = getConfigWatcher();
   const localGatewayTarget = computeGatewayTarget();
   try {
     if (msg.action === "get") {
       const result = getIngressConfigResult();
-      ctx.send({
+      broadcastMessage({
         type: "ingress_config_response",
         ...result,
       });
@@ -145,18 +143,18 @@ export async function handleIngressConfig(
         ingress.enabled = msg.enabled;
       }
 
-      const wasSuppressed = ctx.suppressConfigReload;
-      ctx.setSuppressConfigReload(true);
+      const wasSuppressed = cw.suppressConfigReload;
+      cw.suppressConfigReload = true;
       try {
         saveRawConfig({ ...raw, ingress });
       } catch (err) {
-        ctx.setSuppressConfigReload(wasSuppressed);
+        cw.suppressConfigReload = wasSuppressed;
         throw err;
       }
-      ctx.debounceTimers.schedule(
+      cw.timers.schedule(
         "__suppress_reset__",
         () => {
-          ctx.setSuppressConfigReload(false);
+          cw.suppressConfigReload = false;
         },
         CONFIG_RELOAD_DEBOUNCE_MS,
       );
@@ -175,7 +173,7 @@ export async function handleIngressConfig(
         setIngressPublicBaseUrl(undefined);
       }
 
-      ctx.send({
+      broadcastMessage({
         type: "ingress_config_response",
         enabled: isEnabled,
         publicBaseUrl: value,
@@ -244,7 +242,7 @@ export async function handleIngressConfig(
         }
       }
     } else {
-      ctx.send({
+      broadcastMessage({
         type: "ingress_config_response",
         enabled: false,
         publicBaseUrl: "",
@@ -255,7 +253,7 @@ export async function handleIngressConfig(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send({
+    broadcastMessage({
       type: "ingress_config_response",
       enabled: false,
       publicBaseUrl: "",

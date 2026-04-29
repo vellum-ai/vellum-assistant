@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-import { broadcastToAllClients } from "../../acp/index.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { ToolContext } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { BadRequestError } from "./errors.js";
@@ -169,7 +169,7 @@ async function handleTaskDelete({ body = {} }: RouteHandlerArgs) {
   if (result.isError) {
     throw new BadRequestError(result.content);
   }
-  broadcastToAllClients?.({ type: "tasks_changed" });
+  broadcastMessage({ type: "tasks_changed" });
   return { ok: true, content: result.content };
 }
 
@@ -197,7 +197,7 @@ async function handleTaskQueueAdd({ body = {} }: RouteHandlerArgs) {
     buildToolContext(),
   );
   if (!result.isError) {
-    broadcastToAllClients?.({ type: "tasks_changed" });
+    broadcastMessage({ type: "tasks_changed" });
   }
   return { content: result.content, isError: result.isError };
 }
@@ -212,7 +212,7 @@ async function handleTaskQueueUpdate({ body = {} }: RouteHandlerArgs) {
     buildToolContext(),
   );
   if (!result.isError) {
-    broadcastToAllClients?.({ type: "tasks_changed" });
+    broadcastMessage({ type: "tasks_changed" });
   }
   return { content: result.content, isError: result.isError };
 }
@@ -227,7 +227,7 @@ async function handleTaskQueueRemove({ body = {} }: RouteHandlerArgs) {
     buildToolContext(),
   );
   if (!result.isError) {
-    broadcastToAllClients?.({ type: "tasks_changed" });
+    broadcastMessage({ type: "tasks_changed" });
   }
   return { content: result.content, isError: result.isError };
 }
@@ -242,7 +242,7 @@ async function handleTaskQueueRun({ body = {} }: RouteHandlerArgs) {
     buildToolContext(),
   );
   if (!result.isError) {
-    broadcastToAllClients?.({ type: "tasks_changed" });
+    broadcastMessage({ type: "tasks_changed" });
   }
   return { content: result.content, isError: result.isError };
 }

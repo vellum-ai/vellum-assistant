@@ -6,8 +6,9 @@ import { v4 as uuid } from "uuid";
 import { attachFileBackedAttachmentToMessage } from "../../memory/attachments-store.js";
 import { addMessage, getConversation } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
-import { type BroadcastContext, log } from "./shared.js";
+import { log } from "./shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -77,7 +78,6 @@ const deferredRestartByConversation = new Map<string, DeferredRestartParams>();
 export function handleRecordingStart(
   conversationId: string,
   options: RecordingOptions | undefined,
-  ctx: BroadcastContext,
   operationToken?: string,
 ): string | null {
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
@@ -110,7 +110,7 @@ export function handleRecordingStart(
   standaloneRecordingConversationId.set(recordingId, conversationId);
   recordingOwnerByConversation.set(conversationId, recordingId);
 
-  ctx.broadcast({
+  broadcastMessage({
     type: "recording_start",
     recordingId,
     attachToConversationId: conversationId,
@@ -139,7 +139,6 @@ export function handleRecordingStart(
  */
 export function handleRecordingStop(
   conversationId: string,
-  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
   let ownerConversationId = conversationId;
@@ -163,7 +162,7 @@ export function handleRecordingStop(
     return undefined;
   }
 
-  ctx.broadcast({
+  broadcastMessage({
     type: "recording_stop",
     recordingId,
   });
@@ -236,13 +235,12 @@ export interface RecordingRestartResult {
  */
 export function handleRecordingRestart(
   conversationId: string,
-  ctx: BroadcastContext,
 ): RecordingRestartResult {
   // Generate a restart operation token for race hardening
   const operationToken = uuid();
 
   // Stop current recording (if any)
-  const stoppedRecordingId = handleRecordingStop(conversationId, ctx);
+  const stoppedRecordingId = handleRecordingStop(conversationId);
 
   if (!stoppedRecordingId) {
     // No active recording — check if mid-restart (state is not truly idle)
@@ -323,7 +321,6 @@ export function handleRecordingRestart(
  */
 export function handleRecordingPause(
   conversationId: string,
-  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
 
@@ -340,7 +337,7 @@ export function handleRecordingPause(
     return undefined;
   }
 
-  ctx.broadcast({
+  broadcastMessage({
     type: "recording_pause",
     recordingId,
   });
@@ -360,7 +357,6 @@ export function handleRecordingPause(
  */
 export function handleRecordingResume(
   conversationId: string,
-  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
 
@@ -377,7 +373,7 @@ export function handleRecordingResume(
     return undefined;
   }
 
-  ctx.broadcast({
+  broadcastMessage({
     type: "recording_resume",
     recordingId,
   });
@@ -446,9 +442,8 @@ async function finalizeAndPublishRecording(params: {
   conversationId: string;
   filePath?: string;
   durationMs?: number;
-  ctx: BroadcastContext;
 }): Promise<{ success: boolean; messageId?: string }> {
-  const { recordingId, conversationId, filePath, ctx } = params;
+  const { recordingId, conversationId, filePath } = params;
 
   // Idempotency guard: prevent double-finalization.
   // Mark as finalized eagerly (before any async work) so concurrent calls
@@ -482,12 +477,12 @@ async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.broadcast({
+    broadcastMessage({
       type: "assistant_text_delta",
       text: errorText,
       conversationId: conversationId,
     });
-    ctx.broadcast({
+    broadcastMessage({
       type: "message_complete",
       conversationId: conversationId,
     });
@@ -535,12 +530,12 @@ async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.broadcast({
+    broadcastMessage({
       type: "assistant_text_delta",
       text: errorText,
       conversationId: conversationId,
     });
-    ctx.broadcast({
+    broadcastMessage({
       type: "message_complete",
       conversationId: conversationId,
     });
@@ -563,12 +558,12 @@ async function finalizeAndPublishRecording(params: {
           "Failed to persist recording error message",
         );
       }
-      ctx.broadcast({
+      broadcastMessage({
         type: "assistant_text_delta",
         text: errorText,
         conversationId: conversationId,
       });
-      ctx.broadcast({
+      broadcastMessage({
         type: "message_complete",
         conversationId: conversationId,
       });
@@ -596,12 +591,12 @@ async function finalizeAndPublishRecording(params: {
           "Failed to persist recording error message",
         );
       }
-      ctx.broadcast({
+      broadcastMessage({
         type: "assistant_text_delta",
         text: errorText,
         conversationId: conversationId,
       });
-      ctx.broadcast({
+      broadcastMessage({
         type: "message_complete",
         conversationId: conversationId,
       });
@@ -663,12 +658,12 @@ async function finalizeAndPublishRecording(params: {
     const thumbnailData: string | undefined = undefined;
 
     // Notify the client via broadcast
-    ctx.broadcast({
+    broadcastMessage({
       type: "assistant_text_delta",
       text: msgText,
       conversationId: conversationId,
     });
-    ctx.broadcast({
+    broadcastMessage({
       type: "message_complete",
       conversationId: conversationId,
       attachments: [
@@ -703,12 +698,12 @@ async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.broadcast({
+    broadcastMessage({
       type: "assistant_text_delta",
       text: errorText,
       conversationId: conversationId,
     });
-    ctx.broadcast({
+    broadcastMessage({
       type: "message_complete",
       conversationId: conversationId,
     });
@@ -728,7 +723,6 @@ async function finalizeAndPublishRecording(params: {
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-  ctx: BroadcastContext,
 ): Promise<void> {
   const recordingId = msg.conversationId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
@@ -828,12 +822,12 @@ export async function handleRecordingStatusCore(
         activeRestartToken = null;
       }
 
-      ctx.broadcast({
+      broadcastMessage({
         type: "assistant_text_delta",
         text: "Recording restart cancelled.",
         conversationId: conversationId,
       });
-      ctx.broadcast({
+      broadcastMessage({
         type: "message_complete",
         conversationId: conversationId,
       });
@@ -882,7 +876,6 @@ export async function handleRecordingStatusCore(
         const newRecordingId = handleRecordingStart(
           deferred.conversationId,
           { promptForSource: true },
-          ctx,
           deferred.operationToken,
         );
 
@@ -953,19 +946,18 @@ export async function handleRecordingStatusCore(
           conversationId,
           filePath: msg.filePath,
           durationMs: msg.durationMs,
-          ctx,
         });
 
         // Handle old-success + new-start-failure: the old recording saved
         // but the new one couldn't start. Send explicit follow-up text so
         // the user knows the state.
         if (!newRecordingId && finResult.success) {
-          ctx.broadcast({
+          broadcastMessage({
             type: "assistant_text_delta",
             text: "Previous recording saved. New recording failed to start.",
             conversationId: deferred.conversationId,
           });
-          ctx.broadcast({
+          broadcastMessage({
             type: "message_complete",
             conversationId: deferred.conversationId,
           });
@@ -982,7 +974,6 @@ export async function handleRecordingStatusCore(
         conversationId,
         filePath: msg.filePath,
         durationMs: msg.durationMs,
-        ctx,
       });
 
       break;
@@ -994,12 +985,12 @@ export async function handleRecordingStatusCore(
         "Standalone recording failed",
       );
 
-      ctx.broadcast({
+      broadcastMessage({
         type: "assistant_text_delta",
         text: `Recording failed: ${msg.error ?? "unknown error"}`,
         conversationId: conversationId,
       });
-      ctx.broadcast({
+      broadcastMessage({
         type: "message_complete",
         conversationId: conversationId,
       });

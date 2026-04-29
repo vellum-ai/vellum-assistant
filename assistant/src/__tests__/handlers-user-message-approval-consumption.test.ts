@@ -11,9 +11,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { ConversationHandlerContext } from "../daemon/handlers/shared.js";
 import type { ConfirmationResponse } from "../daemon/message-protocol.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 const resolveCanonicalGuardianRequestMock = mock(
   () => null as { id: string } | null,
@@ -148,75 +146,6 @@ import {
 } from "../daemon/conversation-store.js";
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
-interface TestConversation {
-  messages: Array<{ role: string; content: unknown[] }>;
-  setChannelCapabilities: (caps: unknown) => void;
-  isProcessing: () => boolean;
-  hasPendingConfirmation: (requestId: string) => boolean;
-  hasAnyPendingConfirmation: () => boolean;
-  getQueueDepth: () => number;
-  denyAllPendingConfirmations: () => void;
-  enqueueMessage: (...args: unknown[]) => {
-    queued: boolean;
-    requestId: string;
-  };
-  traceEmitter: { emit: (...args: unknown[]) => void };
-  setTurnChannelContext: (ctx: unknown) => void;
-  setTurnInterfaceContext: (ctx: unknown) => void;
-  setAssistantId: (assistantId: string) => void;
-  setTrustContext: (ctx: unknown) => void;
-  setAuthContext: (ctx: unknown) => void;
-  setCommandIntent: (intent: unknown) => void;
-  updateClient: (
-    sendToClient: (msg: ServerMessage) => void,
-    hasNoClient?: boolean,
-  ) => void;
-  emitActivityState: (...args: unknown[]) => void;
-  emitConfirmationStateChanged: (...args: unknown[]) => void;
-  processMessage: (...args: unknown[]) => Promise<string>;
-}
-
-function createContext(_conversationObj: TestConversation): {
-  ctx: ConversationHandlerContext;
-  sent: ServerMessage[];
-} {
-  const sent: ServerMessage[] = [];
-  const ctx: ConversationHandlerContext = {
-    send: (msg) => {
-      sent.push(msg);
-    },
-    touchConversation: () => {},
-  };
-  return { ctx, sent };
-}
-
-function makeConversation(
-  overrides: Partial<TestConversation> = {},
-): TestConversation {
-  return {
-    messages: [],
-    setChannelCapabilities: () => {},
-    isProcessing: () => false,
-    hasPendingConfirmation: () => true,
-    hasAnyPendingConfirmation: () => true,
-    getQueueDepth: () => 0,
-    denyAllPendingConfirmations: mock(() => {}),
-    enqueueMessage: mock(() => ({ queued: true, requestId: "queued-id" })),
-    traceEmitter: { emit: () => {} },
-    setTurnChannelContext: () => {},
-    setTurnInterfaceContext: () => {},
-    setAssistantId: () => {},
-    setTrustContext: () => {},
-    setAuthContext: () => {},
-    setCommandIntent: () => {},
-    updateClient: () => {},
-    emitActivityState: () => {},
-    emitConfirmationStateChanged: () => {},
-    processMessage: async () => "msg-id",
-    ...overrides,
-  };
-}
-
 describe("handleConfirmationResponse canonical status sync", () => {
   beforeEach(() => {
     clearConversations();
@@ -239,7 +168,6 @@ describe("handleConfirmationResponse canonical status sync", () => {
         requestId === "req-confirm-allow",
       handleConfirmationResponse: mock(() => {}),
     };
-    const { ctx } = createContext(makeConversation());
     setConversation("conv-1", conversationObj as any);
 
     const msg: ConfirmationResponse = {
@@ -248,7 +176,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
       decision: "allow",
     };
 
-    handleConfirmationResponse(msg, ctx);
+    handleConfirmationResponse(msg);
 
     expect(
       (conversationObj.handleConfirmationResponse as any).mock.calls.length,
