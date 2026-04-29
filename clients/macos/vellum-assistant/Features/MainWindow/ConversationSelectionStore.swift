@@ -287,12 +287,7 @@ final class ConversationSelectionStore {
     /// `ObservationRegistrar.Extent` teardowns, Task cancellations,
     /// NotificationCenter unregistrations) runs on the cooperative thread
     /// pool instead of blocking the main thread. Under memory pressure the
-    /// synchronous dealloc can stall for 2+ seconds (LUM-1277).
-    ///
-    /// This restores the deferred-deallocation protection that PR #22371
-    /// (LUM-504) originally provided for Combine subscription teardown,
-    /// which was removed during the 3-store decomposition (PR #23307) when
-    /// Combine bridges were replaced with `withObservationTracking` loops.
+    /// synchronous dealloc can stall for 2+ seconds.
     private func evictStaleCachedViewModels() {
         var evictedCount = 0
         var evictedVMs: [ChatViewModel] = []
