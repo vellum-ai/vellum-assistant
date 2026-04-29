@@ -1,6 +1,6 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { UsageAttributionProfileSource } from "./attribution.js";
 import type { UsageActor } from "./actors.js";
+import type { UsageAttributionProfileSource } from "./attribution.js";
 
 export type {
   UsageAttributionInput,
