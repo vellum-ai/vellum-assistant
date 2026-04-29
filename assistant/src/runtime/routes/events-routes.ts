@@ -37,8 +37,8 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
 
-/** Keep-alive comment sent to idle clients every 30 s by default. */
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+/** Keep-alive comment sent to idle clients every 7 s by default. */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
 
 /**
  * Stream assistant events as Server-Sent Events.
@@ -58,7 +58,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
- *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 30 s).
+ *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
