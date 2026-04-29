@@ -274,11 +274,25 @@ export class HeartbeatService {
         await import("../credential-health/credential-health-service.js");
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
-        await this.notifyUnhealthyCredentials(report.unhealthy);
-        // Only block providers for hard-failure statuses — expiring and ping_failed
-        // are transient/still-usable and should not disable provider tools.
-        // missing_scopes is a hard failure because required scopes are absent and
-        // provider tools will predictably fail.
+        // Filter out unreachable results — CES wake/startup blips should not
+        // produce user-facing credential alerts. Only actionable failures notify.
+        const notifiable = report.unhealthy.filter(
+          (r) => r.status !== "unreachable",
+        );
+        const unreachableCount = report.unhealthy.length - notifiable.length;
+        if (unreachableCount > 0) {
+          log.warn(
+            { unreachableCount },
+            "Credential backend unreachable — skipping health alerts for affected providers",
+          );
+        }
+        if (notifiable.length > 0) {
+          await this.notifyUnhealthyCredentials(notifiable);
+        }
+        // Only block providers for hard-failure statuses — expiring, ping_failed,
+        // and unreachable are transient/still-usable and should not disable
+        // provider tools. missing_scopes is a hard failure because required
+        // scopes are absent and provider tools will predictably fail.
         const hardFailureStatuses = new Set([
           "revoked",
           "missing_token",

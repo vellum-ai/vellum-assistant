@@ -59,6 +59,8 @@ clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.fr
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryV2Tab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryV2Tab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorOverviewTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorOverviewTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorPayloadView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)

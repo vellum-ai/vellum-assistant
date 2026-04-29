@@ -26,6 +26,7 @@ import {
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   type SlackMessageMetadata,
@@ -935,6 +936,18 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill message_id on memory recall log (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryV2ActivationMessageId(
+      deps.ctx.conversationId,
+      assistantMsg.id,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill memory v2 activation log messageId (non-fatal)",
     );
   }
 

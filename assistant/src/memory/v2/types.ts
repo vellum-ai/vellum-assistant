@@ -34,8 +34,10 @@ export type ConceptPageFrontmatter = z.infer<
 >;
 
 /**
- * A single concept page on disk. The slug is the filename minus `.md` and
- * also the stable identity used in edges and activation state.
+ * A single concept page on disk. The slug is the relative path from
+ * `memory/concepts/` minus `.md`, using forward slashes — so `alice` and
+ * `people/alice` are both valid slugs. The slug is the stable identity used
+ * in edges and activation state.
  */
 export const ConceptPageSchema = z.object({
   slug: z.string(),

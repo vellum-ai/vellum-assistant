@@ -535,7 +535,7 @@ const GRAPH_CONSOLIDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
-const GRAPH_MAINTENANCE_CHECKPOINTS = {
+export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   decay: "graph_maintenance:decay:last_run",
   consolidate: "graph_maintenance:consolidate:last_run",
   patternScan: "graph_maintenance:pattern_scan:last_run",

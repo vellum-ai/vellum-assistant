@@ -110,6 +110,7 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryV2ActivationLogs,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -392,6 +393,7 @@ export function initializeDb(): void {
     migrate230AcpSessionHistory,
     migrate231RepairMemoryGraphEventDates,
     migrateActivationState,
+    migrateMemoryV2ActivationLogs,
     migrateCreateDocumentConversations,
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();

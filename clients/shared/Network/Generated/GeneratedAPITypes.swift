@@ -1934,6 +1934,7 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
 
 public struct FilingConfigResponse: Codable, Sendable {
     public let type: String
+    public let available: Bool
     public let enabled: Bool
     public let intervalMs: Double
     public let activeHoursStart: Double?
@@ -1943,8 +1944,9 @@ public struct FilingConfigResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+    public init(type: String, available: Bool = true, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
+        self.available = available
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
@@ -1966,6 +1968,44 @@ public struct FilingRunNowResponse: Codable, Sendable {
         self.type = type
         self.success = success
         self.ran = ran
+        self.error = error
+    }
+}
+
+public struct ConsolidationConfigResponse: Codable, Sendable {
+    public let type: String
+    public let available: Bool
+    public let enabled: Bool
+    public let intervalMs: Double
+    public let nextRunAt: Int?
+    public let lastRunAt: Int?
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, available: Bool, enabled: Bool, intervalMs: Double, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+        self.type = type
+        self.available = available
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct ConsolidationRunNowResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let ran: Bool
+    public let jobId: String?
+    public let error: String?
+
+    public init(type: String, success: Bool, ran: Bool, jobId: String? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.ran = ran
+        self.jobId = jobId
         self.error = error
     }
 }

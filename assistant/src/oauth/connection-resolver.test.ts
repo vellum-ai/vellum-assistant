@@ -39,6 +39,14 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => mockAccessToken,
 }));
 
+mock.module("./credential-token-resolver.js", () => ({
+  getConnectionAccessTokenResult: async () => ({
+    value: mockAccessToken,
+    unreachable: false,
+    key: "mock-key",
+  }),
+}));
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
 }));

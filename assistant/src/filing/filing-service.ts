@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
@@ -108,7 +109,18 @@ export class FilingService {
   }
 
   start(): void {
-    const config = getConfig().filing;
+    const fullConfig = getConfig();
+    if (
+      isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig) &&
+      fullConfig.memory.v2.enabled
+    ) {
+      log.info("Filing service disabled — memory v2 is active");
+      this._nextRunAt = null;
+      this._nextCompactionAt = null;
+      return;
+    }
+
+    const config = fullConfig.filing;
 
     if (config.enabled && !this.timer) {
       log.info({ intervalMs: config.intervalMs }, "Filing service started");
