@@ -70,27 +70,41 @@ export interface SelectCandidatesParams {
   config: AssistantConfig;
 }
 
+export interface SelectCandidatesResult {
+  /** Union of `fromPrior` and `fromAnn` — the per-turn candidate set. */
+  candidates: Set<string>;
+  /** Slugs carried forward from `priorState` because their activation > epsilon. */
+  fromPrior: Set<string>;
+  /** Slugs surfaced by the unrestricted ANN top-50 against the joined turn text. */
+  fromAnn: Set<string>;
+}
+
 /**
  * Build the per-turn candidate set: the union of slugs in the prior state
  * (above epsilon) and the top-50 ANN hits against the concatenated turn
  * text. The ANN call runs un-restricted (no slug filter) so it can surface
  * pages outside the active set.
  *
+ * Returns the union plus the two source sets separately so downstream
+ * telemetry can attribute each candidate to `prior_state`, `ann_top50`, or
+ * both. A slug present in both sources appears in `fromPrior ∩ fromAnn`.
+ *
  * Empty candidate sets are valid and propagate downstream — both
  * `computeOwnActivation` and `spreadActivation` short-circuit on them.
  */
 export async function selectCandidates(
   params: SelectCandidatesParams,
-): Promise<Set<string>> {
+): Promise<SelectCandidatesResult> {
   const { priorState, userText, assistantText, nowText, config } = params;
 
-  const candidates = new Set<string>();
+  const fromPrior = new Set<string>();
+  const fromAnn = new Set<string>();
 
   // (1) Carry forward prior-state slugs above epsilon.
   if (priorState) {
     const epsilon = config.memory.v2.epsilon;
     for (const [slug, activation] of Object.entries(priorState.state)) {
-      if (activation > epsilon) candidates.add(slug);
+      if (activation > epsilon) fromPrior.add(slug);
     }
   }
 
@@ -110,10 +124,12 @@ export async function selectCandidates(
       sparse,
       ANN_CANDIDATE_LIMIT,
     );
-    for (const hit of hits) candidates.add(hit.slug);
+    for (const hit of hits) fromAnn.add(hit.slug);
   }
 
-  return candidates;
+  const candidates = new Set<string>([...fromPrior, ...fromAnn]);
+
+  return { candidates, fromPrior, fromAnn };
 }
 
 // ---------------------------------------------------------------------------
