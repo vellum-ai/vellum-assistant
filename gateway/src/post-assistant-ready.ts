@@ -55,6 +55,11 @@ async function waitForAssistant(): Promise<boolean> {
  * startup tasks. Awaited at startup — blocks Bun.serve().
  */
 export async function runPostAssistantReady(): Promise<void> {
+  if (process.env.SKIP_POST_ASSISTANT_READY === "true") {
+    log.info("Skipping post-assistant-ready (SKIP_POST_ASSISTANT_READY)");
+    return;
+  }
+
   const ready = await waitForAssistant();
   if (!ready) return;
 

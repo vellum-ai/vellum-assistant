@@ -201,6 +201,7 @@ async function startGateway(): Promise<void> {
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
+      SKIP_POST_ASSISTANT_READY: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
