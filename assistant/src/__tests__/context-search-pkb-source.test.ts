@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
@@ -193,6 +194,7 @@ describe("PKB context-search source", () => {
     denseThrows = null;
     pkbContext = null;
     nowScratchpad = null;
+    _setOverridesForTesting({ "memory-v2-enabled": false });
   });
 
   test("converts PKB hits to recall evidence with snippets and scores", async () => {
@@ -441,4 +443,51 @@ describe("PKB context-search source", () => {
       },
     ]);
   });
+
+  test("short-circuits to empty when both v2 gates are on", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    denseResults = [
+      {
+        id: "dense-a",
+        score: 0.9,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "a",
+          path: "notes/should-not-appear.md",
+          text: "should not appear",
+        },
+      },
+    ];
+
+    const result = await searchPkbSource(
+      "anything",
+      makeContext({ config: makeV2EnabledConfig() }),
+      5,
+    );
+
+    expect(result).toEqual({ evidence: [] });
+    expect(qdrantSearchCalls).toHaveLength(0);
+    expect(hybridSearchCalls).toHaveLength(0);
+    expect(embedCalls).toHaveLength(0);
+  });
+
+  test("readPkbContextEvidence short-circuits when v2 read is active", () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    pkbContext = "should not surface under v2";
+    nowScratchpad = "should not surface under v2";
+
+    const evidence = readPkbContextEvidence(
+      makeContext({ config: makeV2EnabledConfig() }),
+    );
+
+    expect(evidence).toEqual([]);
+  });
 });
+
+function makeV2EnabledConfig(): AssistantConfig {
+  return {
+    memory: {
+      v2: { enabled: true },
+    },
+  } as unknown as AssistantConfig;
+}
