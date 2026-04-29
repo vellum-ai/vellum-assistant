@@ -3,16 +3,12 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
-import { processMessage } from "../daemon/process-message.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
@@ -377,84 +373,61 @@ export class HeartbeatService {
     // names so the prompt can instruct the LLM to skip those providers.
     const unhealthyProviders = await this.runCredentialHealthCheck();
 
-    try {
-      const checklist = this.readChecklist();
-      const { prompt, includedReengagement } = this.buildPrompt(
-        checklist,
-        unhealthyProviders,
-      );
+    const checklist = this.readChecklist();
+    const { prompt, includedReengagement } = this.buildPrompt(
+      checklist,
+      unhealthyProviders,
+    );
 
-      const conversation = bootstrapConversation({
-        conversationType: "background",
-        source: "heartbeat",
-        groupId: "system:background",
-        origin: "heartbeat",
-        systemHint: "Heartbeat",
-      });
+    // Centralized boundary wrapper: handles bootstrap, processMessage,
+    // timeout, and emits `activity.failed` on any failure path. Never
+    // re-throws — failures come back as a structured result.
+    const result = await runBackgroundJob({
+      jobName: "heartbeat",
+      source: "heartbeat",
+      prompt,
+      trustContext: {
+        sourceChannel: "vellum",
+        trustClass: "guardian",
+      },
+      callSite: "heartbeatAgent",
+      timeoutMs: HEARTBEAT_TIMEOUT_MS,
+      origin: "heartbeat",
+      groupId: "system:background",
+    });
 
-      this.deps.onConversationCreated?.({
-        conversationId: conversation.id,
-        title: "Heartbeat",
-      });
+    // Notify the SSE broadcaster about the conversation so connected
+    // clients (e.g. macOS) add it to the sidebar. Fires after the run
+    // completes — clients see the conversation when the heartbeat
+    // finishes (or fails) rather than when it starts.
+    this.deps.onConversationCreated?.({
+      conversationId: result.conversationId,
+      title: "Heartbeat",
+    });
 
-      await processMessage(conversation.id, prompt, undefined, {
-        trustContext: {
-          sourceChannel: "vellum",
-          trustClass: "guardian",
-        },
-        callSite: "heartbeatAgent",
-      });
-
+    if (result.ok) {
       if (includedReengagement) {
         recordReengagementTimestamp();
       }
+      log.info(
+        { conversationId: result.conversationId },
+        "Heartbeat completed",
+      );
+      return;
+    }
 
-      log.info({ conversationId: conversation.id }, "Heartbeat completed");
-
-      let title = "Heartbeat";
-      try {
-        const row = getConversation(conversation.id);
-        if (row?.title && row.title !== GENERATING_TITLE) {
-          title = row.title;
-        }
-      } catch {
-        // Best-effort; fall back to generic title.
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title,
-        summary: "Periodic check completed. Tap to see details.",
-        dedupKey: `heartbeat:ok:${today}`,
-        priority: 30,
-      }).catch((err) => {
-        log.warn(
-          { err, conversationId: conversation.id },
-          "Failed to emit heartbeat feed event",
-        );
+    log.error(
+      { err: result.error, errorKind: result.errorKind },
+      "Heartbeat failed",
+    );
+    try {
+      this.deps.alerter({
+        type: "heartbeat_alert",
+        title: "Heartbeat Failed",
+        body: result.error?.message ?? "Unknown error",
       });
-    } catch (err) {
-      log.error({ err }, "Heartbeat failed");
-      try {
-        this.deps.alerter({
-          type: "heartbeat_alert",
-          title: "Heartbeat Failed",
-          body: err instanceof Error ? err.message : String(err),
-        });
-      } catch (alertErr) {
-        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Heartbeat",
-        summary: "Heartbeat check failed. Check logs for details.",
-        dedupKey: `heartbeat:fail:${today}`,
-        priority: 55,
-        urgency: "medium",
-      }).catch(() => {});
+    } catch (alertErr) {
+      log.error({ alertErr }, "Failed to broadcast heartbeat alert");
     }
   }
 
