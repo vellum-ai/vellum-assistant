@@ -153,13 +153,47 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(profile.id, "balanced")
     }
 
-    // MARK: - Built-in profile names
+    // MARK: - Source, label, description
 
-    func testBuiltInProfileNamesIsExactlyTheMigrationSeededTrio() {
-        XCTAssertEqual(
-            builtInInferenceProfileNames,
-            ["quality-optimized", "balanced", "cost-optimized"]
-        )
+    func testSourceLabelDescriptionRoundTrip() {
+        let json: [String: Any] = [
+            "source": "managed",
+            "label": "Quality",
+            "description": "Highest quality output",
+            "provider": "anthropic",
+        ]
+        let profile = InferenceProfile(name: "quality-optimized", json: json)
+        XCTAssertEqual(profile.source, "managed")
+        XCTAssertEqual(profile.label, "Quality")
+        XCTAssertEqual(profile.profileDescription, "Highest quality output")
+        XCTAssertTrue(profile.isManaged)
+        XCTAssertEqual(profile.displayName, "Quality")
+        XCTAssertEqual(profile.subtitle, "Highest quality output")
+
+        let reEncoded = profile.toJSON()
+        XCTAssertEqual(reEncoded["source"] as? String, "managed")
+        XCTAssertEqual(reEncoded["label"] as? String, "Quality")
+        XCTAssertEqual(reEncoded["description"] as? String, "Highest quality output")
+    }
+
+    func testIsManagedFalseWhenSourceIsNil() {
+        let profile = InferenceProfile(name: "custom")
+        XCTAssertFalse(profile.isManaged)
+    }
+
+    func testIsManagedFalseWhenSourceIsNotManaged() {
+        let profile = InferenceProfile(name: "custom", source: "user")
+        XCTAssertFalse(profile.isManaged)
+    }
+
+    func testDisplayNameFallsBackToNameWhenLabelIsNil() {
+        let profile = InferenceProfile(name: "my-profile")
+        XCTAssertEqual(profile.displayName, "my-profile")
+    }
+
+    func testSubtitleIsNilWhenDescriptionIsNil() {
+        let profile = InferenceProfile(name: "simple")
+        XCTAssertNil(profile.subtitle)
     }
 
     // MARK: - Temperature: explicit null vs unset
