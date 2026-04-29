@@ -161,6 +161,28 @@ export const memoryRecallLogs = sqliteTable(
   ],
 );
 
+export const memoryV2ActivationLogs = sqliteTable(
+  "memory_v2_activation_logs",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    messageId: text("message_id"),
+    turn: integer("turn").notNull(),
+    mode: text("mode").notNull(), // "context-load" | "per-turn"
+    conceptsJson: text("concepts_json").notNull(),
+    skillsJson: text("skills_json").notNull(),
+    configJson: text("config_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_memory_v2_activation_logs_message_id").on(table.messageId),
+    index("idx_memory_v2_activation_logs_conversation_id").on(
+      table.conversationId,
+    ),
+    index("idx_memory_v2_activation_logs_created_at").on(table.createdAt),
+  ],
+);
+
 export const llmUsageEvents = sqliteTable(
   "llm_usage_events",
   {
