@@ -55,18 +55,39 @@ struct NameExchangeView: View {
             }
             .opacity(showHeader ? 1 : 0)
             .offset(y: showHeader ? 0 : 8)
-            .padding(.bottom, VSpacing.xxl)
+            .padding(.bottom, VSpacing.sm)
+
+            Text("You can change these any time.")
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
+                .multilineTextAlignment(.center)
+                .opacity(showHeader ? 1 : 0)
+                .offset(y: showHeader ? 0 : 8)
+                .padding(.horizontal, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xl)
 
             // Form content
             VStack(spacing: VSpacing.lg) {
-                // "I'll call you..." field
                 VTextField(
-                    "What's your name?",
+                    "Your name",
                     placeholder: "Your name",
                     text: $userName
                 )
 
-                // "Call me..." field + group pills + suggestion pills
+                // Personality group grid
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Pick a vibe")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)], spacing: VSpacing.sm) {
+                        ForEach(PersonalityGroup.allGroups, id: \.id) { group in
+                            vibeCard(group)
+                        }
+                    }
+                }
+
+                // Assistant name + suggestions
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     VTextField(
                         "What should I go by?",
@@ -74,14 +95,11 @@ struct NameExchangeView: View {
                         text: $assistantName
                     )
 
-                    // Personality group pills
-                    HStack(spacing: VSpacing.xs) {
-                        ForEach(PersonalityGroup.allGroups, id: \.id) { group in
-                            groupPill(group)
-                        }
-                    }
+                    Text(selectedGroupID != nil ? "Suggestions" : "A few to try")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .textCase(.uppercase)
 
-                    // Name suggestion pills (flow layout for wrapping)
                     WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
                         ForEach(displayedAssistantNames, id: \.self) { suggestion in
                             suggestionPill(suggestion)
@@ -89,11 +107,6 @@ struct NameExchangeView: View {
                     }
                 }
 
-                // Helper note
-                Text("You can always change these later.")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, VSpacing.xxl)
             .opacity(showContent ? 1 : 0)
@@ -127,7 +140,14 @@ struct NameExchangeView: View {
 
     // MARK: - Subviews
 
-    private func groupPill(_ group: PersonalityGroup) -> some View {
+    private static let vibeTaglines: [String: String] = [
+        "grounded": "Measured. No filler.",
+        "warm": "Friendly and casual.",
+        "energetic": "Brief. To the point.",
+        "poetic": "Listens, then replies.",
+    ]
+
+    private func vibeCard(_ group: PersonalityGroup) -> some View {
         let isActive = selectedGroupID == group.id
         let isHovered = hoveredGroup == group.id
         return Button {
@@ -141,21 +161,22 @@ struct NameExchangeView: View {
                 }
             }
         } label: {
-            VStack(spacing: 2) {
-                Text(group.label)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(isActive ? VColor.contentInset : VColor.contentDefault)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(group.descriptor)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(isActive ? VColor.contentInset : VColor.contentDefault)
+                Text(Self.vibeTaglines[group.id] ?? "")
                     .font(VFont.bodySmallDefault)
-                    .foregroundStyle(isActive ? VColor.contentInset.opacity(0.8) : VColor.contentTertiary)
+                    .foregroundStyle(isActive ? VColor.contentInset.opacity(0.62) : VColor.contentSecondary)
             }
-            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.md, trailing: VSpacing.md))
             .background(
-                RoundedRectangle(cornerRadius: VRadius.pill)
+                RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(isActive ? VColor.primaryBase : (isHovered ? VColor.surfaceBase : VColor.surfaceLift))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.pill)
-                            .stroke(isActive ? VColor.primaryBase : VColor.borderElement, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(isActive ? VColor.primaryBase : VColor.borderElement, lineWidth: 0.5)
                     )
             )
         }
@@ -179,9 +200,9 @@ struct NameExchangeView: View {
             }
         } label: {
             Text(name)
-                .font(VFont.labelDefault)
-                .foregroundStyle(isActive ? VColor.contentInset : VColor.contentSecondary)
-                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+                .font(VFont.menuCompact)
+                .foregroundStyle(isActive ? VColor.contentInset : VColor.contentDefault)
+                .padding(EdgeInsets(top: VSpacing.xs + 1, leading: VSpacing.md, bottom: VSpacing.xs + 1, trailing: VSpacing.md))
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.pill)
                         .fill(isActive ? VColor.primaryBase : (hoveredSuggestion == name ? VColor.surfaceBase : VColor.surfaceLift))

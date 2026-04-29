@@ -91,28 +91,21 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(Set(allNames).count, allNames.count, "All names across groups must be unique")
     }
 
-    func testStateDisplayedNamesMatchAllNamesWhenNoGroupSelected() {
+    func testStateDisplayedNamesShowsTasterWhenNoGroupSelected() {
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
 
         XCTAssertNil(state.selectedGroupID)
-        XCTAssertEqual(state.displayedAssistantNames, PersonalityGroup.allNames)
+        XCTAssertEqual(state.displayedAssistantNames, PreChatOnboardingState.tasterNames)
     }
 
-    func testStateDisplayedNamesPrioritizesSelectedGroup() {
+    func testStateDisplayedNamesFiltersToSelectedGroup() {
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
         state.selectedGroupID = "warm"
 
         let warmGroup = PersonalityGroup.allGroups.first { $0.id == "warm" }!
-        let displayed = state.displayedAssistantNames
-
-        // Selected group's names should come first
-        let prefix = Array(displayed.prefix(warmGroup.names.count))
-        XCTAssertEqual(prefix, warmGroup.names)
-
-        // All names should still be present
-        XCTAssertEqual(Set(displayed), Set(PersonalityGroup.allNames))
+        XCTAssertEqual(state.displayedAssistantNames, warmGroup.names)
     }
 
     func testDefaultAssistantNameIsEmptyOnFreshState() {
@@ -219,7 +212,7 @@ final class PreChatOnboardingTests: XCTestCase {
         state.selectedTools = ["slack"]
         state.selectedTasks = ["writing"]
         state.userName = "Alex"
-        state.assistantName = "Pax"
+        state.assistantName = "Penn"
 
         let context = PreChatOnboardingContext(
             tools: Array(state.selectedTools).sorted(),
@@ -235,7 +228,7 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(receivedContext?.tasks, ["writing"])
         XCTAssertEqual(receivedContext?.tone, "grounded")
         XCTAssertEqual(receivedContext?.userName, "Alex")
-        XCTAssertEqual(receivedContext?.assistantName, "Pax")
+        XCTAssertEqual(receivedContext?.assistantName, "Penn")
     }
 
     // MARK: - Identity Cache Seeding

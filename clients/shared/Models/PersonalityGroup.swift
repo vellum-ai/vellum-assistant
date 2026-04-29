@@ -11,25 +11,25 @@ public struct PersonalityGroup: Sendable {
             id: "grounded",
             label: "Grounded",
             descriptor: "Calm and precise",
-            names: ["Pax", "Sage", "Atlas", "Orion", "Rune", "Quill"]
+            names: ["Penn", "Sage", "Atlas", "Orion", "Reed", "Quill"]
         ),
         PersonalityGroup(
             id: "warm",
             label: "Warm",
             descriptor: "Warm and easy",
-            names: ["Kit", "Pip", "Remy", "Wren", "Lark", "Milo", "Cleo"]
+            names: ["Kit", "Remy", "Wren", "Milo", "Fenn", "Cleo"]
         ),
         PersonalityGroup(
             id: "energetic",
             label: "Energetic",
             descriptor: "Fast and direct",
-            names: ["Nova", "Ember", "Ziggy", "Bodhi", "Vela", "Onyx"]
+            names: ["Nova", "Ember", "Cade", "Lark", "Vela", "Ziggy"]
         ),
         PersonalityGroup(
             id: "poetic",
             label: "Poetic",
             descriptor: "Quiet and observant",
-            names: ["Luna", "Iris", "Vesper", "Echo", "Juno", "Ada"]
+            names: ["Luna", "Iris", "Vesper", "Lyra", "Juno", "Ada"]
         ),
     ]
 

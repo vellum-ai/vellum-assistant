@@ -18,19 +18,17 @@ final class PreChatOnboardingState {
     /// The currently selected personality group ID, or `nil` for no selection.
     var selectedGroupID: String?
 
-    /// Assistant names to display as quick-tap pills, ordered by group
-    /// relevance. When a group is selected its names appear first, followed
-    /// by names from the remaining groups. When no group is selected all
-    /// names from every group are shown.
+    /// A representative sample shown when no personality group is selected.
+    static let tasterNames = ["Penn", "Sage", "Wren", "Milo", "Nova", "Ember", "Luna", "Iris"]
+
+    /// Names to show as quick-tap pills. When a group is selected, shows only
+    /// that group's names. Otherwise shows a curated taster sample.
     var displayedAssistantNames: [String] {
         guard let selectedID = selectedGroupID,
               let group = PersonalityGroup.allGroups.first(where: { $0.id == selectedID }) else {
-            return PersonalityGroup.allNames
+            return Self.tasterNames
         }
-        let rest = PersonalityGroup.allGroups
-            .filter { $0.id != selectedID }
-            .flatMap(\.names)
-        return group.names + rest
+        return group.names
     }
 
     // MARK: - Persistence Keys
