@@ -104,18 +104,14 @@ export const eventsStreamingRoutes: SkillIpcStreamingRoute[] = [
     method: "host.events.subscribe",
     handler: (stream, params) => {
       const { filter } = SubscribeParams.parse(params);
-      const subscription = assistantEventHub.subscribe(
+      const subscription = assistantEventHub.subscribe({
+        type: "process",
         filter,
-        (event) => {
+        callback: (event) => {
           stream.send(event);
         },
-        // The hub evicts the oldest subscriber when its cap fills. Without
-        // this callback the IPC stream would silently stop receiving events
-        // while the client still believed it was subscribed. Mirror the SSE
-        // route's behavior by tearing the stream down with a terminal error
-        // frame so the client can resubscribe.
-        { onEvict: () => stream.close("subscription evicted by hub cap") },
-      );
+        onEvict: () => stream.close("subscription evicted by hub cap"),
+      });
       return () => {
         subscription.dispose();
       };

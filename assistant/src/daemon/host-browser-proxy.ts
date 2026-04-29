@@ -2,7 +2,6 @@ import { v4 as uuid } from "uuid";
 
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -66,17 +65,22 @@ export class HostBrowserProxy {
    */
   isAvailable(): boolean {
     return (
-      getClientRegistry().getMostRecentByCapability("host_browser") != null
+      assistantEventHub.getMostRecentClientByCapability("host_browser") != null
     );
   }
 
   /**
-   * Publish a ServerMessage through the assistant event hub.
+   * Publish a ServerMessage through the assistant event hub, targeted at
+   * subscribers with the `host_browser` capability.
    */
-  private sendToExtension(msg: ServerMessage): void {
-    void assistantEventHub.publish(buildAssistantEvent(msg)).catch((err) => {
-      log.warn({ err }, "failed to publish host_browser event to hub");
-    });
+  private send(msg: ServerMessage): void {
+    void assistantEventHub
+      .publish(buildAssistantEvent(msg), {
+        targetCapability: "host_browser",
+      })
+      .catch((err) => {
+        log.warn({ err }, "failed to publish host_browser event to hub");
+      });
   }
 
   request(
@@ -121,7 +125,7 @@ export class HostBrowserProxy {
             // so callers can rely on detachAbort being idempotent.
             detachAbort();
             try {
-              this.sendToExtension({
+              this.send({
                 type: "host_browser_cancel",
                 requestId,
               } as ServerMessage);
@@ -150,7 +154,7 @@ export class HostBrowserProxy {
           return;
         }
 
-        this.sendToExtension({
+        this.send({
           ...input,
           type: "host_browser_request",
           requestId,
@@ -207,7 +211,7 @@ export class HostBrowserProxy {
       clearTimeout(entry.timer);
       entry.detachAbort();
       try {
-        this.sendToExtension({
+        this.send({
           type: "host_browser_cancel",
           requestId,
         } as ServerMessage);

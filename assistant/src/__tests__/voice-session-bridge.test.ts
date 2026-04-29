@@ -944,14 +944,16 @@ describe("voice-session-bridge", () => {
       decision: string;
     }> = [];
     const publishedMessages: ServerMessage[] = [];
-    const subscription = assistantEventHub.subscribe(
-      {
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: {
         conversationId: conversation.id,
       },
-      (event) => {
+      callback: (event) => {
         publishedMessages.push(event.message);
       },
-    );
+      onEvict: () => {},
+    });
 
     const session = {
       isProcessing: () => false,

@@ -2,7 +2,7 @@
  * Stable per-install client identity for the CLI.
  *
  * Generates a UUID on first use and persists it to
- * `~/.config/vellum/client-id` so the daemon's ClientRegistry can
+ * `~/.config/vellum/client-id` so the daemon's event hub can
  * track this terminal across SSE reconnects and CLI restarts.
  */
 

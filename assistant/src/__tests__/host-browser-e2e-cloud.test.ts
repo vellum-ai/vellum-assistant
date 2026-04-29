@@ -66,9 +66,9 @@ mock.module("../config/loader.js", () => ({
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
-import { getClientRegistry } from "../runtime/client-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
@@ -395,7 +395,8 @@ describe("macOS message ingress with connected extension", () => {
 
     await waitFor(
       () =>
-        getClientRegistry().getMostRecentByCapability("host_browser") == null,
+        assistantEventHub.getMostRecentClientByCapability("host_browser") ==
+        null,
     );
 
     const proxy = HostBrowserProxy.instance;
@@ -436,7 +437,8 @@ async function waitForRegistryEntry(
   timeoutMs = 2000,
 ): Promise<void> {
   await waitFor(
-    () => getClientRegistry().getMostRecentByCapability("host_browser") != null,
+    () =>
+      assistantEventHub.getMostRecentClientByCapability("host_browser") != null,
     timeoutMs,
   );
 }

@@ -2,9 +2,17 @@
  * In-process pub/sub hub for assistant events.
  *
  * Provides subscribe / publish primitives used by the daemon send paths
- * and the SSE route. No runtime route or daemon integration is wired here.
+ * and the SSE route.
+ *
+ * Subscribers are typed via a discriminated union:
+ *   - **ClientEntry** — an SSE-connected client (macos, chrome-extension, …)
+ *     with identity, capabilities, and timestamps.
+ *   - **ProcessEntry** — an in-process consumer (future: file-append logger).
+ *
+ * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
@@ -15,9 +23,9 @@ const log = getLogger("assistant-event-hub");
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-/** Predicate that determines whether a subscriber wants a given event. */
+/** Filter that determines which events a subscriber receives. */
 export type AssistantEventFilter = {
-  /** When set, restrict delivery to this conversation. */
+  /** When set, restrict delivery to events for this conversation. */
   conversationId?: string;
 };
 
@@ -32,24 +40,78 @@ export interface AssistantEventSubscription {
   readonly active: boolean;
 }
 
-// ── Hub ───────────────────────────────────────────────────────────────────────
+// ── Subscriber entries (discriminated union) ─────────────────────────────────
 
-interface SubscriberEntry {
+interface BaseSubscriberEntry {
   filter: AssistantEventFilter;
   callback: AssistantEventCallback;
   active: boolean;
-  /** Called by the hub when this entry is evicted to make room for a new subscriber. */
-  onEvict?: () => void;
+  onEvict: () => void;
+  connectedAt: Date;
+  lastActiveAt: Date;
 }
+
+export interface ClientEntry extends BaseSubscriberEntry {
+  type: "client";
+  clientId: string;
+  interfaceId: InterfaceId;
+  capabilities: HostProxyCapability[];
+}
+
+export interface ProcessEntry extends BaseSubscriberEntry {
+  type: "process";
+}
+
+export type SubscriberEntry = ClientEntry | ProcessEntry;
+
+/** Distributive Omit that preserves union discrimination. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`. */
+export type SubscriberInput = DistributiveOmit<
+  SubscriberEntry,
+  "active" | "connectedAt" | "lastActiveAt"
+>;
+
+/** Serialized form returned by the IPC route / CLI command. */
+export interface ClientEntryJSON {
+  clientId: string;
+  interfaceId: InterfaceId;
+  capabilities: HostProxyCapability[];
+  connectedAt: string;
+  lastActiveAt: string;
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+/** Convert any object's Date-valued fields to ISO strings. */
+export function datesToISO<T extends Record<string, unknown>>(
+  obj: T,
+): { [K in keyof T]: T[K] extends Date ? string : T[K] } {
+  const result = { ...obj } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(result)) {
+    if (value instanceof Date) {
+      result[key] = value.toISOString();
+    }
+  }
+  return result as { [K in keyof T]: T[K] extends Date ? string : T[K] };
+}
+
+// ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
  * Lightweight pub/sub hub for `AssistantEvent` messages.
  *
- * Filtering is applied at subscription level — subscribers receive only
- * events that match their `conversationId` (when specified).
+ * Filtering is applied at subscription level:
+ *   - `conversationId`: scoped events match subscribers with same conversationId
+ *     or no conversationId filter (broadcast to all).
+ *   - `targetCapability` (on publish): targeted events only reach subscribers
+ *     whose capabilities include the target. Untargeted events fan out to all.
  *
- * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection lives in the SSE route.
+ * Client connections register as subscribers with metadata and are queryable
+ * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
@@ -65,23 +127,11 @@ export class AssistantEventHub {
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
    * it can close its SSE stream) and its entry is removed from the hub.
-   *
-   * The only case that throws is when `maxSubscribers` is 0 — there is nothing
-   * to evict and no room to add.
-   *
-   * @param options.onEvict  Called if this subscriber is later evicted by a newer one.
-   * @returns A subscription handle. Call `dispose()` to unsubscribe.
    */
-  subscribe(
-    filter: AssistantEventFilter,
-    callback: AssistantEventCallback,
-    options?: { onEvict?: () => void },
-  ): AssistantEventSubscription {
+  subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
     if (this.subscribers.size >= this.maxSubscribers) {
-      // Evict the oldest subscriber (Sets maintain insertion order).
       const [oldest] = this.subscribers;
       if (!oldest) {
-        // maxSubscribers is 0 — nothing to evict, nothing to add.
         throw new RangeError(
           `AssistantEventHub: subscriber cap reached (${this.maxSubscribers})`,
         );
@@ -89,17 +139,33 @@ export class AssistantEventHub {
       oldest.active = false;
       this.subscribers.delete(oldest);
       try {
-        oldest.onEvict?.();
+        oldest.onEvict();
       } catch {
         /* ignore eviction callback errors */
       }
     }
+
+    const now = new Date();
     const entry: SubscriberEntry = {
-      filter,
-      callback,
+      ...subscriber,
       active: true,
-      onEvict: options?.onEvict,
-    };
+      connectedAt: now,
+      lastActiveAt: now,
+    } as SubscriberEntry;
+
+    if (entry.type === "client") {
+      log.info(
+        {
+          clientId: entry.clientId,
+          interfaceId: entry.interfaceId,
+          capabilities: entry.capabilities,
+        },
+        "subscriber registered (client)",
+      );
+    } else {
+      log.info("subscriber registered (process)");
+    }
+
     this.subscribers.add(entry);
 
     return {
@@ -107,6 +173,17 @@ export class AssistantEventHub {
         if (entry.active) {
           entry.active = false;
           this.subscribers.delete(entry);
+          if (entry.type === "client") {
+            log.info(
+              {
+                clientId: entry.clientId,
+                interfaceId: entry.interfaceId,
+              },
+              "subscriber unregistered (client)",
+            );
+          } else {
+            log.info("subscriber unregistered (process)");
+          }
         }
       },
       get active() {
@@ -120,16 +197,16 @@ export class AssistantEventHub {
    *
    * Matching rules:
    * - if `filter.conversationId` is set, `event.conversationId` must equal it
+   * - if `targetCapability` is set, only subscribers whose capabilities include
+   *   it receive the event; untargeted events go to all
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
-   * delivery to remaining subscribers. All callbacks (sync and async) are
-   * awaited and their errors collected; any errors are re-thrown together
-   * as an `AggregateError` after all callbacks have been invoked.
-   *
-   * Subscribers are snapshotted at the start of each publish call so that
-   * callbacks adding new subscriptions do not receive the in-flight event.
+   * delivery to remaining subscribers.
    */
-  async publish(event: AssistantEvent): Promise<void> {
+  async publish(
+    event: AssistantEvent,
+    options?: { targetCapability?: HostProxyCapability },
+  ): Promise<void> {
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);
@@ -138,19 +215,32 @@ export class AssistantEventHub {
       }
     }
 
+    const targetCapability = options?.targetCapability;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
-      // System events (no conversationId) match all subscribers; scoped events
-      // must match the subscriber's conversationId filter when present.
+
+      // Conversation scoping: scoped events skip subscribers filtering on a
+      // different conversation.
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&
         entry.filter.conversationId !== event.conversationId
       )
         continue;
+
+      // Capability targeting: targeted events only go to subscribers that
+      // declare the required capability.
+      if (targetCapability != null) {
+        if (
+          entry.type !== "client" ||
+          !entry.capabilities.includes(targetCapability)
+        )
+          continue;
+      }
+
       try {
         await entry.callback(event);
       } catch (err) {
@@ -185,6 +275,71 @@ export class AssistantEventHub {
       return true;
     }
     return false;
+  }
+
+  // ── Client queries ──────────────────────────────────────────────────────────
+
+  private clientEntries(): ClientEntry[] {
+    const clients: ClientEntry[] = [];
+    for (const entry of this.subscribers) {
+      if (entry.active && entry.type === "client") {
+        clients.push(entry);
+      }
+    }
+    return clients.sort(
+      (a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+    );
+  }
+
+  /**
+   * Return all active client subscribers, sorted by `lastActiveAt` descending.
+   */
+  listClients(): ClientEntry[] {
+    return this.clientEntries();
+  }
+
+  /**
+   * Return all client subscribers that support the given capability,
+   * sorted by `lastActiveAt` descending.
+   */
+  listClientsByCapability(capability: HostProxyCapability): ClientEntry[] {
+    return this.clientEntries().filter((c) =>
+      c.capabilities.includes(capability),
+    );
+  }
+
+  /**
+   * Return the most recently active client that supports the given
+   * capability, or `undefined` if none exists.
+   */
+  getMostRecentClientByCapability(
+    capability: HostProxyCapability,
+  ): ClientEntry | undefined {
+    return this.listClientsByCapability(capability)[0];
+  }
+
+  /**
+   * Return all client subscribers with the given interface type,
+   * sorted by `lastActiveAt` descending.
+   */
+  listClientsByInterface(interfaceId: InterfaceId): ClientEntry[] {
+    return this.clientEntries().filter((c) => c.interfaceId === interfaceId);
+  }
+
+  /**
+   * Touch a client subscriber — update `lastActiveAt`. Used by heartbeat.
+   */
+  touchClient(clientId: string): void {
+    for (const entry of this.subscribers) {
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        entry.lastActiveAt = new Date();
+        return;
+      }
+    }
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */
