@@ -68,7 +68,6 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
-  "feedEventCopy",
   "trustRuleSuggestion",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
