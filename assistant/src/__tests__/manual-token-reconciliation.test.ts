@@ -82,10 +82,8 @@ mock.module("../oauth/oauth-store.js", () => ({
 // Import module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-import {
-  backfillManualTokenConnections,
-  syncManualTokenConnection,
-} from "../oauth/manual-token-connection.js";
+const { backfillManualTokenConnections, syncManualTokenConnection } =
+  await import("../oauth/manual-token-connection.js");
 import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
