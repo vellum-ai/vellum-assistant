@@ -5,10 +5,10 @@ import {
   ServicesSchema,
 } from "../config/schemas/services.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
+import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -96,10 +96,11 @@ export async function resolveOAuthConnection(
     );
   }
 
-  const accessToken = await getSecureKeyAsync(
-    `oauth_connection/${conn.id}/access_token`,
-  );
-  if (!accessToken) {
+  const tokenResult = await getConnectionAccessTokenResult({
+    provider,
+    connectionId: conn.id,
+  });
+  if (!tokenResult.value) {
     throw new Error(
       `OAuth connection for "${provider}" exists but has no access token. Re-authorize with \`assistant oauth connect ${provider}\`.`,
     );

@@ -9,7 +9,8 @@
  */
 
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getSecureKeyResultAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import {
   createConnection,
   deleteConnection,
@@ -18,31 +19,14 @@ import {
   upsertApp,
 } from "./oauth-store.js";
 
+// Re-export from the centralized resolver so existing callers that import
+// from this module continue to work without changes.
+export { manualTokenAccessCredentialKey } from "./credential-token-resolver.js";
+
+const log = getLogger("manual-token-connection");
+
 /** Sentinel client_id used for non-OAuth providers that don't have a real app. */
 const MANUAL_TOKEN_CLIENT_ID = "manual-config";
-
-/**
- * Return the secure-store key holding the primary access token for a
- * manual-token provider, or null for OAuth providers whose tokens live at
- * `oauth_connection/<id>/access_token`.
- *
- * Manual-token providers store their tokens under `credential/<provider>/<field>`
- * via the generic credential store, so any code that validates tokens for these
- * providers (e.g. credential-health checks) must resolve the path through here
- * rather than assuming the OAuth access-token path.
- */
-export function manualTokenAccessCredentialKey(
-  provider: string,
-): string | null {
-  switch (provider) {
-    case "slack_channel":
-      return credentialKey("slack_channel", "bot_token");
-    case "telegram":
-      return credentialKey("telegram", "bot_token");
-    default:
-      return null;
-  }
-}
 
 /**
  * Ensure an active oauth_connection row exists for the given manual-token
@@ -101,13 +85,19 @@ export async function syncManualTokenConnection(
 ): Promise<void> {
   switch (provider) {
     case "telegram": {
-      const hasBotToken = !!(await getSecureKeyAsync(
+      const botTokenResult = await getSecureKeyResultAsync(
         credentialKey("telegram", "bot_token"),
-      ));
-      const hasWebhookSecret = !!(await getSecureKeyAsync(
+      );
+      const webhookSecretResult = await getSecureKeyResultAsync(
         credentialKey("telegram", "webhook_secret"),
-      ));
-      if (hasBotToken && hasWebhookSecret) {
+      );
+      if (botTokenResult.unreachable || webhookSecretResult.unreachable) {
+        log.warn(
+          "Skipping telegram manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (botTokenResult.value && webhookSecretResult.value) {
         await ensureManualTokenConnection(provider, accountInfo);
       } else {
         removeManualTokenConnection(provider);
@@ -116,13 +106,19 @@ export async function syncManualTokenConnection(
     }
 
     case "slack_channel": {
-      const hasBotToken = !!(await getSecureKeyAsync(
+      const botTokenResult = await getSecureKeyResultAsync(
         credentialKey("slack_channel", "bot_token"),
-      ));
-      const hasAppToken = !!(await getSecureKeyAsync(
+      );
+      const appTokenResult = await getSecureKeyResultAsync(
         credentialKey("slack_channel", "app_token"),
-      ));
-      if (hasBotToken && hasAppToken) {
+      );
+      if (botTokenResult.unreachable || appTokenResult.unreachable) {
+        log.warn(
+          "Skipping slack_channel manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (botTokenResult.value && appTokenResult.value) {
         await ensureManualTokenConnection(provider, accountInfo);
       } else {
         removeManualTokenConnection(provider);
