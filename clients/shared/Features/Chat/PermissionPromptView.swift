@@ -209,7 +209,7 @@ public struct PermissionPromptView: View {
     private var v3ConfirmationActions: some View {
         HStack(spacing: VSpacing.sm) {
             if onAllowAndSuggestRule != nil {
-                VSplitButton(label: "Allow", style: .primary, size: .compact, action: {
+                VSplitButton(label: "Allow", style: .primary, size: .compact, buttonShape: .roundedRectangle, action: {
                     if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
                         let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
                         onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
@@ -228,12 +228,12 @@ public struct PermissionPromptView: View {
                     #endif
                 }
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
             } else {
-                VButton(label: "Allow", style: .primary, size: .compact, buttonShape: .capsule) {
+                VButton(label: "Allow", style: .primary, size: .compact) {
                     if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
                         let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
                         onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
@@ -242,17 +242,17 @@ public struct PermissionPromptView: View {
                     }
                 }
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
             }
 
-            VButton(label: "Deny", style: .danger, size: .compact, buttonShape: .capsule) {
+            VButton(label: "Deny", style: .danger, size: .compact) {
                 onDeny()
             }
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: VRadius.md)
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
                     .allowsHitTesting(false)
             )
