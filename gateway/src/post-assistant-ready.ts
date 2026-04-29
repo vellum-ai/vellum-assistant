@@ -65,7 +65,7 @@ export async function runPostAssistantReady(): Promise<void> {
 
   // 2. Guardian binding backfill
   try {
-    ensureVellumGuardianBinding();
+    await ensureVellumGuardianBinding();
   } catch (err) {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }

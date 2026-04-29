@@ -282,7 +282,7 @@ export function createChannelVerificationSessionProxyHandler(
         }
 
         // Execute the bootstrap directly — no round-trip to the runtime.
-        const result = bootstrapGuardian({ platform, deviceId });
+        const result = await bootstrapGuardian({ platform, deviceId });
 
         // Bootstrap succeeded — record consumption and write lock files.
         if (expectedSecrets.length > 0 && providedIndex >= 0) {

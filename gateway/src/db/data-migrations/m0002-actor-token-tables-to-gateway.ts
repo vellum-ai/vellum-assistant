@@ -7,6 +7,12 @@
  *   - The gateway DB is the sole owner of both tables.
  *   - All reads/writes go through the gateway DB only (no dual-writes).
  *   - The assistant DB no longer has these tables.
+ *
+ * ⚠️  This migration opens assistant.db directly (not via IPC proxy) because
+ * the synchronous migration framework does not support async. This is
+ * acceptable because it's a one-shot that already ran for existing installs.
+ * On platform pods (shared volume), the busy_timeout and WAL mode pragmas
+ * minimize corruption risk for this brief access window.
  */
 
 import { existsSync } from "node:fs";

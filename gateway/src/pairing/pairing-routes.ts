@@ -45,7 +45,7 @@ function mintPairingCredentials(
   platform: string,
 ): PairingCredentials | null {
   try {
-    const result = bootstrapGuardian({ platform, deviceId });
+    const result = await bootstrapGuardian({ platform, deviceId });
     log.info({ platform }, "Minted credentials during pairing");
     return {
       accessToken: result.accessToken,
