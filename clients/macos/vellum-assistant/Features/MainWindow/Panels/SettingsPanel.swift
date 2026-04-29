@@ -32,9 +32,17 @@ enum SettingsTab: String {
         }
     }
 
-    /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, debugEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.general, .modelsAndServices, .integrations]
+    static func sidebarTopTabs(
+        billingEnabled: Bool = false,
+        soundsEnabled: Bool = true,
+        debugEnabled: Bool = false,
+        includeCompactionPlayground: Bool = false
+    ) -> [SettingsTab] {
+        var tabs: [SettingsTab] = []
+        if includeCompactionPlayground {
+            tabs.append(.compactionPlayground)
+        }
+        tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
@@ -53,22 +61,13 @@ enum SettingsTab: String {
         developerEnabled && playgroundEnabled && devModeEnabled
     }
 
-    static func sidebarTopTabs(
-        billingEnabled: Bool = false,
-        soundsEnabled: Bool = true,
-        debugEnabled: Bool = false,
-        includeCompactionPlayground: Bool = false
-    ) -> [SettingsTab] {
-        let primary = primaryTabs(
-            billingEnabled: billingEnabled,
-            soundsEnabled: soundsEnabled,
-            debugEnabled: debugEnabled
-        )
-        return includeCompactionPlayground ? [.compactionPlayground] + primary : primary
-    }
-
-    static func sidebarBottomTabs(developerEnabled: Bool) -> [SettingsTab] {
-        developerEnabled ? [.developer] : []
+    static func canDeferDeepLink(_ tab: SettingsTab) -> Bool {
+        switch tab {
+        case .developer, .compactionPlayground:
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -145,7 +144,7 @@ struct SettingsPanel: View {
             )
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
-            } else {
+            } else if SettingsTab.canDeferDeepLink(pending) {
                 // Tab may become visible once feature flags load (e.g. .developer).
                 // Preserve it for deferred evaluation in loadFeatureFlags().
                 _deferredDeepLinkTab = State(initialValue: pending)
@@ -265,8 +264,10 @@ struct SettingsPanel: View {
             if let tab = newTab {
                 if allVisibleTabs.contains(tab) {
                     selectVisibleTab(tab)
-                } else {
+                } else if SettingsTab.canDeferDeepLink(tab) {
                     deferredDeepLinkTab = tab
+                } else {
+                    deferredDeepLinkTab = nil
                 }
                 store.pendingSettingsTab = nil
             }
@@ -281,13 +282,16 @@ struct SettingsPanel: View {
             }
         }
         .onChange(of: billingVisible) { _, _ in
-            ensureSelectedTabIsVisible()
+            consumeDeferredDeepLinkIfVisible()
         }
         .onChange(of: isDebugVisible) { _, _ in
-            ensureSelectedTabIsVisible()
+            consumeDeferredDeepLinkIfVisible()
         }
         .onChange(of: isSoundsEnabled) { _, _ in
-            ensureSelectedTabIsVisible()
+            consumeDeferredDeepLinkIfVisible()
+        }
+        .onChange(of: isCompactionPlaygroundVisible) { _, _ in
+            consumeDeferredDeepLinkIfVisible()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
@@ -325,6 +329,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
+            consumeDeferredDeepLinkIfVisible()
         }
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
@@ -396,12 +401,16 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (top nav + gated bottom nav).
     private var allVisibleTabs: [SettingsTab] {
-        SettingsTab.sidebarTopTabs(
+        var tabs = SettingsTab.sidebarTopTabs(
             billingEnabled: billingVisible,
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
-        ) + SettingsTab.sidebarBottomTabs(developerEnabled: isDeveloperEnabled)
+        )
+        if isDeveloperEnabled {
+            tabs.append(.developer)
+        }
+        return tabs
     }
 
     private var billingVisible: Bool {
@@ -441,7 +450,7 @@ struct SettingsPanel: View {
                 }
             }
             Spacer(minLength: VSpacing.sm)
-            if SettingsTab.sidebarBottomTabs(developerEnabled: isDeveloperEnabled).contains(.developer) {
+            if isDeveloperEnabled {
                 VColor.surfaceBase
                     .frame(height: 1)
                     .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
@@ -799,6 +808,11 @@ struct SettingsPanel: View {
     /// hadn't loaded, check whether it's now visible and navigate to it.
     private func consumeDeferredDeepLinkIfVisible() {
         guard let deferred = deferredDeepLinkTab else {
+            ensureSelectedTabIsVisible()
+            return
+        }
+        guard SettingsTab.canDeferDeepLink(deferred) else {
+            deferredDeepLinkTab = nil
             ensureSelectedTabIsVisible()
             return
         }
