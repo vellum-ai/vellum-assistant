@@ -12,7 +12,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getDb } from "../memory/db-connection.js";
 import { acpSessionHistory } from "../memory/schema.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
@@ -435,54 +434,43 @@ export class AcpSessionManager {
           this.teardownSession(acpSessionId, current);
 
           // Notify parent session so the LLM sees the agent's output
-          {
-            const agentLabel = current.state.agentId;
-            const responseText = current.clientHandler.responseText;
-            const sessionId = current.state.acpSessionId;
-            const resumeHint =
-              current.command === "claude-agent-acp"
-                ? `\n\nTo resume: cd ${current.cwd} && claude --resume ${sessionId}`
-                : "";
-            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
-            const parentConversation = findConversation(
-              current.parentConversationId,
+          const agentLabel = current.state.agentId;
+          const responseText = current.clientHandler.responseText;
+          const sessionId = current.state.acpSessionId;
+          const resumeHint =
+            current.command === "claude-agent-acp"
+              ? `\n\nTo resume: cd ${current.cwd} && claude --resume ${sessionId}`
+              : "";
+          const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
+          const parentConversation = findConversation(
+            current.parentConversationId,
+          );
+          if (parentConversation) {
+            const enqueueResult = parentConversation.enqueueMessage(
+              notifyMessage,
+              [],
             );
-            if (parentConversation) {
-              const onEvent = (msg: ServerMessage) =>
-                broadcastMessage(msg, current.parentConversationId);
-              const requestId = `acp-notify-${Date.now()}`;
-              const enqueueResult = parentConversation.enqueueMessage(
-                notifyMessage,
-                [],
-                onEvent,
-                requestId,
-              );
-              if (!enqueueResult.queued && !enqueueResult.rejected) {
-                parentConversation
-                  .persistUserMessage(notifyMessage, [])
-                  .then((messageId) =>
-                    parentConversation.runAgentLoop(
-                      notifyMessage,
-                      messageId,
-                      onEvent,
-                    ),
-                  )
-                  .catch((err) => {
-                    log.error(
-                      {
-                        parentConversationId: current.parentConversationId,
-                        err,
-                      },
-                      "Failed to process ACP notification in parent",
-                    );
-                  });
-              }
-            } else {
-              log.warn(
-                { parentConversationId: current.parentConversationId },
-                "ACP agent finished but parent conversation not found",
-              );
+            if (!enqueueResult.queued && !enqueueResult.rejected) {
+              parentConversation
+                .persistUserMessage(notifyMessage, [])
+                .then((messageId) =>
+                  parentConversation.runAgentLoop(notifyMessage, messageId),
+                )
+                .catch((err) => {
+                  log.error(
+                    {
+                      parentConversationId: current.parentConversationId,
+                      err,
+                    },
+                    "Failed to process ACP notification in parent",
+                  );
+                });
             }
+          } else {
+            log.warn(
+              { parentConversationId: current.parentConversationId },
+              "ACP agent finished but parent conversation not found",
+            );
           }
         }
       })

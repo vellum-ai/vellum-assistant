@@ -789,8 +789,8 @@ export class Conversation {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -803,8 +803,8 @@ export class Conversation {
       this,
       content,
       attachments,
-      onEvent,
-      requestId,
+      onEvent ?? this.sendToClient,
+      requestId ?? crypto.randomUUID(),
       activeSurfaceId,
       currentPage,
       metadata,
@@ -1220,7 +1220,7 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -1237,7 +1237,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
-    return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
+    return runAgentLoopImpl(
+      this,
+      content,
+      userMessageId,
+      onEvent ?? this.sendToClient,
+      options,
+    );
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
@@ -1247,7 +1253,7 @@ export class Conversation {
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1260,7 +1266,7 @@ export class Conversation {
       this as ProcessConversationContext,
       content,
       attachments,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
       activeSurfaceId,
       currentPage,
@@ -1280,12 +1286,12 @@ export class Conversation {
   }
 
   async regenerate(
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
   ): Promise<void> {
     return regenerateImpl(
       this as HistoryConversationContext,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
     );
   }

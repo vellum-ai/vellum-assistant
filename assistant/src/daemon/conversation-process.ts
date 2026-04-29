@@ -132,7 +132,7 @@ export interface ProcessConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;

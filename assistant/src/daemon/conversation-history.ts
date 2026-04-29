@@ -357,7 +357,7 @@ export interface HistoryConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isUserMessage?: boolean;
       titleText?: string;
