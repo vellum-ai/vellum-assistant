@@ -105,6 +105,7 @@ async function startGateway(): Promise<void> {
       CES_SERVICE_TOKEN: TEST_SERVICE_TOKEN,
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
+      SKIP_POST_ASSISTANT_READY: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -262,6 +262,13 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
 
+  // Wait for the assistant runtime to be healthy before serving traffic.
+  // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
+  // complete before the HTTP server starts accepting auth requests —
+  // otherwise newly minted tokens can be overwritten by stale rows
+  // migrated from the assistant DB.
+  await runPostAssistantReady();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
@@ -1516,13 +1523,6 @@ async function main() {
   });
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
-
-  // Deferred startup tasks that depend on the assistant runtime being
-  // ready (e.g. guardian binding backfill, data migrations that touch
-  // the assistant DB). Runs in the background — does not block startup.
-  runPostAssistantReady().catch((err) => {
-    log.error({ err }, "Post-assistant-ready lifecycle failed");
-  });
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
