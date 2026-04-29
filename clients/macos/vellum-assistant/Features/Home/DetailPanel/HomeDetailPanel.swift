@@ -54,17 +54,17 @@ struct HomeDetailPanel<Content: View>: View {
             if scrollable {
                 ScrollView {
                     content()
-                        .frame(maxWidth: .infinity, alignment: .top)
+                        .containerRelativeFrame(.horizontal, alignment: .top)
                 }
                 .layoutPriority(1)
             } else {
                 content()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .layoutPriority(1)
             }
+
+            Spacer(minLength: 0)
         }
         .frame(width: Self.defaultWidth)
-        .frame(maxHeight: .infinity)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(

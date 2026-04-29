@@ -70,31 +70,34 @@ struct HomeScheduledDetailPanel: View {
     }
 
     private var detailsCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Details")
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentEmphasized)
-                .accessibilityAddTraits(.isHeader)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Details")
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                    .accessibilityAddTraits(.isHeader)
 
-            ForEach(rows) { row in
-                HStack {
-                    Text(row.key)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Spacer()
-                    Text(row.value)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
+                ForEach(rows) { row in
+                    HStack {
+                        Text(row.key)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Spacer()
+                        Text(row.value)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                    }
                 }
             }
+            .padding(EdgeInsets(
+                top: VSpacing.md,
+                leading: VSpacing.md,
+                bottom: VSpacing.lg,
+                trailing: VSpacing.md
+            ))
+            .layoutPriority(1)
+            Spacer(minLength: 0)
         }
-        .padding(EdgeInsets(
-            top: VSpacing.md,
-            leading: VSpacing.md,
-            bottom: VSpacing.lg,
-            trailing: VSpacing.md
-        ))
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .fill(VColor.surfaceOverlay)
