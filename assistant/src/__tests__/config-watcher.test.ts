@@ -73,6 +73,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
   }),
+  loadConfig: () => ({ ui: {} }),
   invalidateConfigCache: () => {},
 }));
 
@@ -94,6 +95,14 @@ mock.module("../signals/mcp-reload.js", () => ({
 
 mock.module("../signals/conversation-undo.js", () => ({
   handleConversationUndoSignal: () => {},
+}));
+
+mock.module("../signals/user-message.js", () => ({
+  handleUserMessageSignal: async () => {},
+}));
+
+mock.module("../signals/cancel.js", () => ({
+  handleCancelSignal: () => {},
 }));
 
 // Import after mocks are set up
