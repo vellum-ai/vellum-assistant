@@ -391,7 +391,7 @@ async function dispatchHostBrowserResult(
   if (sseConnection && sseConnection.isOpen()) {
     const mode = sseConnection.getMode();
     const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
-    const url = `${baseUrl}/v1/host-browser-result`;
+    const url = `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/host-browser-result`;
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
