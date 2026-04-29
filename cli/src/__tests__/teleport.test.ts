@@ -933,11 +933,25 @@ describe("unified GCS flow — four directions", () => {
       // GCS, and polled the unified job status.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         expect.objectContaining({ operation: "upload" }),
-        expect.anything(),
-        expect.anything(),
+        "platform-token",
+        "https://platform.vellum.ai",
       );
-      expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
-      expect(platformPollJobStatusMock).toHaveBeenCalled();
+      // export-to-gcs targets the platform URL (the platform proxies
+      // runtime endpoints for managed assistants) and is authed with the
+      // guardian token resolved from loadGuardianToken / leaseGuardianToken.
+      expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
+        "https://platform.vellum.ai",
+        "local-token",
+        expect.objectContaining({
+          uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
+          description: "teleport export",
+        }),
+      );
+      expect(platformPollJobStatusMock).toHaveBeenCalledWith(
+        "local-export-job-1",
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
 
       // For the local target we request a download URL keyed by the
       // platform's bundle_key. The URL must target the SOURCE platform
