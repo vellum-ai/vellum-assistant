@@ -3689,7 +3689,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Kick off an async export-to-GCS job",
           description:
-            "Transparent proxy to the assistant daemon's `POST /v1/migrations/export-to-gcs` endpoint. The daemon schedules a background export job that streams the workspace backup to the supplied signed GCS upload URL and returns `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/export-to-gcs` endpoint. The daemon schedules a background export job that streams the workspace backup to the supplied signed GCS upload URL and returns `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationExportToGcs",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3728,7 +3728,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Kick off an async import-from-GCS job",
           description:
-            "Transparent proxy to the assistant daemon's `POST /v1/migrations/import-from-gcs` endpoint. The daemon schedules a background import job that fetches a `.vbundle` archive at the supplied `bundle_url` and streams it through the importer, returning `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/import-from-gcs` endpoint. The daemon schedules a background import job that fetches a `.vbundle` archive at the supplied `bundle_url` and streams it through the importer, returning `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationImportFromGcs",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3778,7 +3778,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Poll unified migration job status",
           description:
-            "Transparent proxy to the assistant daemon's `GET /v1/migrations/jobs/{job_id}` endpoint. Returns the current status of an async export-to-GCS or import-from-GCS job tracked by the daemon's migration job registry. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `GET /v1/migrations/jobs/{job_id}` endpoint. Returns the current status of an async export-to-GCS or import-from-GCS job tracked by the daemon's migration job registry. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationJobStatus",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3971,7 +3971,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Runtime proxy",
           description:
-            "Reverse-proxies requests to the assistant runtime when gateway.runtimeProxyEnabled is true in workspace config. Supports all HTTP methods. Returns 404 when the proxy is disabled.",
+            "Reverse-proxies requests to the assistant runtime. Supports all HTTP methods.",
           operationId: "runtimeProxyGet",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -4032,8 +4032,7 @@ export function buildSchema(): Record<string, unknown> {
         },
         post: {
           summary: "Runtime proxy",
-          description:
-            "Reverse-proxies requests to the assistant runtime when gateway.runtimeProxyEnabled is true in workspace config.",
+          description: "Reverse-proxies requests to the assistant runtime.",
           operationId: "runtimeProxyPost",
           security: [{ BearerAuth: [] }],
           parameters: [
