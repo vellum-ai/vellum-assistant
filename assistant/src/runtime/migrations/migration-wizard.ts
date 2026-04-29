@@ -85,8 +85,8 @@ export interface MigrationWizardState {
     | {
         ok: true;
         filename: string;
-        schemaVersion: string;
-        manifestSha256: string;
+        schemaVersion: number;
+        checksum: string;
       };
 
   /** Import commit result. */

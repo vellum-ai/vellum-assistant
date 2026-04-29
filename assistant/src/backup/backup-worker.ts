@@ -26,18 +26,24 @@
  * surface against temp directories with tiny fake bundles.
  */
 
+import { hostname } from "node:os";
 import { Database } from "bun:sqlite";
 
 import { getConfig } from "../config/loader.js";
 import type { BackupConfig } from "../config/schema.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
 import {
   getMemoryCheckpoint as realGetMemoryCheckpoint,
   setMemoryCheckpoint as realSetMemoryCheckpoint,
 } from "../memory/checkpoints.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { VBundleOriginMode } from "../runtime/migrations/origin-mode.js";
 import type { StreamExportVBundleResult } from "../runtime/migrations/vbundle-builder.js";
 import { streamExportVBundle as realStreamExportVBundle } from "../runtime/migrations/vbundle-builder.js";
+import { getDaemonRuntimeMode } from "../runtime/runtime-mode.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath, getWorkspaceDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import { ensureBackupKey as realEnsureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
@@ -185,10 +191,38 @@ async function performBackup(
   // mirrors the pattern in `handleMigrationExport`: open a fresh Database
   // handle, run PRAGMA wal_checkpoint(TRUNCATE), close it. Any failure is
   // best-effort — the export still proceeds with whatever is on disk.
+  //
+  // The backup worker bundles credentials by design (its purpose is local
+  // recovery), so `secretsRedacted: false`. Backups run locally on the host
+  // machine; managed deployments delegate to the platform. Hardcoding to
+  // self-hosted ensures the resulting bundle satisfies the v1 schema's
+  // refine for managed/secrets_redacted — `getOriginMode()` would return
+  // "managed" in a managed deployment, producing a non-restorable bundle.
+  const originMode: VBundleOriginMode =
+    getDaemonRuntimeMode() === "docker"
+      ? "self-hosted-remote"
+      : "self-hosted-local";
   const result = await streamExport({
     workspaceDir,
-    source: "backup-worker",
-    description: "Automated backup snapshot",
+    assistant: {
+      id: DAEMON_INTERNAL_ASSISTANT_ID,
+      name: getAssistantName() ?? "Assistant",
+      runtime_version: APP_VERSION,
+    },
+    origin: {
+      mode: originMode,
+      hostname: hostname(),
+    },
+    compatibility: {
+      min_runtime_version: APP_VERSION,
+      max_runtime_version: null,
+    },
+    exportOptions: {
+      include_logs: true,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+    secretsRedacted: false,
     checkpoint: () => {
       const dbPath = getDbPath();
       try {

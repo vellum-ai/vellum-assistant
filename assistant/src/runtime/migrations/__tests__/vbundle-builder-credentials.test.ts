@@ -16,6 +16,7 @@ import { gunzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
 
 import { buildExportVBundle, streamExportVBundle } from "../vbundle-builder.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -111,6 +112,7 @@ describe("buildExportVBundle with credentials", () => {
       ];
 
       const result = buildExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
         credentials,
       });
@@ -141,6 +143,7 @@ describe("buildExportVBundle with credentials", () => {
       ];
 
       const result = buildExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
         credentials,
       });
@@ -149,12 +152,12 @@ describe("buildExportVBundle with credentials", () => {
         new TextEncoder().encode("secret-value-abc"),
       );
 
-      const credEntry = result.manifest.files.find(
+      const credEntry = result.manifest.contents.find(
         (f) => f.path === "credentials/my-api-key",
       );
       expect(credEntry).toBeDefined();
       expect(credEntry!.sha256).toBe(expectedHash);
-      expect(credEntry!.size).toBe(
+      expect(credEntry!.size_bytes).toBe(
         new TextEncoder().encode("secret-value-abc").length,
       );
     } finally {
@@ -166,6 +169,7 @@ describe("buildExportVBundle with credentials", () => {
     const workspace = createTestWorkspace();
     try {
       const result = buildExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
       });
 
@@ -178,7 +182,7 @@ describe("buildExportVBundle with credentials", () => {
       expect(credentialEntries).toHaveLength(0);
 
       // Manifest should have no credential entries
-      const credManifestEntries = result.manifest.files.filter((f) =>
+      const credManifestEntries = result.manifest.contents.filter((f) =>
         f.path.startsWith("credentials/"),
       );
       expect(credManifestEntries).toHaveLength(0);
@@ -191,6 +195,7 @@ describe("buildExportVBundle with credentials", () => {
     const workspace = createTestWorkspace();
     try {
       const result = buildExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
         credentials: [],
       });
@@ -218,6 +223,7 @@ describe("streamExportVBundle with credentials", () => {
       ];
 
       result = await streamExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
         credentials,
       });
@@ -237,7 +243,7 @@ describe("streamExportVBundle with credentials", () => {
       );
 
       // Verify manifest entry
-      const credEntry = result.manifest.files.find(
+      const credEntry = result.manifest.contents.find(
         (f) => f.path === "credentials/stream-key",
       );
       expect(credEntry).toBeDefined();
@@ -255,6 +261,7 @@ describe("streamExportVBundle with credentials", () => {
     let result: Awaited<ReturnType<typeof streamExportVBundle>> | undefined;
     try {
       result = await streamExportVBundle({
+        ...defaultV1Options(),
         workspaceDir: workspace.dir,
       });
 

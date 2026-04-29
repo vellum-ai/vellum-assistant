@@ -64,16 +64,43 @@ export interface ValidationError {
 export interface ManifestFileEntry {
   path: string;
   sha256: string;
-  size: number;
+  size_bytes: number;
+}
+
+export interface ManifestAssistantInfo {
+  id: string;
+  name: string;
+  runtime_version: string;
+}
+
+export interface ManifestOrigin {
+  mode: "managed" | "self-hosted-remote" | "self-hosted-local";
+  platform_version?: string;
+  hostname?: string;
+}
+
+export interface ManifestCompatibility {
+  min_runtime_version: string;
+  max_runtime_version: string | null;
+}
+
+export interface ManifestExportOptions {
+  include_logs: boolean;
+  include_browser_state: boolean;
+  include_memory_vectors: boolean;
 }
 
 export interface Manifest {
-  schema_version: string;
+  schema_version: number;
+  bundle_id: string;
   created_at: string;
-  source?: string;
-  description?: string;
-  files: ManifestFileEntry[];
-  manifest_sha256: string;
+  assistant: ManifestAssistantInfo;
+  origin: ManifestOrigin;
+  compatibility: ManifestCompatibility;
+  contents: ManifestFileEntry[];
+  checksum: string;
+  secrets_redacted: boolean;
+  export_options: ManifestExportOptions;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,8 +131,8 @@ export interface ExportRuntimeResult {
   ok: true;
   archive: ArrayBuffer;
   filename: string;
-  schemaVersion: string;
-  manifestSha256: string;
+  schemaVersion: number;
+  checksum: string;
 }
 
 /** Managed export initiates an async job and returns a job ID. */
@@ -398,8 +425,14 @@ export async function exportBundle(
     } as ExportManagedResult;
   }
 
-  // Runtime returns the binary archive
+  // Runtime returns the binary archive. The legacy
+  // `X-Vbundle-Manifest-Sha256` response header name is preserved for
+  // cross-version client compat — its value is now sourced from the
+  // renamed manifest `checksum` field.
   const archive = await response.arrayBuffer();
+  const schemaVersionHeader =
+    response.headers.get("X-Vbundle-Schema-Version") ?? "";
+  const parsedSchemaVersion = Number.parseInt(schemaVersionHeader, 10);
   return {
     ok: true,
     archive,
@@ -407,10 +440,10 @@ export async function exportBundle(
       response.headers
         .get("Content-Disposition")
         ?.match(/filename="?(.+?)"?$/)?.[1] ?? "export.vbundle",
-    schemaVersion:
-      response.headers.get("X-Vbundle-Schema-Version") ?? "unknown",
-    manifestSha256:
-      response.headers.get("X-Vbundle-Manifest-Sha256") ?? "unknown",
+    schemaVersion: Number.isFinite(parsedSchemaVersion)
+      ? parsedSchemaVersion
+      : 0,
+    checksum: response.headers.get("X-Vbundle-Manifest-Sha256") ?? "",
   } as ExportRuntimeResult;
 }
 

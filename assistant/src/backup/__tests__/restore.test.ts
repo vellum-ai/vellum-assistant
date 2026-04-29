@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { defaultV1Options } from "../../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../../runtime/migrations/vbundle-builder.js";
 import type { PathResolver } from "../../runtime/migrations/vbundle-import-analyzer.js";
 import type {
@@ -78,11 +79,13 @@ const NULL_RESOLVER: PathResolver = {
  * the file path along with the manifest the builder embedded so tests can
  * compare against it.
  */
-function writeTinyPlaintextBundle(
-  fileName: string,
-): { path: string; manifest: ManifestType } {
+function writeTinyPlaintextBundle(fileName: string): {
+  path: string;
+  manifest: ManifestType;
+} {
   const { archive, manifest } = buildVBundle({
     files: [
+      { path: "data/db/assistant.db", data: new Uint8Array() },
       {
         path: "workspace/notes/hello.txt",
         data: new TextEncoder().encode("hello world"),
@@ -92,8 +95,7 @@ function writeTinyPlaintextBundle(
         data: new TextEncoder().encode("a tiny bundle for tests"),
       },
     ],
-    source: "restore-test",
-    description: "tiny bundle for restore.test.ts",
+    ...defaultV1Options(),
   });
 
   const path = join(TEST_DIR, fileName);
@@ -117,21 +119,35 @@ function makeStubCommitImpl(): {
   const calls: RecordedCall[] = [];
   const commitImpl = (options: ImportCommitOptions): ImportCommitResult => {
     calls.push({ options });
-    const manifest =
+    const manifest: ManifestType =
       options.preValidatedManifest ??
       ({
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: new Date().toISOString(),
-        files: [],
-        manifest_sha256: "stub",
-      } satisfies ManifestType);
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum:
+          "0000000000000000000000000000000000000000000000000000000000000000",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
+      } as ManifestType);
     return {
       ok: true,
       report: {
         success: true,
         summary: {
-          total_files: manifest.files.length,
-          files_created: manifest.files.length,
+          total_files: manifest.contents.length,
+          files_created: manifest.contents.length,
           files_overwritten: 0,
           files_skipped: 0,
           backups_created: 0,
@@ -178,8 +194,9 @@ describe("verifySnapshot", () => {
     expect(result.valid).toBe(true);
     expect(result.manifest).toBeDefined();
     expect(result.error).toBeUndefined();
-    expect(result.manifest?.manifest_sha256).toBe(manifest.manifest_sha256);
-    expect(result.manifest?.files.length).toBe(2);
+    expect(result.manifest?.checksum).toBe(manifest.checksum);
+    // 3 = synthetic data/db/assistant.db + workspace/notes/hello.txt + workspace/notes/about.txt
+    expect(result.manifest?.contents.length).toBe(3);
   });
 
   test("encrypted: returns valid:true after decrypting first", async () => {
@@ -244,11 +261,13 @@ describe("verifySnapshot", () => {
     // validateVBundle catches the bad manifest.
     const { archive } = buildVBundle({
       files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
         {
           path: "workspace/notes/hello.txt",
           data: new TextEncoder().encode("hello"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     // Flip a few bytes in the middle of the gzipped archive — this almost
@@ -292,21 +311,19 @@ describe("restoreFromSnapshot", () => {
     const passed = calls[0].options;
     // The wrapper should pass the pre-validated manifest + entries so
     // commitImport doesn't re-validate.
-    expect(passed.preValidatedManifest?.manifest_sha256).toBe(
-      manifest.manifest_sha256,
-    );
+    expect(passed.preValidatedManifest?.checksum).toBe(manifest.checksum);
     expect(passed.preValidatedEntries).toBeDefined();
     expect(passed.preValidatedEntries?.has("manifest.json")).toBe(true);
-    expect(
-      passed.preValidatedEntries?.has("workspace/notes/hello.txt"),
-    ).toBe(true);
+    expect(passed.preValidatedEntries?.has("workspace/notes/hello.txt")).toBe(
+      true,
+    );
     // archiveData must be the actual bundle bytes.
     expect(passed.archiveData).toBeInstanceOf(Uint8Array);
     expect(passed.archiveData.length).toBeGreaterThan(0);
 
     // Public result is shaped correctly.
-    expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
-    expect(result.restoredFiles).toBe(2);
+    expect(result.manifest.checksum).toBe(manifest.checksum);
+    expect(result.restoredFiles).toBe(3);
   });
 
   test("encrypted round-trip: decrypts then commits, and cleans up the temp file", async () => {
@@ -327,8 +344,8 @@ describe("restoreFromSnapshot", () => {
     const after = listRestoreTempArtifacts();
 
     expect(calls.length).toBe(1);
-    expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
-    expect(result.restoredFiles).toBe(2);
+    expect(result.manifest.checksum).toBe(manifest.checksum);
+    expect(result.restoredFiles).toBe(3);
 
     // Decrypted temp file must be cleaned up after the call.
     expect(after.length).toBe(before.length);
@@ -377,6 +394,7 @@ describe("restoreFromSnapshot", () => {
     // the OS keychain / CES and are not part of the backup round trip.
     const { archive, manifest } = buildVBundle({
       files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
         {
           path: "workspace/notes/hello.txt",
           data: new TextEncoder().encode("hello"),
@@ -386,6 +404,7 @@ describe("restoreFromSnapshot", () => {
           data: new TextEncoder().encode("sk-test-1234"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const path = join(TEST_DIR, "with-creds.vbundle");
@@ -399,7 +418,7 @@ describe("restoreFromSnapshot", () => {
 
     // The restore result must not expose a `credentials` field — the public
     // type only has `manifest` and `restoredFiles`.
-    expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
+    expect(result.manifest.checksum).toBe(manifest.checksum);
     expect("credentials" in result).toBe(false);
   });
 
@@ -468,9 +487,7 @@ describe("restoreFromSnapshot", () => {
 
     // Stub that simulates a write failure (the importer returns this for
     // disk errors like permission denied or partial bundle writes).
-    const failingCommit = (
-      _opts: ImportCommitOptions,
-    ): ImportCommitResult => ({
+    const failingCommit = (_opts: ImportCommitOptions): ImportCommitResult => ({
       ok: false,
       reason: "write_failed",
       message: "disk full",

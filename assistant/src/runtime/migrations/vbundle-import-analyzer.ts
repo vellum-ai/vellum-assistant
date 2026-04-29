@@ -112,7 +112,9 @@ export class DefaultPathResolver implements PathResolver {
   constructor(
     private workspaceDir?: string,
     private hooksDir?: string,
-    private guardianPersonaPathResolver: () => string | null = resolveGuardianPersonaPath,
+    private guardianPersonaPathResolver: () =>
+      | string
+      | null = resolveGuardianPersonaPath,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -247,7 +249,7 @@ export function analyzeImport(
   const files: ImportFileReport[] = [];
   const conflicts: ImportConflict[] = [];
 
-  for (const fileEntry of manifest.files) {
+  for (const fileEntry of manifest.contents) {
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     // Credential entries are handled separately by the credential import
@@ -256,7 +258,7 @@ export function analyzeImport(
       files.push({
         path: fileEntry.path,
         action: "skip",
-        bundle_size: fileEntry.size,
+        bundle_size: fileEntry.size_bytes,
         bundle_sha256: fileEntry.sha256,
         current_size: null,
         current_sha256: null,
@@ -278,7 +280,7 @@ export function analyzeImport(
         files.push({
           path: fileEntry.path,
           action: "skip",
-          bundle_size: fileEntry.size,
+          bundle_size: fileEntry.size_bytes,
           bundle_sha256: fileEntry.sha256,
           current_size: null,
           current_sha256: null,
@@ -295,7 +297,7 @@ export function analyzeImport(
       files.push({
         path: fileEntry.path,
         action: "skip",
-        bundle_size: fileEntry.size,
+        bundle_size: fileEntry.size_bytes,
         bundle_sha256: fileEntry.sha256,
         current_size: null,
         current_sha256: null,
@@ -324,7 +326,7 @@ export function analyzeImport(
         files.push({
           path: fileEntry.path,
           action,
-          bundle_size: fileEntry.size,
+          bundle_size: fileEntry.size_bytes,
           bundle_sha256: fileEntry.sha256,
           current_size: currentSize,
           current_sha256: currentSha256,
@@ -344,7 +346,7 @@ export function analyzeImport(
     files.push({
       path: fileEntry.path,
       action,
-      bundle_size: fileEntry.size,
+      bundle_size: fileEntry.size_bytes,
       bundle_sha256: fileEntry.sha256,
       current_size: currentSize,
       current_sha256: currentSha256,

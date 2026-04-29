@@ -29,6 +29,7 @@ import {
   DefaultPathResolver,
 } from "../vbundle-import-analyzer.js";
 import { commitImport } from "../vbundle-importer.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixture: per-test workspace under VELLUM_WORKSPACE_DIR.
@@ -139,10 +140,8 @@ describe("DefaultPathResolver prompts/USER.md translation", () => {
   });
 
   test("still resolves other prompt files (IDENTITY.md) to workspace root", () => {
-    const resolver = new DefaultPathResolver(
-      WORKSPACE_ROOT,
-      undefined,
-      () => join(USERS_DIR, "captain.md"),
+    const resolver = new DefaultPathResolver(WORKSPACE_ROOT, undefined, () =>
+      join(USERS_DIR, "captain.md"),
     );
 
     expect(resolver.resolve("prompts/IDENTITY.md")).toBe(
@@ -157,10 +156,8 @@ describe("DefaultPathResolver prompts/USER.md translation", () => {
   });
 
   test("skips unknown prompt filenames regardless of guardian state", () => {
-    const resolver = new DefaultPathResolver(
-      WORKSPACE_ROOT,
-      undefined,
-      () => join(USERS_DIR, "captain.md"),
+    const resolver = new DefaultPathResolver(WORKSPACE_ROOT, undefined, () =>
+      join(USERS_DIR, "captain.md"),
     );
 
     expect(resolver.resolve("prompts/SECRET.md")).toBeNull();
@@ -183,19 +180,24 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     const { archive, manifest } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
     expect(archive.length).toBeGreaterThan(0);
 
     const report = analyzeImport({ manifest, pathResolver: resolver });
 
     expect(report.can_import).toBe(true);
-    expect(report.files).toHaveLength(1);
-    expect(report.files[0].path).toBe("prompts/USER.md");
-    expect(report.files[0].action).toBe("create");
+    const userMd = report.files.find((f) => f.path === "prompts/USER.md");
+    expect(userMd).toBeDefined();
+    expect(userMd!.action).toBe("create");
   });
 
   test("non-blocking skip when no guardian is resolvable (can_import stays true)", () => {
@@ -208,10 +210,15 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     const { manifest } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const report = analyzeImport({ manifest, pathResolver: resolver });
@@ -220,7 +227,8 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     // path warns and skips, so preflight mirrors that behavior.
     expect(report.can_import).toBe(true);
     expect(report.conflicts).toHaveLength(0);
-    expect(report.files[0].action).toBe("skip");
+    const userMd = report.files.find((f) => f.path === "prompts/USER.md");
+    expect(userMd!.action).toBe("skip");
   });
 });
 
@@ -241,19 +249,30 @@ describe("commitImport for legacy prompts/USER.md", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.report.success).toBe(true);
-      expect(result.report.summary.files_created).toBe(1);
-      expect(result.report.summary.files_skipped).toBe(0);
+      // The bundle carries both data/db/assistant.db and prompts/USER.md;
+      // the legacy USER.md is the one we care about here.
+      expect(
+        result.report.files.find((f) => f.path === "prompts/USER.md")?.action,
+      ).toBe("created");
     }
 
     expect(existsSync(guardianPath)).toBe(true);
@@ -274,18 +293,27 @@ describe("commitImport for legacy prompts/USER.md", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.report.summary.files_overwritten).toBe(1);
-      expect(result.report.summary.files_skipped).toBe(0);
+      expect(
+        result.report.files.find((f) => f.path === "prompts/USER.md")?.action,
+      ).toBe("overwritten");
     }
     expect(readFileSync(guardianPath, "utf-8")).toBe(LEGACY_USER_MD_CONTENT);
   });
@@ -300,18 +328,27 @@ describe("commitImport for legacy prompts/USER.md", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.report.summary.files_skipped).toBe(1);
-      expect(result.report.summary.files_created).toBe(0);
+      expect(
+        result.report.files.find((f) => f.path === "prompts/USER.md")?.action,
+      ).toBe("skipped");
       expect(
         result.report.warnings.some((w) => w.includes("prompts/USER.md")),
       ).toBe(true);
@@ -335,22 +372,29 @@ describe("commitImport for legacy prompts/USER.md", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: new TextEncoder().encode(LEGACY_USER_MD_CONTENT),
         },
       ],
+      ...defaultV1Options(),
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.report.summary.files_skipped).toBe(1);
-      expect(result.report.summary.files_overwritten).toBe(0);
       expect(
-        result.report.warnings.some((w) =>
-          w.includes("guardian persona"),
-        ),
+        result.report.files.find((f) => f.path === "prompts/USER.md")?.action,
+      ).toBe("skipped");
+      expect(
+        result.report.warnings.some((w) => w.includes("guardian persona")),
       ).toBe(true);
     }
 

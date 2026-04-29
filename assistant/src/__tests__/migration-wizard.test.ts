@@ -355,10 +355,25 @@ describe("executeValidateStep", () => {
       is_valid: true,
       errors: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [{ path: "data/db/assistant.db", sha256: "abc", size: 100 }],
-        manifest_sha256: "def",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [
+          { path: "data/db/assistant.db", sha256: "abc", size_bytes: 100 },
+        ],
+        checksum: "def",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
 
@@ -372,7 +387,7 @@ describe("executeValidateStep", () => {
     expect(result.currentStep).toBe("preflight-review");
     expect(result.validateResult).toBeDefined();
     if (result.validateResult && result.validateResult.is_valid) {
-      expect(result.validateResult.manifest.schema_version).toBe("1.0");
+      expect(result.validateResult.manifest.schema_version).toBe(1);
     }
   });
 
@@ -487,10 +502,23 @@ describe("executePreflightStep", () => {
       ],
       conflicts: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "ghi",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "ghi",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
 
@@ -576,10 +604,23 @@ describe("executeTransferStep", () => {
         },
       ],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       warnings: [],
     };
@@ -622,10 +663,23 @@ describe("executeTransferStep", () => {
       },
       files: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       warnings: [],
     };
@@ -712,7 +766,7 @@ describe("executeTransferStep", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -1054,10 +1108,23 @@ describe("full wizard flow", () => {
       is_valid: true,
       errors: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
     state = await executeValidateStep(
@@ -1083,10 +1150,23 @@ describe("full wizard flow", () => {
       files: [],
       conflicts: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
     state = await executePreflightStep(
@@ -1111,10 +1191,23 @@ describe("full wizard flow", () => {
       },
       files: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       warnings: [],
     };
@@ -1124,7 +1217,7 @@ describe("full wizard flow", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -1181,10 +1274,23 @@ describe("full wizard flow", () => {
       is_valid: true,
       errors: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "abc",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "abc",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
     state = await executeValidateStep(

@@ -113,12 +113,23 @@ function makeValidateSuccess(): ValidateResponse {
     is_valid: true,
     errors: [],
     manifest: {
-      schema_version: "1.0",
-      created_at: "2025-01-01T00:00:00Z",
-      source: "test",
-      description: "Test bundle",
-      files: [{ path: "config.json", sha256: "abc123", size: 1024 }],
-      manifest_sha256: "manifest-hash",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      created_at: "2026-03-01T00:00:00Z",
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [{ path: "config.json", sha256: "abc123", size_bytes: 1024 }],
+      checksum: "manifest-hash",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     },
   };
 }
@@ -145,10 +156,23 @@ function makePreflightSuccess(): ImportPreflightResponse {
     ],
     conflicts: [],
     manifest: {
-      schema_version: "1.0",
-      created_at: "2025-01-01T00:00:00Z",
-      files: [{ path: "config.json", sha256: "abc123", size: 1024 }],
-      manifest_sha256: "manifest-hash",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      created_at: "2026-03-01T00:00:00Z",
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [{ path: "config.json", sha256: "abc123", size_bytes: 1024 }],
+      checksum: "manifest-hash",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     },
   };
 }
@@ -174,10 +198,23 @@ function makeImportSuccess(): ImportCommitResponse {
       },
     ],
     manifest: {
-      schema_version: "1.0",
-      created_at: "2025-01-01T00:00:00Z",
-      files: [{ path: "config.json", sha256: "abc123", size: 1024 }],
-      manifest_sha256: "manifest-hash",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      created_at: "2026-03-01T00:00:00Z",
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [{ path: "config.json", sha256: "abc123", size_bytes: 1024 }],
+      checksum: "manifest-hash",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     },
     warnings: ["Backup created for config.json"],
   };
@@ -362,8 +399,8 @@ describe("deriveTransferScreenState -- importing", () => {
       exportResult: {
         ok: true,
         filename: "export.vbundle",
-        schemaVersion: "1.0",
-        manifestSha256: "abc",
+        schemaVersion: 1,
+        checksum: "abc",
       },
     };
     const screen = deriveTransferScreenState(state);
@@ -588,8 +625,8 @@ describe("deriveTransferScreenState -- error", () => {
       exportResult: {
         ok: true,
         filename: "export.vbundle",
-        schemaVersion: "1.0",
-        manifestSha256: "abc",
+        schemaVersion: 1,
+        checksum: "abc",
       },
       importResult: {
         success: false,
@@ -681,7 +718,7 @@ describe("retryTransferFlow", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -751,7 +788,7 @@ describe("retryTransferFlow", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -793,7 +830,7 @@ describe("executeTransferFlow", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -915,7 +952,7 @@ describe("executeTransferFlow", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -959,8 +996,8 @@ describe("goBackToPreflight", () => {
       exportResult: {
         ok: true,
         filename: "export.vbundle",
-        schemaVersion: "1.0",
-        manifestSha256: "abc",
+        schemaVersion: 1,
+        checksum: "abc",
       },
       importResult: makeImportSuccess(),
     };
@@ -998,7 +1035,7 @@ describe("executeTransferFlow -- onStateChange callbacks", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
@@ -1139,7 +1176,7 @@ describe("transfer screen edge cases", () => {
         status: 200,
         headers: {
           "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
+          "X-Vbundle-Schema-Version": "1",
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });

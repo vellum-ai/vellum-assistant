@@ -11,7 +11,7 @@
  * - Auth: route policy enforcement (settings.write scope required)
  * - Integration: existing routes are unaffected by the new endpoint
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -237,41 +237,85 @@ interface VBundleFile {
   data: Uint8Array;
 }
 
+/**
+ * Build a v1-shape vbundle archive for HTTP/import tests.
+ *
+ * Mirrors the v1 ten-field manifest that `buildVBundle()` produces, so the
+ * fixtures here pass the same `ManifestSchema` zod validation the real
+ * importer applies. The manifest's `checksum` is computed against the
+ * canonical JSON with `checksum` set to "" (matches `computeManifestChecksum`
+ * in vbundle-validator.ts).
+ *
+ * Adds a synthetic `data/db/assistant.db` entry to `contents` when the caller
+ * doesn't supply one, satisfying the schema's `.refine()` constraint that
+ * every bundle must reference an assistant.db file.
+ */
 function createValidVBundle(
   files?: VBundleFile[],
   overrides?: Partial<{
-    schema_version: string;
-    source: string;
-    description: string;
+    bundle_id: string;
+    origin_mode: "managed" | "self-hosted-remote" | "self-hosted-local";
+    secrets_redacted: boolean;
   }>,
 ): Uint8Array {
   const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
   const bundleFiles = files ?? [{ path: "data/db/assistant.db", data: dbData }];
 
-  const fileEntries = bundleFiles.map((f) => ({
+  // v1 schema requires contents to include data/db/assistant.db (legacy) or
+  // workspace/data/db/assistant.db (current). If the caller's files don't
+  // satisfy that refine, inject a synthetic legacy-path db entry — this
+  // matches the pattern used in vbundle-streaming-importer.test.ts.
+  const hasDbEntry = bundleFiles.some(
+    (f) =>
+      f.path === "data/db/assistant.db" ||
+      f.path === "workspace/data/db/assistant.db",
+  );
+  const allFiles: VBundleFile[] = hasDbEntry
+    ? bundleFiles
+    : [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        ...bundleFiles,
+      ];
+
+  const contents = allFiles.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
   const manifestWithoutChecksum = {
-    schema_version: overrides?.schema_version ?? "1.0",
+    schema_version: 1 as const,
+    bundle_id: overrides?.bundle_id ?? randomUUID(),
     created_at: new Date().toISOString(),
-    source: overrides?.source ?? "test",
-    description: overrides?.description ?? "Test bundle",
-    files: fileEntries,
+    assistant: {
+      id: "self",
+      name: "Test",
+      runtime_version: "0.0.0-test",
+    },
+    origin: {
+      mode: overrides?.origin_mode ?? "self-hosted-local",
+    },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents,
+    checksum: "",
+    secrets_redacted: overrides?.secrets_redacted ?? false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
   };
 
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
+  const checksum = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
+  const manifest = { ...manifestWithoutChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
     { name: "manifest.json", data: manifestData },
-    ...bundleFiles.map((f) => ({ name: f.path, data: f.data })),
+    ...allFiles.map((f) => ({ name: f.path, data: f.data })),
   ];
 
   const tar = createTarArchive(tarEntries);
@@ -445,9 +489,9 @@ describe("handleMigrationImport", () => {
   });
 
   test("includes manifest in response", async () => {
+    const fixedBundleId = "11111111-2222-4333-8444-555555555555";
     const vbundle = createValidVBundle(undefined, {
-      source: "test-import-source",
-      description: "Test import commit",
+      bundle_id: fixedBundleId,
     });
     const req = new Request("http://localhost/v1/migrations/import", {
       method: "POST",
@@ -459,9 +503,10 @@ describe("handleMigrationImport", () => {
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.manifest).toBeDefined();
-    expect(body.manifest.schema_version).toBe("1.0");
-    expect(body.manifest.source).toBe("test-import-source");
-    expect(body.manifest.description).toBe("Test import commit");
+    expect(body.manifest.schema_version).toBe(1);
+    expect(body.manifest.bundle_id).toBe(fixedBundleId);
+    expect(body.manifest.assistant).toBeDefined();
+    expect(body.manifest.origin).toEqual({ mode: "self-hosted-local" });
   });
 
   test("POST with multipart form data works", async () => {

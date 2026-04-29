@@ -57,13 +57,13 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
 }));
 
+import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
 import {
   handleMigrationExport,
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-
 // Test fixture data: a minimal SQLite header to simulate a real database file
 const SQLITE_HEADER = new Uint8Array([
   0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74,
@@ -143,7 +143,7 @@ describe("handleMigrationExport", () => {
     );
     expect(res.headers.get("Content-Length")).toBeDefined();
     expect(Number(res.headers.get("Content-Length"))).toBeGreaterThan(0);
-    expect(res.headers.get("X-Vbundle-Schema-Version")).toBe("1.0");
+    expect(res.headers.get("X-Vbundle-Schema-Version")).toBe("1");
     expect(res.headers.get("X-Vbundle-Manifest-Sha256")).toBeDefined();
     expect(res.headers.get("X-Vbundle-Manifest-Sha256")!.length).toBe(64);
   });
@@ -176,25 +176,25 @@ describe("handleMigrationExport", () => {
     const validationResult = validateVBundle(archiveData);
     const manifest = validationResult.manifest!;
 
-    expect(manifest.schema_version).toBe("1.0");
-    expect(manifest.source).toBe("runtime-export");
+    expect(manifest.schema_version).toBe(1);
+    expect(manifest.bundle_id).toBeDefined();
     expect(manifest.created_at).toBeDefined();
-    expect(manifest.manifest_sha256).toBeDefined();
+    expect(manifest.checksum).toBeDefined();
 
     // Verify file entries — workspace walk uses workspace/ prefix
-    const filePaths = manifest.files.map((f) => f.path);
+    const filePaths = manifest.contents.map((f) => f.path);
     expect(filePaths).toContain("workspace/data/db/assistant.db");
     expect(filePaths).toContain("workspace/config.json");
 
     // Verify each file entry has proper sha256 and size
-    for (const file of manifest.files) {
+    for (const file of manifest.contents) {
       expect(file.sha256).toBeDefined();
       expect(file.sha256.length).toBe(64);
-      expect(file.size).toBeGreaterThanOrEqual(0);
+      expect(file.size_bytes).toBeGreaterThanOrEqual(0);
     }
   });
 
-  test("custom description from JSON body is used in manifest", async () => {
+  test("custom description in JSON body is accepted but no longer surfaced in manifest", async () => {
     const req = new Request("http://localhost/v1/migrations/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -206,9 +206,9 @@ describe("handleMigrationExport", () => {
     const archiveData = new Uint8Array(arrayBuffer);
 
     const validationResult = validateVBundle(archiveData);
-    const manifest = validationResult.manifest!;
-
-    expect(manifest.description).toBe("My custom export description");
+    expect(validationResult.is_valid).toBe(true);
+    // v1 manifests intentionally drop the legacy `description` field —
+    // assert the export still succeeds even though the body carried one.
   });
 
   test("invalid JSON body is gracefully handled with defaults", async () => {
@@ -312,20 +312,20 @@ describe("export data population", () => {
     const validationResult = validateVBundle(archiveData);
     const manifest = validationResult.manifest!;
 
-    const dbFile = manifest.files.find(
+    const dbFile = manifest.contents.find(
       (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
-    expect(dbFile!.size).toBe(SQLITE_HEADER.length);
+    expect(dbFile!.size_bytes).toBe(SQLITE_HEADER.length);
 
-    const configFile = manifest.files.find(
+    const configFile = manifest.contents.find(
       (f) => f.path === "workspace/config.json",
     );
     expect(configFile).toBeDefined();
     const expectedConfigSize = Buffer.byteLength(
       JSON.stringify(TEST_CONFIG, null, 2) + "\n",
     );
-    expect(configFile!.size).toBe(expectedConfigSize);
+    expect(configFile!.size_bytes).toBe(expectedConfigSize);
   });
 
   test("manifest checksums match actual file content", async () => {
@@ -340,7 +340,7 @@ describe("export data population", () => {
     const validationResult = validateVBundle(archiveData);
     const manifest = validationResult.manifest!;
 
-    for (const fileEntry of manifest.files) {
+    for (const fileEntry of manifest.contents) {
       const tarEntry = entries.find((e) => e.name === fileEntry.path);
       expect(tarEntry).toBeDefined();
       expect(sha256Hex(tarEntry!.data)).toBe(fileEntry.sha256);
@@ -358,12 +358,12 @@ describe("export data population", () => {
     const validationResult = validateVBundle(archiveData);
     const manifest = validationResult.manifest!;
 
-    const dbFile = manifest.files.find(
+    const dbFile = manifest.contents.find(
       (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
     // The skeleton used size 0 — real export should have actual content
-    expect(dbFile!.size).toBeGreaterThan(0);
+    expect(dbFile!.size_bytes).toBeGreaterThan(0);
   });
 
   test("config content is real JSON (not empty object placeholder)", async () => {
@@ -390,17 +390,23 @@ describe("export data population", () => {
 // ---------------------------------------------------------------------------
 
 describe("export graceful fallback", () => {
-  test("nonexistent workspace produces valid archive with no files", async () => {
+  test("nonexistent workspace produces archive that fails the v1 contents refine", async () => {
     const { buildExportVBundle } =
       await import("../runtime/migrations/vbundle-builder.js");
 
     const result = buildExportVBundle({
       workspaceDir: join(testDir, "nonexistent-workspace"),
+      ...defaultV1Options(),
     });
 
+    // Under v1, every bundle MUST declare a `data/db/assistant.db` (or
+    // `workspace/data/db/assistant.db`) entry. A nonexistent workspace
+    // produces an empty contents array, which the validator's `.refine()`
+    // rejects. Documenting this so a future regression on the workspace
+    // walk doesn't silently produce a structurally-empty bundle.
     const validationResult = validateVBundle(result.archive);
-    expect(validationResult.is_valid).toBe(true);
-    expect(result.manifest.files).toHaveLength(0);
+    expect(validationResult.is_valid).toBe(false);
+    expect(result.manifest.contents).toHaveLength(0);
   });
 
   test("workspace walk includes db and config under workspace/ prefix", async () => {
@@ -409,22 +415,23 @@ describe("export graceful fallback", () => {
 
     const result = buildExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     const validationResult = validateVBundle(result.archive);
     expect(validationResult.is_valid).toBe(true);
 
-    const dbFile = result.manifest.files.find(
+    const dbFile = result.manifest.contents.find(
       (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
-    expect(dbFile!.size).toBeGreaterThan(0);
+    expect(dbFile!.size_bytes).toBeGreaterThan(0);
 
-    const configFile = result.manifest.files.find(
+    const configFile = result.manifest.contents.find(
       (f) => f.path === "workspace/config.json",
     );
     expect(configFile).toBeDefined();
-    expect(configFile!.size).toBeGreaterThan(0);
+    expect(configFile!.size_bytes).toBeGreaterThan(0);
   });
 });
 

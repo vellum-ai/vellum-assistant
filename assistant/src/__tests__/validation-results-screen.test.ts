@@ -156,15 +156,26 @@ function makeValidateSuccess(): ValidateResponse {
     is_valid: true,
     errors: [],
     manifest: {
-      schema_version: "1.0",
-      created_at: "2025-01-01T00:00:00Z",
-      source: "test",
-      description: "Test bundle",
-      files: [
-        { path: "config.json", sha256: "abc123", size: 1024 },
-        { path: "skills/test.md", sha256: "def456", size: 2048 },
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      created_at: "2026-03-01T00:00:00Z",
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [
+        { path: "config.json", sha256: "abc123", size_bytes: 1024 },
+        { path: "skills/test.md", sha256: "def456", size_bytes: 2048 },
       ],
-      manifest_sha256: "manifest-hash",
+      checksum: "manifest-hash",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     },
   };
 }
@@ -246,14 +257,26 @@ function makePreflightSuccess(): ImportPreflightResponse {
       },
     ],
     manifest: {
-      schema_version: "1.0",
-      created_at: "2025-01-01T00:00:00Z",
-      source: "test",
-      files: [
-        { path: "config.json", sha256: "abc123", size: 1024 },
-        { path: "skills/new-skill.md", sha256: "ghi789", size: 512 },
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      created_at: "2026-03-01T00:00:00Z",
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [
+        { path: "config.json", sha256: "abc123", size_bytes: 1024 },
+        { path: "skills/new-skill.md", sha256: "ghi789", size_bytes: 512 },
       ],
-      manifest_sha256: "manifest-hash",
+      checksum: "manifest-hash",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     },
   };
 }
@@ -539,7 +562,7 @@ describe("deriveValidationScreenState — success", () => {
     expect(screen.phase).toBe("success");
     if (screen.phase === "success") {
       expect(screen.validation.isValid).toBe(true);
-      expect(screen.validation.manifest.schema_version).toBe("1.0");
+      expect(screen.validation.manifest.schema_version).toBe(1);
     }
   });
 
