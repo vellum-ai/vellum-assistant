@@ -3996,7 +3996,7 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "404": {
-              description: "Runtime proxy not enabled",
+              description: "Route not found on upstream runtime",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
