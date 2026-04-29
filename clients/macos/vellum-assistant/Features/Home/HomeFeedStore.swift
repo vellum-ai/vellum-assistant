@@ -14,8 +14,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeF
 /// - Subscribes to the shared `ServerMessage` stream and re-fetches when the
 ///   daemon broadcasts `homeFeedUpdated`.
 /// - Re-fetches when the app returns to the foreground, passing the measured
-///   time-away so the daemon can apply `minTimeAway` gates and compose the
-///   context banner.
+///   time-away so the daemon can compose the context banner.
 /// - Applies optimistic status updates locally, rolling back on server error.
 ///
 /// The store deliberately leaves `items` / `contextBanner` untouched on
@@ -246,16 +245,13 @@ public final class HomeFeedStore {
             priority: item.priority,
             title: item.title,
             summary: item.summary,
-            source: item.source,
             timestamp: item.timestamp,
             status: status,
             expiresAt: item.expiresAt,
-            minTimeAway: item.minTimeAway,
             actions: item.actions,
             urgency: item.urgency,
             conversationId: item.conversationId,
             detailPanel: item.detailPanel,
-            author: item.author,
             createdAt: item.createdAt
         )
     }

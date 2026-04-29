@@ -3,12 +3,20 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-/// Routing tests for ``HomePageView.openItem(_:)`` — verify that tapping a
-/// feed item that resolves to a detail panel fires `onDetailPanelSelected`
-/// and skips the triggerAction flow, while non-panel types leave the
-/// callback silent and fall through to the existing conversation flow.
+/// Routing tests for ``HomePageView.openItem(_:)``.
 ///
-/// ``openItem`` is exposed as `internal` (not `private`) specifically so
+/// **Pre-v2 these tests asserted that taps on `.thread + .calendar` /
+/// `.nudge` items fired `onDetailPanelSelected` while taps on
+/// `.digest` / `.action` / non-calendar `.thread` items fell through.**
+/// The v2 schema collapsed `FeedItemType` to a single `.notification`
+/// case and removed `FeedItemSource` / `FeedItemAuthor` entirely, so
+/// the type-and-source dispatch those tests covered no longer exists —
+/// `HomePageView.openItem(_:)` now unconditionally fires
+/// `onDetailPanelSelected`. PR 17 will reshape this dispatch around the
+/// server-supplied `detailPanel` descriptor; until then the only routing
+/// signal worth asserting is "every tap fires the callback exactly once".
+///
+/// `openItem` is exposed as `internal` (not `private`) specifically so
 /// these tests can drive the routing branch without needing to render the
 /// full SwiftUI view tree.
 @MainActor
@@ -18,25 +26,22 @@ final class HomeScheduledRoutingTests: XCTestCase {
 
     private func makeItem(
         id: String = "item-1",
-        type: FeedItemType = .thread,
-        source: FeedItemSource? = nil,
-        title: String = "Fixture"
+        title: String = "Fixture",
+        detailPanel: FeedItemDetailPanel? = nil
     ) -> FeedItem {
         let now = Date(timeIntervalSince1970: 1_760_000_000)
         return FeedItem(
             id: id,
-            type: type,
+            type: .notification,
             priority: 50,
             title: title,
             summary: "summary",
-            source: source,
             timestamp: now,
             status: .new,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
             urgency: nil,
-            author: .assistant,
+            detailPanel: detailPanel,
             createdAt: now
         )
     }
@@ -76,7 +81,12 @@ final class HomeScheduledRoutingTests: XCTestCase {
 
     // MARK: - Tests
 
-    func test_openItem_calendarSourcedThread_firesDetailPanelCallback() async {
+    /// Smoke test: every tap fires the detail panel callback exactly
+    /// once, regardless of whether a `detailPanel` descriptor is set.
+    /// Replaces the old per-type dispatch matrix — PR 17 will reintroduce
+    /// finer-grained routing once the server-driven panel descriptor
+    /// stabilizes.
+    func test_openItem_firesDetailPanelCallback() async {
         let (homeStore, feedStore, feedClient) = makeStores()
         var captured: [FeedItem] = []
         var conversationOpens = 0
@@ -87,104 +97,13 @@ final class HomeScheduledRoutingTests: XCTestCase {
             onFeedConversationOpened: { _ in conversationOpens += 1 }
         )
 
-        let item = makeItem(id: "sched-1", type: .thread, source: .calendar)
-        view.openItem(item)
+        view.openItem(makeItem(id: "notif-1"))
 
-        XCTAssertEqual(captured.map { $0.id }, ["sched-1"],
-                       "calendar-sourced thread should fire the detail panel callback exactly once")
+        XCTAssertEqual(captured.map { $0.id }, ["notif-1"],
+                       "every tap should fire the detail panel callback exactly once")
         XCTAssertEqual(feedClient.triggerCallCount, 0,
-                       "calendar-sourced thread must not round-trip through triggerAction")
+                       "openItem must not round-trip through triggerAction in v2")
         XCTAssertEqual(conversationOpens, 0,
-                       "calendar-sourced thread must not attempt to open a conversation")
-    }
-
-    /// Gates the scheduled flow on `source == .calendar` (Codex P1 on
-    /// PR #27475): `.thread` is also used by rollup-producer for general
-    /// multi-action threads that must keep the conversation-open flow.
-    func test_openItem_nonCalendarThread_skipsDetailPanelCallback() async {
-        // As with the non-thread test below we only assert the spy — we
-        // don't wait on the detached triggerAction Task. HomeFeedStoreTests
-        // covers that path.
-        let (homeStore, feedStore, _) = makeStores()
-
-        for source in [nil, .gmail, .slack, .assistant] as [FeedItemSource?] {
-            var captured: [FeedItem] = []
-            let view = makeView(
-                homeStore: homeStore,
-                feedStore: feedStore,
-                onDetailPanelSelected: { item in captured.append(item) }
-            )
-
-            let label = source.map { "\($0)" } ?? "nil"
-            view.openItem(makeItem(id: "rollup-\(label)", type: .thread, source: source))
-
-            XCTAssertTrue(captured.isEmpty,
-                          "\(label)-sourced thread must not fire the detail panel callback")
-        }
-    }
-
-    func test_openItem_nonPanelTypes_skipDetailPanelCallback() async {
-        // We only assert the callback SPY — we deliberately avoid asserting
-        // anything about the async `feedStore.triggerAction` path here:
-        // wiring up deterministic waits for the detached Task would
-        // duplicate HomeFeedStoreTests coverage without adding signal for
-        // this routing check. See note on the test class for rationale.
-        let (homeStore, feedStore, _) = makeStores()
-        for nonPanelType in [FeedItemType.digest, .action] {
-            var captured: [FeedItem] = []
-            let view = makeView(
-                homeStore: homeStore,
-                feedStore: feedStore,
-                onDetailPanelSelected: { item in captured.append(item) }
-            )
-
-            // Use nil source so HomeDetailPanelKind.resolve returns nil
-            // for these types (digest and action never resolve to a panel).
-            view.openItem(makeItem(id: "n-\(nonPanelType)", type: nonPanelType))
-
-            XCTAssertTrue(captured.isEmpty,
-                          "\(nonPanelType) taps must not fire the detail panel callback")
-        }
-    }
-
-    // MARK: - Nudge routing
-
-    func test_openItem_nudgeType_firesDetailPanelCallback() async {
-        let (homeStore, feedStore, feedClient) = makeStores()
-        var captured: [FeedItem] = []
-        var conversationOpens = 0
-        let view = makeView(
-            homeStore: homeStore,
-            feedStore: feedStore,
-            onDetailPanelSelected: { captured.append($0) },
-            onFeedConversationOpened: { _ in conversationOpens += 1 }
-        )
-
-        let item = makeItem(id: "nudge-1", type: .nudge)
-        view.openItem(item)
-
-        XCTAssertEqual(captured.map { $0.id }, ["nudge-1"],
-                       "detail panel callback should fire exactly once with the tapped nudge item")
-        XCTAssertEqual(feedClient.triggerCallCount, 0,
-                       "nudge taps must not round-trip through triggerAction")
-        XCTAssertEqual(conversationOpens, 0,
-                       "nudge taps must not attempt to open a conversation")
-    }
-
-    func test_openItem_nonPanelThread_skipsDetailPanelCallback() async {
-        // Non-calendar threads should NOT fire the detail panel callback
-        // — they fall through to the conversation flow.
-        let (homeStore, feedStore, _) = makeStores()
-        var captured: [FeedItem] = []
-        let view = makeView(
-            homeStore: homeStore,
-            feedStore: feedStore,
-            onDetailPanelSelected: { captured.append($0) }
-        )
-
-        view.openItem(makeItem(id: "x-thread", type: .thread))
-
-        XCTAssertTrue(captured.isEmpty,
-                      "non-calendar thread taps must not fire the detail panel callback")
+                       "openItem must not attempt to open a conversation in v2")
     }
 }

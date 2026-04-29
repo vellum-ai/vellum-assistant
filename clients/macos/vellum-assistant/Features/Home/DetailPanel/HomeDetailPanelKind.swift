@@ -21,8 +21,15 @@ enum HomeDetailPanelKind: Equatable {
     case generic(FeedItem)
 
     /// Resolves from the wire-contract `detailPanel` field when present,
-    /// otherwise falls back to type+source heuristics, and finally to a
-    /// generic panel so every feed item opens a detail view on tap.
+    /// otherwise falls back to a generic panel so every feed item opens a
+    /// detail view on tap.
+    ///
+    /// Pre-v2 the resolver also branched on `type`/`source` heuristics
+    /// (`.thread + .calendar` → scheduled, `.nudge` → nudge); those legacy
+    /// types were removed when the wire schema collapsed to the single
+    /// `notification` kind, so the only signal that drives a non-generic
+    /// panel is now the server-supplied `detailPanel` descriptor.
+    /// PR 17 will further simplify this dispatch and the case payloads.
     static func resolve(for item: FeedItem) -> HomeDetailPanelKind {
         if let panel = item.detailPanel {
             switch panel.kind {
@@ -35,13 +42,6 @@ enum HomeDetailPanelKind: Equatable {
             }
         }
 
-        switch item.type {
-        case .thread where item.source == .calendar:
-            return .scheduled(item)
-        case .nudge:
-            return .nudge(item)
-        default:
-            return .generic(item)
-        }
+        return .generic(item)
     }
 }

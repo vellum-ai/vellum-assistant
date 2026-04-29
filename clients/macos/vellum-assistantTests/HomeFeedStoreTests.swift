@@ -12,12 +12,10 @@ final class HomeFeedStoreTests: XCTestCase {
 
     private func makeFeedItem(
         id: String = "item-1",
-        type: FeedItemType = .nudge,
+        type: FeedItemType = .notification,
         status: FeedItemStatus = .new,
         title: String = "Fixture title",
         priority: Int = 60,
-        source: FeedItemSource? = .gmail,
-        author: FeedItemAuthor = .assistant,
         timestamp: Date = Date(timeIntervalSince1970: 1_760_000_000),
         createdAt: Date = Date(timeIntervalSince1970: 1_760_000_000)
     ) -> FeedItem {
@@ -27,13 +25,10 @@ final class HomeFeedStoreTests: XCTestCase {
             priority: priority,
             title: title,
             summary: "Fixture summary",
-            source: source,
             timestamp: timestamp,
             status: status,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
-            author: author,
             createdAt: createdAt
         )
     }

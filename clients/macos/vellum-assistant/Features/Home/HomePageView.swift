@@ -290,49 +290,25 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Recap row styling
 
-    /// Icon glyph for a feed item, driven by type:
-    ///   nudge  → heart     (Heartbeat)
-    ///   action → arrowLeft (Needs attention)
-    ///   digest → bell      (Just so you know)
-    ///   thread → calendar  (Scheduled)
+    /// Icon glyph for a feed item. With the v2 schema collapsed to the
+    /// single `notification` type, every row uses the same glyph; PR 17
+    /// will revisit the visual language now that the type discriminator
+    /// is gone.
     private func icon(for item: FeedItem) -> VIcon {
-        switch item.type {
-        case .nudge:
-            // Assistant-authored nudges are the canonical heart case; any
-            // other source falls through to the same glyph — there is no
-            // non-assistant nudge variant in the spec today.
-            return .heart
-        case .action:
-            return .arrowLeft
-        case .digest:
-            return .bell
-        case .thread:
-            return .calendar
-        }
+        .bell
     }
 
-    /// Foreground (glyph) color for the recap icon. Each feed type maps
-    /// to its dedicated Figma identifier pair (pink / blue / teal /
-    /// amber) — see the `feed*` and `systemInfo*` tokens in
-    /// `ColorTokens.swift`. Rows and filter chips share one source of
-    /// truth so the visual language stays consistent.
+    /// Foreground (glyph) color for the recap icon. See the `feed*`
+    /// tokens in `ColorTokens.swift`. With the type collapse there's a
+    /// single tint for all rows — PR 17 will reconsider per-item color
+    /// driven by `urgency` or `detailPanel.kind`.
     private func iconForeground(for item: FeedItem) -> Color {
-        switch item.type {
-        case .nudge:   return VColor.feedNudgeStrong
-        case .action:  return VColor.systemInfoStrong
-        case .digest:  return VColor.feedDigestStrong
-        case .thread:  return VColor.feedThreadStrong
-        }
+        VColor.feedDigestStrong
     }
 
     /// Background (circle fill) color for the recap icon.
     private func iconBackground(for item: FeedItem) -> Color {
-        switch item.type {
-        case .nudge:   return VColor.feedNudgeWeak
-        case .action:  return VColor.systemInfoWeak
-        case .digest:  return VColor.feedDigestWeak
-        case .thread:  return VColor.feedThreadWeak
-        }
+        VColor.feedDigestWeak
     }
 
     // MARK: - Actions
