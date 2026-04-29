@@ -159,13 +159,13 @@ final class ConversationRestorer {
         // callback never fires and the first-connect branch is silently
         // skipped.
         //
-        // The notification is deferred to a separate main-actor turn
-        // (LUM-1175) to avoid a synchronous NotificationCenter cascade
-        // during property mutation. The synchronous `isConnected` guard
-        // below is the primary safety net — it covers the case where the
-        // daemon is already connected at observer-registration time. The
-        // deferred notification handles the case where connection completes
-        // after this code runs. Both paths are idempotent because
+        // The notification is deferred to a separate main-actor turn to
+        // avoid a synchronous NotificationCenter cascade during property
+        // mutation. The synchronous `isConnected` guard below is the
+        // primary safety net — it covers the case where the daemon is
+        // already connected at observer-registration time. The deferred
+        // notification handles the case where connection completes after
+        // this code runs. Both paths are idempotent because
         // `fetchConversationList` cancels any in-flight fetch before
         // starting a new one.
         if connectionManager.isConnected {

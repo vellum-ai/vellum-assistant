@@ -999,12 +999,12 @@ public final class GatewayConnectionManager {
         isConnected = connected
         if isConnecting { isConnecting = false }
         if connected {
-            // Defer the notification to a separate main-actor turn.
-            // NotificationCenter.post is synchronous and invokes ALL observer
-            // callbacks inline — including per-ChatViewModel and per-media-
-            // attachment observers (~30-50 total). Under memory pressure the
-            // _Block_copy calls during dispatch stall the main thread for >2s
-            // (LUM-1175 / MACOS-DH). Deferring breaks the synchronous chain
+            // Deferred to the next main-actor turn. NotificationCenter.post
+            // is synchronous and invokes all observer callbacks inline.
+            // With per-instance observers (ChatViewModel, media attachment
+            // views) the total count can reach 30–50, and the _Block_copy
+            // allocations during dispatch stall the main thread under
+            // memory pressure. Deferring breaks the synchronous cascade
             // while preserving delivery on @MainActor.
             Task { @MainActor [weak self] in
                 guard let self else { return }
