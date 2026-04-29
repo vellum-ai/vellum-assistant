@@ -276,30 +276,25 @@ struct SettingsPanel: View {
         .onChange(of: isSoundsEnabled) { _, _ in
             handleSidebarVisibilityChanged()
         }
+        .onChange(of: isDeveloperEnabled) { _, _ in
+            handleSidebarVisibilityChanged()
+        }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
             handleSidebarVisibilityChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
-                var visibilityMayHaveChanged = false
                 if key == Self.developerFeatureFlagKey {
                     isDeveloperEnabled = enabled
-                    visibilityMayHaveChanged = true
                 } else if key == Self.billingFeatureFlagKey {
                     isBillingEnabled = enabled
-                    visibilityMayHaveChanged = true
                 } else if key == Self.compactionPlaygroundFeatureFlagKey {
                     isCompactionPlaygroundEnabled = enabled
-                    visibilityMayHaveChanged = true
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
                 } else if key == Self.soundsFeatureFlagKey {
                     isSoundsEnabled = enabled
-                    visibilityMayHaveChanged = true
-                }
-                if visibilityMayHaveChanged {
-                    handleSidebarVisibilityChanged()
                 }
             }
         }
