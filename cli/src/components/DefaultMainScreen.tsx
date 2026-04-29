@@ -19,6 +19,7 @@ import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
 import { appendHistory, loadHistory } from "../lib/input-history";
+import { tuiLog } from "../lib/tui-log";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
 import {
   getTerminalCapabilities,
@@ -354,24 +355,41 @@ async function* streamEvents(
 ): AsyncGenerator<SseEvent> {
   const params = new URLSearchParams({ conversationKey });
   const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
+  const clientHeaders = getClientRegistrationHeaders();
+  tuiLog.info("sse connect", { url, clientHeaders });
   const response = await fetch(url, {
     headers: {
       Accept: "text/event-stream",
       ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      ...getClientRegistrationHeaders(),
+      ...clientHeaders,
     },
     signal,
   });
 
+  tuiLog.info("sse response", {
+    status: response.status,
+    statusText: response.statusText,
+    contentType: response.headers.get("content-type"),
+  });
+
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    tuiLog.error("sse connection failed", {
+      status: response.status,
+      body: body.slice(0, 500),
+    });
     throw new Error(
       `SSE connection failed (${response.status}): ${body || response.statusText}`,
     );
   }
   if (!response.body) {
+    tuiLog.error("sse response has no body");
     throw new Error("No response body from SSE endpoint");
   }
+
+  // After SSE connects, verify client registration by querying the
+  // clients endpoint.  Fire-and-forget so it doesn't block streaming.
+  void verifyClientRegistration(baseUrl, assistantId, bearerToken, signal);
 
   const decoder = new TextDecoder();
   let buffer = "";
@@ -401,6 +419,40 @@ async function* streamEvents(
       } catch {
         // skip malformed JSON
       }
+    }
+  }
+}
+
+/**
+ * After the SSE stream connects, pause briefly then query the daemon's
+ * /clients endpoint to verify this TUI actually registered as a client.
+ * Logs the result — never throws.
+ */
+async function verifyClientRegistration(
+  baseUrl: string,
+  assistantId: string,
+  bearerToken: string | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    // Give the daemon a moment to process the subscriber registration
+    await new Promise((r) => setTimeout(r, 2_000));
+    if (signal.aborted) return;
+
+    const clientsUrl = `${baseUrl}/v1/assistants/${assistantId}/clients`;
+    const res = await fetch(clientsUrl, {
+      headers: {
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      signal,
+    });
+    const body = await res.text();
+    tuiLog.info("client registration check", { status: res.status, body });
+  } catch (err) {
+    if (!signal.aborted) {
+      tuiLog.warn("client registration check failed", {
+        error: String(err),
+      });
     }
   }
 }
@@ -1653,6 +1705,10 @@ function ChatApp({
 
     try {
       const health = await checkHealthRuntime(runtimeUrl);
+      tuiLog.info("health check", {
+        status: health.status,
+        message: health.message,
+      });
       h.hideSpinner();
       h.updateHealthStatus(health.status);
       if (health.status === "healthy" || health.status === "ok") {
@@ -1850,9 +1906,12 @@ function ChatApp({
                 break;
             }
           }
-        } catch {
+        } catch (sseErr) {
           // Stream ended — only report if not intentionally aborted
           if (!sseAc.signal.aborted) {
+            tuiLog.warn("sse stream disconnected", {
+              error: String(sseErr),
+            });
             handleRef_.current?.addStatus(
               "SSE stream disconnected — will reconnect on next message",
               "yellow",
@@ -1869,10 +1928,11 @@ function ChatApp({
       setConnectionState("connected");
       return true;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      tuiLog.error("connection failed", { error: msg });
       h.hideSpinner();
       connectingRef.current = false;
       h.updateHealthStatus("unreachable");
-      const msg = err instanceof Error ? err.message : String(err);
       setConnectionState("error");
       setConnectionError(msg);
       h.addStatus(
