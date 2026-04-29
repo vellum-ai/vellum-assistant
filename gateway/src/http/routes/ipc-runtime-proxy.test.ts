@@ -89,7 +89,7 @@ const validateEdgeTokenMock = mock(
   (
     _token: string,
   ):
-    | { ok: true; claims: Record<string, string> }
+    | { ok: true; claims: Record<string, string | number> }
     | { ok: false; reason: string } => ({
     ok: true,
     claims: { sub: "test", scope_profile: "test" },
