@@ -46,6 +46,25 @@ const ipcCallAssistantMock = mock(() =>
       endpoint: "apps/:appId/dist/:filename",
       method: "GET",
     },
+    // Policy-enforced routes for testing
+    {
+      operationId: "settings_get",
+      endpoint: "settings",
+      method: "GET",
+      policy: {
+        scopes: ["settings.read"],
+        principalTypes: ["actor", "svc_gateway"],
+      },
+    },
+    {
+      operationId: "calls_start",
+      endpoint: "calls/start",
+      method: "POST",
+      policy: {
+        scopes: ["calls.write"],
+        principalTypes: ["actor"],
+      },
+    },
   ]),
 );
 
@@ -316,5 +335,154 @@ describe("tryIpcProxy", () => {
       Record<string, unknown>,
     ];
     expect(params.queryParams).toEqual({ limit: "10", offset: "5" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: policy enforcement
+// ---------------------------------------------------------------------------
+
+describe("policy enforcement", () => {
+  beforeEach(() => {
+    ipcCallAssistantStrictMock.mockReset();
+    ipcCallAssistantStrictMock.mockImplementation(() =>
+      Promise.resolve({ ok: true }),
+    );
+    validateEdgeTokenMock.mockReset();
+  });
+
+  test("allows request when token has required scope", async () => {
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "actor:asst_1:user_1",
+        scope_profile: "actor_client_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/settings", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(200);
+  });
+
+  test("returns 403 when token is missing required scope", async () => {
+    // ui_page_v1 only has settings.read — not calls.write
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "actor:asst_1:user_1",
+        scope_profile: "ui_page_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/calls/start", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer valid",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(403);
+
+    const body = (await result!.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("FORBIDDEN");
+  });
+
+  test("returns 403 when principal type is not allowed", async () => {
+    // calls/start only allows "actor" — svc_daemon should be denied.
+    // Use actor_client_v1 so it has the required calls.write scope;
+    // the denial should come from the principal type check, not scope.
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "svc:daemon:asst_1",
+        scope_profile: "actor_client_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/calls/start", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer valid",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(403);
+
+    const body = (await result!.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("Principal type");
+  });
+
+  test("skips policy enforcement when auth is disabled", async () => {
+    // Policy-enforced route, no auth required → should pass
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
+    const req = makeRequest("/v1/settings");
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(200);
+  });
+
+  test("allows policy-enforced route when principal type matches", async () => {
+    // settings allows both "actor" and "svc_gateway"
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "svc:gateway:asst_1",
+        scope_profile: "gateway_service_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/settings", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(200);
+  });
+
+  test("no-policy routes are unaffected by auth context", async () => {
+    // health has no policy — should always pass when authed
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "actor:asst_1:user_1",
+        scope_profile: "ui_page_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/health", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, config);
+    expect(result!.status).toBe(200);
   });
 });

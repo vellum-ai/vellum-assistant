@@ -20,15 +20,24 @@ const log = getLogger("route-schema-cache");
 // Types
 // ---------------------------------------------------------------------------
 
+export interface RoutePolicy {
+  scopes: string[];
+  principalTypes: string[];
+}
+
 export interface RouteSchemaEntry {
   operationId: string;
   endpoint: string;
   method: string;
+  /** Resolved policy for scope/principal enforcement. Undefined = no policy. */
+  policy?: RoutePolicy;
 }
 
 export interface RouteMatch {
   operationId: string;
   pathParams: Record<string, string>;
+  /** Resolved policy for scope/principal enforcement. Undefined = no policy. */
+  policy?: RoutePolicy;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +155,11 @@ export function matchRoute(
     for (let i = 0; i < compiled.paramNames.length; i++) {
       pathParams[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
     }
-    return { operationId: compiled.entry.operationId, pathParams };
+    return {
+      operationId: compiled.entry.operationId,
+      pathParams,
+      policy: compiled.entry.policy,
+    };
   }
   return undefined;
 }
