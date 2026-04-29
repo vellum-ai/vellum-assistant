@@ -25,7 +25,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { LLMConfigFragment } from "../../config/schemas/llm.js";
+import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
@@ -299,7 +299,7 @@ function handleReplaceInferenceProfile({
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
   }
-  const parsed = LLMConfigFragment.safeParse(body);
+  const parsed = ProfileEntry.safeParse(body);
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);

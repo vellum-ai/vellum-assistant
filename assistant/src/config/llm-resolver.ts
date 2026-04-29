@@ -3,8 +3,8 @@ import { z } from "zod";
 import {
   type LLMCallSite,
   LLMConfigBase,
-  type LLMConfigFragment,
   type LLMSchema,
+  type ProfileEntry,
 } from "./schemas/llm.js";
 
 /**
@@ -59,7 +59,7 @@ export function resolveCallSiteConfig(
   const site = llm.callSites?.[callSite];
   if (site != null) {
     if (site.profile != null) {
-      const profileFragment: LLMConfigFragment | undefined =
+      const profileFragment: ProfileEntry | undefined =
         llm.profiles?.[site.profile];
       if (profileFragment == null) {
         // Defensive: `LLMSchema.superRefine` already rejects unknown profile
