@@ -524,6 +524,20 @@ public struct MemoryV2ActivationData: Codable, Sendable, Equatable {
     public let concepts: [MemoryV2ConceptRow]
     public let skills: [MemoryV2SkillRow]
     public let config: MemoryV2Config
+
+    public init(
+        turn: Int,
+        mode: String,
+        concepts: [MemoryV2ConceptRow],
+        skills: [MemoryV2SkillRow],
+        config: MemoryV2Config
+    ) {
+        self.turn = turn
+        self.mode = mode
+        self.concepts = concepts
+        self.skills = skills
+        self.config = config
+    }
 }
 
 public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
@@ -538,6 +552,30 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
     public let spreadContribution: Double
     public let source: String  // "prior_state" | "ann_top50" | "both"
     public let status: String  // "in_context" | "injected" | "not_injected"
+
+    public init(
+        slug: String,
+        finalActivation: Double,
+        ownActivation: Double,
+        priorActivation: Double,
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        spreadContribution: Double,
+        source: String,
+        status: String
+    ) {
+        self.slug = slug
+        self.finalActivation = finalActivation
+        self.ownActivation = ownActivation
+        self.priorActivation = priorActivation
+        self.simUser = simUser
+        self.simAssistant = simAssistant
+        self.simNow = simNow
+        self.spreadContribution = spreadContribution
+        self.source = source
+        self.status = status
+    }
 }
 
 public struct MemoryV2SkillRow: Codable, Sendable, Equatable, Identifiable {
@@ -547,6 +585,22 @@ public struct MemoryV2SkillRow: Codable, Sendable, Equatable, Identifiable {
     public let simAssistant: Double
     public let simNow: Double
     public let status: String  // "injected" | "not_injected"
+
+    public init(
+        id: String,
+        activation: Double,
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        status: String
+    ) {
+        self.id = id
+        self.activation = activation
+        self.simUser = simUser
+        self.simAssistant = simAssistant
+        self.simNow = simNow
+        self.status = status
+    }
 }
 
 public struct MemoryV2Config: Codable, Sendable, Equatable {
@@ -567,6 +621,28 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
         case cNow = "c_now"
         case topK = "top_k"
         case topKSkills = "top_k_skills"
+    }
+
+    public init(
+        d: Double,
+        cUser: Double,
+        cAssistant: Double,
+        cNow: Double,
+        k: Double,
+        hops: Int,
+        topK: Int,
+        topKSkills: Int,
+        epsilon: Double
+    ) {
+        self.d = d
+        self.cUser = cUser
+        self.cAssistant = cAssistant
+        self.cNow = cNow
+        self.k = k
+        self.hops = hops
+        self.topK = topK
+        self.topKSkills = topKSkills
+        self.epsilon = epsilon
     }
 }
 
