@@ -56,8 +56,8 @@ High activation concepts in the memory graph are retrieved at the start of each 
 
 - New or updated \`memory/concepts/<slug>.md\` files
 - Updated \`memory/recent.md\` (≤10000 chars, prose, latest first)
-- Updated \`memory/essentials.md\` (≤20000 chars; target ≤5K, surgical edits only)
-- Updated \`memory/threads.md\` (≤10000 chars, surgical edits only)
+- Updated \`memory/essentials.md\` (≤20000 chars)
+- Updated \`memory/threads.md\` (≤10000 chars)
 - Updated \`memory/edges.json\`
 - Trimmed \`memory/buffer.md\`
 
@@ -146,10 +146,8 @@ Rewrite as a fresh 1000–1500 token prose narrative of recent life. Latest firs
 
 ### 6. \`memory/essentials.md\` and \`memory/threads.md\`
 
-- \`memory/essentials.md\` — ≤20000 chars hard cap, target ≤5K. Facts that MUST load every conversation. Identity, disambiguations, corrections, hard rules. Embarrassment-prevention surface. Edit conservatively. Promote from concept pages when something graduates to MUST. Demote out of essentials when concept pages can carry it.
+- \`memory/essentials.md\` — ≤20000 chars hard cap, target ≤5K. Facts that MUST load every conversation. Identity, disambiguations, corrections, hard rules. Embarrassment-prevention surface. Promote from concept pages when something graduates to MUST. Demote out of essentials when concept pages can carry it.
 - \`memory/threads.md\` — ≤10000 chars. Active commitments and follow-ups. Add new threads, remove closed ones, demote stale ones to concept pages.
-
-Both: surgical append/correct only. Don't restructure unless something is genuinely broken.
 
 ### 7. Trim \`memory/buffer.md\`
 
