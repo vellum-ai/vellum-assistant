@@ -333,8 +333,8 @@
           "user-invocable": "true"
         }
       },
-      "compatibility": "agentskills.io",
-      "updatedAt": "2026-04-29T21:14:04Z"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-04-29T23:23:43Z"
     },
     {
       "id": "mcp-setup",
@@ -501,8 +501,8 @@
           "user-invocable": "true"
         }
       },
-      "compatibility": "agentskills.io",
-      "updatedAt": "2026-04-29T21:14:04Z"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-04-29T23:23:43Z"
     },
     {
       "id": "restaurant-reservation",

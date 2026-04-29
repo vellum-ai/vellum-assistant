@@ -1,7 +1,7 @@
 ---
 name: resend-setup
 description: Set up and send emails via a user-provided Resend account (BYO email provider)
-compatibility: "agentskills.io"
+compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📤"
   vellum:

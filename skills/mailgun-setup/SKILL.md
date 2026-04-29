@@ -1,7 +1,7 @@
 ---
 name: mailgun-setup
 description: Set up and send emails via a user-provided Mailgun account (BYO email provider)
-compatibility: "agentskills.io"
+compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📬"
   vellum:
@@ -59,43 +59,19 @@ Confirm the API key works by checking the domain response returned in Step 2. A 
 
 ### Step 4: Webhook Setup (for receiving email)
 
-If the user also wants to **receive** emails via Mailgun:
-
-#### 4a. Get the callback URL
-
-Use the webhooks system to get a callback URL:
+If the user also wants to **receive** emails via Mailgun, run the webhook setup script:
 
 ```bash
-CALLBACK_URL=$(assistant webhooks register mailgun --source "$DOMAIN")
+bun skills/mailgun-setup/scripts/setup-webhook.ts --domain "<verified domain>" [--region eu]
 ```
 
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
+This script:
 
-#### 4b. Create the inbound route
+1. Registers a callback URL via the webhooks system
+2. Creates an inbound route in Mailgun via their API
+3. Prompts the user for their webhook signing key (found in the Mailgun dashboard: **Settings > API Security > HTTP Webhook Signing Key**)
 
-Create an inbound route via the Mailgun API:
-
-```bash
-curl -s --user "api:$MAILGUN_API_KEY" \
-  https://api.mailgun.net/v3/routes \
-  -F priority=0 \
-  -F description="Forward inbound email to assistant" \
-  -F expression="match_recipient('.*@DOMAIN')" \
-  -F action="forward('<callback URL>')" \
-  -F action="stop()"
-```
-
-Replace `DOMAIN` with the user's Mailgun receiving domain. For EU-region accounts, use `https://api.eu.mailgun.net/v3/routes`.
-
-#### 4c. Store the webhook signing key
-
-Run the script to securely collect the signing key:
-
-```bash
-bun skills/mailgun-setup/scripts/store-webhook-key.ts
-```
-
-Tell the user to find the key in their Mailgun dashboard: **Settings > API Security > HTTP Webhook Signing Key**.
+If the script fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
 
 ### Step 5: Report Success
 
