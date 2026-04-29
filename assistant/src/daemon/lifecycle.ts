@@ -19,6 +19,7 @@ import {
 } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
+import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import {
@@ -455,6 +456,20 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Call recovery failed — continuing startup");
       }
     } // end if (dbReady)
+
+    // Seed managed inference profiles into the workspace config. Runs
+    // after workspace migrations (which may have created the initial
+    // profile slots) and before mergeDefaultWorkspaceConfig / loadConfig
+    // so the profiles are on disk for the first config load.
+    try {
+      seedInferenceProfiles();
+      log.info("Inference profile seeding complete");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Inference profile seeding failed — continuing startup",
+      );
+    }
 
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before the first loadConfig() call so
