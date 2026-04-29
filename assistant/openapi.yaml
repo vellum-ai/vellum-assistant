@@ -6760,13 +6760,22 @@ paths:
                     type: array
                     items: {}
                   memoryRecall:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                  memoryV2Activation:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
                 required:
                   - messageId
                   - logs
                   - memoryRecall
+                  - memoryV2Activation
                 additionalProperties: false
       parameters:
         - name: id
