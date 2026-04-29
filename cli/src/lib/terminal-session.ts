@@ -279,6 +279,8 @@ export function shellEscapeArgs(args: string[]): string {
  */
 export interface NonInteractiveExecOptions {
   verbose?: boolean;
+  /** Timeout in milliseconds. 0 disables the timeout entirely. Default: 30_000. */
+  timeoutMs?: number;
 }
 
 export async function nonInteractiveExec(
@@ -287,6 +289,7 @@ export async function nonInteractiveExec(
   options?: NonInteractiveExecOptions,
 ): Promise<void> {
   const verbose = options?.verbose ?? false;
+  const timeoutMs = options?.timeoutMs ?? 30_000;
   const dbg = verbose
     ? (msg: string) => console.error(`\x1b[2m[exec] ${msg}\x1b[0m`)
     : (_msg: string) => {};
@@ -307,6 +310,7 @@ export async function nonInteractiveExec(
   const output: Buffer[] = [];
   let commandSent = false;
   let eventCount = 0;
+  let timedOut = false;
 
   // Unique sentinels to delimit command output
   const startSentinel = `__VELLUM_EXEC_START_${Date.now()}__`;
@@ -315,10 +319,14 @@ export async function nonInteractiveExec(
 
   dbg(`sentinels: start=${startSentinel} end=${endSentinel}`);
 
-  const timeout = setTimeout(() => {
-    dbg(`30s timeout reached — aborting`);
-    abortController.abort();
-  }, 30_000);
+  const timeout =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          dbg(`${timeoutMs / 1000}s timeout reached — aborting`);
+          timedOut = true;
+          abortController.abort();
+        }, timeoutMs)
+      : null;
 
   try {
     for await (const event of subscribeTerminalEvents(
@@ -385,7 +393,7 @@ export async function nonInteractiveExec(
   } catch {
     // Expected: abort on timeout or sentinel detection
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
     dbg(`stream ended after ${eventCount} events — closing session`);
     await closeTerminalSession(
       assistant.token,
@@ -418,6 +426,26 @@ export async function nonInteractiveExec(
   );
 
   dbg(`extracted result: ${result.length} chars, exit code: ${exitCode}`);
+
+  if (timedOut && !result) {
+    const secs = timeoutMs / 1000;
+    console.error(
+      `\x1b[31mError: command timed out after ${secs}s with no output.\x1b[0m`,
+    );
+    console.error(
+      `\x1b[2mTip: use --timeout <seconds> to increase the limit, or --timeout 0 to disable.\x1b[0m`,
+    );
+    process.exit(124);
+  }
+
+  if (timedOut && result) {
+    const secs = timeoutMs / 1000;
+    process.stdout.write(result + "\n");
+    console.error(
+      `\x1b[33mWarning: command timed out after ${secs}s (partial output above).\x1b[0m`,
+    );
+    process.exit(124);
+  }
 
   if (result) {
     process.stdout.write(result + "\n");
