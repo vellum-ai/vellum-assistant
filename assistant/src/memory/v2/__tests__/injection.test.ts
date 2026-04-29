@@ -757,6 +757,93 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([]);
   });
 
+  test("context-load mode renders topNow even when every slug was previously injected", async () => {
+    // Turn 1 (per-turn): seed alice as injected.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Subsequent context-load (post-compaction or fresh load): alice is
+    // back in the candidate pool. Per-turn would dedup against everInjected
+    // and produce a null block; context-load must re-render the full top-K
+    // because cached attachments don't exist on a fresh load.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Reload context",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      mode: "context-load",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("### alice-vscode");
+    // No newly-injected slug — alice was already in everInjected.
+    expect(result.toInject).toEqual([]);
+
+    // everInjected stays a single entry (alice was already there) — context-
+    // load doesn't double-stamp.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+    ]);
+  });
+
+  test("context-load mode renders the full top-K on a fresh first turn", async () => {
+    // Turn 1 with no prior state and three candidates. Per-turn and context-
+    // load behave identically when everInjected is empty (toInject == topNow),
+    // but this asserts the contract: a fresh first user message gets the
+    // entire top-K rendered, not just a delta.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.9 },
+      { slug: "bob-coffee", denseScore: 0.8 },
+      { slug: "carol-jazz", denseScore: 0.7 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "hi",
+      assistantMessage: "",
+      nowText: "",
+      messageId: "msg-1",
+      mode: "context-load",
+      config: makeConfig({ top_k: 3 }),
+    });
+
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("### bob-coffee");
+    expect(result.block).toContain("### carol-jazz");
+    expect(result.toInject).toEqual([
+      "alice-vscode",
+      "bob-coffee",
+      "carol-jazz",
+    ]);
+
+    // All three slugs persisted to everInjected so the next per-turn doesn't
+    // re-attach the same content.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected.map((e) => e.slug)).toEqual([
+      "alice-vscode",
+      "bob-coffee",
+      "carol-jazz",
+    ]);
+  });
+
   test("`top_k_skills: 0` short-circuits to no skills subsection", async () => {
     // Even when the underlying mock would surface skills, the cap at 0 must
     // drop them via `selectSkillInjections.topK = 0` → empty `topNow`.

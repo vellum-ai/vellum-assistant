@@ -154,14 +154,21 @@ export async function injectMemoryV2Block(
   const { k, hops, top_k, epsilon } = config.memory.v2;
   const finalActivation = spreadActivation(ownActivation, edgesIdx, k, hops);
 
-  // (6) Pick top-K by activation; subtract everInjected for the injection delta.
+  // (6) Pick top-K by activation. Per-turn turns subtract everInjected for the
+  // injection delta (cache-stable append-only); context-load renders the
+  // entire top-K because it's a fresh load (turn 1 / post-compaction) where
+  // prior cached attachments don't exist or have been thrown away. The user
+  // message gets a complete top-K dump alongside the static
+  // essentials/threads/recent block, then per-turn turns just add deltas.
+  const mode = params.mode ?? "per-turn";
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
-  const { toInject } = selectInjections({
+  const { topNow, toInject } = selectInjections({
     A: finalActivation,
     priorEverInjected,
     topK: top_k,
   });
+  const slugsToRender = mode === "context-load" ? topNow : toInject;
 
   // (6b) Skill pipeline — a sibling pipeline to the concept-page one above.
   // Skills are stateless: no decay carry-over, no spread, no `everInjected`
@@ -195,14 +202,20 @@ export async function injectMemoryV2Block(
     if (value > epsilon) nextState[slug] = value;
   }
 
-  // Append the freshly injected slugs to everInjected (with their turn) so
-  // future turns can subtract them. We append rather than reset so that
-  // compaction-driven eviction (`evictCompactedTurns`) is the only path that
-  // can re-enable a previously-injected slug. Skills do NOT enter
-  // `everInjected` — they are stateless and re-presented every turn.
+  // Mark every rendered slug as ever-injected so future per-turn deltas don't
+  // re-attach the same content. On context-load this is the full top-K (we
+  // just rendered all of them); on per-turn it's just the newly added slugs.
+  // We append rather than reset so that compaction-driven eviction
+  // (`evictCompactedTurns`) is the only path that can re-enable a previously-
+  // injected slug. Skills do NOT enter `everInjected` — they are stateless
+  // and re-presented every turn.
+  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
+  const newlyInjected = slugsToRender.filter(
+    (slug) => !everInjectedSet.has(slug),
+  );
   const nextEverInjected: EverInjectedEntry[] = [
     ...priorEverInjected,
-    ...toInject.map((slug) => ({ slug, turn: currentTurn })),
+    ...newlyInjected.map((slug) => ({ slug, turn: currentTurn })),
   ];
 
   const nextActivationState: ActivationState = {
@@ -215,19 +228,24 @@ export async function injectMemoryV2Block(
 
   await save(database, conversationId, nextActivationState);
 
-  // (7) Cache-stable empty path: nothing new since the last turn AND no
-  // ranked skills to surface.
-  if (toInject.length === 0 && topSkillIds.length === 0) {
+  // (7) Cache-stable empty path: nothing to render AND no ranked skills.
+  if (slugsToRender.length === 0 && topSkillIds.length === 0) {
     return { block: null, toInject: [] };
   }
 
-  // (8) Render. `toInject` is already activation-descending (selectInjections
-  // returns it as a filter of the sorted `topNow`), so it doubles as our
-  // render order. Prior slugs sit unchanged on prior user messages. Skills
-  // are appended after concept-page sections under the same header.
-  const block = await renderInjectionBlock(workspaceDir, toInject, topSkillIds);
+  // (8) Render. Both `topNow` and `toInject` are activation-descending
+  // (selectInjections sorts before slicing), so `slugsToRender` doubles as
+  // the render order. Per-turn: only the new slugs render (prior turns'
+  // attachments stay cached on prior user messages). Context-load: full
+  // top-K renders so the fresh user message gets a complete activation dump.
+  // Skills are appended after concept-page sections under the same header.
+  const block = await renderInjectionBlock(
+    workspaceDir,
+    slugsToRender,
+    topSkillIds,
+  );
 
-  return { block, toInject };
+  return { block, toInject: newlyInjected };
 }
 
 // ---------------------------------------------------------------------------
