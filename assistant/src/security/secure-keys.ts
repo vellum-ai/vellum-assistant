@@ -451,6 +451,8 @@ export async function setSecureKeyAsync(
         { account, backend: backend.name },
         "Credential backend set failed",
       );
+    } else {
+      log.info({ account, backend: backend.name }, "Credential stored");
     }
     updateCesHttpReachability(backend, !ok);
     return ok;
@@ -468,6 +470,9 @@ export async function deleteSecureKeyAsync(
   return withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync();
     const result = await backend.delete(account);
+    if (result === "deleted") {
+      log.info({ account, backend: backend.name }, "Credential deleted");
+    }
     updateCesHttpReachability(backend, result === "error");
     return result;
   }, "error");
@@ -485,21 +490,30 @@ export async function bulkSetSecureKeysAsync(
   return withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync();
+      let results: Array<{ account: string; ok: boolean }>;
       if (backend.bulkSet) {
-        const results = await backend.bulkSet(credentials);
+        results = await backend.bulkSet(credentials);
         const anyFailed = results.some((r) => !r.ok);
         updateCesHttpReachability(backend, anyFailed);
-        return results;
+      } else {
+        // Fallback: loop individual sets
+        results = [];
+        let anyFailed = false;
+        for (const { account, value } of credentials) {
+          const ok = await backend.set(account, value);
+          if (!ok) anyFailed = true;
+          results.push({ account, ok });
+        }
+        updateCesHttpReachability(backend, anyFailed);
       }
-      // Fallback: loop individual sets
-      const results = [];
-      let anyFailed = false;
-      for (const { account, value } of credentials) {
-        const ok = await backend.set(account, value);
-        if (!ok) anyFailed = true;
-        results.push({ account, ok });
+      const succeeded = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok).length;
+      if (succeeded > 0) {
+        log.info(
+          { succeeded, failed, backend: backend.name },
+          "Bulk credential store completed",
+        );
       }
-      updateCesHttpReachability(backend, anyFailed);
       return results;
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
