@@ -86,7 +86,7 @@ public class VMenuPanel: NSPanel {
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         // isFloatingPanel sets level to .floating by default — do not
         // override with .popUpMenu, which is level 101 and causes the panel
@@ -186,6 +186,14 @@ public class VMenuPanel: NSPanel {
         // guarantees SwiftUI has completed its first full render pass before
         // the panel becomes visible.
         panel.alphaValue = 0
+
+        // Pre-populate the backing store while the panel is still invisible.
+        // With defer:false the window device exists immediately, so display()
+        // forces the compositor to render the current (transparent) content
+        // into the backing store before the window is ordered in. This
+        // eliminates the race where makeKeyAndOrderFront shows a stale or
+        // partially-rendered backing store for a single frame.
+        panel.display()
         panel.makeKeyAndOrderFront(nil)
 
         // Attach as a child window so the menu stays grouped with its
@@ -239,7 +247,7 @@ public class VMenuPanel: NSPanel {
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         panel.isFloatingPanel = true
         panel.isOpaque = false
@@ -288,8 +296,9 @@ public class VMenuPanel: NSPanel {
 
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
-        // Fade-in guard — same rationale as show().
+        // Fade-in guard + backing store pre-population — same rationale as show().
         panel.alphaValue = 0
+        panel.display()
         panel.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak panel] in
@@ -417,11 +426,16 @@ public class VMenuPanel: NSPanel {
         // panelWasClosed() can fire.
         let coord = coordinator
 
-        // 1. Make invisible + strip SwiftUI content in one
-        //    synchronous block so the compositor never sees a
-        //    "transparent window with a shadow backing-store" frame.
+        // 1. Make invisible + strip SwiftUI content, then force the
+        //    backing store to repaint as transparent. With .buffered
+        //    backing, the window server retains the last-rendered frame
+        //    independently of the view hierarchy. Without display(),
+        //    the stale frame (VMenu background + shadow) persists in
+        //    the backing store and can flash if the window is briefly
+        //    re-ordered before orderOut takes effect.
         alphaValue = 0
         contentView = nil
+        display()
 
         // 2. Detach from parent BEFORE ordering out. Child windows
         //    are re-ordered when their parent orders front
