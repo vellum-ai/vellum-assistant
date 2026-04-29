@@ -1606,11 +1606,11 @@ graph TB
 Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
-| ------------------ | -------------- | ----------------- | --------------- |
-| `"none"`           | Prompted       | Prompted          | Prompted        |
-| `"low"` (default)  | Auto-allowed   | Prompted          | Prompted        |
-| `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
-| `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
+| ----------------- | -------------- | ----------------- | --------------- |
+| `"none"`          | Prompted       | Prompted          | Prompted        |
+| `"low"` (default) | Auto-allowed   | Prompted          | Prompted        |
+| `"medium"`        | Auto-allowed   | Auto-allowed      | Prompted        |
+| `"high"`          | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
 When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
 
@@ -1867,7 +1867,6 @@ Events emitted during a conversation lifecycle:
 | `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
 | `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
 | `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
-| `secret_detected`           | ToolTraceListener       | Secret found in tool output                                                                     |
 | `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
 | `message_complete`          | Conversation            | Full request processing finished                                                                |
 | `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
@@ -1876,7 +1875,7 @@ Events emitted during a conversation lifecycle:
 ### Architecture
 
 - **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
+- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`) into trace events through the `TraceEmitter`.
 - **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
 - **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.

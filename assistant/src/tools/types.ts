@@ -10,7 +10,6 @@ import type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
 } from "@vellumai/skill-host-contracts";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -58,7 +57,6 @@ export type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
 } from "@vellumai/skill-host-contracts";
 export { RiskLevel } from "@vellumai/skill-host-contracts";
 
@@ -143,8 +141,7 @@ export type ToolLifecycleEvent =
   | ToolPermissionPromptEvent
   | ToolPermissionDeniedEvent
   | ToolExecutedEvent
-  | ToolExecutionErrorEvent
-  | ToolSecretDetectedEvent;
+  | ToolExecutionErrorEvent;
 
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
@@ -163,7 +160,7 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;

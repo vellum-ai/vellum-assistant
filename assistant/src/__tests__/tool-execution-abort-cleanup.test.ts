@@ -35,8 +35,6 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: {
       enabled: false,
-      action: "warn" as const,
-      entropyThreshold: 4.0,
     },
   }),
   loadConfig: () => ({}),

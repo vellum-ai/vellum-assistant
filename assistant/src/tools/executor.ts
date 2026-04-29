@@ -22,7 +22,6 @@ import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
-import { SecretDetectionHandler } from "./secret-detection-handler.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -39,13 +38,11 @@ const log = getLogger("tool-executor");
 export class ToolExecutor {
   private prompter: PermissionPrompter;
   private permissionChecker: PermissionChecker;
-  private secretDetectionHandler: SecretDetectionHandler;
   private approvalHandler: ToolApprovalHandler;
 
   constructor(prompter: PermissionPrompter) {
     this.prompter = prompter;
     this.permissionChecker = new PermissionChecker(prompter);
-    this.secretDetectionHandler = new SecretDetectionHandler(prompter);
     this.approvalHandler = new ToolApprovalHandler();
   }
 
@@ -364,8 +361,6 @@ export class ToolExecutor {
 
       // Sensitive output extraction: strip directives, replace raw values
       // with placeholders, and attach bindings for agent-loop substitution.
-      // Runs before secret detection so that raw sensitive values are already
-      // replaced and won't trigger entropy-based redaction.
       const { sanitizedContent, bindings } = extractAndSanitize(
         execResult.content,
       );
@@ -376,23 +371,6 @@ export class ToolExecutor {
           sensitiveBindings: bindings,
         };
       }
-
-      // Secret detection on tool output
-      const secretResult = await this.secretDetectionHandler.handle(
-        execResult,
-        name,
-        input,
-        context,
-        executionTarget,
-        riskLevel,
-        decision,
-        startTime,
-        emitLifecycleEvent,
-      );
-      if (secretResult.earlyReturn) {
-        return secretResult.result;
-      }
-      execResult = secretResult.result;
 
       const durationMs = Date.now() - startTime;
       // Strip sensitiveBindings from lifecycle event to prevent raw values leaking

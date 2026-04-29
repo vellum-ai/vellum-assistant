@@ -126,9 +126,7 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.secretDetection).toEqual({
       enabled: true,
-      action: "redact",
       blockIngress: true,
-      entropyThreshold: 4.0,
       allowOneTimeSend: false,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
@@ -151,9 +149,7 @@ describe("AssistantConfigSchema", () => {
       rateLimit: { maxRequestsPerMinute: 10 },
       secretDetection: {
         enabled: false,
-        action: "block" as const,
         blockIngress: false,
-        entropyThreshold: 5.5,
       },
       auditLog: { retentionDays: 30 },
     };
@@ -162,7 +158,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.llm.default.model).toBe("gpt-4");
     expect(result.llm.default.maxTokens).toBe(4096);
     expect(result.llm.default.thinking.enabled).toBe(true);
-    expect(result.secretDetection.action).toBe("block");
+    expect(result.secretDetection.enabled).toBe(false);
   });
 
   test("applies llm defaults when llm key is omitted", () => {
@@ -577,24 +573,6 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects invalid secretDetection.action", () => {
-    const result = AssistantConfigSchema.safeParse({
-      secretDetection: { action: "explode" },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("secretDetection.action"))).toBe(true);
-    }
-  });
-
-  test("rejects negative secretDetection.entropyThreshold", () => {
-    const result = AssistantConfigSchema.safeParse({
-      secretDetection: { entropyThreshold: -1 },
-    });
-    expect(result.success).toBe(false);
-  });
-
   test("rejects negative rateLimit values", () => {
     const result = AssistantConfigSchema.safeParse({
       rateLimit: { maxRequestsPerMinute: -1 },
@@ -641,19 +619,9 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("accepts all valid secretDetection.action values", () => {
-    for (const action of ["redact", "warn", "block"] as const) {
-      const result = AssistantConfigSchema.safeParse({
-        secretDetection: { action },
-      });
-      expect(result.success).toBe(true);
-    }
-  });
-
   test("provides helpful error messages", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: { default: { maxTokens: -1 } },
-      secretDetection: { action: "explode" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -663,12 +631,6 @@ describe("AssistantConfigSchema", () => {
       expect(
         messages.some(
           (m) => m.includes("positive") || /expected number to be >0/i.test(m),
-        ),
-      ).toBe(true);
-      expect(
-        messages.some(
-          (m) =>
-            m.includes("redact") && m.includes("warn") && m.includes("block"),
         ),
       ).toBe(true);
     }
@@ -2177,12 +2139,6 @@ describe("loadConfig with schema validation", () => {
     expect(config.timeouts.shellDefaultTimeoutSec).toBe(30);
     expect(config.timeouts.shellMaxTimeoutSec).toBe(600);
     expect(config.timeouts.permissionTimeoutSec).toBe(300);
-  });
-
-  test("falls back for invalid secretDetection.action", () => {
-    writeConfig({ secretDetection: { action: "explode" } });
-    const config = loadConfig();
-    expect(config.secretDetection.action).toBe("redact");
   });
 
   test("falls back for invalid contextWindow relationship", () => {

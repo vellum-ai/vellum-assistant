@@ -32,8 +32,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: true,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
 };

@@ -97,7 +97,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     daemon: { standaloneRecording: false },
-    secretDetection: { customPatterns: [], entropyThreshold: 3.5 },
+    secretDetection: {},
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({}),

@@ -36,7 +36,6 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
 import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
-import { registerToolNotificationListener } from "../events/tool-notification-listener.js";
 import { registerToolPermissionTelemetryListener } from "../events/tool-permission-telemetry-listener.js";
 import {
   registerToolProfilingListener,
@@ -405,9 +404,6 @@ export class Conversation {
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
-    registerToolNotificationListener(this.eventBus, (msg) =>
-      this.sendToClient(msg),
-    );
     registerToolTraceListener(this.eventBus, this.traceEmitter);
     registerToolProfilingListener(this.eventBus, this.profiler);
     registerToolPermissionTelemetryListener(this.eventBus);

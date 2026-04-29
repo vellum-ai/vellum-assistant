@@ -48,8 +48,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {},
 };
@@ -172,8 +170,7 @@ describe("platform-hosted bash auto-approval", () => {
     riskOverride = "medium";
   });
 
-  afterEach(() => {
-  });
+  afterEach(() => {});
 
   test("bash auto-approved in platform-hosted mode", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
@@ -242,7 +239,11 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: false, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: false,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(promptCalled).toBe(true);
@@ -266,7 +267,11 @@ describe("platform-hosted bash auto-approval", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "trusted_contact", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "trusted_contact",
+        requireFreshApproval: true,
+      }),
     );
 
     // With requireFreshApproval, trusted_contact+bash goes through check()
@@ -311,7 +316,11 @@ describe("platform-hosted bash auto-approval", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(result.isError).toBe(true);
@@ -362,7 +371,11 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "file_write",
       { path: "/tmp/test.txt", content: "hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(promptCalled).toBe(true);

@@ -130,41 +130,6 @@ describe("registerToolMetricsLoggingListener", () => {
     expect(infoCalls[1][1]).toBe("Tool permission denied");
   });
 
-  test("logs secret detection warnings with aggregate details", async () => {
-    const bus = new EventBus<AssistantDomainEvents>();
-    registerToolMetricsLoggingListener(bus, {
-      logger: testLogger,
-      debugEnabled: () => debugEnabled,
-      truncate,
-    });
-
-    await bus.emit("tool.secret.detected", {
-      conversationId: "conversation-1",
-      toolName: "file_read",
-      action: "warn",
-      matches: [
-        {
-          type: "AWS Access Key",
-          redactedValue: '<redacted type="AWS Access Key" />',
-        },
-        {
-          type: "GitHub Token",
-          redactedValue: '<redacted type="GitHub Token" />',
-        },
-      ],
-      detectedAtMs: 130,
-    });
-
-    expect(warnCalls).toHaveLength(1);
-    expect(warnCalls[0][1]).toBe("Secrets detected in tool output");
-    const payload = warnCalls[0][0] as Record<string, unknown>;
-    expect(payload.matchCount).toBe(2);
-    expect(payload.types as string[]).toEqual([
-      "AWS Access Key",
-      "GitHub Token",
-    ]);
-  });
-
   test("logs execution failures as errors", async () => {
     const bus = new EventBus<AssistantDomainEvents>();
     registerToolMetricsLoggingListener(bus, {

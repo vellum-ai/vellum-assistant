@@ -39,11 +39,11 @@ graph TB
 Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
-| ------------------ | -------------- | ----------------- | --------------- |
-| `"none"`           | Prompted       | Prompted          | Prompted        |
-| `"low"` (default)  | Auto-allowed   | Prompted          | Prompted        |
-| `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
-| `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
+| ----------------- | -------------- | ----------------- | --------------- |
+| `"none"`          | Prompted       | Prompted          | Prompted        |
+| `"low"` (default) | Auto-allowed   | Prompted          | Prompted        |
+| `"medium"`        | Auto-allowed   | Auto-allowed      | Prompted        |
+| `"high"`          | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
 When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
 
@@ -262,20 +262,22 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Secret values       | CES credential store or encrypted file store         | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
-| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                                  |
+| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
 
 ### Key Files
 
-| File                                                 | Role                                                                  |
-| ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions         |
-| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store                |
-| `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
-| `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
-| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
-| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                              |
-| `assistant/src/security/secret-scanner.ts`           | Regex + entropy-based secret detection                                |
-| `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                         |
+| File                                                 | Role                                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions                      |
+| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store                             |
+| `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                                     |
+| `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send              |
+| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                             |
+| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                                           |
+| `assistant/src/security/secret-scanner.ts`           | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
+| `assistant/src/security/secret-ingress.ts`           | Prefix-only ingress check on user messages                                         |
+| `assistant/src/util/log-redact.ts`                   | Pino log serializers — prefix-based redaction for logs                             |
+| `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                                      |
 
 ---
 

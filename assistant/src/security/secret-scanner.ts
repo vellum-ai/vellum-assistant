@@ -1,14 +1,16 @@
 /**
- * Secret scanner — detects leaked secrets (API keys, tokens, passwords,
- * private keys, connection strings) in arbitrary text.  Patterns are curated
- * from gitleaks and detect-secrets.
+ * Secret scanner — detects leaked secrets (API keys, tokens, private keys,
+ * connection strings, JWTs, and generic credential-style assignments) in
+ * arbitrary text via known-prefix and shape-based regex patterns. Patterns
+ * are curated from gitleaks and detect-secrets.
+ *
+ * Used by the explicit `redactSecrets()` callers (shell command summaries,
+ * approval prompts, guardian prompts, activity text). Log redaction has its
+ * own prefix-only path in `util/log-redact.ts`.
  */
 
-import { getLogger } from "../util/logger.js";
 import { isAllowlisted } from "./secret-allowlist.js";
 import { PREFIX_PATTERNS } from "./secret-patterns.js";
-
-const log = getLogger("secret-scanner");
 
 export interface SecretMatch {
   /** Human-readable type label, e.g. "AWS Access Key" */
@@ -21,7 +23,7 @@ export interface SecretMatch {
   redactedValue: string;
 }
 
-export interface SecretPattern {
+interface SecretPattern {
   type: string;
   regex: RegExp;
 }
@@ -212,507 +214,6 @@ function isLikelyAwsSecret(value: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Entropy-based detection
-// ---------------------------------------------------------------------------
-
-export interface EntropyConfig {
-  /** Enable entropy-based scanning. Default: true */
-  enabled: boolean;
-  /** Minimum Shannon entropy (bits per char) for hex tokens. Default: 3.0 */
-  hexThreshold: number;
-  /** Minimum Shannon entropy (bits per char) for base64 tokens. Default: 4.0 */
-  base64Threshold: number;
-  /** Minimum token length to consider. Default: 20 */
-  minLength: number;
-}
-
-export const DEFAULT_ENTROPY_CONFIG: EntropyConfig = {
-  enabled: true,
-  hexThreshold: 3.0,
-  base64Threshold: 4.0,
-  minLength: 20,
-};
-
-/**
- * Calculate Shannon entropy in bits per character.
- * Higher entropy = more random = more likely to be a secret.
- */
-export function shannonEntropy(s: string): number {
-  if (s.length === 0) return 0;
-  const freq = new Map<string, number>();
-  for (const ch of s) {
-    freq.set(ch, (freq.get(ch) ?? 0) + 1);
-  }
-  let entropy = 0;
-  for (const count of freq.values()) {
-    const p = count / s.length;
-    entropy -= p * Math.log2(p);
-  }
-  return entropy;
-}
-
-/** Keywords that, when adjacent to a high-entropy token, boost confidence. */
-const SECRET_CONTEXT_KEYWORDS = [
-  "key",
-  "token",
-  "secret",
-  "password",
-  "passwd",
-  "pwd",
-  "api_key",
-  "api-key",
-  "apikey",
-  "access_key",
-  "access-key",
-  "accesskey",
-  "auth_token",
-  "auth-token",
-  "authtoken",
-  "bearer",
-  "authorization",
-  "credential",
-  "credentials",
-  "private_key",
-  "private-key",
-  "client_secret",
-  "client-secret",
-  "signing_key",
-  "signing-key",
-  "encryption_key",
-  "encryption-key",
-];
-
-/** Match hex strings (20+ chars of [0-9a-fA-F]) */
-const HEX_TOKEN_RE = /\b([0-9a-fA-F]{20,})\b/g;
-
-/** Match base64 strings (20+ chars of [A-Za-z0-9+/_-]) with optional = padding.
- *  Trailing \b would fail after '=' (non-word char), so we use a lookahead. */
-const BASE64_TOKEN_RE = /\b([A-Za-z0-9+/\-_]{20,}={0,3})(?=\W|$)/g;
-
-/**
- * Check whether a token appears near a secret-related keyword in the
- * surrounding text (up to 60 chars before the match).
- */
-/** Pre-compiled word-boundary regex for each context keyword. */
-const SECRET_CONTEXT_RES = SECRET_CONTEXT_KEYWORDS.map(
-  (kw) =>
-    new RegExp(
-      `(?:^|[^a-z0-9])${kw.replace(/[-]/g, "\\$&")}(?:[^a-z0-9]|$)`,
-      "i",
-    ),
-);
-
-function hasSecretContext(text: string, matchStart: number): boolean {
-  // Look at up to 60 chars before the token for context keywords
-  const contextStart = Math.max(0, matchStart - 60);
-  const prefix = text.slice(contextStart, matchStart);
-  return SECRET_CONTEXT_RES.some((re) => re.test(prefix));
-}
-
-/**
- * Check if a string is purely hex characters.
- */
-function isHex(s: string): boolean {
-  return /^[0-9a-fA-F]+$/.test(s);
-}
-
-/**
- * Check if a string looks like base64 (has mixed case or base64 special chars).
- */
-function isBase64Like(s: string): boolean {
-  return /[A-Za-z]/.test(s) && /[0-9]/.test(s) && /[+/\-_=]/.test(s);
-}
-
-/**
- * Scan for high-entropy tokens that may be secrets not matching known patterns.
- * Returns matches only for tokens with entropy above the configured threshold
- * AND that appear in a secret-related context (near keywords like "key", "token",
- * "password", etc.).
- */
-function scanEntropy(
-  text: string,
-  config: EntropyConfig,
-  existingRanges: Set<string>,
-): SecretMatch[] {
-  if (!config.enabled) return [];
-  const matches: SecretMatch[] = [];
-
-  // Scan hex tokens
-  HEX_TOKEN_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = HEX_TOKEN_RE.exec(text)) != null) {
-    const value = m[1];
-    if (value.length < config.minLength) continue;
-    const startIndex = m.index;
-    const endIndex = startIndex + value.length;
-
-    // Skip if already covered by a pattern match
-    const key = `${startIndex}:${endIndex}`;
-    if (existingRanges.has(key)) continue;
-
-    // Skip placeholders and allowlisted values
-    if (isPlaceholder(value)) continue;
-    if (isAllowlisted(value)) continue;
-
-    const entropy = shannonEntropy(value);
-    if (entropy < config.hexThreshold) continue;
-
-    // Require secret-related context to reduce false positives
-    if (!hasSecretContext(text, startIndex)) continue;
-
-    existingRanges.add(key);
-    matches.push({
-      type: "High-Entropy Hex Token",
-      startIndex,
-      endIndex,
-      redactedValue: redact(value),
-    });
-  }
-
-  // Scan base64 tokens
-  BASE64_TOKEN_RE.lastIndex = 0;
-  while ((m = BASE64_TOKEN_RE.exec(text)) != null) {
-    const value = m[1];
-    if (value.length < config.minLength) continue;
-    // Must look like base64 (not pure alphanumeric) or pure hex
-    if (isHex(value)) continue; // Already handled above
-    if (!isBase64Like(value) && !/[A-Z]/.test(value)) continue;
-
-    const startIndex = m.index;
-    const endIndex = startIndex + value.length;
-
-    const key = `${startIndex}:${endIndex}`;
-    if (existingRanges.has(key)) continue;
-
-    if (isPlaceholder(value)) continue;
-    if (isAllowlisted(value)) continue;
-
-    const entropy = shannonEntropy(value);
-    if (entropy < config.base64Threshold) continue;
-
-    if (!hasSecretContext(text, startIndex)) continue;
-
-    existingRanges.add(key);
-    matches.push({
-      type: "High-Entropy Base64 Token",
-      startIndex,
-      endIndex,
-      redactedValue: redact(value),
-    });
-  }
-
-  return matches;
-}
-
-// ---------------------------------------------------------------------------
-// Encoded secret detection — decode + re-scan pass
-// ---------------------------------------------------------------------------
-
-/**
- * Find percent-encoded segments containing 3+ encoded bytes, using a linear
- * scan instead of a regex with nested quantifiers (which caused catastrophic
- * backtracking on long near-miss inputs).
- */
-function findPercentEncodedSegments(
-  text: string,
-): Array<{ start: number; end: number; match: string }> {
-  const results: Array<{ start: number; end: number; match: string }> = [];
-  const len = text.length;
-  const isUrlChar = (ch: string) => /[A-Za-z0-9_.~+/\-]/.test(ch);
-  const isHexDigit = (ch: string) => /[0-9A-Fa-f]/.test(ch);
-
-  let i = 0;
-  while (i < len) {
-    // Look for the start of a percent-encoded segment
-    if (text[i] !== "%" && !isUrlChar(text[i])) {
-      i++;
-      continue;
-    }
-
-    // Walk a candidate segment of URL-safe chars and %XX sequences
-    const start = i;
-    let pctCount = 0;
-    while (i < len) {
-      if (
-        text[i] === "%" &&
-        i + 2 < len &&
-        isHexDigit(text[i + 1]) &&
-        isHexDigit(text[i + 2])
-      ) {
-        pctCount++;
-        i += 3;
-      } else if (isUrlChar(text[i])) {
-        i++;
-      } else {
-        break;
-      }
-    }
-
-    if (pctCount >= 3) {
-      results.push({ start, end: i, match: text.slice(start, i) });
-    }
-    // Avoid re-scanning the same position if we didn't advance
-    if (i === start) i++;
-  }
-  return results;
-}
-
-/** Hex-escape sequences: \xHH patterns (3+ consecutive) */
-const HEX_ESCAPE_RE = /(?:\\x[0-9A-Fa-f]{2}){3,}/g;
-
-/** Candidate base64 segments — 24+ chars that could encode a secret (≥18 decoded bytes) */
-const ENCODED_BASE64_RE = /\b([A-Za-z0-9+/\-_]{24,}={0,3})(?=\W|$)/g;
-
-/** Continuous hex-encoded bytes — 32+ hex chars (16+ bytes decoded) */
-const CONTINUOUS_HEX_RE = /\b([0-9a-fA-F]{32,})\b/g;
-
-/** Check if decoded content is printable ASCII text */
-function isPrintableText(s: string): boolean {
-  return s.length > 0 && /^[\x20-\x7E\t\n\r]+$/.test(s);
-}
-
-function tryDecodeBase64(encoded: string): string | null {
-  try {
-    // Handle both standard and URL-safe base64
-    const standardized = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = Buffer.from(standardized, "base64").toString("utf-8");
-    if (!isPrintableText(decoded)) return null;
-    // Verify round-trip to reject garbage decodes
-    const reEncoded = Buffer.from(decoded, "utf-8")
-      .toString("base64")
-      .replace(/=+$/, "");
-    if (standardized.replace(/=+$/, "") !== reEncoded) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-function tryDecodePercentEncoded(encoded: string): string | null {
-  try {
-    const decoded = decodeURIComponent(encoded);
-    if (decoded === encoded) return null;
-    if (!isPrintableText(decoded)) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-function tryDecodeHexEscapes(encoded: string): string | null {
-  try {
-    const decoded = encoded.replace(/\\x([0-9A-Fa-f]{2})/g, (_, hex) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    );
-    if (decoded === encoded) return null;
-    if (!isPrintableText(decoded)) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-function tryDecodeContinuousHex(encoded: string): string | null {
-  try {
-    // Odd-length strings can't be decoded as pairs of hex digits
-    if (encoded.length % 2 !== 0) return null;
-    // Decode pairs of hex digits to bytes
-    const bytes: number[] = [];
-    for (let i = 0; i < encoded.length; i += 2) {
-      bytes.push(parseInt(encoded.slice(i, i + 2), 16));
-    }
-    const decoded = String.fromCharCode(...bytes);
-    if (!isPrintableText(decoded)) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-/** Check if an encoded segment overlaps with any existing match range */
-function overlapsExisting(
-  start: number,
-  end: number,
-  ranges: Set<string>,
-): boolean {
-  for (const rangeKey of ranges) {
-    const sep = rangeKey.indexOf(":");
-    const rStart = Number(rangeKey.slice(0, sep));
-    const rEnd = Number(rangeKey.slice(sep + 1));
-    if (start < rEnd && end > rStart) return true;
-  }
-  return false;
-}
-
-/**
- * Scan for encoded secrets by decoding candidate segments and running
- * pattern matching on the decoded content. Catches base64-encoded,
- * hex-encoded, and percent-encoded secrets that raw regex would miss.
- */
-function scanEncoded(
-  text: string,
-  existingRanges: Set<string>,
-  customPatterns?: SecretPattern[],
-): SecretMatch[] {
-  const matches: SecretMatch[] = [];
-  const allPatterns = customPatterns?.length
-    ? [...PATTERNS, ...customPatterns]
-    : PATTERNS;
-
-  // Helper: try to match decoded content against known secret patterns
-  const tryMatchDecoded = (
-    encoded: string,
-    decoded: string,
-    startIndex: number,
-    endIndex: number,
-    encoding: string,
-  ) => {
-    for (const pattern of allPatterns) {
-      pattern.regex.lastIndex = 0;
-      let pm: RegExpExecArray | null;
-      while ((pm = pattern.regex.exec(decoded)) != null) {
-        if (pm[0].length === 0) {
-          pattern.regex.lastIndex++;
-          continue;
-        }
-        const value = pm[1] ?? pm[0];
-        if (isPlaceholder(value)) continue;
-        if (isAllowlisted(value)) continue;
-        if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value))
-          continue;
-
-        const key = `${startIndex}:${endIndex}`;
-        existingRanges.add(key);
-        matches.push({
-          type: `${pattern.type} (${encoding})`,
-          startIndex,
-          endIndex,
-          redactedValue: redact(encoded),
-        });
-        return;
-      }
-    }
-  };
-
-  // Percent-encoded segments: use linear-time scanner instead of regex
-  if (text.includes("%")) {
-    for (const seg of findPercentEncodedSegments(text)) {
-      if (seg.match.length > 1000) continue;
-      if (overlapsExisting(seg.start, seg.end, existingRanges)) continue;
-      const decoded = tryDecodePercentEncoded(seg.match);
-      if (!decoded) continue;
-      tryMatchDecoded(
-        seg.match,
-        decoded,
-        seg.start,
-        seg.end,
-        "percent-encoded",
-      );
-    }
-  }
-
-  // Regex-based decoders for the remaining encodings
-  const decoders: Array<{
-    regex: RegExp;
-    decode: (s: string) => string | null;
-    encoding: string;
-    quickCheck?: (t: string) => boolean;
-  }> = [
-    {
-      regex: HEX_ESCAPE_RE,
-      decode: tryDecodeHexEscapes,
-      encoding: "hex-escaped",
-      quickCheck: (t) => t.includes("\\x"),
-    },
-    {
-      regex: ENCODED_BASE64_RE,
-      decode: tryDecodeBase64,
-      encoding: "base64-encoded",
-    },
-    {
-      regex: CONTINUOUS_HEX_RE,
-      decode: tryDecodeContinuousHex,
-      encoding: "hex-encoded",
-    },
-  ];
-
-  for (const { regex, decode, encoding, quickCheck } of decoders) {
-    if (quickCheck && !quickCheck(text)) continue;
-    regex.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(text)) != null) {
-      const encoded = m[1] ?? m[0];
-      if (encoded.length > 1000) continue;
-      const startIndex = m.index + m[0].indexOf(encoded);
-      const endIndex = startIndex + encoded.length;
-
-      if (overlapsExisting(startIndex, endIndex, existingRanges)) continue;
-
-      const decoded = decode(encoded);
-      if (!decoded) continue;
-
-      tryMatchDecoded(encoded, decoded, startIndex, endIndex, encoding);
-    }
-  }
-
-  return matches;
-}
-
-// ---------------------------------------------------------------------------
-// Custom pattern support
-// ---------------------------------------------------------------------------
-
-export interface CustomPatternInput {
-  label: string;
-  pattern: string;
-}
-
-/**
- * Compile user-provided custom patterns into SecretPattern objects.
- * Invalid regex patterns and patterns that can match empty strings are
- * logged and skipped — an empty-match pattern would cause infinite loops
- * in the `while (regex.exec(...))` scanning loops.
- */
-export function compileCustomPatterns(
-  inputs: CustomPatternInput[],
-): SecretPattern[] {
-  const compiled: SecretPattern[] = [];
-  for (const { label, pattern } of inputs) {
-    try {
-      const regex = new RegExp(pattern, "g");
-      if (regex.test("")) {
-        log.warn(
-          { label, pattern },
-          "Skipping custom secret pattern that matches empty strings",
-        );
-        continue;
-      }
-      // Zero-width assertions (lookaheads, \b, etc.) pass the empty-string check
-      // but still produce zero-length matches on real text, stalling the exec loop.
-      regex.lastIndex = 0;
-      const sampleMatch = regex.exec(
-        "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/+=",
-      );
-      regex.lastIndex = 0;
-      if (sampleMatch && sampleMatch[0].length === 0) {
-        log.warn(
-          { label, pattern },
-          "Skipping custom secret pattern that produces zero-length matches",
-        );
-        continue;
-      }
-      compiled.push({ type: label, regex });
-    } catch (err) {
-      log.warn(
-        { label, pattern, error: String(err) },
-        "Skipping invalid custom secret pattern",
-      );
-    }
-  }
-  return compiled;
-}
-
-// ---------------------------------------------------------------------------
 // Scan function
 // ---------------------------------------------------------------------------
 
@@ -720,25 +221,13 @@ export function compileCustomPatterns(
  * Scan text for leaked secrets. Returns an array of matches sorted by
  * position. Each match includes the secret type, position, and a redacted
  * preview of the matched value.
- *
- * @param entropyConfig — optional config for entropy-based scanning.
- *   Pass `{ enabled: false }` to disable. Defaults to DEFAULT_ENTROPY_CONFIG.
- * @param customPatterns — optional user-defined patterns to apply alongside built-in ones.
  */
-export function scanText(
-  text: string,
-  entropyConfig?: Partial<EntropyConfig>,
-  customPatterns?: SecretPattern[],
-): SecretMatch[] {
+export function scanText(text: string): SecretMatch[] {
   const matches: SecretMatch[] = [];
   // De-duplicate overlapping ranges (a match can fire on multiple patterns)
   const seen = new Set<string>();
 
-  const allPatterns = customPatterns?.length
-    ? [...PATTERNS, ...customPatterns]
-    : PATTERNS;
-
-  for (const pattern of allPatterns) {
+  for (const pattern of PATTERNS) {
     // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -773,15 +262,6 @@ export function scanText(
     }
   }
 
-  // Entropy-based scanning for tokens that don't match known patterns
-  const eConfig = { ...DEFAULT_ENTROPY_CONFIG, ...entropyConfig };
-  const entropyMatches = scanEntropy(text, eConfig, seen);
-  matches.push(...entropyMatches);
-
-  // Encoded secret detection — decode candidate segments and re-scan
-  const encodedMatches = scanEncoded(text, seen, customPatterns);
-  matches.push(...encodedMatches);
-
   // Sort by position; at same start, wider match first so redaction covers the full span
   matches.sort(
     (a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex,
@@ -793,12 +273,8 @@ export function scanText(
  * Replace detected secrets in text with redaction markers.
  * Returns the modified text.
  */
-export function redactSecrets(
-  text: string,
-  entropyConfig?: Partial<EntropyConfig>,
-  customPatterns?: SecretPattern[],
-): string {
-  const matches = scanText(text, entropyConfig, customPatterns);
+export function redactSecrets(text: string): string {
+  const matches = scanText(text);
   if (matches.length === 0) return text;
 
   let result = "";
@@ -822,12 +298,4 @@ export function redactSecrets(
 }
 
 // Exported for testing only
-export {
-  hasSecretContext as _hasSecretContext,
-  isPlaceholder as _isPlaceholder,
-  redact as _redact,
-  tryDecodeBase64 as _tryDecodeBase64,
-  tryDecodeContinuousHex as _tryDecodeContinuousHex,
-  tryDecodeHexEscapes as _tryDecodeHexEscapes,
-  tryDecodePercentEncoded as _tryDecodePercentEncoded,
-};
+export { isPlaceholder as _isPlaceholder, PATTERNS as _PATTERNS };
