@@ -97,6 +97,55 @@ VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum hatch --remote custom
 
 When hatching on GCP in interactive mode (without `-d`), the CLI displays an animated progress TUI that polls the instance's startup script output in real time. Press `Ctrl+C` to detach -- the instance will continue running in the background.
 
+### `terminal`
+
+Open an interactive shell into a managed assistant container. Useful for debugging, inspecting state, or working alongside the assistant in a shared `tmux` session.
+
+```bash
+vellum terminal [name] [options]
+vellum terminal attach <session> [name] [options]
+vellum terminal list [name] [options]
+```
+
+Only available for managed assistants (those running in a Vellum Cloud container). Local assistants don't have a container to terminal into.
+
+#### Subcommands
+
+| Subcommand         | Description                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| _(none)_           | Open an interactive shell session inside the container.                  |
+| `attach <session>` | Attach to an existing `tmux` session by name inside the container.       |
+| `list`             | List the `tmux` sessions currently running inside the container.         |
+
+#### Options
+
+| Option               | Description                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `[name]`             | Positional. Name of the assistant to target. Defaults to the active assistant.               |
+| `--assistant <name>` | Explicit form of the assistant name. Equivalent to the positional argument.                  |
+
+The active assistant is the one set via `vellum use <name>` (see also `vellum ps`).
+
+#### Examples
+
+```bash
+# Open a shell in the active managed assistant
+vellum terminal
+
+# Target a specific assistant by name
+vellum terminal my-assistant
+vellum terminal --assistant my-assistant
+
+# List running tmux sessions inside the container
+vellum terminal list
+
+# Attach to a named tmux session
+vellum terminal attach my-session
+vellum terminal attach my-session my-assistant
+```
+
+This pairs well with the [`terminal-sessions` skill](https://github.com/vellum-ai/vellum-assistant/tree/main/skills/terminal-sessions), which lets the assistant create and manage its own `tmux` sessions. You can `vellum terminal attach` into one of those sessions to watch the assistant work in real time -- for example, pairing on a long-running Claude Code run.
+
 ### `retire`
 
 Delete a provisioned assistant instance. The cloud provider and connection details are automatically resolved from the saved assistant config (written during `hatch`).

@@ -82,6 +82,7 @@ vellum wake        # start services
 vellum sleep       # stop services, keep data
 vellum client      # interact through the terminal
 vellum ps          # view running assistants
+vellum terminal    # open a shell into a managed assistant container
 vellum upgrade     # upgrade to latest version
 ```
 
