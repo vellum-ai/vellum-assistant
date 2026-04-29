@@ -1007,7 +1007,7 @@ public final class GatewayConnectionManager {
             // memory pressure. Deferring breaks the synchronous cascade
             // while preserving delivery on @MainActor.
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.isConnected else { return }
                 NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             }
             #if os(macOS)
