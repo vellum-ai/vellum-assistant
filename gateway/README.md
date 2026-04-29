@@ -1,6 +1,6 @@
 # Vellum Gateway
 
-Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
+Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ Telegram → gateway/ → Assistant Runtime (/v1/assistants/:id/channels/inbound
 Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 ```
 
-The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
+The web app is **not** in the Telegram request path. All non-Telegram requests that don't match a dedicated gateway route are forwarded to the assistant runtime with bearer token authentication.
 
 For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -218,13 +218,9 @@ The gateway is the **sole public ingress point** for all external webhooks. The 
 
 When the ingress public base URL is configured (via `ingress.publicBaseUrl` in workspace config, read through `ConfigFileCache`), the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
 
-## Default Mode: Dedicated Routes Only
+## Runtime Proxy
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/channel-verification-sessions/*`, `/v1/integrations/telegram/*`, `/v1/integrations/slack/*`, and `/v1/contacts/invites/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless the runtime proxy is enabled via workspace config.
-
-## Runtime Proxy Mode
-
-When the runtime proxy is enabled (via workspace config), the gateway forwards all non-Telegram HTTP requests to the assistant runtime. This allows the gateway to serve as a single ingress point for both Telegram and API traffic.
+The gateway acts as the single ingress point for all traffic. Dedicated gateway routes (webhooks, control-plane proxies, health checks) are matched first; any request that doesn't match a specific route is forwarded to the assistant runtime via a catch-all proxy.
 
 ### Auth behavior
 

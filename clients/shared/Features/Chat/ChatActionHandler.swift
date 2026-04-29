@@ -255,6 +255,14 @@ final class ChatActionHandler {
 
         case .uiSurfaceShow(let msg):
             vm.handleSurfaceShow(msg)
+            // Refresh artifacts when a new dynamic_page or document_preview surface appears,
+            // but only if the surface belongs to this conversation. In multi-window setups,
+            // foreign-conversation surfaces would otherwise trigger redundant fetches.
+            if msg.surfaceType == "dynamic_page" || msg.surfaceType == "document_preview" {
+                if belongsToConversation(msg.conversationId) {
+                    vm.fetchConversationArtifacts()
+                }
+            }
 
         case .uiSurfaceUndoResult(let msg):
             vm.handleSurfaceUndoResult(msg)
@@ -377,6 +385,9 @@ final class ChatActionHandler {
             guard vm.compactionCircuitOpenUntil != nil else { return }
             vm.compactionCircuitOpenUntil = nil
             log.info("Auto-compaction resumed (circuit breaker closed)")
+
+        case .appFilesChanged:
+            vm.fetchConversationArtifacts()
 
         default:
             break

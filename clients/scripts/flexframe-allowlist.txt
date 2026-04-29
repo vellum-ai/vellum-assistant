@@ -201,4 +201,5 @@ clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarSectionView.sw
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarView.swift|.frame(maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/ThreadWindow.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
+clients/macos/vellum-assistant/Features/Chat/ConversationArtifactsButton.swift|.frame(maxHeight: 300)
 clients/macos/vellum-assistant/Features/MainWindow/TopBarView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)

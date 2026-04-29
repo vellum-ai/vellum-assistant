@@ -128,7 +128,7 @@ The assistant daemon does not read or distribute a feature-flag token. All featu
 
 ### Channel Verification Session Control-Plane Proxy
 
-Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
+Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers for dedicated auth handling. This keeps assistant skills and user-facing tooling on gateway URLs only.
 
 **Forwarded endpoints:**
 
@@ -158,7 +158,7 @@ The `/v1/guardian/refresh` endpoint is the only public ingress for rotating JWT 
 
 ### Runtime Health Proxy
 
-Runtime health is exposed directly by the gateway at `GET /v1/health` and forwarded to the runtime's `GET /v1/health` endpoint even when the broad runtime proxy is disabled.
+Runtime health is exposed directly by the gateway at `GET /v1/health` and forwarded to the runtime's `GET /v1/health` endpoint for dedicated auth handling.
 
 **Authentication boundary:**
 
@@ -175,7 +175,7 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 ### Telegram + Contacts Control-Plane Proxies
 
-Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling.
 
 **Forwarded Telegram endpoints:**
 
@@ -213,7 +213,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 
 ### Twilio Control-Plane Proxy
 
-Twilio integration setup/config endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled. This keeps skills and clients on gateway URLs exclusively.
+Twilio integration setup/config endpoints are exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling. This keeps skills and clients on gateway URLs exclusively.
 
 **Forwarded endpoints:**
 
@@ -242,7 +242,7 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 ### Channel Readiness Proxy
 
-Channel readiness endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+Channel readiness endpoints are exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling.
 
 **Forwarded endpoints:**
 

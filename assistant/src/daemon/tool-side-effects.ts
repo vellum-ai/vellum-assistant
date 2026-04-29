@@ -8,6 +8,7 @@
  */
 
 import { generateAppIcon } from "../media/app-icon-generator.js";
+import { addAppConversationId } from "../memory/app-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
@@ -86,6 +87,15 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
       description?: string;
     };
     if (parsed.id) {
+      try {
+        addAppConversationId(parsed.id, ctx.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, appId: parsed.id },
+          "Failed to track conversation ID on app_create",
+        );
+      }
+
       ensureAppSourceWatcher();
 
       notifyAppChanged(ctx, parsed.id);
@@ -128,46 +138,47 @@ registerHook("app_delete", (_name, input) => {
 registerHook("app_refresh", (_name, input, _result, { ctx }) => {
   const appId = input.app_id as string | undefined;
   if (!appId) return;
+  try {
+    addAppConversationId(appId, ctx.conversationId);
+  } catch (err) {
+    log.warn({ err, appId }, "Failed to track conversation ID on app_refresh");
+  }
   notifyAppChanged(ctx, appId, { fileChange: true });
 });
 
 registerHook("voice_config_update", (_name, input) => {
-    const setting = input.setting as string | undefined;
-    if (!setting) return;
+  const setting = input.setting as string | undefined;
+  if (!setting) return;
 
-    const SETTING_TO_KEY: Record<string, string> = {
-      activation_key: "pttActivationKey",
-      tts_voice_id: "ttsVoiceId",
-      tts_provider: "ttsProvider",
-      conversation_timeout: "voiceConversationTimeoutSeconds",
-      fish_audio_reference_id: "fishAudioReferenceId",
-    };
-    const key = SETTING_TO_KEY[setting];
-    if (!key) return;
+  const SETTING_TO_KEY: Record<string, string> = {
+    activation_key: "pttActivationKey",
+    tts_voice_id: "ttsVoiceId",
+    tts_provider: "ttsProvider",
+    conversation_timeout: "voiceConversationTimeoutSeconds",
+    fish_audio_reference_id: "fishAudioReferenceId",
+  };
+  const key = SETTING_TO_KEY[setting];
+  if (!key) return;
 
-    // Coerce the value to the correct type before broadcasting, matching
-    // the validation logic in the tool's execute method.
-    const raw = input.value;
-    let coerced: string | boolean | number = raw as string;
-    if (setting === "conversation_timeout") {
-      coerced = typeof raw === "number" ? raw : Number(raw);
-    } else if (setting === "tts_voice_id" && typeof raw === "string") {
-      coerced = raw.trim();
-    } else if (
-      setting === "fish_audio_reference_id" &&
-      typeof raw === "string"
-    ) {
-      coerced = raw.trim();
-    } else if (setting === "tts_provider" && typeof raw === "string") {
-      coerced = raw.trim();
-    }
-    broadcastMessage({
-      type: "client_settings_update",
-      key,
-      value: coerced,
-    } as unknown as ServerMessage);
-  },
-);
+  // Coerce the value to the correct type before broadcasting, matching
+  // the validation logic in the tool's execute method.
+  const raw = input.value;
+  let coerced: string | boolean | number = raw as string;
+  if (setting === "conversation_timeout") {
+    coerced = typeof raw === "number" ? raw : Number(raw);
+  } else if (setting === "tts_voice_id" && typeof raw === "string") {
+    coerced = raw.trim();
+  } else if (setting === "fish_audio_reference_id" && typeof raw === "string") {
+    coerced = raw.trim();
+  } else if (setting === "tts_provider" && typeof raw === "string") {
+    coerced = raw.trim();
+  }
+  broadcastMessage({
+    type: "client_settings_update",
+    key,
+    value: coerced,
+  } as unknown as ServerMessage);
+});
 
 // Dispatch pending Slack DM delivery when a CLI verification command
 // completes.  The CLI subprocess is sandboxed and cannot reach the

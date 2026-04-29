@@ -181,6 +181,7 @@ export {
   downActivationState,
   migrateActivationState,
 } from "./232-activation-state.js";
+export { migrateCreateDocumentConversations } from "./233-document-conversations.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

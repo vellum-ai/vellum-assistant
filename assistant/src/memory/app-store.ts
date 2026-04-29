@@ -36,7 +36,9 @@ import {
 
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
+import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
+import { rawAll } from "./raw-query.js";
 
 export interface AppDefinition {
   id: string;
@@ -55,6 +57,8 @@ export interface AppDefinition {
   formatVersion?: number;
   /** Filesystem directory/file stem. Frozen at creation -- never changes on rename. */
   dirName?: string;
+  /** Conversation IDs that have interacted with this app (create/open/refresh). */
+  conversationIds?: string[];
 }
 
 /**
@@ -899,6 +903,156 @@ export function editAppFile(
     writeFileSync(resolved, result.updatedContent, "utf-8");
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation association helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Associate a conversation with an app. Writes directly to the JSON metadata
+ * file without bumping `updatedAt` so the app list ordering is preserved.
+ *
+ * @returns `true` if the association was added, `false` if the app was not
+ *   found or the conversationId was already present (dedup).
+ */
+export function addAppConversationId(
+  appId: string,
+  conversationId: string,
+): boolean {
+  const app = getApp(appId);
+  if (!app) return false;
+
+  const { dirName } = resolveAppDir(appId);
+  const dir = getAppsDir();
+  const jsonPath = join(dir, `${dirName}.json`);
+
+  // Atomic read-modify-write: re-read the file immediately before writing
+  // so concurrent callers (e.g. two tool_result handlers for the same app
+  // in different conversations) merge against the latest on-disk state.
+  // Because readFileSync → JSON.parse → writeFileSync is a synchronous
+  // chain with no async gaps, Node/Bun's single-threaded event loop
+  // guarantees no interleaving between the read and the write.
+  const raw = readFileSync(jsonPath, "utf-8");
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  const onDiskIds = Array.isArray(parsed.conversationIds)
+    ? (parsed.conversationIds as string[])
+    : [];
+
+  if (onDiskIds.includes(conversationId)) return false;
+
+  parsed.conversationIds = [...onDiskIds, conversationId];
+  writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
+
+  return true;
+}
+
+/**
+ * Return all apps associated with a given conversation ID.
+ */
+export function listAppsByConversation(
+  conversationId: string,
+): AppDefinition[] {
+  return listApps().filter((app) =>
+    app.conversationIds?.includes(conversationId),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Backfill: scan message history for ui_surface blocks referencing apps
+// ---------------------------------------------------------------------------
+
+/**
+ * Single-pass scan over the messages table to populate `conversationIds` on
+ * existing app definitions. Finds messages containing `ui_surface` blocks
+ * with a `data.appId`, then calls `addAppConversationId` for each pair.
+ *
+ * Runs once per workspace: after a successful backfill a sentinel file
+ * (`<appsDir>/.conversation-ids-backfilled`) is written. Subsequent daemon
+ * startups skip the scan entirely. If the apps directory is wiped the
+ * sentinel disappears and the backfill re-runs — which is correct behavior.
+ *
+ * Wrapped in try/catch so failures never block daemon start.
+ */
+export function backfillAppConversationIds(): void {
+  const log = getLogger("app-store");
+
+  // Check sentinel — skip the potentially expensive scan when already done.
+  const sentinelPath = join(getAppsDir(), ".conversation-ids-backfilled");
+  if (existsSync(sentinelPath)) {
+    log.debug("Skipping backfillAppConversationIds — sentinel exists");
+    return;
+  }
+
+  try {
+    const rows = rawAll<{ conversation_id: string; content: string }>(
+      `SELECT conversation_id, content FROM messages WHERE content LIKE '%"type":"ui_surface"%'`,
+    );
+
+    // Build appId → Set<conversationId> map in a single pass
+    const appConvMap = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.content);
+      } catch {
+        // Skip rows that fail to parse
+        continue;
+      }
+
+      if (!Array.isArray(parsed)) continue;
+
+      for (const block of parsed) {
+        if (
+          block &&
+          typeof block === "object" &&
+          (block as Record<string, unknown>).type === "ui_surface"
+        ) {
+          const data = (block as Record<string, unknown>).data;
+          if (data && typeof data === "object") {
+            const appId = (data as Record<string, unknown>).appId;
+            if (typeof appId === "string" && appId.length > 0) {
+              let convIds = appConvMap.get(appId);
+              if (!convIds) {
+                convIds = new Set<string>();
+                appConvMap.set(appId, convIds);
+              }
+              convIds.add(row.conversation_id);
+            }
+          }
+        }
+      }
+    }
+
+    // Apply associations
+    let appsUpdated = 0;
+    let associationsAdded = 0;
+
+    for (const [appId, conversationIds] of appConvMap) {
+      let appHadNewAssociation = false;
+      for (const conversationId of conversationIds) {
+        const added = addAppConversationId(appId, conversationId);
+        if (added) {
+          associationsAdded++;
+          appHadNewAssociation = true;
+        }
+      }
+      if (appHadNewAssociation) {
+        appsUpdated++;
+      }
+    }
+
+    log.info(
+      { appsUpdated, associationsAdded },
+      `Backfilled app conversationIds: ${appsUpdated} apps, ${associationsAdded} associations`,
+    );
+
+    // Write sentinel so subsequent startups skip this scan.
+    writeFileSync(sentinelPath, new Date().toISOString(), "utf-8");
+  } catch (err) {
+    log.error({ err }, "Failed to backfill app conversationIds");
+  }
 }
 
 export type { EditEngineResult };

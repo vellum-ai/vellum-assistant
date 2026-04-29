@@ -21,6 +21,8 @@ extension Notification.Name {
     static let refreshAppsCache = Notification.Name("MainWindow.refreshAppsCache")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
+    static let documentDidSave = Notification.Name("DocumentManager.documentDidSave")
+    static let openAppFromArtifact = Notification.Name("MainWindow.openAppFromArtifact")
 }
 
 private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")

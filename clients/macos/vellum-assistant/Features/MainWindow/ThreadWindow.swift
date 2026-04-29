@@ -224,6 +224,22 @@ private struct ThreadWindowContentView: View {
                         AppDelegate.shared?.showMainWindow()
                         AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
                     },
+                    onOpenConversationApp: { artifact in
+                        guard let appId = artifact.appId else { return }
+                        NotificationCenter.default.post(
+                            name: .openAppFromArtifact,
+                            object: nil,
+                            userInfo: ["appId": appId]
+                        )
+                    },
+                    onOpenConversationDocument: { artifact in
+                        guard let surfaceId = artifact.surfaceId else { return }
+                        NotificationCenter.default.post(
+                            name: .openDocumentEditor,
+                            object: nil,
+                            userInfo: ["documentSurfaceId": surfaceId]
+                        )
+                    },
                     recoveryMode: settingsStore.managedAssistantRecoveryMode,
                     isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                     onResumeAssistant: {

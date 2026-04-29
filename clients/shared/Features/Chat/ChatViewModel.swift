@@ -655,6 +655,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
     @ObservationIgnored private var pendingGuardianActions: [String: String] = [:]
+
+    // MARK: - Conversation Artifacts
+
+    /// Apps and documents associated with the current conversation.
+    public var conversationArtifacts: [ConversationArtifact] = []
+    @ObservationIgnored private var artifactsClient: ConversationArtifactsClientProtocol = ConversationArtifactsClient()
+    @ObservationIgnored private var artifactsFetchTask: Task<Void, Never>?
+
     public var conversationId: String? {
         didSet {
             broadcastFilter.conversationId = conversationId
@@ -664,11 +672,18 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 needsOfflineFlush = false
                 flushOfflineQueue()
             }
+            // Refresh conversation artifacts when conversation changes.
+            if conversationId != oldValue {
+                conversationArtifacts = []
+                artifactsFetchTask?.cancel()
+                fetchConversationArtifacts()
+            }
         }
     }
     @ObservationIgnored private var reconnectObserver: NSObjectProtocol?
     @ObservationIgnored private var eventStreamReconnectObserver: NSObjectProtocol?
     @ObservationIgnored private var appPreviewCapturedObserver: NSObjectProtocol?
+    @ObservationIgnored private var documentDidSaveObserver: NSObjectProtocol?
     /// Debounces rapid-fire transport reconnect notifications so only one
     /// history reload is triggered per reconnect burst (500ms settle window).
     @ObservationIgnored private var reconnectDebounceTask: Task<Void, Never>?
@@ -1258,6 +1273,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
 
+        // Refresh conversation artifacts when a document is saved successfully.
+        documentDidSaveObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("DocumentManager.documentDidSave"),
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.fetchConversationArtifacts()
+            }
+        }
+
         // Subscribe to the shared memory pressure monitor so we can
         // aggressively trim the message list when the OS warns of low memory.
         // This prevents the app from being jettisoned on devices with limited
@@ -1368,6 +1394,23 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
         sendCoordinator.sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
+    }
+
+    // MARK: - Conversation Artifacts Fetching
+
+    public func fetchConversationArtifacts() {
+        artifactsFetchTask?.cancel()
+        guard let conversationId else {
+            conversationArtifacts = []
+            return
+        }
+        let capturedId = conversationId
+        artifactsFetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.artifactsClient.fetchArtifacts(conversationId: capturedId)
+            guard !Task.isCancelled, self.conversationId == capturedId else { return }
+            self.conversationArtifacts = result
+        }
     }
 
     // MARK: - Offline Queue Flush (forwarded to MessageSendCoordinator)
@@ -2431,6 +2474,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if let observer = appPreviewCapturedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = documentDidSaveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        artifactsFetchTask?.cancel()
     }
 
     // MARK: - Connection diagnostics

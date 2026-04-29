@@ -47,6 +47,8 @@ struct ChatView: View {
     var diskPressureAlert: DiskPressureAlert? = nil
     var onReviewDiskUsage: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
+    var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
+    var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
 
     // MARK: - Recovery Mode (managed assistants only)
 

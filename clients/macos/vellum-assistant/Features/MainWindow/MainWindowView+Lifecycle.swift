@@ -119,6 +119,16 @@ extension MainWindowView {
                 }
             }
             group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .openAppFromArtifact) {
+                    guard let appId = notification.userInfo?["appId"] as? String else { continue }
+                    await AppsClient.openAppAndDispatchSurface(
+                        id: appId,
+                        connectionManager: connectionManager,
+                        eventStreamClient: eventStreamClient
+                    )
+                }
+            }
+            group.addTask { @MainActor [self] in
                 for await notification in nc.notifications(named: .updateDynamicWorkspace) {
                     if let updated = notification.userInfo?["surface"] as? Surface,
                        updated.id == windowState.activeDynamicSurface?.surfaceId {

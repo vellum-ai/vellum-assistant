@@ -26,6 +26,23 @@ interface DocumentRow {
 type DocumentListRow = Omit<DocumentRow, "content">;
 
 // ---------------------------------------------------------------------------
+// Junction table helper
+// ---------------------------------------------------------------------------
+
+/** Insert a document–conversation association (idempotent via INSERT OR IGNORE). */
+export function addDocumentConversation(
+  surfaceId: string,
+  conversationId: string,
+): void {
+  rawRun(
+    /*sql*/ `INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at) VALUES (?, ?, ?)`,
+    surfaceId,
+    conversationId,
+    Date.now(),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Shared business logic (used by both message handlers and HTTP routes)
 // ---------------------------------------------------------------------------
 
@@ -58,6 +75,20 @@ function saveDocument(params: {
       { surfaceId: params.surfaceId, title: params.title },
       "Saved document",
     );
+
+    // Best-effort: associate the document with the conversation.
+    // Failures (e.g. migration not yet applied, table missing) must not
+    // cause the save response to report failure — the document itself is
+    // already persisted at this point.
+    try {
+      addDocumentConversation(params.surfaceId, params.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, surfaceId: params.surfaceId },
+        "Failed to record document–conversation association",
+      );
+    }
+
     return { success: true, surfaceId: params.surfaceId };
   } catch (error) {
     log.error({ err: error, surfaceId: params.surfaceId }, "Save error");
@@ -123,20 +154,29 @@ function listDocuments(conversationId?: string): Array<{
   updatedAt: number;
 }> {
   try {
-    let query = /*sql*/ `
-      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
-      FROM documents
-    `;
-    const params: string[] = [];
+    let results: DocumentListRow[];
 
     if (conversationId) {
-      query += " WHERE conversation_id = ?";
-      params.push(conversationId);
+      // Query via junction table so we return the *matched* conversation_id
+      // (not the origin conversation_id from the documents table).
+      results = rawAll<DocumentListRow>(
+        /*sql*/ `
+        SELECT d.surface_id, dc.conversation_id AS conversation_id,
+               d.title, d.word_count, d.created_at, d.updated_at
+        FROM documents d
+        INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
+        WHERE dc.conversation_id = ?
+        ORDER BY d.updated_at DESC
+        `,
+        conversationId,
+      );
+    } else {
+      results = rawAll<DocumentListRow>(/*sql*/ `
+        SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+        FROM documents
+        ORDER BY updated_at DESC
+        `);
     }
-
-    query += " ORDER BY updated_at DESC";
-
-    const results = rawAll<DocumentListRow>(query, ...params);
 
     log.info({ count: results.length }, "Listed documents");
     return results.map((row) => ({
@@ -233,13 +273,8 @@ export const ROUTES: RouteDefinition[] = [
       surfaceId: z.string(),
     }),
     handler: ({ body }) => {
-      const {
-        surfaceId,
-        conversationId,
-        title,
-        content,
-        wordCount,
-      } = (body ?? {}) as {
+      const { surfaceId, conversationId, title, content, wordCount } = (body ??
+        {}) as {
         surfaceId?: string;
         conversationId?: string;
         title?: string;

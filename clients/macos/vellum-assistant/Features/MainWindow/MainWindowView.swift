@@ -567,6 +567,7 @@ struct MainWindowView: View {
                 homeStore: homeStore,
                 updateManager: updateManager,
                 connectionManager: connectionManager,
+                eventStreamClient: eventStreamClient,
                 settingsStore: settingsStore,
                 isInFullscreen: isInFullscreen,
                 sidebarExpandedWidth: sidebarExpandedWidth,

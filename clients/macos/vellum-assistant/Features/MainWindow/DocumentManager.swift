@@ -65,6 +65,11 @@ final class DocumentManager {
         self.lastSaveError = nil
         self.hasActiveDocument = true
 
+        // Persist initial content to the daemon so the document reaches the junction table
+        if !initialContent.isEmpty {
+            scheduleAutoSave()
+        }
+
         // Initialize editor with content (or store as pending if coordinator not ready)
         if let coordinator = editorCoordinator {
             coordinator.setInitialContent(title: title, markdown: initialContent)
@@ -121,6 +126,7 @@ final class DocumentManager {
         self.title = title
         self.currentContent = content
         self.wordCount = wordCount
+        scheduleAutoSave()
     }
 
     func closeDocument() {
@@ -195,6 +201,7 @@ final class DocumentManager {
         if success {
             lastSaveError = nil
             log.info("Document saved successfully")
+            NotificationCenter.default.post(name: .documentDidSave, object: nil)
         } else {
             lastSaveError = error ?? "Unknown error"
             log.error("Document save failed: \(error ?? "unknown")")

@@ -217,17 +217,23 @@ public struct PermissionPromptView: View {
                         onAllow()
                     }
                 }) {
+                    #if os(macOS)
+                    VMenuItem(label: "Allow & Create Rule", size: .mini) {
+                        onAllowAndSuggestRule?()
+                    }
+                    #else
                     Button("Allow & Create Rule") {
                         onAllowAndSuggestRule?()
                     }
+                    #endif
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    Capsule()
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
             } else {
-                VButton(label: "Allow", style: .primary, size: .compact) {
+                VButton(label: "Allow", style: .primary, size: .compact, buttonShape: .capsule) {
                     if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
                         let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
                         onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
@@ -236,17 +242,17 @@ public struct PermissionPromptView: View {
                     }
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    Capsule()
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
             }
 
-            VButton(label: "Deny", style: .danger, size: .compact) {
+            VButton(label: "Deny", style: .danger, size: .compact, buttonShape: .capsule) {
                 onDeny()
             }
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
+                Capsule()
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
                     .allowsHitTesting(false)
             )
@@ -266,6 +272,14 @@ public struct PermissionPromptView: View {
         removeKeyMonitor()
         keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // If a VMenuPanel is key (e.g. the VSplitButton dropdown is open),
+            // let the panel's responder chain handle Escape / Enter / Tab so the
+            // user can navigate and dismiss the menu without triggering a
+            // permission action. VMenuPanel uses a regular NSWindow (not a nested
+            // NSMenu event loop), so local monitors fire before its responders.
+            if NSApp.keyWindow is VMenuPanel {
+                return event
+            }
             // If an editable text view (e.g. the composer) is the first responder,
             // let the event pass through so it can handle Enter/Tab/Escape normally.
             // Non-editable text views (e.g. selectable command previews inside the

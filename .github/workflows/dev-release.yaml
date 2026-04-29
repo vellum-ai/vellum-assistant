@@ -1119,7 +1119,7 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@<redacted type="High-Entropy Hex Token" /> # v2.2.2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}

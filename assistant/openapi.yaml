@@ -465,6 +465,13 @@ paths:
                 required:
                   - apps
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter apps by conversation ID
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get

@@ -186,7 +186,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway even when the broad runtime proxy is disabled.
+- **Description:** Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway for dedicated auth handling.
 
 **Caller files:**
 - `gateway/src/http/routes/runtime-health-proxy.ts`
