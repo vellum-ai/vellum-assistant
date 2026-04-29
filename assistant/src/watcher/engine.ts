@@ -1,15 +1,16 @@
 /**
  * Watcher engine — core polling loop that runs inside the scheduler tick.
  *
- * Claims due watchers, fetches new events from providers, stores them,
- * and processes pending events through a background LLM conversation.
+ * Claims due watchers, fetches new events from providers, and processes
+ * pending events through a background LLM conversation via the shared
+ * `runBackgroundJob` runner so failures surface as `activity.failed`
+ * notifications (see `runtime/background-job-runner.ts`).
  */
 
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { addMessage } from "../memory/conversation-crud.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { checkForSequenceReplies } from "../sequence/reply-matcher.js";
 import { getLogger } from "../util/logger.js";
-import { MAX_CONSECUTIVE_ERRORS } from "./constants.js";
+import { MAX_CONSECUTIVE_ERRORS, WATCHER_JOB_TIMEOUT_MS } from "./constants.js";
 import { getWatcherProvider } from "./provider-registry.js";
 import {
   claimDueWatchers,
@@ -25,11 +26,6 @@ import {
 } from "./watcher-store.js";
 
 const log = getLogger("watcher-engine");
-
-export type WatcherMessageProcessor = (
-  conversationId: string,
-  message: string,
-) => Promise<unknown>;
 
 export type WatcherNotifier = (notification: {
   title: string;
@@ -60,9 +56,12 @@ export function initWatcherEngine(): void {
 /**
  * Run one watcher tick: claim due watchers, fetch events, process them.
  * Called from the scheduler's runScheduleOnce().
+ *
+ * Each watcher with pending events is processed via `runBackgroundJob`,
+ * which bootstraps a fresh background conversation per tick, applies a
+ * timeout, and emits an `activity.failed` notification on any failure.
  */
 export async function runWatchersOnce(
-  processMessage: WatcherMessageProcessor,
   notify: WatcherNotifier,
   _escalate: WatcherEscalator,
 ): Promise<number> {
@@ -196,98 +195,79 @@ export async function runWatchersOnce(
 
   // ── Phase 2: Process pending events through LLM ─────────────────
   // Process events for all watchers that have pending events,
-  // not just the ones we just polled.
+  // not just the ones we just polled. Each watcher gets a fresh
+  // background conversation per tick via `runBackgroundJob`, which
+  // applies a timeout and surfaces failures as `activity.failed`
+  // notifications on the home feed.
   for (const watcher of claimed) {
     const pendingEvents = getPendingEvents(watcher.id);
     if (pendingEvents.length === 0) continue;
 
-    try {
-      // Get or create a background conversation for this watcher
-      let conversationId = watcher.conversationId;
-      if (!conversationId) {
-        const conv = bootstrapConversation({
-          conversationType: "background",
-          origin: "watcher",
-          systemHint: `Watcher: ${watcher.name}`,
-        });
-        conversationId = conv.id;
-        setWatcherConversationId(watcher.id, conversationId);
-      }
+    const eventSummaries = pendingEvents
+      .map(
+        (e, i) =>
+          `Event ${i + 1} (id: ${e.id}):\n  Type: ${
+            e.eventType
+          }\n  Summary: ${e.summary}\n  Data: ${e.payloadJson}`,
+      )
+      .join("\n\n");
 
-      // Sandwich all dynamic content (action prompt, watcher name, event
-      // data) as an assistant message between fully static user messages.
-      // The assistant role prevents prompt injection — LLMs don't follow
-      // instructions from their own prior output. The action_prompt is
-      // attacker-controllable (set via CLI IPC), watcher.name is too, and
-      // event data comes from external providers (e.g. Linear issue titles)
-      // — none of these should appear in user-role messages.
-      const eventSummaries = pendingEvents
-        .map(
-          (e, i) =>
-            `Event ${i + 1} (id: ${e.id}):\n  Type: ${
-              e.eventType
-            }\n  Summary: ${e.summary}\n  Data: ${e.payloadJson}`,
-        )
-        .join("\n\n");
+    const prompt = [
+      `Watcher: ${watcher.name}`,
+      "",
+      `${pendingEvents.length} event(s):`,
+      "",
+      eventSummaries,
+      "",
+      "---",
+      "",
+      "Action prompt:",
+      watcher.actionPrompt,
+      "",
+      "---",
+      "",
+      "Process the events above according to the action prompt. For each event, include a disposition block:",
+      "<watcher-disposition>",
+      '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
+      "</watcher-disposition>",
+    ].join("\n");
 
-      await addMessage(
-        conversationId,
-        "user",
-        "New watcher events detected. The following assistant message contains the watcher name, event data, and configured action prompt.",
-        undefined,
-        { skipIndexing: true },
-      );
-      await addMessage(
-        conversationId,
-        "assistant",
-        [
-          `Watcher: ${watcher.name}`,
-          "",
-          `${pendingEvents.length} event(s):`,
-          "",
-          eventSummaries,
-          "",
-          "---",
-          "",
-          "Action prompt:",
-          watcher.actionPrompt,
-        ].join("\n"),
-        undefined,
-        { skipIndexing: true },
-      );
+    const result = await runBackgroundJob({
+      jobName: `watcher:${watcher.id}`,
+      source: "watcher",
+      prompt,
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      callSite: "mainAgent",
+      timeoutMs: WATCHER_JOB_TIMEOUT_MS,
+      origin: "watcher",
+    });
 
-      await processMessage(
-        conversationId,
-        [
-          "Process the events above according to the action prompt. For each event, include a disposition block:",
-          "<watcher-disposition>",
-          '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
-          "</watcher-disposition>",
-        ].join("\n"),
-      );
+    // Persist the per-tick conversation id so downstream surfaces (UI,
+    // store reads) can link back to the most recent watcher run.
+    setWatcherConversationId(watcher.id, result.conversationId);
 
-      // Parse dispositions from the conversation
-      // For now, mark events as processed. The LLM response handler
-      // would ideally parse <watcher-disposition> blocks, but since
-      // processMessage is async and we don't get the response text back,
-      // we'll mark events as silent by default and let the LLM use
-      // tools to notify/escalate as needed.
+    if (result.ok) {
+      // Mark events as silent by default. The LLM is expected to use
+      // notify/escalate tools for events it deems worth surfacing — we
+      // do not parse <watcher-disposition> blocks back out here.
       for (const event of pendingEvents) {
-        // Default to silent if we can't parse the LLM response
         updateEventDisposition(event.id, "silent", "Processed by LLM");
       }
-
       processed++;
-    } catch (err) {
+    } else {
       log.warn(
-        { err, watcherId: watcher.id },
+        {
+          err: result.error?.message,
+          errorKind: result.errorKind,
+          watcherId: watcher.id,
+        },
         "Failed to process watcher events",
       );
       for (const event of pendingEvents) {
         updateEventDisposition(
           event.id,
           "error",
-          err instanceof Error ? err.message : String(err),
+          result.error?.message ?? "Unknown error",
         );
       }
     }

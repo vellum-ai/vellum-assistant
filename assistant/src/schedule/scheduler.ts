@@ -531,7 +531,6 @@ async function runScheduleOnce(
   if (watcherNotifier && watcherEscalator) {
     try {
       const watcherProcessed = await runWatchersOnce(
-        processMessage,
         watcherNotifier,
         watcherEscalator,
       );
