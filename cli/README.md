@@ -121,10 +121,10 @@ Only available for managed assistants (those running in a Vellum Cloud container
 
 | Option               | Description                                                                                  |
 | -------------------- | -------------------------------------------------------------------------------------------- |
-| `[name]`             | Positional. Name of the assistant to target. If omitted, defaults to the most recently hatched managed assistant. |
+| `[name]`             | Positional. Name of the assistant to target. Defaults to the active assistant set via `vellum use`. |
 | `--assistant <name>` | Explicit form of the assistant name. Equivalent to the positional argument.                  |
 
-> **Note:** If you have multiple managed assistants, pass the name explicitly (positionally or via `--assistant`) to make sure you land in the right container.
+If no assistant is named and no active assistant is set, the CLI uses the only managed assistant in the lockfile -- or errors out if there's more than one. Use `vellum ps` to see your assistants and `vellum use <name>` to set the active one.
 
 #### Examples
 
