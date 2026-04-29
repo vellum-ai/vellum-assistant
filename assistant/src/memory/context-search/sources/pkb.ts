@@ -76,7 +76,7 @@ export async function searchPkbSource(
   context: RecallSearchContext,
   limit: number,
 ): Promise<RecallSearchResult> {
-  if (isMemoryV2ReadActive(context)) {
+  if (isMemoryV2ReadActive(context.config)) {
     return { evidence: [] };
   }
 
@@ -139,7 +139,7 @@ export async function searchPkbSource(
 export function readPkbContextEvidence(
   context: RecallSearchContext,
 ): RecallEvidence[] {
-  if (isMemoryV2ReadActive(context)) {
+  if (isMemoryV2ReadActive(context.config)) {
     return [];
   }
 

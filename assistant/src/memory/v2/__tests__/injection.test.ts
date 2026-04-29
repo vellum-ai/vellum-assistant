@@ -364,7 +364,7 @@ describe("injectMemoryV2Block", () => {
 
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("<memory __injected>");
+    expect(result.block).toContain("<memory>");
     expect(result.block).toContain("## What I Remember Right Now");
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).toContain("VS Code");
@@ -624,7 +624,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.toInject).toEqual([]);
     expect(result.block).not.toBeNull();
     // Same outer wrapping as concept-page-only blocks.
-    expect(result.block).toContain("<memory __injected>");
+    expect(result.block).toContain("<memory>");
     expect(result.block).toContain("## What I Remember Right Now");
     expect(result.block).toContain("</memory>");
     // No concept-page sections; skills subsection present with the right

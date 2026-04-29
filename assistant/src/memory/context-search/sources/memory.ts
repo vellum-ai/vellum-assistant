@@ -23,7 +23,7 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
-  if (isMemoryV2ReadActive(context)) {
+  if (isMemoryV2ReadActive(context.config)) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
 
