@@ -124,7 +124,7 @@ Only available for managed assistants (those running in a Vellum Cloud container
 | `[name]`             | Positional. Name of the assistant to target. If omitted, defaults to the most recently hatched managed assistant. |
 | `--assistant <name>` | Explicit form of the assistant name. Equivalent to the positional argument.                  |
 
-> **Note:** Unlike most other `vellum` commands, `vellum terminal` does not honor the active assistant set by `vellum use` -- it falls back to the most recently hatched managed assistant. If you have multiple managed assistants, pass the name explicitly (positionally or via `--assistant`) to avoid attaching to the wrong one.
+> **Note:** If you have multiple managed assistants, pass the name explicitly (positionally or via `--assistant`) to make sure you land in the right container.
 
 #### Examples
 
