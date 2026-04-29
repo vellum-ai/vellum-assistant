@@ -54,6 +54,15 @@ export interface ClientSubscriberMeta {
   interfaceId: InterfaceId;
 }
 
+/** Internal client metadata attached to a hub subscriber. */
+export interface ClientMeta {
+  clientId: string;
+  interfaceId: InterfaceId;
+  capabilities: HostProxyCapability[];
+  connectedAt: number;
+  lastActiveAt: number;
+}
+
 /** Serialized form returned by the IPC route / CLI command. */
 export interface ClientEntryJSON {
   clientId: string;
@@ -72,13 +81,7 @@ interface SubscriberEntry {
   /** Called by the hub when this entry is evicted to make room for a new subscriber. */
   onEvict?: () => void;
   /** Present when this subscriber represents a connected client. */
-  client?: {
-    clientId: string;
-    interfaceId: InterfaceId;
-    capabilities: HostProxyCapability[];
-    connectedAt: number;
-    lastActiveAt: number;
-  };
+  client?: ClientMeta;
 }
 
 /**
@@ -281,11 +284,9 @@ export class AssistantEventHub {
 
   // ── Client queries ──────────────────────────────────────────────────────────
 
-  /**
-   * Return all active client subscribers, sorted by `lastActiveAt` descending.
-   */
-  listClients(): SubscriberEntry["client"][] {
-    const clients: NonNullable<SubscriberEntry["client"]>[] = [];
+  /** Client metadata shape (non-optional). */
+  private clientEntries(): ClientMeta[] {
+    const clients: ClientMeta[] = [];
     for (const entry of this.subscribers) {
       if (entry.active && entry.client) {
         clients.push(entry.client);
@@ -295,13 +296,18 @@ export class AssistantEventHub {
   }
 
   /**
+   * Return all active client subscribers, sorted by `lastActiveAt` descending.
+   */
+  listClients(): ClientMeta[] {
+    return this.clientEntries();
+  }
+
+  /**
    * Return all client subscribers that support the given capability,
    * sorted by `lastActiveAt` descending.
    */
-  listClientsByCapability(
-    capability: HostProxyCapability,
-  ): NonNullable<SubscriberEntry["client"]>[] {
-    return this.listClients().filter((c) =>
+  listClientsByCapability(capability: HostProxyCapability): ClientMeta[] {
+    return this.clientEntries().filter((c) =>
       c.capabilities.includes(capability),
     );
   }
@@ -312,7 +318,7 @@ export class AssistantEventHub {
    */
   getMostRecentClientByCapability(
     capability: HostProxyCapability,
-  ): NonNullable<SubscriberEntry["client"]> | undefined {
+  ): ClientMeta | undefined {
     return this.listClientsByCapability(capability)[0];
   }
 
@@ -320,10 +326,8 @@ export class AssistantEventHub {
    * Return all client subscribers with the given interface type,
    * sorted by `lastActiveAt` descending.
    */
-  listClientsByInterface(
-    interfaceId: InterfaceId,
-  ): NonNullable<SubscriberEntry["client"]>[] {
-    return this.listClients().filter((c) => c.interfaceId === interfaceId);
+  listClientsByInterface(interfaceId: InterfaceId): ClientMeta[] {
+    return this.clientEntries().filter((c) => c.interfaceId === interfaceId);
   }
 
   /**
@@ -341,9 +345,7 @@ export class AssistantEventHub {
   /**
    * Serialize a client entry to JSON (ISO timestamps).
    */
-  static clientToJSON(
-    client: NonNullable<SubscriberEntry["client"]>,
-  ): ClientEntryJSON {
+  static clientToJSON(client: ClientMeta): ClientEntryJSON {
     return {
       clientId: client.clientId,
       interfaceId: client.interfaceId,

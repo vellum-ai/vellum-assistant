@@ -63,8 +63,8 @@ describe("events client registration", () => {
     const clients = hub.listClients();
     const entry = clients.find((c) => c.clientId === "test-mac-001");
     expect(entry).toBeDefined();
-    expect(entry!.interfaceId).toBe("macos");
-    expect(entry!.capabilities).toContain("host_bash");
+    expect(entry?.interfaceId).toBe("macos");
+    expect(entry?.capabilities).toContain("host_bash");
 
     ac.abort();
   });
@@ -147,9 +147,9 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "test-mac-002"),
-    ).toBeDefined();
+    expect(hub.listClients().some((c) => c.clientId === "test-mac-002")).toBe(
+      true,
+    );
 
     const reader = stream.getReader();
     await reader.read();
@@ -158,9 +158,9 @@ describe("events client registration", () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "test-mac-002"),
-    ).toBeUndefined();
+    expect(hub.listClients().some((c) => c.clientId === "test-mac-002")).toBe(
+      false,
+    );
   });
 
   test("unregisters client when stream is cancelled", async () => {
@@ -178,15 +178,15 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "test-mac-003"),
-    ).toBeDefined();
+    expect(hub.listClients().some((c) => c.clientId === "test-mac-003")).toBe(
+      true,
+    );
 
     await stream.cancel();
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "test-mac-003"),
-    ).toBeUndefined();
+    expect(hub.listClients().some((c) => c.clientId === "test-mac-003")).toBe(
+      false,
+    );
   });
 
   // ── Heartbeat touch ───────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ describe("events client registration", () => {
     const clients = hub.listClients();
     const entry = clients.find((c) => c.clientId === "test-mac-004");
     expect(entry).toBeDefined();
-    const initialActive = entry!.lastActiveAt;
+    const initialActive = entry?.lastActiveAt ?? 0;
 
     const reader = stream.getReader();
     await reader.read();
@@ -218,7 +218,7 @@ describe("events client registration", () => {
 
     // Re-query — the entry object is the same reference, so lastActiveAt
     // should have been bumped by touchClient().
-    expect(entry!.lastActiveAt).toBeGreaterThanOrEqual(initialActive);
+    expect(entry?.lastActiveAt).toBeGreaterThanOrEqual(initialActive);
 
     ac.abort();
   });
@@ -240,9 +240,7 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "evict-me"),
-    ).toBeDefined();
+    expect(hub.listClients().some((c) => c.clientId === "evict-me")).toBe(true);
 
     const ac2 = new AbortController();
     handleSubscribeAssistantEvents(
@@ -256,12 +254,10 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(
-      hub.listClients().find((c) => c.clientId === "evict-me"),
-    ).toBeUndefined();
-    expect(
-      hub.listClients().find((c) => c.clientId === "i-stay"),
-    ).toBeDefined();
+    expect(hub.listClients().some((c) => c.clientId === "evict-me")).toBe(
+      false,
+    );
+    expect(hub.listClients().some((c) => c.clientId === "i-stay")).toBe(true);
 
     ac1.abort();
     ac2.abort();
