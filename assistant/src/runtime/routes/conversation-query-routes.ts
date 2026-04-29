@@ -274,6 +274,11 @@ function handleGetConfig() {
 function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   const llm = asMutablePlainObject(body.llm);
   if (!llm) return;
+  if ("profiles" in llm && llm.profiles === null) {
+    throw new BadRequestError(
+      "Cannot null llm.profiles — managed profiles would be deleted.",
+    );
+  }
   const profiles = asMutablePlainObject(llm.profiles);
   if (!profiles) return;
   for (const name of Object.keys(profiles)) {

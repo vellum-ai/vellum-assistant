@@ -146,4 +146,12 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     });
     expect(result).toEqual({ ok: true });
   });
+
+  test("rejects nulling the entire profiles map", () => {
+    expect(() =>
+      patchRoute.handler({
+        body: { llm: { profiles: null } },
+      }),
+    ).toThrow("Cannot null llm.profiles");
+  });
 });
