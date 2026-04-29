@@ -30,7 +30,7 @@ function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
-async function waitForAssistant(): Promise<boolean> {
+export async function waitForAssistant(): Promise<boolean> {
   const deadline = Date.now() + MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
@@ -55,11 +55,6 @@ async function waitForAssistant(): Promise<boolean> {
  * startup tasks. Awaited at startup — blocks Bun.serve().
  */
 export async function runPostAssistantReady(): Promise<void> {
-  if (process.env.SKIP_POST_ASSISTANT_READY === "true") {
-    log.info("Skipping post-assistant-ready (SKIP_POST_ASSISTANT_READY)");
-    return;
-  }
-
   const ready = await waitForAssistant();
   if (!ready) return;
 

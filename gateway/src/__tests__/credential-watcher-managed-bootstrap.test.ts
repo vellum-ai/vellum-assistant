@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createServer } from "node:net";
+import { createServer, type Server } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { startFakeAssistantIpc } from "./fake-assistant-ipc.js";
 
 const TEST_SERVICE_TOKEN = "test-ces-service-token";
 
@@ -54,6 +56,7 @@ let gatewayProc: ChildProcess | null = null;
 let gatewayPort = 0;
 let cesPort = 0;
 let cesServer: ReturnType<typeof Bun.serve> | null = null;
+let fakeAssistantIpc: Server | null = null;
 
 /** Ask the OS for a free port by briefly binding to port 0. */
 function getFreePort(): Promise<number> {
@@ -95,17 +98,19 @@ async function startGateway(): Promise<void> {
     );
   gatewayPort = await getFreePort();
 
+  const workspaceDir = join(testDir, ".vellum", "workspace");
+  fakeAssistantIpc = startFakeAssistantIpc(workspaceDir);
+
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
       GATEWAY_SECURITY_DIR: join(testDir, ".vellum", "protected"),
-      VELLUM_WORKSPACE_DIR: join(testDir, ".vellum", "workspace"),
+      VELLUM_WORKSPACE_DIR: workspaceDir,
       GATEWAY_PORT: String(gatewayPort),
       CES_CREDENTIAL_URL: `http://127.0.0.1:${cesPort}`,
       CES_SERVICE_TOKEN: TEST_SERVICE_TOKEN,
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
-      SKIP_POST_ASSISTANT_READY: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -191,6 +196,8 @@ function startFakeCes(opts: {
 }
 
 afterEach(async () => {
+  fakeAssistantIpc?.close();
+  fakeAssistantIpc = null;
   cesServer?.stop(true);
   cesServer = null;
   gatewayPort = 0;

@@ -17,7 +17,10 @@ import {
 import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
+import type { Server } from "node:net";
 import { fileURLToPath } from "node:url";
+
+import { startFakeAssistantIpc } from "./fake-assistant-ipc.js";
 
 // ---------------------------------------------------------------------------
 // Constants — must match credential-reader.ts
@@ -189,19 +192,23 @@ const gatewayEntry = join(gatewayRoot, "src", "index.ts");
 
 let gatewayProc: ChildProcess | null = null;
 let port = 0;
+let fakeAssistantIpc: Server | null = null;
 
 async function startGateway(): Promise<void> {
   port = 49152 + Math.floor(Math.random() * 16383);
+
+  const workspaceDir = join(testDir, ".vellum", "workspace");
+  fakeAssistantIpc = startFakeAssistantIpc(workspaceDir);
+
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
       GATEWAY_SECURITY_DIR: join(testDir, ".vellum", "protected"),
-      VELLUM_WORKSPACE_DIR: join(testDir, ".vellum", "workspace"),
+      VELLUM_WORKSPACE_DIR: workspaceDir,
       GATEWAY_PORT: String(port),
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
-      SKIP_POST_ASSISTANT_READY: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -230,6 +237,8 @@ async function startGateway(): Promise<void> {
 }
 
 afterEach(async () => {
+  fakeAssistantIpc?.close();
+  fakeAssistantIpc = null;
   if (gatewayProc) {
     const proc = gatewayProc;
     gatewayProc = null;
