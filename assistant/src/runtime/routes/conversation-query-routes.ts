@@ -77,6 +77,14 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
+// TODO: Import from ../config/seed-inference-profiles.js once that module
+// exists (PR 2 of the declarative-profile-seed plan).
+const MANAGED_PROFILE_NAMES = new Set([
+  "quality-optimized",
+  "balanced",
+  "cost-optimized",
+]);
+
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
   "model",
@@ -268,6 +276,18 @@ function handleGetConfig() {
   }
 }
 
+function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
+  const llm = asMutablePlainObject(body.llm);
+  if (!llm) return;
+  const profiles = asMutablePlainObject(llm.profiles);
+  if (!profiles) return;
+  for (const name of Object.keys(profiles)) {
+    if (profiles[name] === null && MANAGED_PROFILE_NAMES.has(name)) {
+      throw new BadRequestError(`Cannot delete managed profile "${name}".`);
+    }
+  }
+}
+
 function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -277,6 +297,7 @@ function handlePatchConfig({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
+  rejectManagedProfileDeletion(body as Record<string, unknown>);
   try {
     const raw = loadRawConfig();
     deepMergeOverwrite(raw, body);
@@ -298,6 +319,11 @@ function handleReplaceInferenceProfile({
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
+  }
+  if (MANAGED_PROFILE_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Cannot edit managed profile "${name}". Duplicate it to create a custom profile.`,
+    );
   }
   const parsed = ProfileEntry.safeParse(body);
   if (!parsed.success) {
