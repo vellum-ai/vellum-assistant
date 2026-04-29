@@ -42,6 +42,7 @@ export function up(): MigrationResult {
   try {
     assistantDb = new Database(assistantDbPath);
     assistantDb.exec("PRAGMA journal_mode=WAL");
+    assistantDb.exec("PRAGMA synchronous=FULL");
     assistantDb.exec("PRAGMA busy_timeout=5000");
 
     const hasActorTokens = assistantDb
