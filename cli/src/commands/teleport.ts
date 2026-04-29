@@ -17,7 +17,6 @@ import {
   getPlatformUrl,
   hatchAssistant,
   checkExistingPlatformAssistant,
-  platformInitiateExport,
   platformPollJobStatus,
   platformImportBundleFromGcs,
   platformImportPreflightFromGcs,
@@ -442,14 +441,35 @@ async function exportFromAssistant(
   }
 
   if (cloud === "vellum") {
-    // Platform source — initiate a server-side export. The platform writes
-    // the bundle to its own `exports/<org>/<id>.vbundle` key; we discover
-    // that key via the unified job-status endpoint's `bundle_key` field.
-    const { jobId } = await platformInitiateExport(
+    // Platform source — request a signed upload URL on the same platform
+    // instance the bundle will eventually be imported from, then have the
+    // runtime export directly to GCS. Mirrors the local/docker branch above.
+    const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+      { operation: "upload" },
       platformToken,
-      "teleport export",
-      entry.runtimeUrl,
+      bundlePlatformUrl,
     );
+
+    let jobId: string;
+    try {
+      ({ jobId } = await callRuntimeWithAuthRetry(
+        entry.runtimeUrl,
+        entry.assistantId,
+        (token) =>
+          localRuntimeExportToGcs(entry.runtimeUrl, token, {
+            uploadUrl,
+            description: "teleport export",
+          }),
+      ));
+    } catch (err) {
+      if (err instanceof MigrationInProgressError) {
+        console.error(
+          `Error: Another teleport export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish or check its status, then re-run.`,
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
 
     console.log(`Export started (job ${jobId})...`);
 
@@ -478,14 +498,7 @@ async function exportFromAssistant(
       process.exit(1);
     }
 
-    if (!terminal.bundleKey) {
-      console.error(
-        "Export completed but the platform did not return a bundle_key. Is the platform up to date?",
-      );
-      process.exit(1);
-    }
-
-    return { bundleKey: terminal.bundleKey };
+    return { bundleKey };
   }
 
   console.error(

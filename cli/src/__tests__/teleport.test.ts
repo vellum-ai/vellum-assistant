@@ -91,14 +91,6 @@ const hatchAssistantMock = spyOn(
   reusedExisting: false,
 });
 
-const platformInitiateExportMock = spyOn(
-  platformClient,
-  "platformInitiateExport",
-).mockResolvedValue({
-  jobId: "platform-export-job-1",
-  status: "pending",
-});
-
 const platformPollJobStatusMock = spyOn(
   platformClient,
   "platformPollJobStatus",
@@ -294,7 +286,6 @@ afterAll(() => {
   getPlatformUrlMock.mockRestore();
   hatchAssistantMock.mockRestore();
   checkExistingPlatformAssistantMock.mockRestore();
-  platformInitiateExportMock.mockRestore();
   platformPollJobStatusMock.mockRestore();
   platformRequestSignedUrlMock.mockRestore();
   platformImportBundleFromGcsMock.mockRestore();
@@ -377,11 +368,6 @@ beforeEach(() => {
       status: "active",
     },
     reusedExisting: false,
-  });
-  platformInitiateExportMock.mockReset();
-  platformInitiateExportMock.mockResolvedValue({
-    jobId: "platform-export-job-1",
-    status: "pending",
   });
   platformPollJobStatusMock.mockReset();
   platformPollJobStatusMock.mockResolvedValue({
@@ -926,12 +912,31 @@ describe("unified GCS flow — four directions", () => {
       bundleKey: "platform-exports/org-1/bundle-abc.vbundle",
     });
 
+    // The bundle key now flows from the upload signed-URL request rather than
+    // the job-status payload — pin it so the download-URL assertion below
+    // still uses the same expected key.
+    platformRequestSignedUrlMock.mockImplementation(async (params) => ({
+      url:
+        params.operation === "upload"
+          ? "https://storage.googleapis.com/bucket/signed-upload"
+          : "https://storage.googleapis.com/bucket/signed-download",
+      bundleKey:
+        params.bundleKey ?? "platform-exports/org-1/bundle-abc.vbundle",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    }));
+
     const restoreFetch = installTrackingFetch();
     try {
       await teleport();
 
-      // Platform side: initiated server export and polled the unified status.
-      expect(platformInitiateExportMock).toHaveBeenCalled();
+      // Platform side: requested an upload URL, kicked off a runtime export to
+      // GCS, and polled the unified job status.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
       expect(platformPollJobStatusMock).toHaveBeenCalled();
 
       // For the local target we request a download URL keyed by the
@@ -1159,12 +1164,23 @@ describe("signed-URL request targets the bundle-owning platform", () => {
       bundleKey: "dev-bundle-key",
     });
 
+    // Bundle key flows from the upload signed-URL request now; pin it so the
+    // download-URL assertion below uses the same key.
+    platformRequestSignedUrlMock.mockImplementation(async (params) => ({
+      url:
+        params.operation === "upload"
+          ? "https://storage.googleapis.com/bucket/signed-upload"
+          : "https://storage.googleapis.com/bucket/signed-download",
+      bundleKey: params.bundleKey ?? "dev-bundle-key",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    }));
+
     const restoreFetch = installTrackingFetch();
     try {
       await teleport();
 
       // The download URL must be requested from the SOURCE platform (where
-      // the bundle was written by the server-side export), not the default.
+      // the bundle was written by the runtime export), not the default.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         { operation: "download", bundleKey: "dev-bundle-key" },
         "platform-token",
@@ -1555,10 +1571,9 @@ describe("dry-run", () => {
         ),
       );
 
-      // Must fail BEFORE any export work — no signed URL request, no platform
-      // export initiation, nothing that costs time or bandwidth.
+      // Must fail BEFORE any export work — no signed URL request, no runtime
+      // export kickoff, nothing that costs time or bandwidth.
       expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
-      expect(platformInitiateExportMock).not.toHaveBeenCalled();
       expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
     } finally {
       restoreFetch();
