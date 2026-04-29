@@ -5,6 +5,7 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 export interface OnboardingGreetingContext {
   tools: string[];
   tasks: string[];
+  /** Valid values: "grounded" | "warm" | "energetic" | "poetic" */
   tone: string;
   userName?: string;
   assistantName?: string;
