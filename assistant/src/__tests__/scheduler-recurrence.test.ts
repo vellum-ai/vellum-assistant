@@ -16,6 +16,40 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+// Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
+// talk-mode path stays observable in unit tests. Each invocation creates a new
+// conversation row (so downstream lookups reflect reality) and pushes the
+// prompt onto the per-test message log via the supplied `onPrompt` hook.
+let onRunBackgroundJobPrompt:
+  | ((info: { conversationId: string; prompt: string }) => void)
+  | null = null;
+let runBackgroundJobShouldFail = false;
+mock.module("../runtime/background-job-runner.js", () => ({
+  runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
+    const { createConversation } =
+      await import("../memory/conversation-crud.js");
+    const conv = createConversation({
+      title: "(test stub)",
+      conversationType: "background",
+      source: "schedule",
+      ...(opts.groupId ? { groupId: opts.groupId } : {}),
+    });
+    onRunBackgroundJobPrompt?.({
+      conversationId: conv.id,
+      prompt: opts.prompt,
+    });
+    if (runBackgroundJobShouldFail) {
+      return {
+        conversationId: conv.id,
+        ok: false,
+        error: new Error("Simulated failure"),
+        errorKind: "exception" as const,
+      };
+    }
+    return { conversationId: conv.id, ok: true };
+  },
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -102,6 +136,8 @@ describe("scheduler RRULE execution", () => {
     db.run("DELETE FROM tasks");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
+    onRunBackgroundJobPrompt = null;
+    runBackgroundJobShouldFail = false;
   });
 
   test("RRULE schedule fires and creates cron_runs entry", async () => {
@@ -123,15 +159,18 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const processedMessages: { conversationId: string; message: string }[] = [];
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
+    onRunBackgroundJobPrompt = ({ conversationId, prompt }) => {
+      processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
-    // processMessage should have been called with the RRULE message
+    // The runner should have been invoked with the RRULE message
     expect(
       processedMessages.some((m) => m.message === "Hello from RRULE"),
     ).toBe(true);
@@ -227,12 +266,15 @@ describe("scheduler RRULE execution", () => {
     );
 
     const processedMessages: string[] = [];
-    const processMessage = async (_conversationId: string, message: string) => {
-      processedMessages.push(message);
+    onRunBackgroundJobPrompt = ({ prompt }) => {
+      processedMessages.push(prompt);
     };
 
     // First tick: the expired schedule should fire its final due run
-    const scheduler1 = startScheduler(processMessage, () => {});
+    const scheduler1 = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -252,7 +294,10 @@ describe("scheduler RRULE execution", () => {
 
     // Second tick: the disabled schedule must NOT fire again
     processedMessages.length = 0;
-    const scheduler2 = startScheduler(processMessage, () => {});
+    const scheduler2 = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -278,15 +323,18 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const processedMessages: { conversationId: string; message: string }[] = [];
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
+    onRunBackgroundJobPrompt = ({ conversationId, prompt }) => {
+      processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
-    // processMessage should have been called with the cron message
+    // The runner should have been invoked with the cron message
     expect(processedMessages.some((m) => m.message === "Cron message")).toBe(
       true,
     );
@@ -337,12 +385,10 @@ describe("scheduler RRULE execution", () => {
     // Force the schedule to be due
     forceScheduleDue(schedule.id);
 
-    const processedMessages: string[] = [];
-    const processMessage = async (_conversationId: string, message: string) => {
-      processedMessages.push(message);
-    };
-
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -387,11 +433,14 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const processedMessages: string[] = [];
-    const processMessage = async (_conversationId: string, message: string) => {
-      processedMessages.push(message);
+    onRunBackgroundJobPrompt = ({ prompt }) => {
+      processedMessages.push(prompt);
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -463,14 +512,14 @@ describe("scheduler RRULE execution", () => {
       forceScheduleDue(schedule.id);
 
       const processedMessages: string[] = [];
-      const processMessage = async (
-        _conversationId: string,
-        message: string,
-      ) => {
-        processedMessages.push(message);
+      onRunBackgroundJobPrompt = ({ prompt }) => {
+        processedMessages.push(prompt);
       };
 
-      const scheduler = startScheduler(processMessage, () => {});
+      const scheduler = startScheduler(
+        async () => {},
+        () => {},
+      );
       await new Promise((resolve) => setTimeout(resolve, 500));
       scheduler.stop();
 
@@ -536,11 +585,14 @@ describe("scheduler RRULE execution", () => {
     expect(getSchedule(schedule.id)!.status).toBe("active");
 
     const processedMessages: { conversationId: string; message: string }[] = [];
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
+    onRunBackgroundJobPrompt = ({ conversationId, prompt }) => {
+      processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -617,11 +669,12 @@ describe("scheduler RRULE execution", () => {
 
     expect(getSchedule(schedule.id)!.status).toBe("active");
 
-    const processMessage = async () => {
-      throw new Error("Simulated failure");
-    };
+    runBackgroundJobShouldFail = true;
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 

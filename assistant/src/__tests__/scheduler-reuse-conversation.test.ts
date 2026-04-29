@@ -16,6 +16,37 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+// Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
+// talk-mode path stays observable in unit tests. Each invocation creates a new
+// conversation row (so `getLastScheduleConversationId` lookups reflect reality)
+// and pushes onto a shared log mirrored by the per-test `processMessage`
+// callback used for the reuse path — that way assertions don't have to know
+// which path a given run took.
+const processedMessages: { conversationId: string; message: string }[] = [];
+let runBackgroundJobShouldFail = false;
+mock.module("../runtime/background-job-runner.js", () => ({
+  runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
+    const { createConversation } =
+      await import("../memory/conversation-crud.js");
+    const conv = createConversation({
+      title: "(test stub)",
+      conversationType: "background",
+      source: "schedule",
+      ...(opts.groupId ? { groupId: opts.groupId } : {}),
+    });
+    processedMessages.push({ conversationId: conv.id, message: opts.prompt });
+    if (runBackgroundJobShouldFail) {
+      return {
+        conversationId: conv.id,
+        ok: false,
+        error: new Error("Simulated failure"),
+        errorKind: "exception" as const,
+      };
+    }
+    return { conversationId: conv.id, ok: true };
+  },
+}));
+
 import { deleteConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -77,6 +108,8 @@ describe("scheduler conversation reuse", () => {
     db.run("DELETE FROM tasks");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
+    processedMessages.length = 0;
+    runBackgroundJobShouldFail = false;
   });
 
   test("recurring schedule with reuseConversation=true reuses conversation across runs", async () => {
@@ -99,7 +132,6 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const processedMessages: { conversationId: string; message: string }[] = [];
     const processMessage = async (conversationId: string, message: string) => {
       processedMessages.push({ conversationId, message });
     };
@@ -156,7 +188,6 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const processedMessages: { conversationId: string; message: string }[] = [];
     const processMessage = async (conversationId: string, message: string) => {
       processedMessages.push({ conversationId, message });
     };
@@ -200,7 +231,6 @@ describe("scheduler conversation reuse", () => {
 
     forceScheduleDue(schedule.id);
 
-    const processedMessages: { conversationId: string; message: string }[] = [];
     const processMessage = async (conversationId: string, message: string) => {
       processedMessages.push({ conversationId, message });
     };
@@ -245,7 +275,6 @@ describe("scheduler conversation reuse", () => {
     });
 
     // WHEN the schedule fires
-    const processedMessages: { conversationId: string; message: string }[] = [];
     const processMessage = async (conversationId: string, message: string) => {
       processedMessages.push({ conversationId, message });
     };
@@ -285,7 +314,6 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
 
     let shouldFail = false;
-    const processedMessages: { conversationId: string; message: string }[] = [];
     const processMessage = async (conversationId: string, message: string) => {
       processedMessages.push({ conversationId, message });
       if (shouldFail) throw new Error("Simulated failure");

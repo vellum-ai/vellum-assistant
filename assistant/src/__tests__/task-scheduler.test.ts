@@ -7,6 +7,41 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
+// talk-mode path stays observable. Each invocation creates a new conversation
+// row and pushes the prompt onto the per-test handler set via
+// `onRunBackgroundJobCall`. `run_task:` schedules use a different code path
+// and do not invoke this runner.
+let onRunBackgroundJobCall:
+  | ((info: {
+      conversationId: string;
+      prompt: string;
+      trustContext: { sourceChannel: string; trustClass: string };
+    }) => void)
+  | null = null;
+mock.module("../runtime/background-job-runner.js", () => ({
+  runBackgroundJob: async (opts: {
+    prompt: string;
+    groupId?: string;
+    trustContext: { sourceChannel: string; trustClass: string };
+  }) => {
+    const { createConversation } =
+      await import("../memory/conversation-crud.js");
+    const conv = createConversation({
+      title: "(test stub)",
+      conversationType: "background",
+      source: "schedule",
+      ...(opts.groupId ? { groupId: opts.groupId } : {}),
+    });
+    onRunBackgroundJobCall?.({
+      conversationId: conv.id,
+      prompt: opts.prompt,
+      trustContext: opts.trustContext,
+    });
+    return { conversationId: conv.id, ok: true };
+  },
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -111,6 +146,7 @@ describe("scheduler run_task detection", () => {
     db.run("DELETE FROM tasks");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
+    onRunBackgroundJobCall = null;
   });
 
   test("run_task:<id> messages trigger runTask instead of processMessage", async () => {
@@ -163,7 +199,7 @@ describe("scheduler run_task detection", () => {
     expect(typeof runTaskCalls[0].options?.taskRunId).toBe("string");
   });
 
-  test("regular messages still go through processMessage normally", async () => {
+  test("regular messages route through the runBackgroundJob runner", async () => {
     // Create a regular schedule (no run_task: prefix)
     const schedule = createSchedule({
       name: "Regular Schedule",
@@ -174,36 +210,32 @@ describe("scheduler run_task detection", () => {
 
     forceScheduleDue(schedule.id);
 
-    const processedMessages: Array<{
+    const runnerCalls: Array<{
       conversationId: string;
-      message: string;
-      options?: { trustClass?: string; taskRunId?: string };
+      prompt: string;
+      trustContext: { sourceChannel: string; trustClass: string };
     }> = [];
-    const processMessage = async (
-      conversationId: string,
-      message: string,
-      options?: { trustClass?: string; taskRunId?: string },
-    ) => {
-      processedMessages.push({ conversationId, message, options });
+    onRunBackgroundJobCall = (info) => {
+      runnerCalls.push(info);
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler(
+      async () => {},
+      () => {},
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
-    // processMessage should have been called with the regular message
-    expect(
-      processedMessages.some((m) => m.message === "Do something normal"),
-    ).toBe(true);
-    expect(
-      processedMessages.some(
-        (m) =>
-          m.message === "Do something normal" &&
-          m.options?.trustClass === "guardian" &&
-          m.options?.taskRunId === undefined,
-      ),
-    ).toBe(true);
+    // The runner should have been invoked with the schedule message and a
+    // guardian trust context, mirroring the historical inline `processMessage`
+    // call that the migration replaced.
+    expect(runnerCalls.length).toBe(1);
+    expect(runnerCalls[0].prompt).toBe("Do something normal");
+    expect(runnerCalls[0].trustContext).toEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
   });
 
   test("handles task not found gracefully", async () => {
