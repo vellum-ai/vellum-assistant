@@ -6,10 +6,12 @@ import {
   type LLMCallSite,
   type LLMConfig,
 } from "./schemas/llm.js";
+import type { ContextWindowConfig } from "./types.js";
 
 export interface EffectiveContextWindow {
   provider: string;
   model: string;
+  enabled: boolean;
   maxInputTokens: number;
   modelMaxInputTokens: number;
   defaultInputTokens: number;
@@ -49,6 +51,7 @@ export function resolveEffectiveContextWindow({
   return {
     provider: resolved.provider,
     model: resolved.model,
+    enabled: resolved.contextWindow.enabled,
     maxInputTokens,
     modelMaxInputTokens,
     defaultInputTokens,
@@ -58,5 +61,20 @@ export function resolveEffectiveContextWindow({
     overflowRecovery: resolved.contextWindow.overflowRecovery,
     isLongContextEnabled: maxInputTokens > defaultInputTokens,
     maxOutputTokens: catalogModel?.maxOutputTokens,
+  };
+}
+
+export function contextWindowConfigFromEffective(
+  base: ContextWindowConfig,
+  effective: EffectiveContextWindow,
+): ContextWindowConfig {
+  return {
+    ...base,
+    enabled: effective.enabled,
+    maxInputTokens: effective.maxInputTokens,
+    targetBudgetRatio: effective.targetBudgetRatio,
+    compactThreshold: effective.compactThreshold,
+    summaryBudgetRatio: effective.summaryBudgetRatio,
+    overflowRecovery: effective.overflowRecovery,
   };
 }
