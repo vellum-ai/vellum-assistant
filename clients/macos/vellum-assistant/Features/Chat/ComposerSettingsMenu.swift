@@ -202,12 +202,14 @@ struct ComposerSettingsMenu: View {
             currentPreset = preset
         }
 
-        onDraftInteractiveOverrideChange?(
-            ComposerThresholdPicker.stagedDraftOverride(
-                for: preset,
-                globalInteractive: globalInteractive
+        if assistantConversationId == nil {
+            onDraftInteractiveOverrideChange?(
+                ComposerThresholdPicker.stagedDraftOverride(
+                    for: preset,
+                    globalInteractive: globalInteractive
+                )
             )
-        )
+        }
 
         writeVersion &+= 1
         let currentWriteVersion = writeVersion
@@ -247,9 +249,26 @@ struct ComposerSettingsMenu: View {
                     let conversationOverride = try await thresholdClient.getConversationOverride(
                         conversationId: conversationIdString
                     )
-                    override = conversationOverride ?? draftInteractiveOverride
+                    if let diagnostic = ComposerThresholdPicker.displayOverrideDiagnostic(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: conversationOverride,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    ) {
+                        log.debug(
+                            "Threshold settings menu ignoring draft override for existing conversation (\(diagnostic, privacy: .public))"
+                        )
+                    }
+                    override = ComposerThresholdPicker.displayOverride(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: conversationOverride,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    )
                 } else {
-                    override = draftInteractiveOverride
+                    override = ComposerThresholdPicker.displayOverride(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: nil,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    )
                 }
 
                 guard !Task.isCancelled else { return }
