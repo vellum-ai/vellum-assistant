@@ -1,8 +1,7 @@
 import type { Command } from "commander";
 
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import {
   deleteSecureKeyViaDaemon,
   setSecureKeyViaDaemon,
@@ -62,7 +61,7 @@ Examples:
     .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = await getSecureKeyAsync(credentialKey(provider, "api_key"));
+        const value = await getProviderKeyAsync(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {

@@ -349,6 +349,12 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
         );
       }
       accountKey = credentialKey(name, "api_key");
+      // If the key doesn't exist under the credential namespace, fall back to
+      // the bare provider name (pre-migration window or partial migration failure).
+      const credResult = await getSecureKeyResultAsync(accountKey);
+      if (credResult.value === undefined && !credResult.unreachable) {
+        accountKey = name;
+      }
     } else if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
@@ -418,10 +424,16 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
           `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      const key = credentialKey(name, "api_key");
+      let key = credentialKey(name, "api_key");
       const existing = await getSecureKeyAsync(key);
       if (existing === undefined) {
-        throw new NotFoundError(`API key not found: ${name}`);
+        // Fall back to the bare provider name (pre-migration window or partial
+        // migration failure).
+        const bareExisting = await getSecureKeyAsync(name);
+        if (bareExisting === undefined) {
+          throw new NotFoundError(`API key not found: ${name}`);
+        }
+        key = name;
       }
       const deleteResult = await deleteSecureKeyAsync(key);
       if (deleteResult === "error") {
@@ -503,31 +515,61 @@ async function handleListSecrets() {
       throw new InternalError("Credential store is unreachable");
     }
 
-    const secrets = accounts.map((account) => {
-      if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+    // First pass: collect provider names already stored under the credential/
+    // namespace. Used to deduplicate bare-key entries that co-exist when a
+    // crash interrupted migration 002 between the set(credentialKey) and
+    // delete(provider) steps.
+    const credentialNamespaceProviders = new Set<string>(
+      accounts.flatMap((account) => {
+        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) return [];
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
-        if (slashIdx > 0 && slashIdx < rest.length - 1) {
-          const service = rest.slice(0, slashIdx);
-          const field = rest.slice(slashIdx + 1);
-          // api_key entries are stored as credential/{provider}/api_key
-          if (
-            field === "api_key" &&
-            API_KEY_PROVIDERS.includes(
-              service as (typeof API_KEY_PROVIDERS)[number],
-            )
-          ) {
-            return { type: "api_key" as const, name: service };
-          }
-          return {
-            type: "credential" as const,
-            name: `${service}:${field}`,
-          };
+        if (slashIdx < 1 || slashIdx >= rest.length - 1) return [];
+        const service = rest.slice(0, slashIdx);
+        const field = rest.slice(slashIdx + 1);
+        if (
+          field === "api_key" &&
+          API_KEY_PROVIDERS.includes(service as (typeof API_KEY_PROVIDERS)[number])
+        ) {
+          return [service];
         }
-      }
-      // Bare keys (pre-migration or unknown): treat as api_key
-      return { type: "api_key" as const, name: account };
-    });
+        return [];
+      }),
+    );
+
+    const secrets = accounts
+      .filter((account) => {
+        // Drop bare-key entries for providers already represented via the
+        // credential/ namespace to prevent duplicates after a partial migration.
+        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) return true;
+        if (credentialNamespaceProviders.has(account)) return false;
+        return true;
+      })
+      .map((account) => {
+        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
+          const slashIdx = rest.indexOf("/");
+          if (slashIdx > 0 && slashIdx < rest.length - 1) {
+            const service = rest.slice(0, slashIdx);
+            const field = rest.slice(slashIdx + 1);
+            // api_key entries are stored as credential/{provider}/api_key
+            if (
+              field === "api_key" &&
+              API_KEY_PROVIDERS.includes(
+                service as (typeof API_KEY_PROVIDERS)[number],
+              )
+            ) {
+              return { type: "api_key" as const, name: service };
+            }
+            return {
+              type: "credential" as const,
+              name: `${service}:${field}`,
+            };
+          }
+        }
+        // Bare keys (pre-migration or unknown): treat as api_key
+        return { type: "api_key" as const, name: account };
+      });
 
     return { secrets, accounts: secrets };
   } catch (err) {
