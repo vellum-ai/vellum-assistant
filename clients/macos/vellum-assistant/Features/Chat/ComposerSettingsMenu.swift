@@ -182,14 +182,16 @@ struct ComposerSettingsMenu: View {
 
     /// Divider-free section header matching the Figma popover design.
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(VFont.labelDefault)
-            .foregroundStyle(VColor.contentDisabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.top, VSpacing.sm)
-            .padding(.bottom, VSpacing.xs)
-            .accessibilityAddTraits(.isHeader)
+        HStack {
+            Text(title)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentDisabled)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.top, VSpacing.sm)
+        .padding(.bottom, VSpacing.xs)
+        .accessibilityAddTraits(.isHeader)
     }
 
     // MARK: - Threshold selection (mirrors ComposerThresholdPicker)
