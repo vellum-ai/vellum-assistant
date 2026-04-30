@@ -9,8 +9,8 @@ struct NameExchangeView: View {
     @Binding var assistantName: String
     @Binding var selectedGroupID: String?
 
-    /// Names to display as quick-tap pills, ordered by the caller based on
-    /// the currently selected personality group.
+    /// Names to display as quick-tap pills. Sampled once per onboarding
+    /// session from the full pool — independent of the selected vibe.
     let displayedAssistantNames: [String]
 
     var onBack: (() -> Void)?
@@ -74,6 +74,25 @@ struct NameExchangeView: View {
                     text: $userName
                 )
 
+                // Assistant name + suggestions
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VTextField(
+                        "What should I go by?",
+                        placeholder: "Assistant name",
+                        text: $assistantName
+                    )
+
+                    Text("A few to try")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+
+                    WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
+                        ForEach(displayedAssistantNames, id: \.self) { suggestion in
+                            suggestionPill(suggestion)
+                        }
+                    }
+                }
+
                 // Personality group grid
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Pick a vibe")
@@ -83,26 +102,6 @@ struct NameExchangeView: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)], spacing: VSpacing.sm) {
                         ForEach(PersonalityGroup.allGroups, id: \.id) { group in
                             vibeCard(group)
-                        }
-                    }
-                }
-
-                // Assistant name + suggestions
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VTextField(
-                        "What should I go by?",
-                        placeholder: "Assistant name",
-                        text: $assistantName
-                    )
-
-                    Text(selectedGroupID != nil ? "Suggestions" : "A few to try")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .textCase(.uppercase)
-
-                    WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
-                        ForEach(displayedAssistantNames, id: \.self) { suggestion in
-                            suggestionPill(suggestion)
                         }
                     }
                 }
@@ -152,13 +151,7 @@ struct NameExchangeView: View {
         let isHovered = hoveredGroup == group.id
         return Button {
             withAnimation(VAnimation.fast) {
-                if isActive {
-                    selectedGroupID = nil
-                    assistantName = ""
-                } else {
-                    selectedGroupID = group.id
-                    assistantName = group.names.first ?? ""
-                }
+                selectedGroupID = isActive ? nil : group.id
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
@@ -195,9 +188,6 @@ struct NameExchangeView: View {
         let isActive = assistantName == name
         return Button {
             assistantName = name
-            withAnimation(VAnimation.fast) {
-                selectedGroupID = PersonalityGroup.groupForName(name)?.id
-            }
         } label: {
             Text(name)
                 .font(VFont.menuCompact)
