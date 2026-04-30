@@ -58,6 +58,22 @@ export interface RenderOptions {
 
 const DEFAULT_MAX_REACTIONS = 5;
 
+export interface RenderedSlackTranscript {
+  readonly messages: Message[];
+  /**
+   * Slack source timestamp represented by each rendered message.
+   * `null` means the rendered message came from a legacy row with no Slack
+   * metadata. Collapsed reaction overflow trailers carry the max source
+   * timestamp included in that trailer.
+   */
+  readonly sourceChannelTsByMessage: readonly (string | null)[];
+}
+
+interface RenderedSlackEntry {
+  readonly message: Message;
+  readonly sourceChannelTs: string | null;
+}
+
 /**
  * Replayable Anthropic content-block types that we preserve verbatim from a
  * persisted row when rendering the Slack chronological transcript.
@@ -184,6 +200,25 @@ function sortKey(msg: RenderableSlackMessage): number {
   }
   // createdAt is epoch ms; convert to seconds for like-with-like comparison.
   return msg.createdAt / 1000;
+}
+
+export function compareSlackTs(a: string, b: string): number {
+  const aNum = Number.parseFloat(a);
+  const bNum = Number.parseFloat(b);
+  if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+    return aNum - bNum;
+  }
+  return a.localeCompare(b);
+}
+
+export function isSlackTsAfter(ts: string, watermarkTs: string): boolean {
+  return compareSlackTs(ts, watermarkTs) > 0;
+}
+
+function maxNullableSlackTs(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return compareSlackTs(a, b) >= 0 ? a : b;
 }
 
 /**
@@ -366,7 +401,16 @@ export function renderSlackTranscript(
   messages: RenderableSlackMessage[],
   opts?: RenderOptions,
 ): Message[] {
-  if (messages.length === 0) return [];
+  return renderSlackTranscriptWithProvenance(messages, opts).messages;
+}
+
+export function renderSlackTranscriptWithProvenance(
+  messages: RenderableSlackMessage[],
+  opts?: RenderOptions,
+): RenderedSlackTranscript {
+  if (messages.length === 0) {
+    return { messages: [], sourceChannelTsByMessage: [] };
+  }
 
   const maxReactions = Math.max(
     1,
@@ -388,23 +432,37 @@ export function renderSlackTranscript(
   // reaches an event that is not an overflowing reaction for that target.
   const overflowAccumulator = new Map<
     string,
-    { excess: number; role: "user" | "assistant" }
+    {
+      excess: number;
+      role: "user" | "assistant";
+      sourceChannelTs: string | null;
+    }
   >();
 
   const trailerMessage = (
     target: string,
-    acc: { excess: number; role: "user" | "assistant" },
-  ): Message => ({
-    role: acc.role,
-    content: [
-      {
-        type: "text" as const,
-        text: `[…and ${acc.excess} more ${acc.excess === 1 ? "reaction" : "reactions"} to ${parentAlias(target)}]`,
-      },
-    ],
+    acc: {
+      excess: number;
+      role: "user" | "assistant";
+      sourceChannelTs: string | null;
+    },
+  ): RenderedSlackEntry => ({
+    message: {
+      role: acc.role,
+      content: [
+        {
+          type: "text" as const,
+          text: `[…and ${acc.excess} more ${acc.excess === 1 ? "reaction" : "reactions"} to ${parentAlias(target)}]`,
+        },
+      ],
+    },
+    sourceChannelTs: acc.sourceChannelTs,
   });
 
-  const flushOverflowExcept = (out: Message[], keepTarget: string | null) => {
+  const flushOverflowExcept = (
+    out: RenderedSlackEntry[],
+    keepTarget: string | null,
+  ) => {
     for (const target of Array.from(overflowAccumulator.keys())) {
       if (target === keepTarget) continue;
       const acc = overflowAccumulator.get(target)!;
@@ -413,7 +471,7 @@ export function renderSlackTranscript(
     }
   };
 
-  const out: Message[] = [];
+  const out: RenderedSlackEntry[] = [];
   for (const m of sorted) {
     const meta = m.metadata;
     if (meta?.eventKind === "reaction" && meta.reaction) {
@@ -427,8 +485,11 @@ export function renderSlackTranscript(
         const line = renderReaction(m);
         if (line !== null) {
           out.push({
-            role: m.role,
-            content: [{ type: "text" as const, text: line }],
+            message: {
+              role: m.role,
+              content: [{ type: "text" as const, text: line }],
+            },
+            sourceChannelTs: meta.channelTs,
           });
         }
       } else {
@@ -438,8 +499,13 @@ export function renderSlackTranscript(
         const acc = overflowAccumulator.get(target) ?? {
           excess: 0,
           role: m.role,
+          sourceChannelTs: null,
         };
         acc.excess += 1;
+        acc.sourceChannelTs = maxNullableSlackTs(
+          acc.sourceChannelTs,
+          meta.channelTs,
+        );
         overflowAccumulator.set(target, acc);
       }
       continue;
@@ -450,15 +516,22 @@ export function renderSlackTranscript(
     const blocks = buildMessageContentBlocks(m, tagLine);
     if (blocks.length === 0) continue;
     out.push({
-      role: m.role,
-      content: blocks,
+      message: {
+        role: m.role,
+        content: blocks,
+      },
+      sourceChannelTs: meta?.channelTs ?? null,
     });
   }
 
   // End of the walk: flush any still-open overflow windows.
   flushOverflowExcept(out, null);
 
-  return filterOrphanToolPairs(out);
+  const filtered = filterOrphanToolPairs(out);
+  return {
+    messages: filtered.map((entry) => entry.message),
+    sourceChannelTsByMessage: filtered.map((entry) => entry.sourceChannelTs),
+  };
 }
 
 /**
@@ -483,18 +556,21 @@ export function renderSlackTranscript(
  * emitted as `{role, content: []}` — empty-content messages are also
  * rejected by the provider.
  */
-function filterOrphanToolPairs(messages: Message[]): Message[] {
+function filterOrphanToolPairs(
+  entries: RenderedSlackEntry[],
+): RenderedSlackEntry[] {
   const produced = new Set<string>();
   const consumed = new Set<string>();
-  for (const msg of messages) {
+  for (const { message: msg } of entries) {
     for (const b of msg.content) {
       if (b.type === "tool_use") produced.add(b.id);
       else if (b.type === "tool_result" || b.type === "web_search_tool_result")
         consumed.add(b.tool_use_id);
     }
   }
-  const out: Message[] = [];
-  for (const msg of messages) {
+  const out: RenderedSlackEntry[] = [];
+  for (const entry of entries) {
+    const msg = entry.message;
     const kept: ContentBlock[] = [];
     for (const b of msg.content) {
       if (b.type === "tool_use" && !consumed.has(b.id)) continue;
@@ -505,7 +581,12 @@ function filterOrphanToolPairs(messages: Message[]): Message[] {
         continue;
       kept.push(b);
     }
-    if (kept.length > 0) out.push({ role: msg.role, content: kept });
+    if (kept.length > 0) {
+      out.push({
+        message: { role: msg.role, content: kept },
+        sourceChannelTs: entry.sourceChannelTs,
+      });
+    }
   }
   return out;
 }

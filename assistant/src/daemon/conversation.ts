@@ -43,7 +43,10 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getConversationOriginChannel } from "../memory/conversation-crud.js";
+import {
+  getConversation,
+  getConversationOriginChannel,
+} from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -92,7 +95,11 @@ import {
 } from "./conversation-process.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
-import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
+import {
+  type ChannelCapabilities,
+  getSlackCompactionWatermarkForPrefix,
+  loadSlackChronologicalContext,
+} from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -1049,8 +1056,26 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    const conversationRow = getConversation(this.conversationId);
+    const slackChronologicalContext =
+      this.channelCapabilities?.channel === "slack"
+        ? loadSlackChronologicalContext(
+            this.conversationId,
+            this.channelCapabilities,
+            {
+              trustClass: this.trustContext?.trustClass,
+              contextSummary: conversationRow?.contextSummary,
+              contextCompactedMessageCount:
+                conversationRow?.contextCompactedMessageCount,
+              slackContextCompactionWatermarkTs:
+                conversationRow?.slackContextCompactionWatermarkTs,
+            },
+          )
+        : null;
+    const messagesToCompact =
+      slackChronologicalContext?.messages ?? this.messages;
     const result = await this.contextWindowManager.maybeCompact(
-      this.messages,
+      messagesToCompact,
       this.abortController?.signal ?? undefined,
       {
         force: true,
@@ -1072,7 +1097,12 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null);
+      applyCompactionResult(this, result, this.sendToClient, null, {
+        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
+          slackChronologicalContext,
+          result.compactedMessages,
+        ),
+      });
     }
     return result;
   }
