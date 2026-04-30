@@ -404,26 +404,27 @@ extension ChatBubble {
             var ids = Set<String>()
             for i in 0..<groups.count {
                 guard case .toolCalls = groups[i] else { continue }
-                // Check preceding group
+                // Only fold the preceding thinking group into this tool group.
+                // Each thinking group is assigned to the tool group that follows
+                // it ("think then act"), preventing duplication when a thinking
+                // group is sandwiched between two tool call groups.
                 if i > 0, case .thinking = groups[i - 1] {
                     ids.insert(groups[i - 1].stableId)
-                }
-                // Check following group
-                if i + 1 < groups.count, case .thinking = groups[i + 1] {
-                    ids.insert(groups[i + 1].stableId)
                 }
             }
             return ids
         }()
 
-        // Map each tool call group's stableId to the joined thinking text
-        // from its adjacent thinking group(s).
+        // Map each tool call group's stableId to the thinking text from its
+        // preceding thinking group. Each thinking group is assigned to the
+        // tool group that follows it ("think then act"), so we only check
+        // the preceding group. This prevents duplication when a thinking
+        // group is sandwiched between two tool call groups.
         let toolGroupThinkingContent: [String: String] = {
             var map: [String: String] = [:]
             for i in 0..<groups.count {
                 guard case .toolCalls = groups[i] else { continue }
-                var parts: [String] = []
-                // Preceding thinking group
+                // Preceding thinking group only
                 if i > 0, case .thinking(let thinkIndices) = groups[i - 1] {
                     let joined = thinkIndices
                         .compactMap { idx in
@@ -433,22 +434,9 @@ extension ChatBubble {
                         }
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n")
-                    if !joined.isEmpty { parts.append(joined) }
-                }
-                // Following thinking group
-                if i + 1 < groups.count, case .thinking(let thinkIndices) = groups[i + 1] {
-                    let joined = thinkIndices
-                        .compactMap { idx in
-                            idx < message.thinkingSegments.count
-                                ? message.thinkingSegments[idx]
-                                : nil
-                        }
-                        .filter { !$0.isEmpty }
-                        .joined(separator: "\n")
-                    if !joined.isEmpty { parts.append(joined) }
-                }
-                if !parts.isEmpty {
-                    map[groups[i].stableId] = parts.joined(separator: "\n")
+                    if !joined.isEmpty {
+                        map[groups[i].stableId] = joined
+                    }
                 }
             }
             return map
