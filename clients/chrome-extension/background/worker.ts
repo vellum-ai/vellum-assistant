@@ -382,6 +382,22 @@ async function resolveHostBrowserTarget(
   if (activeTab?.id === undefined) {
     throw new Error("No active tab available to resolve host_browser target");
   }
+  // chrome.debugger cannot attach to privileged URLs (chrome://, edge://,
+  // devtools://, chrome-extension://, etc.). When the active tab is on such
+  // a URL, create a new about:blank tab in the same window so the debugger
+  // can attach and subsequent Page.navigate will work.
+  const activeUrl = activeTab.url ?? activeTab.pendingUrl ?? '';
+  if (/^(chrome|edge|devtools|chrome-extension|brave):\/\//i.test(activeUrl)) {
+    const newTab = await chrome.tabs.create({
+      url: 'about:blank',
+      active: true,
+      windowId: activeTab.windowId,
+    });
+    if (newTab.id === undefined) {
+      throw new Error("Failed to create a new tab for navigation (active tab was on a privileged URL)");
+    }
+    return { tabId: newTab.id };
+  }
   return { tabId: activeTab.id };
 }
 
