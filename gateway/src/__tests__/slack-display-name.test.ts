@@ -225,6 +225,68 @@ describe("normalizeSlackAppMention with display name", () => {
     expect(result!.event.actor.username).toBe("testuser");
   });
 
+  test("renders cache-warmed mention labels in model-facing content", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            name: "leo",
+            real_name: "Leo Example",
+            profile: { display_name: "Leo" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const config = makeConfig();
+    const event = makeEvent({
+      text: "<@U123BOT> <@ULEO> please look",
+    });
+    const userInfo = await resolveSlackUser("ULEO", "xoxb-test");
+
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-mention-cache",
+      config,
+      "U123BOT",
+      undefined,
+      { userLabels: userInfo ? { ULEO: userInfo.displayName } : {} },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@Leo please look");
+    expect(result!.event.message.content).not.toContain("<@ULEO>");
+    expect(result!.event.message.content).not.toContain("ULEO");
+  });
+
+  test("renders unresolved mention IDs with fallback labels when lookup fails", async () => {
+    fetchMock = mock(async () => {
+      return new Response("", { status: 500 });
+    });
+
+    const config = makeConfig();
+    const event = makeEvent({
+      text: "<@U123BOT> <@UFAIL> please look",
+    });
+    const userInfo = await resolveSlackUser("UFAIL", "xoxb-test");
+
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-mention-fallback",
+      config,
+      "U123BOT",
+      undefined,
+      { userLabels: userInfo ? { UFAIL: userInfo.displayName } : {} },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@unknown-user please look");
+    expect(result!.event.message.content).not.toContain("<@UFAIL>");
+    expect(result!.event.message.content).not.toContain("UFAIL");
+  });
+
   test("omits displayName when bot token is not configured", () => {
     const config = makeConfig();
     const event = makeEvent();

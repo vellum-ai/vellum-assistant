@@ -1,3 +1,4 @@
+import { extractSlackUserMentionIds } from "@vellumai/slack-text";
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
@@ -30,6 +31,7 @@ const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
+const USER_RESOLVE_TIMEOUT_MS = 3_000;
 
 export type SlackSocketModeConfig = {
   appToken: string;
@@ -586,7 +588,7 @@ export class SlackSocketModeClient {
     }
     this.store.markEventSeen(eventId, DEDUP_TTL_MS);
 
-    this.normalizeAndEmit(
+    void this.normalizeAndEmit(
       event,
       eventId,
       isAppMention,
@@ -596,10 +598,61 @@ export class SlackSocketModeClient {
       isMessageChanged,
       isMessageDeleted,
       isDm,
-    );
+    ).catch((err) => {
+      log.error({ err, eventId }, "Slack event normalization failed");
+    });
   }
 
-  private normalizeAndEmit(
+  private extractTextBearingContent(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
+  ): string | undefined {
+    if (
+      event.type === "message" &&
+      (event as SlackMessageChangedEvent).subtype === "message_changed"
+    ) {
+      return (event as SlackMessageChangedEvent).message?.text;
+    }
+
+    if (event.type === "app_mention" || event.type === "message") {
+      return (event as SlackAppMentionEvent | SlackDirectMessageEvent).text;
+    }
+
+    return undefined;
+  }
+
+  private async resolveMentionLabelsForText(
+    text: string,
+  ): Promise<Record<string, string>> {
+    const ids = extractSlackUserMentionIds(text).filter(
+      (id) => id !== this.config.botUserId,
+    );
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return {};
+
+    const entries = await Promise.all(
+      uniqueIds.map(async (id): Promise<[string, string] | undefined> => {
+        const userInfo = await Promise.race([
+          resolveSlackUser(id, this.config.botToken),
+          new Promise<undefined>((resolve) =>
+            setTimeout(resolve, USER_RESOLVE_TIMEOUT_MS),
+          ),
+        ]);
+        if (!userInfo) return undefined;
+        return [id, userInfo.displayName || userInfo.username];
+      }),
+    );
+
+    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+  }
+
+  private async normalizeAndEmit(
     event:
       | SlackAppMentionEvent
       | SlackDirectMessageEvent
@@ -616,7 +669,14 @@ export class SlackSocketModeClient {
     isMessageChanged: boolean,
     isMessageDeleted: boolean,
     isDm: boolean,
-  ): void {
+  ): Promise<void> {
+    const text = this.extractTextBearingContent(event);
+    const userLabels = text ? await this.resolveMentionLabelsForText(text) : {};
+    const renderContext = {
+      botUserId: this.config.botUserId,
+      userLabels,
+    };
+
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
       normalized = normalizeSlackReactionAdded(
@@ -638,6 +698,7 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         this.config.botToken,
+        renderContext,
       );
     } else if (isMessageChanged) {
       normalized = normalizeSlackMessageEdit(
@@ -645,6 +706,7 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
+        renderContext,
       );
     } else if (isMessageDeleted) {
       normalized = normalizeSlackMessageDelete(
@@ -659,6 +721,7 @@ export class SlackSocketModeClient {
         this.config.gatewayConfig,
         this.config.botUserId,
         this.config.botToken,
+        renderContext,
       );
     } else if (isDm) {
       normalized = normalizeSlackDirectMessage(
@@ -667,6 +730,7 @@ export class SlackSocketModeClient {
         this.config.gatewayConfig,
         this.config.botUserId,
         this.config.botToken,
+        renderContext,
       );
     } else {
       log.warn(
@@ -707,22 +771,23 @@ export class SlackSocketModeClient {
     // ensures the event is always emitted even if the Slack API hangs.
     const actor = normalized.event.actor;
     if (actor?.actorExternalId && !actor.displayName) {
-      const USER_RESOLVE_TIMEOUT_MS = 3_000;
-      Promise.race([
+      const mentionedLabel = userLabels[actor.actorExternalId];
+      if (mentionedLabel) {
+        actor.displayName = mentionedLabel;
+        this.onEvent(normalized);
+        return;
+      }
+
+      const userInfo = await Promise.race([
         resolveSlackUser(actor.actorExternalId, this.config.botToken),
-        new Promise<undefined>((r) => setTimeout(r, USER_RESOLVE_TIMEOUT_MS)),
-      ])
-        .then((userInfo) => {
-          if (userInfo) {
-            actor.displayName = userInfo.displayName;
-            actor.username = userInfo.username;
-          }
-          this.onEvent(normalized!);
-        })
-        .catch(() => {
-          this.onEvent(normalized!);
-        });
-      return;
+        new Promise<undefined>((resolve) =>
+          setTimeout(resolve, USER_RESOLVE_TIMEOUT_MS),
+        ),
+      ]);
+      if (userInfo) {
+        actor.displayName = userInfo.displayName;
+        actor.username = userInfo.username;
+      }
     }
 
     this.onEvent(normalized);

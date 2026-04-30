@@ -103,7 +103,7 @@ function createHarness(
   harness.config = {
     appToken: "xapp-test",
     botToken: "xoxb-test",
-    botUserId: "U-bot",
+    botUserId: "UBOT",
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
@@ -151,7 +151,7 @@ describe("SlackSocketModeClient thread tracking", () => {
             event: {
               type: "app_mention",
               user: "U-mentioned",
-              text: "<@U-bot> can you help here?",
+              text: "<@UBOT> can you help here?",
               ts: "1700000000.000100",
               channel: "C-thread",
               thread_ts: "1700000000.000000",
@@ -160,6 +160,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-mention");
@@ -185,6 +186,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
       expect(emitted[1].event.source.updateId).toBe("Ev-reply");
@@ -220,7 +222,7 @@ describe("SlackSocketModeClient thread tracking", () => {
             event: {
               type: "app_mention",
               user: "U-mentioned",
-              text: "<@U-bot> can you help here?",
+              text: "<@UBOT> can you help here?",
               ts: "1700000000.000300",
               channel: "C-thread",
             },
@@ -228,6 +230,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-top-level-mention");
@@ -253,6 +256,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
       expect(emitted[1].event.source.updateId).toBe("Ev-top-level-reply");
@@ -294,6 +298,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm");
@@ -411,6 +416,7 @@ describe("SlackSocketModeClient thread tracking", () => {
           }),
           ws,
         );
+        await flushAsyncEventEmission();
 
         expect(emitted).toHaveLength(1);
       } finally {
@@ -418,4 +424,57 @@ describe("SlackSocketModeClient thread tracking", () => {
       }
     },
   );
+
+  test("renders live app mention user IDs as display-name labels", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "ULEO") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              name: "leo",
+              profile: { display_name: "Leo" },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mention-label",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mention-label",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@ULEO> please look",
+              ts: "1700000000.000800",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.content).toBe("@Leo please look");
+      expect(emitted[0].event.message.content).not.toContain("<@ULEO>");
+      expect(emitted[0].event.message.content).not.toContain("ULEO");
+    } finally {
+      rawDb.close();
+    }
+  });
 });
