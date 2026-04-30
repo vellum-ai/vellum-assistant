@@ -134,20 +134,18 @@ do_build() {
   cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html" \
     || { echo "❌ Failed to copy popup HTML."; return 1; }
 
-  # Copy icons and rewrite manifest paths for the current environment.
-  # Source icons live in icons/<env>/ subdirectories; the dist manifest
-  # references icons/<env>/icon*.png so Chrome picks the right set.
-  ICON_SRC="$SCRIPT_DIR/icons/$VELLUM_ENV"
-  if [ -d "$ICON_SRC" ] && [ "$(ls -A "$ICON_SRC" 2>/dev/null)" ]; then
-    mkdir -p "$DIST_DIR/icons/$VELLUM_ENV"
-    cp "$ICON_SRC/"* "$DIST_DIR/icons/$VELLUM_ENV/"
+  # Copy all icon directories into dist — the background worker dynamically
+  # switches the toolbar icon when the user overrides the environment via
+  # the popup dropdown, so every env's icons must be available at runtime.
+  # The manifest's `icons` field is set to the build-time env so Chrome's
+  # chrome://extensions page shows the right default.
+  if [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
+    cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
     jq --arg e "$VELLUM_ENV" \
       '.icons = { "16": "icons/\($e)/icon16.png", "48": "icons/\($e)/icon48.png", "128": "icons/\($e)/icon128.png" }' \
       "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
       && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
-    echo "  Icons: $VELLUM_ENV"
-  elif [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
-    cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
+    echo "  Icons: $VELLUM_ENV (all envs bundled)"
   else
     echo "  (No icons found — creating placeholder icon files)"
     TINY_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
