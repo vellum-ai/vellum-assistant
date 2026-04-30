@@ -6,6 +6,7 @@ import Foundation
 public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse?
+    func fetchUsageSeries(from: Int, to: Int, granularity: String, groupBy: String, tz: String) async -> UsageSeriesResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
 }
 
@@ -33,6 +34,15 @@ public struct UsageClient: UsageClientProtocol {
         let encodedTz = tz.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? tz
         let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
             path: "assistants/{assistantId}/usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)&tz=\(encodedTz)", timeout: 10
+        )
+        return result?.0
+    }
+
+    public func fetchUsageSeries(from: Int, to: Int, granularity: String = "daily", groupBy: String, tz: String) async -> UsageSeriesResponse? {
+        let encodedGroupBy = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
+        let encodedTz = tz.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? tz
+        let result: (UsageSeriesResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/usage/series?from=\(from)&to=\(to)&granularity=\(granularity)&groupBy=\(encodedGroupBy)&tz=\(encodedTz)", timeout: 10
         )
         return result?.0
     }
@@ -105,10 +115,30 @@ public enum UsageLoadingState<T: Equatable>: Equatable {
 
 /// The dimension to group usage breakdown by.
 public enum UsageGroupByDimension: String, CaseIterable, Sendable {
+    case callSite = "call_site"
+    case inferenceProfile = "inference_profile"
     case actor
     case provider
     case model
     case conversation
+
+    public static let dashboardOptions: [UsageGroupByDimension] = [
+        .callSite,
+        .inferenceProfile,
+        .model,
+        .provider,
+    ]
+
+    public var displayName: String {
+        switch self {
+        case .callSite: return "Task"
+        case .inferenceProfile: return "Profile"
+        case .actor: return "Actor (Legacy)"
+        case .provider: return "Provider"
+        case .model: return "Model"
+        case .conversation: return "Conversation"
+        }
+    }
 }
 
 // MARK: - Formatting Helpers
@@ -166,8 +196,9 @@ public final class UsageDashboardStore {
     public var selectedRange: UsageTimeRange = .last7Days
     public var totalsState: UsageLoadingState<UsageTotalsResponse> = .idle
     public var dailyState: UsageLoadingState<UsageDailyResponse> = .idle
+    public var seriesState: UsageLoadingState<UsageSeriesResponse> = .idle
     public var breakdownState: UsageLoadingState<UsageBreakdownResponse> = .idle
-    public var selectedGroupBy: UsageGroupByDimension = .model
+    public var selectedGroupBy: UsageGroupByDimension = .callSite
 
     /// Whether the current daily data uses hourly granularity (true when range is "Today").
     public var isHourlyGranularity: Bool { selectedRange == .today }
@@ -217,6 +248,7 @@ public final class UsageDashboardStore {
         breakdownGeneration &+= 1
         totalsState = .idle
         dailyState = .idle
+        seriesState = .idle
         breakdownState = .idle
     }
 
@@ -224,7 +256,7 @@ public final class UsageDashboardStore {
     /// on first appearance or after a partial/total failure.
     public var needsRefresh: Bool {
         totalsState == .idle || totalsState.isFailed ||
-        dailyState == .idle || dailyState.isFailed ||
+        seriesState == .idle || seriesState.isFailed ||
         breakdownState == .idle || breakdownState.isFailed
     }
 
@@ -243,20 +275,43 @@ public final class UsageDashboardStore {
 
         totalsState = .loading
         dailyState = .loading
+        seriesState = .loading
         breakdownState = .loading
 
         let granularity = isHourlyGranularity ? "hourly" : "daily"
+        let groupBy = selectedGroupBy
         async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
         async let dailyResult = client.fetchUsageDaily(
             from: range.from, to: range.to, granularity: granularity, tz: tzIdentifier
         )
+        async let seriesResult = client.fetchUsageSeries(
+            from: range.from, to: range.to, granularity: granularity, groupBy: groupBy.rawValue, tz: tzIdentifier
+        )
         async let breakdownResult = client.fetchUsageBreakdown(
-            from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
+            from: range.from, to: range.to, groupBy: groupBy.rawValue
         )
 
         let totals = await totalsResult
         let daily = await dailyResult
-        let breakdown = await breakdownResult
+        var series = await seriesResult
+        var breakdown = await breakdownResult
+        var didFallbackToModel = false
+
+        if groupBy == .callSite && (series == nil || breakdown == nil) {
+            didFallbackToModel = true
+            async let modelSeriesResult = client.fetchUsageSeries(
+                from: range.from, to: range.to, granularity: granularity, groupBy: UsageGroupByDimension.model.rawValue, tz: tzIdentifier
+            )
+            async let modelBreakdownResult = client.fetchUsageBreakdown(
+                from: range.from, to: range.to, groupBy: UsageGroupByDimension.model.rawValue
+            )
+            series = await modelSeriesResult
+            breakdown = await modelBreakdownResult
+        }
+
+        if series == nil, let daily {
+            series = UsageSeriesResponse(daily: daily)
+        }
 
         if capturedRefreshGen == refreshGeneration {
             if let totals {
@@ -270,9 +325,20 @@ public final class UsageDashboardStore {
             } else {
                 dailyState = .failed("Failed to load daily usage")
             }
+
         }
 
         if capturedBreakdownGen == breakdownGeneration {
+            if didFallbackToModel && selectedGroupBy == groupBy {
+                selectedGroupBy = .model
+            }
+
+            if let series {
+                seriesState = .loaded(series)
+            } else {
+                seriesState = .failed("Failed to load usage series")
+            }
+
             if let breakdown {
                 breakdownState = .loaded(breakdown)
             } else {
@@ -294,18 +360,82 @@ public final class UsageDashboardStore {
         let capturedGeneration = breakdownGeneration
 
         let range = selectedRange.epochMillisRange(timeZone: resolvedTimezone)
+        let granularity = isHourlyGranularity ? "hourly" : "daily"
         breakdownState = .loading
+        seriesState = .loading
 
-        let result = await client.fetchUsageBreakdown(
+        async let seriesResult = client.fetchUsageSeries(
+            from: range.from,
+            to: range.to,
+            granularity: granularity,
+            groupBy: dimension.rawValue,
+            tz: resolvedTimezoneIdentifier
+        )
+        async let breakdownResult = client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: dimension.rawValue
         )
 
+        var series = await seriesResult
+        var result = await breakdownResult
+        var didFallbackToModel = false
+
+        if dimension == .callSite && (series == nil || result == nil) {
+            didFallbackToModel = true
+            async let modelSeriesResult = client.fetchUsageSeries(
+                from: range.from,
+                to: range.to,
+                granularity: granularity,
+                groupBy: UsageGroupByDimension.model.rawValue,
+                tz: resolvedTimezoneIdentifier
+            )
+            async let modelBreakdownResult = client.fetchUsageBreakdown(
+                from: range.from,
+                to: range.to,
+                groupBy: UsageGroupByDimension.model.rawValue
+            )
+            series = await modelSeriesResult
+            result = await modelBreakdownResult
+        }
+
+        if series == nil, case .loaded(let daily) = dailyState {
+            series = UsageSeriesResponse(daily: daily)
+        }
+
         guard capturedGeneration == breakdownGeneration else { return }
+
+        if didFallbackToModel && selectedGroupBy == dimension {
+            selectedGroupBy = .model
+        }
+
+        if let series {
+            seriesState = .loaded(series)
+        } else {
+            seriesState = .failed("Failed to load usage series")
+        }
 
         if let result {
             breakdownState = .loaded(result)
         } else {
             breakdownState = .failed("Failed to load usage breakdown")
         }
+    }
+}
+
+private extension UsageSeriesResponse {
+    init(daily: UsageDailyResponse) {
+        self.init(
+            buckets: daily.buckets.map { bucket in
+                UsageSeriesBucket(
+                    bucketId: bucket.bucketId,
+                    date: bucket.date,
+                    displayLabel: bucket.displayLabel,
+                    totalInputTokens: bucket.totalInputTokens,
+                    totalOutputTokens: bucket.totalOutputTokens,
+                    totalEstimatedCostUsd: bucket.totalEstimatedCostUsd,
+                    eventCount: bucket.eventCount,
+                    groups: [:]
+                )
+            }
+        )
     }
 }

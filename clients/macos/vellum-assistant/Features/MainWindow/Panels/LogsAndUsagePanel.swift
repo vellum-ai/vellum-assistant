@@ -309,7 +309,7 @@ struct UsageTabContent: View {
     @State private var hoveredConversationGroupId: String?
 
     private var allFailed: Bool {
-        store.totalsState.isFailed && store.dailyState.isFailed && store.breakdownState.isFailed
+        store.totalsState.isFailed && store.seriesState.isFailed && store.breakdownState.isFailed
     }
 
     var body: some View {
@@ -351,7 +351,7 @@ struct UsageTabContent: View {
             }
         }
         .onChange(of: store.needsRefresh) {
-            let hasIdle = store.totalsState == .idle || store.dailyState == .idle || store.breakdownState == .idle
+            let hasIdle = store.totalsState == .idle || store.seriesState == .idle || store.breakdownState == .idle
             if hasIdle {
                 refreshTask?.cancel()
                 refreshTask = Task {
@@ -429,8 +429,16 @@ struct UsageTabContent: View {
     @ViewBuilder
     func dailySection(store: UsageDashboardStore) -> some View {
         let isHourly = store.isHourlyGranularity
-        SettingsCard(title: isHourly ? "Hourly Trend" : "Daily Trend") {
-            switch store.dailyState {
+        SettingsCard(title: "Inference Usage") {
+            HStack(alignment: .center, spacing: VSpacing.md) {
+                Text(isHourly ? "Hourly Trend by \(store.selectedGroupBy.displayName)" : "Daily Trend by \(store.selectedGroupBy.displayName)")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                groupByPicker(store: store)
+            }
+
+            switch store.seriesState {
             case .idle, .loading:
                 HStack(alignment: .bottom, spacing: VSpacing.xs) {
                     ForEach(0..<7, id: \.self) { index in
@@ -442,15 +450,15 @@ struct UsageTabContent: View {
                 }
                 .frame(height: barChartHeight)
                 .accessibilityHidden(true)
-            case .loaded(let daily):
-                if daily.buckets.isEmpty {
+            case .loaded(let series):
+                if series.buckets.isEmpty {
                     VEmptyState(
                         title: isHourly ? "No hourly data" : "No daily data",
                         subtitle: "No usage recorded in this time range",
                         icon: "calendar"
                     )
                 } else {
-                    trendBarChart(daily.buckets, isHourly: isHourly)
+                    trendBarChart(series.buckets, isHourly: isHourly)
                 }
             case .failed(let message):
                 errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
@@ -461,9 +469,17 @@ struct UsageTabContent: View {
     private let barChartHeight: CGFloat = 140
     private let maxBarWidth: CGFloat = 40
     private let hourlyBarWidth: CGFloat = 28
+    private let stackColors: [Color] = [
+        VColor.systemPositiveStrong,
+        VColor.systemInfoStrong,
+        VColor.systemMidStrong,
+        VColor.contentSecondary,
+        VColor.systemNegativeStrong,
+        VColor.contentTertiary,
+    ]
 
     @ViewBuilder
-    private func trendBarChart(_ buckets: [UsageDayBucket], isHourly: Bool) -> some View {
+    private func trendBarChart(_ buckets: [UsageSeriesBucket], isHourly: Bool) -> some View {
         let sorted = buckets.sorted { lhs, rhs in
             if lhs.date != rhs.date { return lhs.date < rhs.date }
             // Same local-time string (DST fall-back duplicates). The bucketId
@@ -477,6 +493,7 @@ struct UsageTabContent: View {
         }
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
         let barWidth = isHourly ? hourlyBarWidth : maxBarWidth
+        let legend = orderedSeriesGroups(from: buckets)
 
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -485,9 +502,7 @@ struct UsageTabContent: View {
                         let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
                         VStack(spacing: VSpacing.xxs) {
                             Spacer(minLength: 0)
-                            RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.systemPositiveStrong)
-                                .frame(width: barWidth, height: max(2, barChartHeight * fraction))
+                            stackedBar(bucket: bucket, legend: legend, width: barWidth, height: max(2, barChartHeight * fraction))
                         }
                     }
                 }
@@ -507,14 +522,85 @@ struct UsageTabContent: View {
                         .lineLimit(1)
                     }
                 }
+
+                if !legend.isEmpty {
+                    seriesLegend(legend)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func stackedBar(bucket: UsageSeriesBucket, legend: [UsageSeriesLegendItem], width: CGFloat, height: CGFloat) -> some View {
+        let nonEmptyGroups = legend.compactMap { item -> (UsageSeriesLegendItem, UsageSeriesGroupValue)? in
+            guard let value = bucket.groups[item.seriesKey], value.totalEstimatedCostUsd > 0 else { return nil }
+            return (item, value)
+        }
+
+        if nonEmptyGroups.isEmpty {
+            RoundedRectangle(cornerRadius: VRadius.xs)
+                .fill(VColor.systemPositiveStrong)
+                .frame(width: width, height: height)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(nonEmptyGroups.reversed(), id: \.0.seriesKey) { item, value in
+                    Rectangle()
+                        .fill(color(for: item.colorIndex))
+                        .frame(
+                            width: width,
+                            height: max(2, height * value.totalEstimatedCostUsd / max(bucket.totalEstimatedCostUsd, 0.000_001))
+                        )
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+        }
+    }
+
+    @ViewBuilder
+    private func seriesLegend(_ items: [UsageSeriesLegendItem]) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(items.prefix(6), id: \.seriesKey) { item in
+                HStack(spacing: VSpacing.xxs) {
+                    Circle()
+                        .fill(color(for: item.colorIndex))
+                        .frame(width: 7, height: 7)
+                    Text(item.label)
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.top, VSpacing.xs)
+    }
+
+    private func orderedSeriesGroups(from buckets: [UsageSeriesBucket]) -> [UsageSeriesLegendItem] {
+        var totals: [String: (label: String, cost: Double)] = [:]
+        for bucket in buckets {
+            for (seriesKey, value) in bucket.groups {
+                let current = totals[seriesKey] ?? (value.group, 0)
+                totals[seriesKey] = (current.label, current.cost + value.totalEstimatedCostUsd)
+            }
+        }
+        return totals
+            .sorted { lhs, rhs in
+                if lhs.value.cost != rhs.value.cost { return lhs.value.cost > rhs.value.cost }
+                return lhs.value.label < rhs.value.label
+            }
+            .enumerated()
+            .map { index, element in
+                UsageSeriesLegendItem(seriesKey: element.key, label: element.value.label, colorIndex: index)
+            }
+    }
+
+    private func color(for index: Int) -> Color {
+        stackColors[index % stackColors.count]
     }
 
     /// The daemon emits `displayLabel` already formatted in the requested
     /// timezone. We fall back to the raw `date` string for responses from
     /// older daemons that don't include the label.
-    private func formatBucketLabel(_ bucket: UsageDayBucket) -> String {
+    private func formatBucketLabel(_ bucket: UsageSeriesBucket) -> String {
         bucket.displayLabel ?? bucket.date
     }
 
@@ -533,8 +619,6 @@ struct UsageTabContent: View {
     @ViewBuilder
     func breakdownSection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Breakdown") {
-            groupByPicker(store: store)
-
             switch store.breakdownState {
             case .idle, .loading:
                 VStack(spacing: 0) {
@@ -585,7 +669,7 @@ struct UsageTabContent: View {
                     breakdownTask = Task { await store.selectGroupBy(newDimension) }
                 }
             ),
-            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
+            options: UsageGroupByDimension.dashboardOptions.map { ($0.displayName, $0) },
             maxWidth: 140
         )
     }
@@ -737,4 +821,10 @@ struct UsageTabContent: View {
     private func formatCount(_ count: Int) -> String {
         UsageFormatting.formatCount(count)
     }
+}
+
+private struct UsageSeriesLegendItem: Equatable {
+    let seriesKey: String
+    let label: String
+    let colorIndex: Int
 }

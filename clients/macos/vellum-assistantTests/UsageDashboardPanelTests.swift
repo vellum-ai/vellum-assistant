@@ -21,9 +21,10 @@ struct UsageTabContentEmptyTests {
 
         #expect(store.totalsState == .idle)
         #expect(store.dailyState == .idle)
+        #expect(store.seriesState == .idle)
         #expect(store.breakdownState == .idle)
         #expect(store.selectedRange == .last7Days)
-        #expect(store.selectedGroupBy == .model)
+        #expect(store.selectedGroupBy == .callSite)
     }
 
     @Test @MainActor
@@ -53,6 +54,12 @@ struct UsageTabContentEmptyTests {
             #expect(daily.buckets.isEmpty)
         } else {
             Issue.record("Expected .loaded for daily with empty buckets")
+        }
+
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets.isEmpty)
+        } else {
+            Issue.record("Expected .loaded for series with empty buckets")
         }
 
         if case .loaded(let breakdown) = store.breakdownState {
@@ -85,6 +92,12 @@ struct UsageTabContentLoadingTests {
             #expect(msg.contains("daily"))
         } else {
             Issue.record("Expected .failed for daily")
+        }
+
+        if case .failed(let msg) = store.seriesState {
+            #expect(msg.contains("series"))
+        } else {
+            Issue.record("Expected .failed for series")
         }
 
         if case .failed(let msg) = store.breakdownState {
@@ -185,15 +198,17 @@ struct UsageTabContentPopulatedTests {
         let store = UsageDashboardStore()
         store.updateClient(client)
 
-        // Default is .model
-        #expect(store.selectedGroupBy == .model)
+        // Default is .callSite (shown as Task)
+        #expect(store.selectedGroupBy == .callSite)
 
         await store.selectGroupBy(.provider)
         #expect(store.selectedGroupBy == .provider)
+        #expect(client.lastSeriesGroupBy == "provider")
         #expect(client.lastBreakdownGroupBy == "provider")
 
         await store.selectGroupBy(.actor)
         #expect(store.selectedGroupBy == .actor)
+        #expect(client.lastSeriesGroupBy == "actor")
         #expect(client.lastBreakdownGroupBy == "actor")
     }
 
@@ -216,6 +231,7 @@ struct UsageTabContentPopulatedTests {
         #expect(store.selectedRange == .last30Days)
         #expect(client.lastTotalsFrom != nil)
         #expect(client.lastDailyFrom != nil)
+        #expect(client.lastSeriesFrom != nil)
         #expect(client.lastBreakdownFrom != nil)
     }
 }
@@ -372,7 +388,7 @@ struct UsageTabContentConversationRowInteractivityTests {
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [Self.modelEntry])
         let store = UsageDashboardStore()
         store.updateClient(client)
-        // Default groupBy is .model — do not switch it.
+        await store.selectGroupBy(.model)
 
         var captured: [String] = []
         let tab = UsageTabContent(
@@ -484,7 +500,7 @@ struct UsageTabContentViewEmptyTests {
 
         // Section headers
         #expect(joined.contains("Totals"))
-        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Inference Usage"))
         #expect(joined.contains("Breakdown"))
         #expect(joined.contains(UsageFormatting.directInputTokensLabel))
         #expect(joined.contains("Cache Created"))
@@ -546,7 +562,7 @@ struct UsageTabContentViewPopulatedTests {
 
         // Section headers
         #expect(joined.contains("Totals"))
-        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Inference Usage"))
         #expect(joined.contains("Breakdown"))
 
         // Formatted cost: verify the formatted cost appears
@@ -608,6 +624,63 @@ struct UsageTabContentViewPopulatedTests {
         #expect(store.selectedGroupBy == .provider)
         #expect(joined.contains("anthropic"))
     }
+
+    @Test @MainActor
+    func tabRendersTaskSeriesAndProfileSelection() async {
+        let client = MockPanelClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 100, totalOutputTokens: 50,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.03, eventCount: 2,
+            pricedEventCount: 2, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedSeries = UsageSeriesResponse(buckets: [
+            UsageSeriesBucket(
+                date: "2026-03-04",
+                displayLabel: "Mar 4",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalEstimatedCostUsd: 0.03,
+                eventCount: 2,
+                groups: [
+                    "value:mainAgent": UsageSeriesGroupValue(
+                        group: "Main agent",
+                        groupKey: "mainAgent",
+                        totalInputTokens: 100,
+                        totalOutputTokens: 50,
+                        totalEstimatedCostUsd: 0.03,
+                        eventCount: 2
+                    )
+                ]
+            )
+        ])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
+            UsageGroupBreakdownEntry(
+                group: "Main agent",
+                groupKey: "mainAgent",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalEstimatedCostUsd: 0.03,
+                eventCount: 2
+            )
+        ])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.refresh()
+
+        let joined = collectTabContent(store: store)
+        #expect(client.lastSeriesGroupBy == "call_site")
+        #expect(client.lastBreakdownGroupBy == "call_site")
+        #expect(joined.contains("Inference Usage"))
+        #expect(joined.contains("Daily Trend by Task"))
+        #expect(joined.contains("Main agent"))
+
+        await store.selectGroupBy(.inferenceProfile)
+        #expect(client.lastSeriesGroupBy == "inference_profile")
+        #expect(client.lastBreakdownGroupBy == "inference_profile")
+    }
 }
 
 @Suite("UsageTabContent — View Rendering: Failed State")
@@ -629,7 +702,7 @@ struct UsageTabContentViewFailedTests {
 
         // Section headers should still render even in failed state
         #expect(joined.contains("Totals"))
-        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Inference Usage"))
         #expect(joined.contains("Breakdown"))
     }
 }
@@ -640,10 +713,13 @@ struct UsageTabContentViewFailedTests {
 private final class MockPanelClient: UsageClientProtocol {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
+    var stubbedSeries: UsageSeriesResponse?
     var stubbedBreakdown: UsageBreakdownResponse?
 
     var lastTotalsFrom: Int?
     var lastDailyFrom: Int?
+    var lastSeriesFrom: Int?
+    var lastSeriesGroupBy: String?
     var lastBreakdownFrom: Int?
     var lastBreakdownGroupBy: String?
 
@@ -655,6 +731,31 @@ private final class MockPanelClient: UsageClientProtocol {
     func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         lastDailyFrom = from
         return stubbedDaily
+    }
+
+    func fetchUsageSeries(from: Int, to: Int, granularity: String, groupBy: String, tz: String) async -> UsageSeriesResponse? {
+        lastSeriesFrom = from
+        lastSeriesGroupBy = groupBy
+        if let stubbedSeries {
+            return stubbedSeries
+        }
+        guard let daily = stubbedDaily else {
+            return nil
+        }
+        return UsageSeriesResponse(
+            buckets: daily.buckets.map { bucket in
+                UsageSeriesBucket(
+                    bucketId: bucket.bucketId,
+                    date: bucket.date,
+                    displayLabel: bucket.displayLabel,
+                    totalInputTokens: bucket.totalInputTokens,
+                    totalOutputTokens: bucket.totalOutputTokens,
+                    totalEstimatedCostUsd: bucket.totalEstimatedCostUsd,
+                    eventCount: bucket.eventCount,
+                    groups: [:]
+                )
+            }
+        )
     }
 
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {

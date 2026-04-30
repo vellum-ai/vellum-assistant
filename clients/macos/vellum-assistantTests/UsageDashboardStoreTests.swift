@@ -8,7 +8,9 @@ import Testing
 private final class MockUsageClient: UsageClientProtocol {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
+    var stubbedSeries: UsageSeriesResponse?
     var stubbedBreakdown: UsageBreakdownResponse?
+    var simulateMissingSeriesEndpoint = false
 
     var lastTotalsFrom: Int?
     var lastTotalsTo: Int?
@@ -16,6 +18,11 @@ private final class MockUsageClient: UsageClientProtocol {
     var lastDailyTo: Int?
     var lastDailyTz: String?
     var lastDailyGranularity: String?
+    var lastSeriesFrom: Int?
+    var lastSeriesTo: Int?
+    var lastSeriesTz: String?
+    var lastSeriesGranularity: String?
+    var lastSeriesGroupBy: String?
     var lastBreakdownFrom: Int?
     var lastBreakdownTo: Int?
     var lastBreakdownGroupBy: String?
@@ -32,6 +39,37 @@ private final class MockUsageClient: UsageClientProtocol {
         lastDailyGranularity = granularity
         lastDailyTz = tz
         return stubbedDaily
+    }
+
+    func fetchUsageSeries(from: Int, to: Int, granularity: String, groupBy: String, tz: String) async -> UsageSeriesResponse? {
+        lastSeriesFrom = from
+        lastSeriesTo = to
+        lastSeriesGranularity = granularity
+        lastSeriesGroupBy = groupBy
+        lastSeriesTz = tz
+        if simulateMissingSeriesEndpoint {
+            return nil
+        }
+        if let stubbedSeries {
+            return stubbedSeries
+        }
+        guard let daily = stubbedDaily else {
+            return nil
+        }
+        return UsageSeriesResponse(
+            buckets: daily.buckets.map { bucket in
+                UsageSeriesBucket(
+                    bucketId: bucket.bucketId,
+                    date: bucket.date,
+                    displayLabel: bucket.displayLabel,
+                    totalInputTokens: bucket.totalInputTokens,
+                    totalOutputTokens: bucket.totalOutputTokens,
+                    totalEstimatedCostUsd: bucket.totalEstimatedCostUsd,
+                    eventCount: bucket.eventCount,
+                    groups: [:]
+                )
+            }
+        )
     }
 
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
@@ -140,6 +178,62 @@ struct UsageDashboardStoreDecodingTests {
     }
 
     @Test
+    func decodeBreakdownResponseWithGroupKey() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "Main agent",
+                    "groupKey": "mainAgent",
+                    "totalInputTokens": 800,
+                    "totalOutputTokens": 400,
+                    "totalEstimatedCostUsd": 0.04,
+                    "eventCount": 5
+                }
+            ]
+        }
+        """
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: Data(json.utf8))
+        #expect(decoded.breakdown[0].group == "Main agent")
+        #expect(decoded.breakdown[0].groupKey == "mainAgent")
+    }
+
+    @Test
+    func decodeSeriesResponseWithGroups() throws {
+        let json = """
+        {
+            "buckets": [
+                {
+                    "bucketId": "2026-03-01",
+                    "date": "2026-03-01",
+                    "displayLabel": "Mar 1",
+                    "totalInputTokens": 800,
+                    "totalOutputTokens": 400,
+                    "totalEstimatedCostUsd": 0.04,
+                    "eventCount": 5,
+                    "groups": {
+                        "value:mainAgent": {
+                            "group": "Main agent",
+                            "groupKey": "mainAgent",
+                            "totalInputTokens": 500,
+                            "totalOutputTokens": 250,
+                            "totalEstimatedCostUsd": 0.03,
+                            "eventCount": 3
+                        }
+                    }
+                }
+            ]
+        }
+        """
+        let decoded = try JSONDecoder().decode(UsageSeriesResponse.self, from: Data(json.utf8))
+        #expect(decoded.buckets.count == 1)
+        #expect(decoded.buckets[0].bucketId == "2026-03-01")
+        #expect(decoded.buckets[0].displayLabel == "Mar 1")
+        #expect(decoded.buckets[0].groups["value:mainAgent"]?.group == "Main agent")
+        #expect(decoded.buckets[0].groups["value:mainAgent"]?.groupKey == "mainAgent")
+    }
+
+    @Test
     func decodeBreakdownResponseDefaultsMissingCacheFieldsToZero() throws {
         let json = """
         {
@@ -194,6 +288,7 @@ struct UsageDashboardStoreLoadingTests {
         store.updateClient(client)
         #expect(store.totalsState == .idle)
         #expect(store.dailyState == .idle)
+        #expect(store.seriesState == .idle)
         #expect(store.breakdownState == .idle)
 
         await store.refresh()
@@ -210,6 +305,13 @@ struct UsageDashboardStoreLoadingTests {
             #expect(daily.buckets[0].date == "2026-03-05")
         } else {
             Issue.record("Expected .loaded state for daily")
+        }
+
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets.count == 1)
+            #expect(series.buckets[0].date == "2026-03-05")
+        } else {
+            Issue.record("Expected .loaded state for series")
         }
 
         if case .loaded(let breakdown) = store.breakdownState {
@@ -243,11 +345,33 @@ struct UsageDashboardStoreLoadingTests {
             Issue.record("Expected .failed state for daily")
         }
 
+        if case .failed(let msg) = store.seriesState {
+            #expect(msg.contains("series"))
+        } else {
+            Issue.record("Expected .failed state for series")
+        }
+
         if case .failed(let msg) = store.breakdownState {
             #expect(msg.contains("breakdown"))
         } else {
             Issue.record("Expected .failed state for breakdown")
         }
+    }
+
+    @Test @MainActor
+    func needsRefreshTracksVisibleDashboardSectionsOnly() {
+        let store = UsageDashboardStore()
+        store.totalsState = .loaded(UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        ))
+        store.dailyState = .failed("Legacy daily endpoint failed")
+        store.seriesState = .loaded(UsageSeriesResponse(buckets: []))
+        store.breakdownState = .loaded(UsageBreakdownResponse(breakdown: []))
+
+        #expect(store.needsRefresh == false)
     }
 
     @Test @MainActor
@@ -307,9 +431,10 @@ struct UsageDashboardStoreGroupTests {
 
         // Initial refresh to populate all states
         await store.refresh()
-        #expect(client.lastBreakdownGroupBy == "model")
+        #expect(client.lastSeriesGroupBy == "call_site")
+        #expect(client.lastBreakdownGroupBy == "call_site")
 
-        // Now change group-by — should only re-fetch breakdown
+        // Now change group-by — should re-fetch the grouped series and breakdown.
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
             UsageGroupBreakdownEntry(
                 group: "provider-x",
@@ -324,6 +449,7 @@ struct UsageDashboardStoreGroupTests {
         await store.selectGroupBy(.provider)
 
         #expect(store.selectedGroupBy == .provider)
+        #expect(client.lastSeriesGroupBy == "provider")
         #expect(client.lastBreakdownGroupBy == "provider")
 
         if case .loaded(let breakdown) = store.breakdownState {
@@ -344,7 +470,60 @@ struct UsageDashboardStoreGroupTests {
         store.updateClient(client)
         await store.selectGroupBy(.actor)
 
+        #expect(client.lastSeriesGroupBy == "actor")
         #expect(client.lastBreakdownGroupBy == "actor")
+    }
+
+    @Test @MainActor
+    func taskAndProfileGroupByPassExpectedParamsToSeriesAndBreakdown() async {
+        let client = MockUsageClient()
+        client.stubbedSeries = UsageSeriesResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+
+        await store.selectGroupBy(.callSite)
+        #expect(store.selectedGroupBy == .callSite)
+        #expect(client.lastSeriesGroupBy == "call_site")
+        #expect(client.lastBreakdownGroupBy == "call_site")
+
+        await store.selectGroupBy(.inferenceProfile)
+        #expect(store.selectedGroupBy == .inferenceProfile)
+        #expect(client.lastSeriesGroupBy == "inference_profile")
+        #expect(client.lastBreakdownGroupBy == "inference_profile")
+    }
+
+    @Test
+    func dashboardPickerOptionsMatchGroupedSeriesSupport() {
+        #expect(UsageGroupByDimension.dashboardOptions == [
+            .callSite,
+            .inferenceProfile,
+            .model,
+            .provider,
+        ])
+    }
+
+    @Test @MainActor
+    func taskDefaultFallsBackToModelForOlderAssistants() async {
+        let client = MockUsageClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.simulateMissingSeriesEndpoint = true
+        client.stubbedBreakdown = nil
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.refresh()
+
+        #expect(store.selectedGroupBy == .model)
+        #expect(client.lastSeriesGroupBy == "model")
+        #expect(client.lastBreakdownGroupBy == "model")
     }
 }
 
@@ -358,6 +537,7 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
     /// Tests pop and resume them in whatever order they want.
     var totalsContinuations: [CheckedContinuation<UsageTotalsResponse?, Never>] = []
     var dailyContinuations: [CheckedContinuation<UsageDailyResponse?, Never>] = []
+    var seriesContinuations: [CheckedContinuation<UsageSeriesResponse?, Never>] = []
     var breakdownContinuations: [CheckedContinuation<UsageBreakdownResponse?, Never>] = []
 
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
@@ -369,6 +549,12 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
     func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse? {
         await withCheckedContinuation { continuation in
             dailyContinuations.append(continuation)
+        }
+    }
+
+    func fetchUsageSeries(from: Int, to: Int, granularity: String, groupBy: String, tz: String) async -> UsageSeriesResponse? {
+        await withCheckedContinuation { continuation in
+            seriesContinuations.append(continuation)
         }
     }
 
@@ -395,6 +581,31 @@ struct UsageDashboardStoreRaceTests {
 
     private static func makeDaily() -> UsageDailyResponse {
         UsageDailyResponse(buckets: [])
+    }
+
+    private static func makeSeries(group: String? = nil) -> UsageSeriesResponse {
+        guard let group else {
+            return UsageSeriesResponse(buckets: [])
+        }
+
+        return UsageSeriesResponse(buckets: [
+            UsageSeriesBucket(
+                date: "2026-03-01",
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                totalEstimatedCostUsd: 0,
+                eventCount: 0,
+                groups: [
+                    group: UsageSeriesGroupValue(
+                        group: group,
+                        totalInputTokens: 0,
+                        totalOutputTokens: 0,
+                        totalEstimatedCostUsd: 0,
+                        eventCount: 0
+                    )
+                ]
+            )
+        ])
     }
 
     private static func makeBreakdown(group: String) -> UsageBreakdownResponse {
@@ -436,6 +647,7 @@ struct UsageDashboardStoreRaceTests {
         await Self.yieldUntil {
             client.totalsContinuations.count >= 2
             && client.dailyContinuations.count >= 2
+            && client.seriesContinuations.count >= 2
             && client.breakdownContinuations.count >= 2
         }
 
@@ -443,6 +655,7 @@ struct UsageDashboardStoreRaceTests {
         #expect(client.totalsContinuations.count == 2)
         client.totalsContinuations[1].resume(returning: Self.makeTotals(inputTokens: 999))
         client.dailyContinuations[1].resume(returning: Self.makeDaily())
+        client.seriesContinuations[1].resume(returning: Self.makeSeries())
         client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "latest"))
         await secondRefresh.value
 
@@ -456,6 +669,7 @@ struct UsageDashboardStoreRaceTests {
         // Now complete the FIRST (stale) request — it should NOT overwrite the store
         client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 111))
         client.dailyContinuations[0].resume(returning: Self.makeDaily())
+        client.seriesContinuations[0].resume(returning: Self.makeSeries())
         client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "stale"))
         await firstRefresh.value
 
@@ -484,16 +698,27 @@ struct UsageDashboardStoreRaceTests {
         await Self.yieldUntil {
             client.totalsContinuations.count >= 1
             && client.dailyContinuations.count >= 1
+            && client.seriesContinuations.count >= 1
             && client.breakdownContinuations.count >= 1
         }
 
         // While refresh() is in flight, user changes group-by dimension
         let groupByTask = Task { @MainActor in await store.selectGroupBy(.provider) }
-        await Self.yieldUntil { client.breakdownContinuations.count >= 2 }
+        await Self.yieldUntil {
+            client.seriesContinuations.count >= 2
+            && client.breakdownContinuations.count >= 2
+        }
 
         // Complete selectGroupBy's breakdown first (the newer request)
+        client.seriesContinuations[1].resume(returning: Self.makeSeries(group: "provider-fresh"))
         client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-fresh"))
         await groupByTask.value
+
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets[0].groups.keys.contains("provider-fresh"))
+        } else {
+            Issue.record("Expected series to be loaded after selectGroupBy completes")
+        }
 
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown[0].group == "provider-fresh")
@@ -505,6 +730,7 @@ struct UsageDashboardStoreRaceTests {
         // because selectGroupBy() incremented breakdownGeneration
         client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 42))
         client.dailyContinuations[0].resume(returning: Self.makeDaily())
+        client.seriesContinuations[0].resume(returning: Self.makeSeries(group: "model-stale"))
         client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
         await refreshTask.value
 
@@ -516,6 +742,13 @@ struct UsageDashboardStoreRaceTests {
         }
 
         // Breakdown must still be the selectGroupBy result, not overwritten by refresh()
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets[0].groups.keys.contains("provider-fresh"),
+                    "refresh() must not overwrite series set by concurrent selectGroupBy()")
+        } else {
+            Issue.record("Series was overwritten by stale refresh()")
+        }
+
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown[0].group == "provider-fresh",
                     "refresh() must not overwrite breakdown set by concurrent selectGroupBy()")
@@ -532,14 +765,21 @@ struct UsageDashboardStoreRaceTests {
 
         // Launch first selectGroupBy
         let first = Task { @MainActor in await store.selectGroupBy(.model) }
-        await Self.yieldUntil { client.breakdownContinuations.count >= 1 }
+        await Self.yieldUntil {
+            client.seriesContinuations.count >= 1
+            && client.breakdownContinuations.count >= 1
+        }
 
         // Launch second selectGroupBy before the first completes
         let second = Task { @MainActor in await store.selectGroupBy(.provider) }
-        await Self.yieldUntil { client.breakdownContinuations.count >= 2 }
+        await Self.yieldUntil {
+            client.seriesContinuations.count >= 2
+            && client.breakdownContinuations.count >= 2
+        }
 
         // Complete the second (latest) request first
         #expect(client.breakdownContinuations.count == 2)
+        client.seriesContinuations[1].resume(returning: Self.makeSeries())
         client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-result"))
         await second.value
 
@@ -550,6 +790,7 @@ struct UsageDashboardStoreRaceTests {
         }
 
         // Complete the first (stale) request — should be discarded
+        client.seriesContinuations[0].resume(returning: Self.makeSeries())
         client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
         await first.value
 
