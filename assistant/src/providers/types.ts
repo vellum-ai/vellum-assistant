@@ -157,9 +157,10 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
-   * Internal per-request HTTP headers for usage attribution. Provider clients
-   * may pass these through SDK request options, but must never include this
-   * object in provider JSON request bodies.
+   * Internal per-request HTTP headers for managed-proxy usage attribution.
+   * Provider clients may pass these through SDK request options only when the
+   * transport is Vellum-managed, and must never include this object in provider
+   * JSON request bodies.
    */
   usageAttributionHeaders?: Record<string, string>;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";

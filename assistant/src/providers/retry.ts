@@ -130,6 +130,7 @@ function isRetryableError(error: unknown): boolean {
 function normalizeSendMessageOptions(
   providerName: string,
   options?: SendMessageOptions,
+  normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
   if (!config) return options;
@@ -163,15 +164,17 @@ function normalizeSendMessageOptions(
     // Routing key is consumed by the resolver above and must not leak
     // downstream as a wire-format field.
     delete nextConfig.callSite;
-    const usageAttributionHeaders = buildUsageAttributionHeaders({
-      callSite: attribution.callSite,
-      appliedProfile: attribution.appliedProfile,
-      profileSource: attribution.profileSource,
-      resolvedProvider: attribution.resolvedProvider,
-      resolvedModel: attribution.resolvedModel,
-    });
-    if (Object.keys(usageAttributionHeaders).length > 0) {
-      nextConfig.usageAttributionHeaders = usageAttributionHeaders;
+    if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      const usageAttributionHeaders = buildUsageAttributionHeaders({
+        callSite: attribution.callSite,
+        appliedProfile: attribution.appliedProfile,
+        profileSource: attribution.profileSource,
+        resolvedProvider: attribution.resolvedProvider,
+        resolvedModel: attribution.resolvedModel,
+      });
+      if (Object.keys(usageAttributionHeaders).length > 0) {
+        nextConfig.usageAttributionHeaders = usageAttributionHeaders;
+      }
     }
 
     // Apply resolved values, letting per-call explicit fields win where set.
@@ -366,7 +369,10 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
-  constructor(private readonly inner: Provider) {
+  constructor(
+    private readonly inner: Provider,
+    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+  ) {
     this.name = inner.name;
   }
 
@@ -379,7 +385,10 @@ export class RetryProvider implements Provider {
     let lastError: unknown;
     let didRetry = false;
 
-    const normalizedOptions = normalizeSendMessageOptions(this.name, options);
+    const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
+      forwardUsageAttributionHeaders:
+        this.options.forwardUsageAttributionHeaders === true,
+    });
 
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {

@@ -122,7 +122,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.modelIntent).toBeUndefined();
   });
 
-  test("attaches sanitized stable attribution headers when callSite is supplied", async () => {
+  test("attaches sanitized stable attribution headers only when enabled", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -146,6 +146,7 @@ describe("RetryProvider — callSite resolution", () => {
       makeProvider("openai", (options) => {
         seen = options;
       }),
+      { forwardUsageAttributionHeaders: true },
     );
 
     await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
@@ -168,6 +169,35 @@ describe("RetryProvider — callSite resolution", () => {
         "X-Vellum-LLM-Call-Site-Label"
       ],
     ).toBeUndefined();
+  });
+
+  test("omits attribution headers by default for direct provider transports", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-default",
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toBeUndefined();
+    expect(config.callSite).toBeUndefined();
   });
 
   test("falls back to llm.default when llm.callSites[id] is absent", async () => {
