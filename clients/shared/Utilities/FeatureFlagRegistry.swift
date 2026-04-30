@@ -5,7 +5,7 @@ import Foundation
 /// Scope of a feature flag — determines which platform consumes it.
 public enum FeatureFlagScope: String, Decodable {
     case assistant
-    case macos
+    case client
 }
 
 /// A single entry in the unified feature flag registry.
@@ -25,9 +25,9 @@ public struct FeatureFlagRegistry: Decodable {
 
     // MARK: - Scope filters
 
-    /// Return only flags with `scope == .macos`.
-    public func macosScopeFlags() -> [FeatureFlagDefinition] {
-        flags.filter { $0.scope == .macos }
+    /// Return only flags with `scope == .client`.
+    public func clientScopeFlags() -> [FeatureFlagDefinition] {
+        flags.filter { $0.scope == .client }
     }
 
     /// Return only flags with `scope == .assistant`.

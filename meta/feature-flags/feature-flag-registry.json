@@ -19,7 +19,7 @@
     },
     {
       "id": "user-hosted-enabled",
-      "scope": "macos",
+      "scope": "client",
       "key": "user-hosted-enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
@@ -27,7 +27,7 @@
     },
     {
       "id": "local-docker-enabled",
-      "scope": "macos",
+      "scope": "client",
       "key": "local-docker-enabled",
       "label": "Local Docker Mode",
       "description": "When enabled, the Local hosting option uses Docker under the hood for sandboxed execution, hiding the separate Docker card",
@@ -51,7 +51,7 @@
     },
     {
       "id": "mobile-pairing",
-      "scope": "macos",
+      "scope": "client",
       "key": "mobile-pairing",
       "label": "Mobile Pairing",
       "description": "Show the Mobile (iOS) pairing card in Settings > Account",
@@ -67,7 +67,7 @@
     },
     {
       "id": "developer-menu-items",
-      "scope": "macos",
+      "scope": "client",
       "key": "developer-menu-items",
       "label": "Developer Menu Items",
       "description": "Show Component Gallery and Replay Onboarding in the menu bar",
@@ -123,7 +123,7 @@
     },
     {
       "id": "settings-billing",
-      "scope": "macos",
+      "scope": "client",
       "key": "settings-billing",
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
@@ -131,7 +131,7 @@
     },
     {
       "id": "referral-codes",
-      "scope": "macos",
+      "scope": "client",
       "key": "referral-codes",
       "label": "Referral Codes",
       "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
@@ -139,7 +139,7 @@
     },
     {
       "id": "managed-sign-in",
-      "scope": "macos",
+      "scope": "client",
       "key": "managed-sign-in",
       "label": "Managed Sign In",
       "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
@@ -179,7 +179,7 @@
     },
     {
       "id": "quick-input",
-      "scope": "macos",
+      "scope": "client",
       "key": "quick-input",
       "label": "Quick Input",
       "description": "Enable the Quick Input popover on right-click of the menu bar icon",
@@ -187,7 +187,7 @@
     },
     {
       "id": "expand-completed-steps",
-      "scope": "macos",
+      "scope": "client",
       "key": "expand-completed-steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
@@ -195,7 +195,7 @@
     },
     {
       "id": "show-thinking-blocks",
-      "scope": "macos",
+      "scope": "client",
       "key": "show-thinking-blocks",
       "label": "Show Thinking Blocks",
       "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
@@ -267,7 +267,7 @@
     },
     {
       "id": "teleport",
-      "scope": "macos",
+      "scope": "client",
       "key": "teleport",
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
@@ -275,7 +275,7 @@
     },
     {
       "id": "apple-container",
-      "scope": "macos",
+      "scope": "client",
       "key": "apple-container",
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
@@ -299,7 +299,7 @@
     },
     {
       "id": "fork-from-message",
-      "scope": "macos",
+      "scope": "client",
       "key": "fork-from-message",
       "label": "Fork from Message",
       "description": "Show the 'Fork from here' option in message overflow menus",
@@ -307,7 +307,7 @@
     },
     {
       "id": "onboarding-pre-chat",
-      "scope": "macos",
+      "scope": "client",
       "key": "onboarding-pre-chat",
       "label": "Pre-Chat Onboarding Flow",
       "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
@@ -315,7 +315,7 @@
     },
     {
       "id": "home-tab",
-      "scope": "macos",
+      "scope": "client",
       "key": "home-tab",
       "label": "Home Tab",
       "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
@@ -339,7 +339,7 @@
     },
     {
       "id": "scroll-debug-overlay",
-      "scope": "macos",
+      "scope": "client",
       "key": "scroll-debug-overlay",
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
@@ -347,7 +347,7 @@
     },
     {
       "id": "message-height-cache",
-      "scope": "macos",
+      "scope": "client",
       "key": "message-height-cache",
       "label": "Message Height Cache",
       "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
