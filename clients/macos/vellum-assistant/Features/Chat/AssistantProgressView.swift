@@ -836,6 +836,8 @@ struct ToolCallStepDetailRow: View {
     @State private var ruleEditorToolCall: ToolCallData?
     /// LLM-generated suggestion to pre-populate the rule editor.
     @State private var ruleEditorSuggestion: TrustRuleSuggestion?
+    /// Existing trust rule that matched this tool call, or nil for create mode.
+    @State private var ruleEditorExistingRule: TrustRule?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -962,7 +964,30 @@ struct ToolCallStepDetailRow: View {
                 scopeOptions: Self.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: ruleEditorSuggestion,
+                existingRule: ruleEditorExistingRule,
                 onSave: { rule in
+                    Task {
+                        if let existingRule = ruleEditorExistingRule {
+                            try? await Self.trustRuleClient.updateRule(
+                                id: existingRule.id,
+                                risk: rule.riskLevel,
+                                description: nil
+                            )
+                        } else {
+                            try? await Self.trustRuleClient.createRule(
+                                tool: rule.toolName,
+                                pattern: rule.pattern,
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                }(),
+                                scope: rule.scope
+                            )
+                        }
+                    }
+                },
+                onSaveAsNew: { rule in
                     Task {
                         try? await Self.trustRuleClient.createRule(
                             tool: rule.toolName,
@@ -979,6 +1004,7 @@ struct ToolCallStepDetailRow: View {
                 onDismiss: {
                     ruleEditorToolCall = nil
                     ruleEditorSuggestion = nil
+                    ruleEditorExistingRule = nil
                 }
             )
         }
@@ -1081,8 +1107,8 @@ struct ToolCallStepDetailRow: View {
     @ViewBuilder
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
-            RiskBadgeView(riskLevel: risk) {
-                ruleEditorToolCall = toolCall
+            RiskBadgeView(riskLevel: risk, hasExistingRule: toolCall.matchedTrustRuleId != nil) {
+                Task { await openRuleEditorForCompletedCall(toolCall) }
             }
         }
     }
@@ -1121,6 +1147,58 @@ struct ToolCallStepDetailRow: View {
                 pattern: option.pattern
             )
         }
+    }
+
+    // MARK: - Rule Editor
+
+    @MainActor
+    private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
+        async let suggestionTask = fetchSuggestionForEditor(toolCall)
+        async let existingRuleTask = fetchMatchedRule(toolCall)
+
+        let suggestion = try? await suggestionTask
+        let existingRule = try? await existingRuleTask
+
+        ruleEditorSuggestion = suggestion
+        ruleEditorExistingRule = existingRule
+        ruleEditorToolCall = toolCall
+    }
+
+    private func fetchSuggestionForEditor(_ toolCall: ToolCallData) async throws -> TrustRuleSuggestion {
+        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
+            (pattern: $0.pattern, label: $0.label)
+        }
+        let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
+            (scope: $0.scope, label: $0.label)
+        }
+        let fullCommand: String = {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+            return toolCall.inputSummary
+        }()
+        return try await Self.trustRuleClient.suggestRule(
+            tool: toolCall.toolName,
+            command: fullCommand,
+            riskAssessment: (
+                risk: toolCall.riskLevel ?? "medium",
+                reasoning: toolCall.riskReason ?? "",
+                reasonDescription: toolCall.reasonDescription ?? ""
+            ),
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: dirScopeOpts,
+            intent: "auto_approve"
+        )
+    }
+
+    private func fetchMatchedRule(_ toolCall: ToolCallData) async throws -> TrustRule {
+        guard let matchedId = toolCall.matchedTrustRuleId else {
+            throw TrustRuleClientError.notFound
+        }
+        let rules = try await Self.trustRuleClient.listRules(tool: toolCall.toolName)
+        guard let rule = rules.first(where: { $0.id == matchedId }) else {
+            throw TrustRuleClientError.notFound
+        }
+        return rule
     }
 
     // MARK: - Detail Content

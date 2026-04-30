@@ -13,6 +13,7 @@ import VellumAssistantShared
 /// tooltip; otherwise it is a plain, non-interactive label.
 struct RiskBadgeView: View {
     let riskLevel: String
+    var hasExistingRule: Bool = false
     var onTap: (() -> Void)? = nil
 
     var body: some View {
@@ -21,7 +22,7 @@ struct RiskBadgeView: View {
                 badgeContent
             }
             .buttonStyle(.plain)
-            .help("Risk level: \(displayLabel). Click to create a rule.")
+            .help("Risk level: \(displayLabel). \(hasExistingRule ? "Click to edit the matching rule." : "Click to create a rule.")")
         } else {
             badgeContent
         }
