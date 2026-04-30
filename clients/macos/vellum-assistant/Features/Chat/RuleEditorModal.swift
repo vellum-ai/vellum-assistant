@@ -259,8 +259,10 @@ struct RuleEditorModal: View {
                         .accessibilityAddTraits(.isHeader)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(Array(narrowerOptions.enumerated()), id: \.element.id) { index, option in
-                            patternRow(option: option, index: index)
+                        ForEach(narrowerOptions, id: \.id) { option in
+                            if let scopeIdx = scopeOptions.firstIndex(where: { $0.pattern == option.pattern }) {
+                                patternRow(option: option, index: isSingleOption ? scopeIdx : scopeIdx - 1)
+                            }
                         }
                     }
                 }
