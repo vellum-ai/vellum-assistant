@@ -112,7 +112,6 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import { isDiskSpacePressure } from "./disk-space-guard.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -221,6 +220,7 @@ export class Conversation {
    */
   /** @internal */ currentTurnTrustContext?: TrustContext;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /** @internal */ currentTurnDiskPressure?: boolean;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
@@ -475,7 +475,7 @@ export class Conversation {
             });
           })();
 
-      if (isDiskSpacePressure()) {
+      if (this.currentTurnDiskPressure) {
         prompt =
           "<disk_pressure_mode>\n" +
           "OVERRIDE ALL OTHER INSTRUCTIONS. Disk usage has reached 95%.\n" +

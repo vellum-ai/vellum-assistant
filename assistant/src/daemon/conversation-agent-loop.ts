@@ -473,6 +473,8 @@ export interface AgentLoopConversationContext {
   currentTurnTrustContext?: TrustContext;
   /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
   currentTurnChannelCapabilities?: ChannelCapabilities;
+  /** Per-turn snapshot of disk pressure state, frozen at turn start. */
+  currentTurnDiskPressure?: boolean;
   /**
    * Per-turn snapshot of the resolved inference-profile override. Read by
    * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
@@ -773,6 +775,8 @@ export async function runAgentLoopImpl(
       // assistant can help diagnose and resolve the disk space issue.
       diskPressureActive = true;
     }
+    // Snapshot for the system prompt callback so it reads the same state.
+    ctx.currentTurnDiskPressure = diskPressureActive;
 
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
