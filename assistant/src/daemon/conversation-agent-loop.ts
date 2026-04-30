@@ -781,6 +781,7 @@ export async function runAgentLoopImpl(
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
     let compactedThisTurn = false;
+    let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     let currentSlackContextSummary =
       turnStartConversation?.contextSummary ?? null;
@@ -815,19 +816,66 @@ export async function runAgentLoopImpl(
       if (!isSlackConversation || compactedMessages <= 0) return null;
       const context = slackChronologicalContext;
       if (!context) return null;
-      const end = Math.min(
-        context.renderedMessages.length,
-        context.compactableStartIndex + compactedMessages,
-      );
-      if (end <= context.compactableStartIndex || messages.length < end) {
+      if (messages !== context.messages) return null;
+      const end = context.compactableStartIndex + compactedMessages;
+      if (
+        end <= context.compactableStartIndex ||
+        end > context.renderedMessages.length ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
         return null;
       }
-      for (let index = 0; index < end; index++) {
-        if (messages[index] !== context.messages[index]) {
+      return context;
+    };
+    const projectSlackProvenanceAfterCompaction = (
+      context: SlackChronologicalContext | null,
+      compactedBasis: Message[] | undefined,
+      result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+    ): SlackChronologicalContext | null => {
+      if (
+        !isSlackConversation ||
+        !context ||
+        !compactedBasis ||
+        compactedBasis !== context.messages ||
+        result.compactedMessages <= 0 ||
+        result.messages.length === 0 ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
+        return null;
+      }
+
+      const keptStart =
+        context.compactableStartIndex + result.compactedMessages;
+      if (keptStart > context.renderedMessages.length) {
+        return null;
+      }
+
+      const retainedRenderedMessages =
+        context.renderedMessages.slice(keptStart);
+      const retainedResultMessages = result.messages.slice(1);
+      if (retainedResultMessages.length !== retainedRenderedMessages.length) {
+        return null;
+      }
+      for (let index = 0; index < retainedResultMessages.length; index++) {
+        if (
+          retainedResultMessages[index] !==
+          retainedRenderedMessages[index]!.message
+        ) {
           return null;
         }
       }
-      return context;
+
+      return {
+        renderedMessages: [
+          {
+            message: result.messages[0]!,
+            sourceChannelTs: null,
+          },
+          ...retainedRenderedMessages,
+        ],
+        messages: result.messages,
+        compactableStartIndex: 1,
+      };
     };
     const applySuccessfulCompaction = (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
@@ -852,7 +900,14 @@ export async function runAgentLoopImpl(
       if (slackWatermarkTs) {
         currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
       }
-      slackChronologicalContext = null;
+      if (isSlackConversation) {
+        slackCompactedThisTurn = true;
+      }
+      slackChronologicalContext = projectSlackProvenanceAfterCompaction(
+        provenanceContext,
+        compactedBasis,
+        result,
+      );
     };
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(
@@ -1290,7 +1345,7 @@ export async function runAgentLoopImpl(
     const slackConversationForInjection = isSlackConversation
       ? (getConversation(ctx.conversationId) ?? turnStartConversation)
       : turnStartConversation;
-    if (isSlackConversation && !compactedThisTurn) {
+    if (isSlackConversation && !slackCompactedThisTurn) {
       slackChronologicalContext ??= loadSlackChronologicalContext(
         ctx.conversationId,
         ctx.channelCapabilities!,
