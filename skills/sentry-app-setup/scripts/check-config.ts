@@ -16,20 +16,21 @@ async function checkVellum(): Promise<void> {
   });
 
   const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
   const exitCode = await proc.exited;
 
   if (exitCode !== 0) {
     console.log(
       JSON.stringify({
         configured: false,
-        details: "Failed to list credentials",
+        details: `Failed to list credentials (exit ${exitCode}): ${stderr.trim()}`,
       }),
     );
     return;
   }
 
   try {
-    const credentials = JSON.parse(stdout.trim()) as Array<{
+    const credentials = JSON.parse(stdout) as Array<{
       service?: string;
       field?: string;
     }>;
@@ -44,11 +45,12 @@ async function checkVellum(): Promise<void> {
           : "No sentry auth_token found",
       }),
     );
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.log(
       JSON.stringify({
         configured: false,
-        details: "Failed to parse credentials list",
+        details: `Failed to parse credentials list: ${message}. Raw output: ${stdout.slice(0, 200)}`,
       }),
     );
   }
