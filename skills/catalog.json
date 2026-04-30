@@ -360,7 +360,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-04-30T12:58:30-04:00"
+      "updatedAt": "2026-04-30T17:02:02Z"
     },
     {
       "id": "meme-generator",
@@ -614,7 +614,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T00:37:01Z"
+      "updatedAt": "2026-05-01T04:55:50-04:00"
     },
     {
       "id": "tasks",
