@@ -82,6 +82,18 @@ struct CallSiteOverridesSheet: View {
         return false
     }
 
+    /// True when any draft in Custom mode has a validation error (e.g.
+    /// provider set but no model). Blocks the footer Save button.
+    private var hasAnyValidationError: Bool {
+        for (_, draft) in drafts {
+            guard CallSiteOverrideRow.profilePickerValue(for: draft) == CallSiteOverrideRow.customSentinel else { continue }
+            let provider = draft.provider ?? ""
+            let model = draft.model ?? ""
+            if !provider.isEmpty && model.isEmpty { return true }
+        }
+        return false
+    }
+
     /// True when at least one persisted entry has any override set. Drives
     /// the visibility of the footer "Reset to Defaults" button.
     private var hasAnyPersistedOverride: Bool {
@@ -152,7 +164,7 @@ struct CallSiteOverridesSheet: View {
             VButton(label: "Cancel", style: .outlined) {
                 isPresented = false
             }
-            VButton(label: "Save", style: .primary, isDisabled: !hasUnsavedDrafts) {
+            VButton(label: "Save", style: .primary, isDisabled: !hasUnsavedDrafts || hasAnyValidationError) {
                 saveAll()
                 isPresented = false
             }
