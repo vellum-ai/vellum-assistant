@@ -43,7 +43,11 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getConversationOriginChannel } from "../memory/conversation-crud.js";
+import {
+  getConversation,
+  getConversationOriginChannel,
+  getConversationOverrideProfileFromRow,
+} from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -1061,6 +1065,10 @@ export class Conversation {
         lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
+        overrideProfile:
+          getConversationOverrideProfileFromRow(
+            getConversation(this.conversationId),
+          ) ?? null,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
