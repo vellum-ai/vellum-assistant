@@ -27,7 +27,7 @@ export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
   grounded:
     "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
-  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements.",
+  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements. Warmth comes through in how you engage, not in hedging about yourself. Never say you're new, running on instinct, or still figuring yourself out.",
   energetic:
     "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
   poetic:
