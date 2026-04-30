@@ -110,11 +110,14 @@ function getWorkspaceDir(): string {
  * Priority:
  * 1. `CREDENTIAL_SECURITY_DIR` env var (set by the platform template for
  *    the CES container — `/ces-security` in managed mode)
- * 2. Default: `~/.vellum/protected` (local mode)
+ * 2. `GATEWAY_SECURITY_DIR` env var (set by the CLI for local instances —
+ *    CES inherits the daemon's env which includes this)
+ * 3. Default: `~/.vellum/protected`
  */
 function getSecurityDir(): string {
   return (
     process.env["CREDENTIAL_SECURITY_DIR"]?.trim() ||
+    process.env["GATEWAY_SECURITY_DIR"]?.trim() ||
     join(homedir(), ".vellum", "protected")
   );
 }
