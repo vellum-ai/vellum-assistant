@@ -374,9 +374,40 @@ export function broadcastMessage(
     registerPendingInteraction(msg, resolvedConversationId);
   }
 
-  const event = buildAssistantEvent(msg, resolvedConversationId);
+  // Emit feed events for confirmation requests (tool approval prompts).
+  if (msg.type === "confirmation_request" && resolvedConversationId) {
+    void emitConfirmationFeedEvent(msg, resolvedConversationId);
+  }
+
+  // `conversation_list_invalidated` is a list-level system event — publish
+  // it unscoped so every subscriber refreshes its sidebar.
+  const scopedConversationId =
+    msg.type === "conversation_list_invalidated"
+      ? undefined
+      : resolvedConversationId;
+  const event = buildAssistantEvent(msg, scopedConversationId);
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event))
+    .then(() => {
+      // When a conversation title changes, also broadcast an unscoped
+      // `conversation_list_invalidated` so every connected client's sidebar
+      // refreshes — not just the client viewing this conversation.
+      if (msg.type === "conversation_title_updated") {
+        return assistantEventHub
+          .publish(
+            buildAssistantEvent({
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          )
+          .catch((err: unknown) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated after title update",
+            );
+          });
+      }
+    })
     .catch((err: unknown) => {
       log.warn({ err }, "assistant-events hub subscriber threw during publish");
     });
@@ -535,5 +566,63 @@ async function createCanonicalRequestForConfirmation(
       { err, conversationId },
       "Failed to create canonical request from broadcast",
     );
+  }
+}
+
+// ── Feed events for confirmation requests ─────────────────────────────────────
+
+/**
+ * Emit a feed event when a confirmation request (tool approval prompt) is
+ * broadcast. Emits immediately with a technical preview, then rewrites
+ * into prose in the background and updates the feed item.
+ */
+async function emitConfirmationFeedEvent(
+  msg: ServerMessage & { type: "confirmation_request" },
+  conversationId: string,
+): Promise<void> {
+  try {
+    const { redactSecrets } = await import("../security/secret-scanner.js");
+    const { summarizeToolInput } =
+      await import("../tools/tool-input-summary.js");
+    const { emitFeedEvent } = await import("../home/emit-feed-event.js");
+    const { rewriteCommandPreview } =
+      await import("../home/rewrite-command-preview.js");
+
+    const inputRecord = msg.input as Record<string, unknown>;
+    const commandPreview =
+      redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) || undefined;
+    const technicalTitle = commandPreview
+      ? `Requesting permission: ${commandPreview}`
+      : `Requesting approval to use ${msg.toolName}.`;
+    const dedupKey = `tool-approval:${msg.requestId}`;
+
+    await emitFeedEvent({
+      source: "assistant",
+      title: technicalTitle,
+      summary: technicalTitle,
+      dedupKey,
+      urgency: msg.riskLevel === "high" ? "high" : "medium",
+      conversationId,
+      detailPanel: { kind: "toolPermission" },
+    });
+
+    // Background: rewrite into prose and update the feed item.
+    if (commandPreview) {
+      const prose = await rewriteCommandPreview(msg.toolName, commandPreview);
+      if (prose) {
+        const proseTitle = `Requesting permission: ${prose}`;
+        await emitFeedEvent({
+          source: "assistant",
+          title: proseTitle,
+          summary: proseTitle,
+          dedupKey,
+          urgency: msg.riskLevel === "high" ? "high" : "medium",
+          conversationId,
+          detailPanel: { kind: "toolPermission" },
+        });
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to emit confirmation feed event from broadcast");
   }
 }
