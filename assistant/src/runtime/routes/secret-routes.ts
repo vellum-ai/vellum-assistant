@@ -339,6 +339,7 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
 
   try {
     let accountKey: string;
+    let prefetchedResult: Awaited<ReturnType<typeof getSecureKeyResultAsync>> | undefined;
 
     if (type === "api_key") {
       if (
@@ -348,12 +349,13 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
           `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      accountKey = credentialKey(name, "api_key");
-      // If the key doesn't exist under the credential namespace, fall back to
-      // the bare provider name (pre-migration window or partial migration failure).
-      const credResult = await getSecureKeyResultAsync(accountKey);
+      // Check credential namespace first; fall back to bare key only if not found and store is reachable.
+      const credResult = await getSecureKeyResultAsync(credentialKey(name, "api_key"));
       if (credResult.value === undefined && !credResult.unreachable) {
         accountKey = name;
+      } else {
+        accountKey = credentialKey(name, "api_key");
+        prefetchedResult = credResult;
       }
     } else if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
@@ -371,7 +373,7 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
       );
     }
 
-    const { value, unreachable } = await getSecureKeyResultAsync(accountKey);
+    const { value, unreachable } = prefetchedResult ?? await getSecureKeyResultAsync(accountKey);
     if (value === undefined) {
       return { found: false, unreachable };
     }
