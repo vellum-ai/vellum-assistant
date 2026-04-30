@@ -1,9 +1,21 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { findAssistantByName } from "../lib/assistant-config";
+import type { AssistantEntry } from "../lib/assistant-config.js";
+import { findAssistantByName } from "../lib/assistant-config.js";
 import { getBackupsDir, formatSize } from "../lib/backup-ops.js";
 import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
+import { pollJobUntilDone } from "../lib/job-polling.js";
+import {
+  MigrationInProgressError,
+  localRuntimeExportToGcs,
+  localRuntimePollJobStatus,
+} from "../lib/local-runtime-client.js";
+import {
+  getPlatformUrl,
+  platformRequestSignedUrl,
+  readPlatformToken,
+} from "../lib/platform-client.js";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -67,10 +79,8 @@ export async function backup(): Promise<void> {
   }
 
   if (cloud === "vellum") {
-    console.error(
-      "Error: Backup is only supported for self-hosted assistants; use 'vellum teleport' for platform-managed assistants.",
-    );
-    process.exit(1);
+    await backupPlatform(entry, name, outputArg);
+    return;
   }
 
   // Obtain an auth token
@@ -179,6 +189,139 @@ export async function backup(): Promise<void> {
   console.log(`Backup saved to ${outputPath}`);
   console.log(`Size: ${formatSize(data.byteLength)}`);
   if (manifestSha) {
+    console.log(`Manifest SHA-256: ${manifestSha}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Platform-managed (cloud="vellum") backup over GCS.
+//
+// The runtime exports the bundle straight to a platform-issued signed GCS
+// URL; the CLI then downloads from GCS to local disk. Bytes never flow
+// through Django. Same architectural shape as the platform-source half of
+// `vellum teleport`. Output format and success log lines match mode 1
+// (runtime-direct local backup) so users see one consistent UX.
+//
+// Lifecycle: the GCS bucket has a 1-day TTL on `uploads/<org>/*` objects
+// (see `vellum-assistant-platform/django/app/assistant/migration/views.py`
+// and `migration/services.py`). Backup is single-shot with no import to
+// trigger best-effort cleanup, so the bundle sits in GCS up to 24h before
+// TTL deletion. No explicit cleanup endpoint exists; relying on TTL is
+// intentional.
+// ---------------------------------------------------------------------------
+async function backupPlatform(
+  entry: AssistantEntry,
+  name: string,
+  outputArg?: string,
+): Promise<void> {
+  const platformToken = readPlatformToken();
+  if (!platformToken) {
+    console.error(
+      "Not logged in. Run 'vellum login' first (required for platform-managed backup).",
+    );
+    process.exit(1);
+  }
+  const platformUrl = getPlatformUrl();
+
+  // Step 1 — Request a signed upload URL.
+  const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+    { operation: "upload" },
+    platformToken,
+    platformUrl,
+  );
+
+  // Step 2 — Kick off runtime export-to-GCS through the platform's
+  // wildcard runtime proxy. `localRuntimeExportToGcs` builds the
+  // `/v1/assistants/<id>/migrations/export-to-gcs` URL for cloud="vellum"
+  // and uses platform-token auth (no guardian-token bootstrap).
+  let jobId: string;
+  let exportPlatformToken = platformToken;
+  try {
+    ({ jobId } = await localRuntimeExportToGcs(entry, exportPlatformToken, {
+      uploadUrl,
+      description: "CLI backup",
+    }));
+  } catch (err) {
+    if (err instanceof MigrationInProgressError) {
+      console.error(
+        `Error: Another backup or teleport export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish, then re-run.`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  console.log(`Export started (job ${jobId})...`);
+
+  // Step 3 — Poll the job through the wildcard proxy. The dedicated
+  // `/v1/migrations/jobs/{id}/` endpoint queries platform-side ImportJob
+  // records and would 404 on runtime-created job IDs.
+  const terminal = await pollJobUntilDone({
+    label: "platform export",
+    poll: () => localRuntimePollJobStatus(entry, exportPlatformToken, jobId),
+    refreshOn401: async () => {
+      const refreshed = readPlatformToken();
+      if (!refreshed) {
+        throw new Error(
+          "Platform auth expired during export and no credential was found on disk. Run 'vellum login' and retry.",
+        );
+      }
+      exportPlatformToken = refreshed;
+    },
+  });
+
+  if (terminal.status === "failed") {
+    console.error(`Error: Export failed: ${terminal.error}`);
+    process.exit(1);
+  }
+
+  // Step 4 — Request a signed download URL for the same bundle and fetch
+  // it from GCS directly. No auth on signed URLs.
+  const { url: bundleUrl } = await platformRequestSignedUrl(
+    { operation: "download", bundleKey },
+    platformToken,
+    platformUrl,
+  );
+
+  let downloadResponse: Response;
+  try {
+    downloadResponse = await fetch(bundleUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Error: Failed to fetch bundle from GCS: ${msg}`);
+    process.exit(1);
+  }
+  if (!downloadResponse.ok) {
+    const body = await downloadResponse.text().catch(() => "");
+    console.error(
+      `Error: Failed to fetch bundle from GCS (${downloadResponse.status}): ${body}`,
+    );
+    process.exit(1);
+  }
+
+  const arrayBuffer = await downloadResponse.arrayBuffer();
+  const data = new Uint8Array(arrayBuffer);
+
+  // Step 5 — Write to disk using the same path resolution mode 1 uses.
+  const isoTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputPath =
+    outputArg || join(getBackupsDir(), `${name}-${isoTimestamp}.vbundle`);
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, data);
+
+  // Step 6 — Print success. Manifest SHA is included only if the runtime
+  // surfaced it via the unified job result; the export-to-gcs runtime
+  // route does not set the legacy `X-Vbundle-Manifest-Sha256` response
+  // header.
+  console.log(`Backup saved to ${outputPath}`);
+  console.log(`Size: ${formatSize(data.byteLength)}`);
+  const manifestSha =
+    terminal.status === "complete" &&
+    terminal.result &&
+    typeof terminal.result === "object"
+      ? (terminal.result as Record<string, unknown>).manifest_sha256
+      : undefined;
+  if (typeof manifestSha === "string") {
     console.log(`Manifest SHA-256: ${manifestSha}`);
   }
 }
