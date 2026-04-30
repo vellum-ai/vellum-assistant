@@ -297,15 +297,21 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // until onboarding completes.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
 
-  if (identity && !identityIsTemplate) {
-    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-    // the model doesn't treat unresolved fields as prompts to ask the user.
-    const cleanedIdentity = identity
-      .split("\n")
-      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-      .join("\n");
-    if (cleanedIdentity.trim()) {
-      dynamicParts.push(cleanedIdentity);
+  if (identity && (!identityIsTemplate || includeBootstrap)) {
+    if (identityIsTemplate) {
+      // During bootstrap the model needs the exact template content to
+      // construct a valid old_string for file_edit.
+      dynamicParts.push(identity);
+    } else {
+      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+      // the model doesn't treat unresolved fields as prompts to ask the user.
+      const cleanedIdentity = identity
+        .split("\n")
+        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+        .join("\n");
+      if (cleanedIdentity.trim()) {
+        dynamicParts.push(cleanedIdentity);
+      }
     }
   }
   if (soul) dynamicParts.push(soul);
