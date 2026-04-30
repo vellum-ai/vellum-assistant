@@ -80,6 +80,12 @@ mock.module("../memory/v2/page-store.js", () => ({
     _workspaceDir: string,
     slug: string,
   ): Promise<ConceptPage | null> => pageStore.get(slug) ?? null,
+  slugFromConceptPath: (conceptsRoot: string, filePath: string): string => {
+    const rel = filePath.startsWith(conceptsRoot)
+      ? filePath.slice(conceptsRoot.length).replace(/^\/+/, "")
+      : filePath;
+    return rel.endsWith(".md") ? rel.slice(0, -3) : rel;
+  },
 }));
 
 const { searchMemoryV2Source } =
@@ -294,6 +300,59 @@ describe("searchMemoryV2Source", () => {
     );
     expect(hit?.title).toBe("alice");
     expect(hit?.excerpt).toBe("Alice memory body content.");
+  });
+
+  test("activation hit for nested slug produces nested locator and slug", async () => {
+    const root = makeTempDir();
+    writeConceptPage(root, "people/alice", "Alice prefers concise notes.\n");
+
+    qdrantHits = [{ slug: "people/alice", denseScore: 0.92 }];
+    pageStore.set("people/alice", {
+      slug: "people/alice",
+      frontmatter: { edges: [], ref_files: [] },
+      body: "Alice prefers concise notes.",
+    });
+
+    const result = await searchMemoryV2Source(
+      "alice notes",
+      makeContext(root),
+      5,
+    );
+
+    const hit = result.evidence.find(
+      (e) => e.metadata?.retrieval === "activation",
+    );
+    expect(hit).toBeDefined();
+    expect(hit?.locator).toBe("memory/concepts/people/alice.md");
+    expect(hit?.metadata?.path).toBe("memory/concepts/people/alice.md");
+    expect(hit?.metadata?.slug).toBe("people/alice");
+    expect(hit?.title).toBe("people/alice");
+  });
+
+  test("lexical fallback surfaces nested concept pages with nested locators", async () => {
+    const root = makeTempDir();
+    writeConceptPage(
+      root,
+      "people/bob",
+      "# Bob\n\nbirthday party plans for next month.\n",
+    );
+
+    qdrantHits = [];
+
+    const result = await searchMemoryV2Source(
+      "birthday party",
+      makeContext(root),
+      5,
+    );
+
+    const lexicalHit = result.evidence.find(
+      (e) => e.metadata?.retrieval === "lexical",
+    );
+    expect(lexicalHit).toBeDefined();
+    expect(lexicalHit?.metadata?.path).toBe("memory/concepts/people/bob.md");
+    expect(lexicalHit?.locator).toMatch(
+      /^memory\/concepts\/people\/bob\.md:\d+$/,
+    );
   });
 
   test("returns empty when limit is zero", async () => {

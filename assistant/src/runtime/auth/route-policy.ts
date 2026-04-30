@@ -313,6 +313,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "usage/totals", scopes: ["settings.read"] },
   { endpoint: "usage/daily", scopes: ["settings.read"] },
   { endpoint: "usage/breakdown", scopes: ["settings.read"] },
+  { endpoint: "usage/series", scopes: ["settings.read"] },
 
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
@@ -323,6 +324,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Debug / introspection
   { endpoint: "clients", scopes: ["settings.read"] },
+  { endpoint: "clients/disconnect", scopes: ["settings.write"] },
   { endpoint: "debug", scopes: ["settings.read"] },
 
   // Workspace file browsing
@@ -376,6 +378,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
 
+  // LLM call site catalog
+  { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
+
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
@@ -423,11 +428,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/validate:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
 
-  // Trust rule CRUD management
+  // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
-  { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:DELETE", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:PATCH", scopes: ["settings.write"] },
 
   // Computer use
   { endpoint: "computer-use/sessions", scopes: ["chat.write"] },
@@ -487,6 +489,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Filing
   { endpoint: "filing", scopes: ["settings.read"] },
   { endpoint: "filing:POST", scopes: ["settings.write"] },
+
+  // Consolidation (memory v2 counterpart to Filing)
+  { endpoint: "consolidation", scopes: ["settings.read"] },
+  { endpoint: "consolidation:POST", scopes: ["settings.write"] },
 
   // Heartbeat (config, runs, checklist — all share the "heartbeat" policyKey)
   { endpoint: "heartbeat:GET", scopes: ["settings.read"] },

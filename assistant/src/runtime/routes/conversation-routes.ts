@@ -54,12 +54,10 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
-import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import {
   getAttachmentById,
@@ -68,8 +66,6 @@ import {
   getSourcePathsForAttachments,
 } from "../../memory/attachments-store.js";
 import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
   listCanonicalGuardianRequests,
   listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
@@ -94,8 +90,6 @@ import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
-import { redactSecrets } from "../../security/secret-scanner.js";
-import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getInterfacesDir,
@@ -103,9 +97,8 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
@@ -349,18 +342,6 @@ async function tryConsumeCanonicalGuardianReply(params: {
   }
 
   return { consumed: true, messageId };
-}
-
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string | undefined,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") {
-    return "voice";
-  }
-  if (sourceChannel === "vellum") {
-    return "desktop";
-  }
-  return "channel";
 }
 
 function getInterfaceFilesWithMtimes(
@@ -1017,266 +998,6 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 }
 
 /**
- * Build an `onEvent` callback that publishes every outbound event to the
- * assistant event hub, maintaining ordered delivery through a serial chain.
- *
- * Also registers pending interactions when confirmation_request,
- * secret_request, host_bash_request, host_browser_request, host_file_request,
- * or host_cu_request events flow through, so standalone approval/result
- * endpoints can look up the conversation by requestId.
- */
-function makeHubPublisher(
-  deps: SendMessageDeps,
-  conversationId: string,
-  conversation: Conversation,
-): (msg: ServerMessage) => void {
-  let hubChain: Promise<void> = Promise.resolve();
-  return (msg: ServerMessage) => {
-    // Register pending interactions for approval events
-    if (msg.type === "confirmation_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: msg.toolName,
-          input: msg.input,
-          riskLevel: msg.riskLevel,
-          executionTarget: msg.executionTarget,
-          allowlistOptions: msg.allowlistOptions,
-          scopeOptions: msg.scopeOptions,
-          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-        },
-      });
-
-      const inputRecord = msg.input as Record<string, unknown>;
-      const commandPreview =
-        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-        undefined;
-      const technicalTitle = commandPreview
-        ? `Requesting permission: ${commandPreview}`
-        : `Requesting approval to use ${msg.toolName}.`;
-      const dedupKey = `tool-approval:${msg.requestId}`;
-
-      // Emit immediately with the technical preview.
-      void emitFeedEvent({
-        source: "assistant",
-        title: technicalTitle,
-        summary: technicalTitle,
-        dedupKey,
-        urgency: msg.riskLevel === "high" ? "high" : "medium",
-        conversationId,
-        detailPanel: { kind: "toolPermission" },
-      }).catch((err) => {
-        log.warn(
-          { err, requestId: msg.requestId },
-          "Failed to emit tool approval request feed event",
-        );
-      });
-
-      // Background: rewrite into prose and update the feed item.
-      if (commandPreview) {
-        void rewriteCommandPreview(msg.toolName, commandPreview)
-          .then((prose) => {
-            if (prose) {
-              const proseTitle = `Requesting permission: ${prose}`;
-              return emitFeedEvent({
-                source: "assistant",
-                title: proseTitle,
-                summary: proseTitle,
-                dedupKey,
-                urgency: msg.riskLevel === "high" ? "high" : "medium",
-                conversationId,
-                detailPanel: { kind: "toolPermission" },
-              });
-            }
-          })
-          .catch((err) => {
-            log.warn(
-              { err, requestId: msg.requestId },
-              "Failed to update feed event with prose rewrite",
-            );
-          });
-      }
-
-      // Create a canonical guardian request so HTTP handlers can find it
-      // via applyCanonicalGuardianDecision.
-      try {
-        const trustContext = conversation.trustContext;
-        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-        const inputRecord = msg.input as Record<string, unknown>;
-        const activityRaw =
-          (typeof inputRecord.activity === "string"
-            ? inputRecord.activity
-            : undefined) ??
-          (typeof inputRecord.reason === "string"
-            ? inputRecord.reason
-            : undefined);
-        const canonicalRequest = createCanonicalGuardianRequest({
-          id: msg.requestId,
-          kind: "tool_approval",
-          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-          sourceChannel,
-          conversationId,
-          requesterExternalUserId: trustContext?.requesterExternalUserId,
-          requesterChatId: trustContext?.requesterChatId,
-          guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: msg.toolName,
-          commandPreview:
-            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-            undefined,
-          riskLevel: msg.riskLevel,
-          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-          executionTarget: msg.executionTarget,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
-
-        // For trusted-contact conversations, bridge to guardian.question so the
-        // guardian gets notified and can approve via callback/request-code.
-        if (trustContext) {
-          bridgeConfirmationRequestToGuardian({
-            canonicalRequest,
-            trustContext,
-            conversationId,
-            toolName: msg.toolName,
-            assistantId:
-              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          });
-        }
-      } catch (err) {
-        log.debug(
-          { err, requestId: msg.requestId, conversationId },
-          "Failed to create canonical request from hub publisher",
-        );
-      }
-    } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
-    } else {
-      registerHostProxyPendingInteraction(msg, conversation, conversationId);
-    }
-
-    // ServerMessage is a large union; conversationId exists on most but not all variants.
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    // `conversation_list_invalidated` is a list-level system event: it
-    // describes no particular conversation and every connected client
-    // should refresh its sidebar. Publish it unscoped so the SSE hub does
-    // not filter it out by the subscriber's `filter.conversationId`.
-    // Other events (including `conversation_title_updated`) stay scoped to
-    // their conversation — unscoped scoped-events would leak foreign
-    // `conversationId` values to native clients' speculative ID-resolution
-    // path. For `conversation_title_updated` we instead enqueue a matching
-    // unscoped `conversation_list_invalidated` below so other clients'
-    // sidebars can refresh and pick up the new title.
-    const resolvedConversationId =
-      msg.type === "conversation_list_invalidated"
-        ? undefined
-        : (msgConversationId ?? conversationId);
-    const event = buildAssistantEvent(msg, resolvedConversationId);
-    hubChain = (async () => {
-      await hubChain;
-      try {
-        await deps.assistantEventHub.publish(event);
-      } catch (err) {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during POST /messages",
-        );
-      }
-
-      // When the agent loop auto-generates a conversation title, also
-      // broadcast an unscoped `conversation_list_invalidated` so every
-      // connected client's sidebar can refresh and pick up the new title.
-      // Without this, clients viewing other conversations (or a draft)
-      // would never learn that the title for this conversation changed.
-      // The scoped `conversation_title_updated` above still handles the
-      // in-place update for the client currently viewing this conversation.
-      if (msg.type === "conversation_title_updated") {
-        try {
-          await deps.assistantEventHub.publish(
-            buildAssistantEvent({
-              type: "conversation_list_invalidated",
-              reason: "renamed",
-            }),
-          );
-        } catch (err) {
-          log.warn(
-            { err },
-            "Failed to publish conversation_list_invalidated after title update",
-          );
-        }
-      }
-    })();
-  };
-}
-
-/**
- * Register pending interactions for host proxy request envelopes so
- * standalone result endpoints can resolve by requestId.
- *
- * Returns the registered requestId when a host proxy request was registered.
- * Callers that route through non-hub transports (e.g. registry-routed
- * host_browser sends) can use this to clean up the registration if send fails.
- */
-function registerHostProxyPendingInteraction(
-  msg: ServerMessage,
-  conversation: Conversation,
-  conversationId: string,
-): string | undefined {
-  if (msg.type === "host_bash_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_bash",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_browser_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_browser",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_file_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_file",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_cu_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_cu",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_transfer_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_transfer",
-    });
-    return msg.requestId;
-  }
-  return undefined;
-}
-
-/**
  * Persist the pre-chat onboarding payload to disk.
  *
  * Runs only on the very first message of a fresh conversation. Three
@@ -1669,11 +1390,10 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
-  const onEvent = makeHubPublisher(
-    smDeps,
-    mapping.conversationId,
-    conversation,
-  );
+  // Bind conversationId so messages that don't carry it (e.g. confirmation_request)
+  // still get routed correctly.
+  const sendEvent = (msg: ServerMessage) =>
+    broadcastMessage(msg, mapping.conversationId);
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create each host proxy for interfaces that support the matching
   // capability. macOS supports all four; the chrome-extension interface only
@@ -1685,7 +1405,7 @@ export async function handleSendMessage(
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      const proxy = new HostBashProxy(onEvent, (requestId) => {
+      const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostBashProxy(proxy);
@@ -1695,13 +1415,13 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
+      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
     if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      const transferProxy = new HostTransferProxy(onEvent, (requestId) => {
+      const transferProxy = new HostTransferProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostTransferProxy(transferProxy);
@@ -1712,7 +1432,7 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostCuProxy(cuProxy);
@@ -1742,7 +1462,7 @@ export async function handleSendMessage(
   // is non-interactive (no SSE prompter UI) but still has a connected client
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(onEvent, !isInteractive, {
+  conversation.updateClient(sendEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -1806,19 +1526,19 @@ export async function handleSendMessage(
       };
 
       setTimeout(() => {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
           messageId: persisted.id,
           clientMessageId,
         });
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: cannedGreeting,
           conversationId,
         });
-        onEvent({ type: "message_complete", conversationId });
+        sendEvent({ type: "message_complete", conversationId });
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1871,7 +1591,7 @@ export async function handleSendMessage(
       content: content ?? "",
       attachments,
       conversation,
-      onEvent,
+      onEvent: sendEvent,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active. Mirrors conversation-process.ts behavior.
@@ -1904,7 +1624,7 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
-      onEvent,
+      sendEvent,
       requestId,
       undefined, // activeSurfaceId
       undefined, // currentPage
@@ -1942,10 +1662,7 @@ export async function handleSendMessage(
         for (const interaction of pendingInteractions.getByConversation(
           mapping.conversationId,
         )) {
-          if (
-            interaction.conversation === conversation &&
-            interaction.kind === "confirmation"
-          ) {
+          if (interaction.kind === "confirmation") {
             conversation.emitConfirmationStateChanged({
               conversationId: mapping.conversationId,
               requestId: interaction.requestId,
@@ -1960,7 +1677,7 @@ export async function handleSendMessage(
           }
         }
         conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(conversation);
+        pendingInteractions.removeByConversation(mapping.conversationId);
       }
 
       // Expire any orphaned canonical requests that survived without a
@@ -1989,10 +1706,7 @@ export async function handleSendMessage(
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
-      if (
-        interaction.conversation === conversation &&
-        interaction.kind === "confirmation"
-      ) {
+      if (interaction.kind === "confirmation") {
         conversation.emitConfirmationStateChanged({
           conversationId: mapping.conversationId,
           requestId: interaction.requestId,
@@ -2007,7 +1721,7 @@ export async function handleSendMessage(
       }
     }
     conversation.denyAllPendingConfirmations();
-    pendingInteractions.removeByConversation(conversation);
+    pendingInteractions.removeByConversation(mapping.conversationId);
   }
 
   // Expire any orphaned canonical requests that survived without a
@@ -2095,7 +1809,7 @@ export async function handleSendMessage(
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
       const modelInfoEvent = isModelSlashCommand(rawContent)
-        ? await buildModelInfoEvent()
+        ? await buildModelInfoEvent(mapping.conversationId)
         : null;
 
       const response = {
@@ -2115,7 +1829,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -2123,14 +1837,14 @@ export async function handleSendMessage(
           clientMessageId,
         });
         if (modelInfoEvent) {
-          onEvent(modelInfoEvent);
+          sendEvent(modelInfoEvent);
         }
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: message,
           conversationId,
         });
-        onEvent({
+        sendEvent({
           type: "message_complete",
           conversationId: conversationId,
         });
@@ -2176,7 +1890,7 @@ export async function handleSendMessage(
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
       try {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -2200,15 +1914,15 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: responseText,
           conversationId,
         });
-        onEvent({ type: "message_complete", conversationId });
+        sendEvent({ type: "message_complete", conversationId });
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
-        onEvent({
+        sendEvent({
           type: "conversation_error",
           conversationId,
           code: "UNKNOWN",
@@ -2246,7 +1960,7 @@ export async function handleSendMessage(
     throw err;
   }
 
-  onEvent({
+  sendEvent({
     type: "user_message_echo",
     text: resolvedContent,
     conversationId: mapping.conversationId,
@@ -2255,9 +1969,9 @@ export async function handleSendMessage(
     clientMessageId,
   });
 
-  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+  // Fire-and-forget the agent loop; events flow to the hub via sendEvent.
   conversation
-    .runAgentLoop(resolvedContent, messageId, onEvent, {
+    .runAgentLoop(resolvedContent, messageId, sendEvent, {
       isInteractive,
       isUserMessage: true,
     })

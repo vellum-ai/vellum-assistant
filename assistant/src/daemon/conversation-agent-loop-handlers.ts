@@ -26,6 +26,7 @@ import {
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   type SlackMessageMetadata,
@@ -158,7 +159,7 @@ export interface EventHandlerState {
   /** Stores risk metadata keyed by tool_use_id (populated in handleToolResult). */
   readonly toolRiskOutcomes: Map<
     string,
-    { riskLevel: string; riskReason?: string; autoApproved: boolean }
+    { riskLevel: string; riskReason?: string; autoApproved: boolean; matchedTrustRuleId?: string }
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
@@ -523,6 +524,7 @@ export function handleToolResult(
       riskLevel: event.riskLevel,
       riskReason: event.riskReason,
       autoApproved: !state.toolConfirmationOutcomes.has(event.toolUseId),
+      matchedTrustRuleId: event.matchedTrustRuleId,
     });
   }
 
@@ -599,6 +601,7 @@ export function handleToolResult(
     toolUseId: event.toolUseId,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
+    matchedTrustRuleId: event.matchedTrustRuleId,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
     riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
@@ -654,6 +657,7 @@ function annotatePersistedAssistantMessage(
         rec._riskLevel = risk.riskLevel;
         if (risk.riskReason) rec._riskReason = risk.riskReason;
         rec._autoApproved = risk.autoApproved;
+        if (risk.matchedTrustRuleId) rec._matchedTrustRuleId = risk.matchedTrustRuleId;
         modified = true;
       }
     }
@@ -935,6 +939,18 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill message_id on memory recall log (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryV2ActivationMessageId(
+      deps.ctx.conversationId,
+      assistantMsg.id,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill memory v2 activation log messageId (non-fatal)",
     );
   }
 

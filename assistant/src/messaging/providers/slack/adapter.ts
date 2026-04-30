@@ -17,6 +17,7 @@ import type {
   ConnectionInfo,
   Conversation,
   HistoryOptions,
+  HistoryPageResult,
   ListOptions,
   Message,
   SearchOptions,
@@ -199,6 +200,20 @@ function mapConversation(conv: SlackConversation): Conversation {
   };
 }
 
+function mapSlackFiles(
+  files: SlackMessage["files"],
+): Array<{ id?: string; name: string; mimetype?: string }> | undefined {
+  if (!files || files.length === 0) return undefined;
+  const mapped = files
+    .map((file) => ({
+      ...(file.id ? { id: file.id } : {}),
+      name: file.name,
+      ...(file.mimetype ? { mimetype: file.mimetype } : {}),
+    }))
+    .filter((file) => file.name.length > 0);
+  return mapped.length > 0 ? mapped : undefined;
+}
+
 function mapMessage(
   msg: SlackMessage,
   channelId: string,
@@ -209,6 +224,7 @@ function mapMessage(
   // avoid rehydrating assistant/bot replies as user turns.
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
+  const slackFiles = mapSlackFiles(msg.files);
   return {
     id: msg.ts,
     conversationId: channelId,
@@ -220,7 +236,14 @@ function mapMessage(
     platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
-    ...(isBot ? { metadata: { isBot: true } } : {}),
+    ...(isBot || slackFiles
+      ? {
+          metadata: {
+            ...(isBot ? { isBot: true } : {}),
+            ...(slackFiles ? { slackFiles } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -235,6 +258,19 @@ function mapSearchMatch(match: SlackSearchMatch): Message {
     platform: "slack",
     metadata: { permalink: match.permalink, channelName: match.channel.name },
   };
+}
+
+async function mapSlackMessages(
+  auth: OAuthConnection | string,
+  channelId: string,
+  slackMessages: SlackMessage[],
+): Promise<Message[]> {
+  const messages: Message[] = [];
+  for (const msg of slackMessages) {
+    const name = await resolveUserName(auth, msg.user ?? "");
+    messages.push(mapMessage(msg, channelId, name));
+  }
+  return messages;
 }
 
 export const slackProvider: MessagingProvider = {
@@ -395,16 +431,12 @@ export const slackProvider: MessagingProvider = {
         options?.limit ?? 50,
         options?.before,
         options?.after,
+        options?.cursor,
+        options?.inclusive,
       );
     });
 
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
   },
 
   async search(
@@ -456,14 +488,41 @@ export const slackProvider: MessagingProvider = {
         conversationId,
         threadId,
         options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
       );
     });
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
+  },
+
+  async getThreadRepliesPage(
+    connection: OAuthConnection | undefined,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<HistoryPageResult> {
+    let auth: OAuthConnection | string = getReadAuth(connection);
+    const resp = await runReadWithFallback(connection, async (a) => {
+      auth = a;
+      return slack.conversationReplies(
+        a,
+        conversationId,
+        threadId,
+        options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
+      );
+    });
+    const nextCursor = resp.response_metadata?.next_cursor || undefined;
+    return {
+      messages: await mapSlackMessages(auth, conversationId, resp.messages),
+      hasMore: Boolean(resp.has_more || nextCursor),
+      ...(nextCursor ? { nextCursor } : {}),
+    };
   },
 
   async markRead(

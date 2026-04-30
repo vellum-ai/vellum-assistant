@@ -46,8 +46,9 @@ function makeContext(opts?: {
     currentTurnSurfaces: [],
     isProcessing: () => false,
     enqueueMessage: (content, _attachments, _onEvent, requestId) => {
-      enqueueCalls.push({ content, requestId });
-      return { queued: false, requestId };
+      const resolvedId = requestId ?? "mock-request-id";
+      enqueueCalls.push({ content, requestId: resolvedId });
+      return { queued: false, requestId: resolvedId };
     },
     getQueueDepth: () => 0,
     processMessage: async (content, _attachments, _onEvent, requestId) => {

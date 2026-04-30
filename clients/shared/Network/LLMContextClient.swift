@@ -518,6 +518,134 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
     public let queryContext: String?
 }
 
+public struct MemoryV2ActivationData: Codable, Sendable, Equatable {
+    public let turn: Int
+    public let mode: String // "context-load" | "per-turn"
+    public let concepts: [MemoryV2ConceptRow]
+    public let skills: [MemoryV2SkillRow]
+    public let config: MemoryV2Config
+
+    public init(
+        turn: Int,
+        mode: String,
+        concepts: [MemoryV2ConceptRow],
+        skills: [MemoryV2SkillRow],
+        config: MemoryV2Config
+    ) {
+        self.turn = turn
+        self.mode = mode
+        self.concepts = concepts
+        self.skills = skills
+        self.config = config
+    }
+}
+
+public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { slug }
+    public let slug: String
+    public let finalActivation: Double
+    public let ownActivation: Double
+    public let priorActivation: Double
+    public let simUser: Double
+    public let simAssistant: Double
+    public let simNow: Double
+    public let spreadContribution: Double
+    public let source: String  // "prior_state" | "ann_top50" | "both"
+    public let status: String  // "in_context" | "injected" | "not_injected"
+
+    public init(
+        slug: String,
+        finalActivation: Double,
+        ownActivation: Double,
+        priorActivation: Double,
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        spreadContribution: Double,
+        source: String,
+        status: String
+    ) {
+        self.slug = slug
+        self.finalActivation = finalActivation
+        self.ownActivation = ownActivation
+        self.priorActivation = priorActivation
+        self.simUser = simUser
+        self.simAssistant = simAssistant
+        self.simNow = simNow
+        self.spreadContribution = spreadContribution
+        self.source = source
+        self.status = status
+    }
+}
+
+public struct MemoryV2SkillRow: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let activation: Double
+    public let simUser: Double
+    public let simAssistant: Double
+    public let simNow: Double
+    public let status: String  // "injected" | "not_injected"
+
+    public init(
+        id: String,
+        activation: Double,
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        status: String
+    ) {
+        self.id = id
+        self.activation = activation
+        self.simUser = simUser
+        self.simAssistant = simAssistant
+        self.simNow = simNow
+        self.status = status
+    }
+}
+
+public struct MemoryV2Config: Codable, Sendable, Equatable {
+    public let d: Double
+    public let cUser: Double
+    public let cAssistant: Double
+    public let cNow: Double
+    public let k: Double
+    public let hops: Int
+    public let topK: Int
+    public let topKSkills: Int
+    public let epsilon: Double
+
+    enum CodingKeys: String, CodingKey {
+        case d, k, hops, epsilon
+        case cUser = "c_user"
+        case cAssistant = "c_assistant"
+        case cNow = "c_now"
+        case topK = "top_k"
+        case topKSkills = "top_k_skills"
+    }
+
+    public init(
+        d: Double,
+        cUser: Double,
+        cAssistant: Double,
+        cNow: Double,
+        k: Double,
+        hops: Int,
+        topK: Int,
+        topKSkills: Int,
+        epsilon: Double
+    ) {
+        self.d = d
+        self.cUser = cUser
+        self.cAssistant = cAssistant
+        self.cNow = cNow
+        self.k = k
+        self.hops = hops
+        self.topK = topK
+        self.topKSkills = topKSkills
+        self.epsilon = epsilon
+    }
+}
+
 /// A single LLM request/response log entry returned by the context endpoint.
 /// `requestPayload` and `responsePayload` are nil in the initial response and
 /// fetched on demand via the dedicated payload endpoint.
@@ -543,6 +671,7 @@ public struct LLMContextResponse: Codable, Sendable {
     public let messageId: String
     public let logs: [LLMRequestLogEntry]
     public let memoryRecall: MemoryRecallData?
+    public let memoryV2Activation: MemoryV2ActivationData?
 }
 
 /// Explicit outcome for an LLM context fetch.

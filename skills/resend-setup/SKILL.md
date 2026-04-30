@@ -11,33 +11,34 @@ metadata:
 
 ## Overview
 
-Send emails through the user's own Resend account. This is for **Bring Your Own** email — the user provides their Resend API key and you send via their domain.
-
-This skill is **not** related to Vellum's managed email (`assistant email` commands). It uses the Resend HTTP API directly.
+Send emails through the user's own Resend account. The user provides their Resend API key and you send via their domain.
 
 ## Setup
 
-### API Key (for sending)
+### Step 0: Check Existing Configuration
 
-Use the `credential_store` tool to prompt the user for their API key via the secure UI. **Never ask for the key in chat.**
+Before starting, check whether Resend is already configured:
 
-```
-credential_store:
-  action: "prompt"
-  service: resend
-  field: api_key
-  label: "Resend API Key"
-  placeholder: "re_xxxxxxxxx"
-  description: "Your Resend API key for sending emails"
-  allowed_domains: ["api.resend.com"]
-  injection_templates:
-    - hostPattern: "*.resend.com"
-      injectionType: header
-      headerName: Authorization
-      valuePrefix: "Bearer "
+```bash
+bun skills/resend-setup/scripts/check-config.ts
 ```
 
-### Domain Detection
+The script outputs JSON: `{ "configured": boolean, "hasApiKey": boolean, "hasWebhookSecret": boolean, "details": string }`.
+
+- If `configured` is `true` — Resend is already set up. Offer to verify the connection or reconfigure.
+- If `configured` is `false` — continue to Step 1.
+
+### Step 1: Store the API Key
+
+Run the store script to securely collect the API key:
+
+```bash
+bun skills/resend-setup/scripts/store-api-key.ts
+```
+
+The script opens a secure credential prompt, stores the key with the correct injection templates, and exits. If it exits 0, the key is stored. **Never ask for the key in chat.**
+
+### Step 2: Detect the Domain
 
 After storing the API key, **automatically detect the user's domain** — don't ask them for it. Call the Resend Domains API:
 
@@ -48,50 +49,51 @@ curl -s https://api.resend.com/domains \
 
 Run this with `network_mode: "proxied"` and the resend credential so the Authorization header is injected automatically. The response contains a `data` array of domain objects with `name` and `status` fields. Pick the first domain with `"status": "verified"` (or the only domain if there's just one). If no verified domains are found, tell the user they need to verify a domain in their Resend dashboard first.
 
-Use `hi@<domain>` as the default sender address (consistent with Vellum's native email convention). Remember the domain for future sends.
+Use `hi@<domain>` as the default sender address. Remember the domain for future sends.
 
-### Webhook Setup (for receiving)
+### Step 3: Verify the Connection
 
-If the user also wants to **receive** emails via Resend, you need to get a webhook URL and register it with Resend.
-
-#### Getting the webhook URL
-
-Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
+Send a test request to confirm the API key works:
 
 ```bash
-CALLBACK_URL=$(assistant webhooks register resend --source "$DOMAIN")
+curl -s https://api.resend.com/domains \
+  -H "Content-Type: application/json"
 ```
 
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
+Run with `network_mode: "proxied"` and the resend credential. A successful response (HTTP 200) with domain data confirms the connection.
 
-#### Registering the webhook with Resend
+### Step 4: Webhook Setup (for receiving email)
 
-Create the webhook in Resend via their API using the webhook URL from above:
+If the user also wants to **receive** emails via Resend, run the webhook setup script:
 
 ```bash
-curl -X POST https://api.resend.com/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "<webhook URL>",
-    "events": ["email.received"]
-  }'
+bun skills/resend-setup/scripts/setup-webhook.ts --domain "<verified domain>"
 ```
 
-Use `network_mode: "proxied"` with the resend credential so the Authorization header is injected automatically.
+This script:
 
-#### Storing the webhook signing secret
+1. Registers a callback URL via the webhooks system
+2. Creates the webhook in Resend via their API
+3. Automatically stores the returned signing secret in the credential vault
 
-Store the signing secret so the gateway can verify inbound webhooks:
+If the script fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
 
-```
-credential_store:
-  action: "prompt"
-  service: resend
-  field: webhook_secret
-  label: "Resend Webhook Signing Secret"
-  placeholder: "whsec_xxxxxxxxx"
-  description: "Signing secret from your Resend webhook settings (for verifying inbound emails)"
-```
+### Step 5: Report Success
+
+Summarize with the completed checklist:
+
+"Setup complete!
+✅ API key configured
+✅ Domain detected: `<domain>`
+✅ Connection verified
+{webhook_line}
+
+Default sender: hi@`<domain>`"
+
+For `{webhook_line}`:
+
+- If webhook was set up: `✅ Webhook configured for inbound email`
+- If skipped: `⬜ Webhook — run setup again to enable inbound email`
 
 ## Sending Email
 

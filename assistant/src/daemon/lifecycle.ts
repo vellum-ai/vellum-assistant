@@ -9,7 +9,10 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
+import {
+  initFeatureFlagOverrides,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
@@ -19,6 +22,7 @@ import {
 } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
+import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import {
@@ -456,6 +460,20 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Call recovery failed — continuing startup");
       }
     } // end if (dbReady)
+
+    // Seed managed inference profiles into the workspace config. Runs
+    // after workspace migrations (which may have created the initial
+    // profile slots) and before mergeDefaultWorkspaceConfig / loadConfig
+    // so the profiles are on disk for the first config load.
+    try {
+      seedInferenceProfiles();
+      log.info("Inference profile seeding complete");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Inference profile seeding failed — continuing startup",
+      );
+    }
 
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before the first loadConfig() call so
@@ -1222,16 +1240,31 @@ export async function runDaemon(): Promise<void> {
       "Heartbeat service configured",
     );
 
-    const filingConfig = config.filing;
-    const filing = new FilingService();
-    filing.start();
-    log.info(
-      {
-        enabled: filingConfig.enabled,
-        intervalMs: filingConfig.intervalMs,
-      },
-      "Filing service configured",
+    // Filing yields to the memory v2 consolidation job when the flag is on —
+    // both serve the same role (periodic background memory processing) and
+    // running both is redundant. The consolidation job runs through the
+    // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
+    const memoryV2Enabled = isAssistantFeatureFlagEnabled(
+      "memory-v2-enabled",
+      config,
     );
+    let filing: FilingService | null = null;
+    if (!memoryV2Enabled) {
+      const filingConfig = config.filing;
+      filing = new FilingService();
+      filing.start();
+      log.info(
+        {
+          enabled: filingConfig.enabled,
+          intervalMs: filingConfig.intervalMs,
+        },
+        "Filing service configured",
+      );
+    } else {
+      log.info(
+        "Filing service skipped — memory v2 consolidation is the active background memory job",
+      );
+    }
 
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().

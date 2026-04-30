@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ── Mutable state for mocks ──────────────────────────────────────────
 
 const secureKeyValues = new Map<string, string>();
+const unreachableKeys = new Set<string>();
 
 let mockProviders: Array<{
   provider: string;
@@ -36,6 +37,10 @@ let mockFetchThrows = false;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  getSecureKeyResultAsync: async (account: string) => ({
+    value: secureKeyValues.get(account),
+    unreachable: unreachableKeys.has(account),
+  }),
   setSecureKeyAsync: async () => {},
   deleteSecureKeyAsync: async () => "deleted",
   listSecureKeysAsync: async () => [],
@@ -140,11 +145,16 @@ function setToken(connectionId: string, token = "mock-token") {
   secureKeyValues.set(`oauth_connection/${connectionId}/access_token`, token);
 }
 
+function markUnreachable(key: string) {
+  unreachableKeys.add(key);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("credential-health-service", () => {
   beforeEach(() => {
     secureKeyValues.clear();
+    unreachableKeys.clear();
     mockProviders = [];
     mockConnections = new Map();
     mockFetchResponse = { ok: true, status: 200 };
@@ -189,6 +199,30 @@ describe("credential-health-service", () => {
     expect(report.results[0]!.status).toBe("missing_token");
     expect(report.results[0]!.canAutoRecover).toBe(false);
     expect(report.unhealthy).toHaveLength(1);
+  });
+
+  test("returns unreachable when credential backend is unreachable", async () => {
+    addProvider("google");
+    addConnection("google", "conn-1");
+    // Don't set token, but mark the path as unreachable
+    markUnreachable("oauth_connection/conn-1/access_token");
+
+    const report = await checkAllCredentials();
+    expect(report.results).toHaveLength(1);
+    expect(report.results[0]!.status).toBe("unreachable");
+    expect(report.results[0]!.canAutoRecover).toBe(true);
+    expect(report.unhealthy).toHaveLength(1);
+  });
+
+  test("returns missing_token (not unreachable) when backend is reachable but token absent", async () => {
+    addProvider("google");
+    addConnection("google", "conn-1");
+    // Don't set token, don't mark unreachable — genuinely missing
+
+    const report = await checkAllCredentials();
+    expect(report.results).toHaveLength(1);
+    expect(report.results[0]!.status).toBe("missing_token");
+    expect(report.results[0]!.canAutoRecover).toBe(false);
   });
 
   test("returns expired when token is past expiresAt without refresh token", async () => {
@@ -388,6 +422,40 @@ describe("credential-health-service", () => {
 
       const report = await checkAllCredentials();
       expect(report.results[0]!.status).toBe("healthy");
+    });
+
+    test("slack_channel returns unreachable when credential backend is down", async () => {
+      addProvider("slack_channel", {
+        pingUrl: "https://slack.com/api/auth.test",
+      });
+      addConnection("slack_channel", "conn-slack", {
+        expiresAt: null,
+        hasRefreshToken: false,
+        grantedScopes: [],
+      });
+      // Don't set token, mark the manual-token path as unreachable
+      markUnreachable("credential/slack_channel/bot_token");
+
+      const report = await checkAllCredentials();
+      expect(report.results).toHaveLength(1);
+      expect(report.results[0]!.status).toBe("unreachable");
+      expect(report.results[0]!.canAutoRecover).toBe(true);
+    });
+
+    test("telegram returns unreachable when credential backend is down", async () => {
+      addProvider("telegram");
+      addConnection("telegram", "conn-tg", {
+        expiresAt: null,
+        hasRefreshToken: false,
+        grantedScopes: [],
+      });
+      // Don't set token, mark the manual-token path as unreachable
+      markUnreachable("credential/telegram/bot_token");
+
+      const report = await checkAllCredentials();
+      expect(report.results).toHaveLength(1);
+      expect(report.results[0]!.status).toBe("unreachable");
+      expect(report.results[0]!.canAutoRecover).toBe(true);
     });
   });
 

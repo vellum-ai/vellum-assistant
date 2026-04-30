@@ -246,6 +246,17 @@ const OpenRouterDeepPartialSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Profile metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Distinguishes daemon-managed profiles (overwritten on every startup) from
+ * user-created ones (never touched by the daemon).
+ */
+export const ProfileSource = z.enum(["managed", "user"]);
+export type ProfileSource = z.infer<typeof ProfileSource>;
+
+// ---------------------------------------------------------------------------
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
@@ -302,6 +313,19 @@ export const LLMConfigFragment = z.object({
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
 /**
+ * A named profile entry: an `LLMConfigFragment` augmented with
+ * presentation/ownership metadata. These fields are intentionally kept off
+ * `LLMConfigFragment` so they don't leak into `LLMCallSiteConfig` or the
+ * resolver's deep-merge output.
+ */
+export const ProfileEntry = LLMConfigFragment.extend({
+  source: ProfileSource.optional(),
+  label: z.string().min(1).optional(),
+  description: z.string().optional(),
+});
+export type ProfileEntry = z.infer<typeof ProfileEntry>;
+
+/**
  * Per-call-site config: a fragment plus an optional `profile` reference.
  * The resolver merges in the named profile (if any) before applying
  * call-site-level overrides.
@@ -318,7 +342,7 @@ export type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 export const LLMSchema = z
   .object({
     default: LLMConfigBase.default(LLMConfigBase.parse({})),
-    profiles: z.record(z.string().min(1), LLMConfigFragment).default({}),
+    profiles: z.record(z.string().min(1), ProfileEntry).default({}),
     // Presentation-only order for named profiles. The resolver ignores this;
     // clients use it to render profile pickers consistently.
     profileOrder: z.array(z.string().min(1)).default([]),

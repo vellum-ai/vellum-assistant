@@ -41,6 +41,7 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -137,12 +138,30 @@ export interface WakeTarget {
    * typically omit it.
    */
   onWakeProducedOutput?(source: string, hint: string, surfaceId: string): void;
+  /**
+   * Apply a trust context to the underlying conversation before the agent
+   * loop runs. Internal background jobs (memory consolidation, update
+   * bulletin) use this to declare guardian trust so side-effect tools
+   * (file_edit, file_write, bash) clear the approval gate. Inbound message
+   * conversations populate trust via `processMessage()` and don't pass
+   * `trustContext` through the wake.
+   */
+  setTrustContext?(ctx: TrustContext): void;
 }
 
 export interface WakeOptions {
   conversationId: string;
   hint: string;
   source: string;
+  /**
+   * Optional trust context to apply to the conversation before the agent
+   * loop runs. Required for internal background jobs that need elevated
+   * trust to invoke side-effect tools — without it the loop falls back to
+   * `trustClass: "unknown"` and side-effect tools are blocked. Caller
+   * should pass `{ sourceChannel: "vellum", trustClass: "guardian" }` for
+   * assistant-self-maintenance jobs.
+   */
+  trustContext?: TrustContext;
 }
 
 /**
@@ -368,6 +387,13 @@ export async function wakeAgentForOpportunity(
         "agent-wake: conversation still processing after timeout; skipping",
       );
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
+    }
+
+    // Apply caller-supplied trust before the agent loop reads its per-turn
+    // snapshot. Background jobs without an inbound message use this to
+    // declare guardian trust so side-effect tools clear the approval gate.
+    if (opts.trustContext && target.setTrustContext) {
+      target.setTrustContext(opts.trustContext);
     }
 
     const baseline = target.getMessages();

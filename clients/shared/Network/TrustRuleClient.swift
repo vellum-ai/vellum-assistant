@@ -81,7 +81,8 @@ public protocol TrustRuleClientProtocol {
         riskAssessment: (risk: String, reasoning: String, reasonDescription: String),
         scopeOptions: [(pattern: String, label: String)],
         directoryScopeOptions: [(scope: String, label: String)],
-        intent: String
+        intent: String,
+        existingRule: (id: String, pattern: String, risk: String)?
     ) async throws -> TrustRuleSuggestion
 }
 
@@ -191,9 +192,10 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         riskAssessment: (risk: String, reasoning: String, reasonDescription: String),
         scopeOptions: [(pattern: String, label: String)],
         directoryScopeOptions: [(scope: String, label: String)],
-        intent: String = "auto_approve"
+        intent: String = "auto_approve",
+        existingRule: (id: String, pattern: String, risk: String)? = nil
     ) async throws -> TrustRuleSuggestion {
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "tool": tool,
             "command": command,
             "riskAssessment": [
@@ -206,6 +208,13 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
             "currentThreshold": "",
             "intent": intent,
         ]
+        if let existingRule {
+            body["existingRule"] = [
+                "id": existingRule.id,
+                "pattern": existingRule.pattern,
+                "risk": existingRule.risk,
+            ]
+        }
         let response = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/trust-rules/suggest", json: body, timeout: 30
         )

@@ -30,7 +30,7 @@ type DocumentListRow = Omit<DocumentRow, "content">;
 // ---------------------------------------------------------------------------
 
 /** Insert a document–conversation association (idempotent via INSERT OR IGNORE). */
-export function addDocumentConversation(
+function addDocumentConversation(
   surfaceId: string,
   conversationId: string,
 ): void {

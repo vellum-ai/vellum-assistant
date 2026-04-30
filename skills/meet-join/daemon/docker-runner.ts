@@ -74,16 +74,17 @@ function detectRuntimeModeFromEnv(): DaemonRuntimeMode {
 }
 
 /**
- * Inline the `vellumRoot()` resolution from `assistant/src/util/platform.ts`
- * so {@link getMeetBotInstanceHash} stays a zero-arg helper without pulling
- * the assistant helper in as an import. Mirrors the canonical rule: honour
- * `BASE_DATA_DIR` when set (per-instance daemons in the CLI lifecycle),
- * otherwise fall back to `$HOME/.vellum`.
+ * Resolve a stable, per-instance identifier path for the current daemon.
+ *
+ * Uses `VELLUM_WORKSPACE_DIR` (the canonical per-instance env var set by
+ * the CLI for named instances) when available, otherwise falls back to
+ * `$HOME/.vellum/workspace`. The resolved path is hashed by
+ * {@link getMeetBotInstanceHash} to scope Docker labels per instance.
  */
-function resolveVellumRoot(): string {
-  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
-  if (baseDataDir) return pathJoin(baseDataDir, ".vellum");
-  return pathJoin(homedir(), ".vellum");
+function resolveInstancePath(): string {
+  const workspaceDir = process.env.VELLUM_WORKSPACE_DIR?.trim();
+  if (workspaceDir) return workspaceDir;
+  return pathJoin(homedir(), ".vellum", "workspace");
 }
 
 /** Path to the Docker Engine unix socket. */
@@ -859,12 +860,11 @@ export const MEET_BOT_MEETING_ID_LABEL = "vellum.meet.meetingId";
 
 /**
  * Docker-label key that scopes a meet-bot container to a specific daemon
- * instance. Value is a short hash derived from {@link vellumRoot} (the
- * per-instance data directory, resolved via `BASE_DATA_DIR`). The orphan
- * reaper compares this against the current instance's hash and refuses to
- * kill any container whose hash differs — so a second concurrent daemon
- * pointed at a different instance root cannot SIGTERM another instance's
- * live bots.
+ * instance. Value is a short hash derived from the per-instance workspace
+ * path (resolved via `VELLUM_WORKSPACE_DIR`). The orphan reaper compares
+ * this against the current instance's hash and refuses to kill any
+ * container whose hash differs — so a second concurrent daemon pointed at
+ * a different instance cannot SIGTERM another instance's live bots.
  *
  * Containers from pre-label versions (missing this label entirely) are
  * treated as ambiguous ownership and skipped by the reaper — they might
@@ -876,19 +876,19 @@ export const MEET_BOT_INSTANCE_LABEL = "vellum.meet.instance";
 /**
  * Derive the per-instance hash stamped onto meet-bot containers at create
  * time. Uses SHA-256 truncated to 16 hex chars — plenty of collision
- * resistance for the small set of instance roots on a single host, and
+ * resistance for the small set of instance paths on a single host, and
  * short enough to stay readable in `docker ps`.
  *
- * The hash is over the assistant's vellum root absolute path so the full
+ * The hash is over the workspace directory absolute path so the full
  * filesystem path isn't leaked into Docker metadata. Deterministic for a
- * given instance root — the stamp-side and the reap-side see the same
- * value as long as the daemon process sees the same `BASE_DATA_DIR`. The
- * root resolution is inlined via {@link resolveVellumRoot} so the skill
- * keeps zero `assistant/` imports.
+ * given instance — the stamp-side and the reap-side see the same value
+ * as long as the daemon process sees the same `VELLUM_WORKSPACE_DIR`.
+ * The path resolution is inlined via {@link resolveInstancePath} so the
+ * skill keeps zero `assistant/` imports.
  */
 export function getMeetBotInstanceHash(): string {
   return createHash("sha256")
-    .update(resolveVellumRoot())
+    .update(resolveInstancePath())
     .digest("hex")
     .slice(0, 16);
 }

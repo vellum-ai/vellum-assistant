@@ -1,15 +1,13 @@
 import { v4 as uuid } from "uuid";
 
-import {
-  clearAll,
-  getConversation,
-  updateConversationTitle,
-} from "../../memory/conversation-crud.js";
+import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
+import { regenerate } from "../conversation-history.js";
 import {
   clearAllActiveConversations,
   conversationEntries,
@@ -17,10 +15,7 @@ import {
   getOrCreateConversation,
   touchConversation,
 } from "../conversation-store.js";
-import type {
-  ConfirmationResponse,
-  ServerMessage,
-} from "../message-protocol.js";
+import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
 import { log } from "./shared.js";
 
@@ -90,21 +85,6 @@ export async function switchConversation(conversationId: string): Promise<{
   };
 }
 /**
- * Rename a conversation. Returns true on success, false if not found.
- */
-export function renameConversation(
-  conversationId: string,
-  name: string,
-): boolean {
-  const conversation = getConversation(conversationId);
-  if (!conversation) {
-    return false;
-  }
-  updateConversationTitle(conversationId, name, 0);
-  return true;
-}
-
-/**
  * Cancel generation for a conversation. Returns true if a conversation was found and cancelled.
  */
 export function cancelGeneration(conversationId: string): boolean {
@@ -149,7 +129,6 @@ export async function undoLastMessage(
  */
 export async function regenerateResponse(
   conversationId: string,
-  sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
   // The caller may pass a conversation key (e.g. the macOS client's local
   // conversation ID) instead of the daemon's internal conversation ID. Resolve
@@ -161,7 +140,7 @@ export async function regenerateResponse(
   conversationId = resolvedId;
   const conversation = await getOrCreateConversation(conversationId);
   touchConversation(conversationId);
-  conversation.updateClient(sendEvent, false);
+  conversation.updateClient(broadcastMessage, false);
   const requestId = uuid();
   conversation.traceEmitter.emit("request_received", "Regenerate requested", {
     requestId,
@@ -169,7 +148,7 @@ export async function regenerateResponse(
     attributes: { source: "regenerate" },
   });
   try {
-    await conversation.regenerate(sendEvent, requestId);
+    await regenerate(conversation, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId }, "Error regenerating message");

@@ -73,11 +73,11 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertNotNil(sheet.body)
     }
 
-    // MARK: - Built-in detection
+    // MARK: - Managed detection
 
-    /// The badge wiring uses `builtInInferenceProfileNames.contains`, so
-    /// the row's badge presence should match the constant exactly.
-    func testBuiltInProfilesShowBadgeAndCustomDoesNot() {
+    /// Managed profiles (source == "managed") show a "Managed" badge;
+    /// user-created profiles without a source do not.
+    func testManagedProfilesShowBadgeAndCustomDoesNot() {
         seedBuiltInsAndCustom(includeCustom: true)
         XCTAssertEqual(store.profiles.count, 4)
 
@@ -87,18 +87,18 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertTrue(names.contains("cost-optimized"))
         XCTAssertTrue(names.contains("experimental"))
 
-        // The badge predicate is defined as a top-level constant so the
-        // row can stay declarative. Verify it directly here so the
-        // contract doesn't drift.
+        // Managed profiles have source == "managed" from the payload.
         for name in ["quality-optimized", "balanced", "cost-optimized"] {
+            let profile = store.profiles.first(where: { $0.name == name })
             XCTAssertTrue(
-                builtInInferenceProfileNames.contains(name),
-                "\(name) must render with a Built-in badge"
+                profile?.isManaged == true,
+                "\(name) must render with a Managed badge"
             )
         }
+        let custom = store.profiles.first(where: { $0.name == "experimental" })
         XCTAssertFalse(
-            builtInInferenceProfileNames.contains("experimental"),
-            "Custom profiles must not render the Built-in badge"
+            custom?.isManaged == true,
+            "Custom profiles must not render the Managed badge"
         )
     }
 
@@ -245,15 +245,12 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertFalse(store.profiles.contains(where: { $0.name == "experimental" }))
     }
 
-    /// Built-in profiles remain deletable when nothing references them —
-    /// the badge is informational, not a guard. This protects the
-    /// invariant called out in the plan: "Built-ins render with the badge
-    /// but remain editable and deletable when not referenced."
-    func testBuiltInProfileIsDeletableWhenNotReferenced() async {
+    /// Managed profiles cannot be deleted — `deleteProfile` returns
+    /// `.blockedByManaged` regardless of reference state.
+    func testManagedProfileIsNotDeletable() async {
         seedBuiltInsAndCustom()
-        // Make a non-built-in the active profile so the built-in target
-        // isn't blocked by the active-profile check. Use a fresh custom
-        // entry to avoid colliding with the seeded set.
+        // Make a non-managed profile the active profile so the managed
+        // target isn't also blocked by the active-profile check.
         let custom = InferenceProfile(
             name: "alt",
             provider: "anthropic",
@@ -264,11 +261,11 @@ final class InferenceProfilesSheetTests: XCTestCase {
         let switched = await store.setActiveProfile("alt")
         XCTAssertTrue(switched)
 
-        // Now delete a built-in. No call-site override references it, so
-        // the result must be .deleted.
+        // Attempting to delete a managed profile must return
+        // `.blockedByManaged`.
         let result = await store.deleteProfile(name: "quality-optimized")
-        XCTAssertEqual(result, .deleted)
-        XCTAssertFalse(store.profiles.contains(where: { $0.name == "quality-optimized" }))
+        XCTAssertEqual(result, .blockedByManaged)
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "quality-optimized" }))
     }
 
     // MARK: - "+ New profile" flow

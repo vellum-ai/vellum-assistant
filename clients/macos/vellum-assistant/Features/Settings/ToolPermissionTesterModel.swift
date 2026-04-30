@@ -7,7 +7,7 @@ struct SimulationResult: Equatable {
     let decision: String
     let riskLevel: String
     let reason: String
-    let matchedRuleId: String?
+    let matchedTrustRuleId: String?
     let promptPayload: ToolPermissionSimulateResponsePromptPayload?
     /// Transient display state set by local-only actions (allowOnce / denyOnce).
     var localOverrideLabel: String?
@@ -24,7 +24,7 @@ struct SimulationResult: Equatable {
         lhs.decision == rhs.decision
         && lhs.riskLevel == rhs.riskLevel
         && lhs.reason == rhs.reason
-        && lhs.matchedRuleId == rhs.matchedRuleId
+        && lhs.matchedTrustRuleId == rhs.matchedTrustRuleId
         && lhs.localOverrideLabel == rhs.localOverrideLabel
     }
 }
@@ -406,7 +406,7 @@ final class ToolPermissionTesterModel: ObservableObject {
             decision: response.decision ?? "unknown",
             riskLevel: response.riskLevel ?? "unknown",
             reason: response.reason ?? "",
-            matchedRuleId: response.matchedRuleId,
+            matchedTrustRuleId: response.matchedTrustRuleId,
             promptPayload: response.promptPayload,
             snapshotToolName: pendingSnapshotToolName,
             snapshotInputJSON: pendingSnapshotInputJSON,

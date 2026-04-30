@@ -866,6 +866,7 @@ export class AnthropicProvider implements Provider {
         output_config,
         cacheTtl: _cacheTtl,
         max_tokens: callerMaxTokens,
+        usageAttributionHeaders,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         // "xhigh" is an intermediate tier between "high" and "max" supported
@@ -877,6 +878,7 @@ export class AnthropicProvider implements Provider {
         effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
+        usageAttributionHeaders?: Record<string, string>;
       };
       // Haiku does not support the effort / output_config parameter,
       // extended cache TTL betas, 1M context, or 64K output tokens.
@@ -1140,7 +1142,12 @@ export class AnthropicProvider implements Provider {
                 betas,
               } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                 Anthropic.Beta.Messages.MessageCreateParamsStreaming,
-              { signal: timeoutSignal },
+              {
+                signal: timeoutSignal,
+                ...(usageAttributionHeaders
+                  ? { headers: usageAttributionHeaders }
+                  : {}),
+              },
             ) as unknown as UnifiedStream)
           : betas.length > 0
             ? (this.client.beta.messages.stream(
@@ -1149,10 +1156,18 @@ export class AnthropicProvider implements Provider {
                   betas,
                 } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                   Anthropic.Beta.Messages.MessageCreateParamsStreaming,
-                { signal: timeoutSignal },
+                {
+                  signal: timeoutSignal,
+                  ...(usageAttributionHeaders
+                    ? { headers: usageAttributionHeaders }
+                    : {}),
+                },
               ) as unknown as UnifiedStream)
             : (this.client.messages.stream(params, {
                 signal: timeoutSignal,
+                ...(usageAttributionHeaders
+                  ? { headers: usageAttributionHeaders }
+                  : {}),
               }) as unknown as UnifiedStream);
 
         // Buffer streaming text until it's clear the accumulated text isn't

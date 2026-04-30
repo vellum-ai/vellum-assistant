@@ -78,7 +78,6 @@ import {
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
 } from "../runtime/capability-tokens.js";
-import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
@@ -135,7 +134,6 @@ describe("host_browser WS event + invalidation e2e", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
     __resetBrowserSessionEventsForTests();
 
     // Pick a non-colliding port in the same band as the other
@@ -150,7 +148,6 @@ describe("host_browser WS event + invalidation e2e", () => {
   afterEach(async () => {
     await server?.stop();
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
     __resetBrowserSessionEventsForTests();
     resetCapabilityTokenSecretForTests();
   });

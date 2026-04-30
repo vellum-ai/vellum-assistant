@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -48,6 +49,9 @@ export class SecretPrompter {
    * {@link broadcastMessage} so any connected client (desktop, web) can
    * display the secure prompt dialog.
    *
+   * Pending interaction registration is handled by {@link broadcastMessage}
+   * when the secret_request event is published to the hub.
+   *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
    * without logging anything sensitive.
@@ -64,16 +68,21 @@ export class SecretPrompter {
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
     const requestId = uuid();
+    const effectiveConversationId = conversationId ?? "unknown";
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
+
+      // pendingInteractions.register is now handled by broadcastMessage
+      // when the secret_request event is published to the hub.
 
       const config = getConfig();
       const msg: SecretRequestMessage = {
@@ -84,7 +93,7 @@ export class SecretPrompter {
         label,
         description,
         placeholder,
-        conversationId,
+        conversationId: effectiveConversationId,
         purpose,
         allowedTools,
         allowedDomains,
@@ -118,12 +127,15 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    // Clean up the global map (may already be removed by approval-routes).
+    pendingInteractions.resolve(requestId);
     pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
   dispose(): void {
-    for (const [, pending] of this.pending) {
+    for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
+      pendingInteractions.resolve(requestId);
       pending.reject(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );

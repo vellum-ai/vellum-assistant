@@ -25,10 +25,8 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import {
-  hasUngatedHttpAuthDisabled,
-  isHttpAuthDisabled,
-} from "../config/env.js";
+import { isHttpAuthDisabled } from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
@@ -56,7 +54,6 @@ import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
-import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
@@ -136,9 +133,8 @@ const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 /**
  * WebSocket data attached to `/v1/browser-relay` connections. The route
  * is used exclusively by the chrome-extension CDP proxy — outbound
- * `host_browser_request` frames are pushed through the
- * {@link ChromeExtensionRegistry}, and inbound `host_browser_result`
- * frames are dispatched through
+ * `host_browser_request` frames are pushed through the assistant event
+ * hub, and inbound `host_browser_result` frames are dispatched through
  * `resolveHostBrowserResultByRequestId`. The extension may also submit
  * results via `POST /v1/host-browser-result` (both transports resolve
  * through the same core function).
@@ -148,21 +144,16 @@ interface BrowserRelayWebSocketData {
   connectionId: string;
   /**
    * Guardian identity derived from the JWT claims at WebSocket upgrade
-   * time. Used by the ChromeExtensionRegistry to route
-   * host_browser_request frames to the correct extension. Undefined when
-   * HTTP auth is disabled (dev bypass) or when the token's sub cannot be
-   * parsed into an actor principal.
+   * time. Undefined when HTTP auth is disabled (dev bypass) or when the
+   * token's sub cannot be parsed into an actor principal.
    */
   guardianId?: string;
   /**
    * Stable per-extension-install identifier supplied by the client on
    * the WebSocket handshake (via the `clientInstanceId` query param or
-   * the `x-client-instance-id` header). Plumbed into the
-   * ChromeExtensionRegistry so multiple parallel installs for the same
-   * guardian (e.g. two Chrome profiles, two desktops) don't evict each
-   * other on register/unregister. Undefined on older extension builds
-   * — the registry synthesizes a connection-scoped fallback key in
-   * that case for backwards-compatible single-instance semantics.
+   * the `x-client-instance-id` header). Allows multiple parallel installs
+   * for the same guardian (e.g. two Chrome profiles, two desktops) to
+   * coexist. Undefined on older extension builds.
    */
   clientInstanceId?: string;
 }
@@ -478,11 +469,7 @@ export class RuntimeHttpServer {
                 return;
               }
               case "keepalive": {
-                // Extension keepalive frames refresh the connection's
-                // activity timestamp without producing log noise or
-                // altering routing semantics. Unknown extra keys on
-                // the frame are silently ignored (lenient validation).
-                getChromeExtensionRegistry().touch(data.connectionId);
+                // Extension keepalive — acknowledged, no action needed.
                 return;
               }
               default: {
@@ -631,14 +618,16 @@ export class RuntimeHttpServer {
       );
     }
 
-    if (hasUngatedHttpAuthDisabled()) {
-      log.warn(
-        "DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
-      );
-    } else if (isHttpAuthDisabled()) {
-      log.warn(
-        "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.",
-      );
+    if (isHttpAuthDisabled()) {
+      if (getIsPlatform()) {
+        log.info(
+          "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
+        );
+      } else {
+        log.warn(
+          "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token.",
+        );
+      }
     }
 
     log.info(
@@ -1028,9 +1017,7 @@ export class RuntimeHttpServer {
             guardianId = fallbackGuardianId;
           } else {
             // Fail closed: a service-token relay upgrade without a
-            // guardian context cannot be routed safely. Allowing the
-            // upgrade to proceed creates an unscoped socket that never
-            // registers in the ChromeExtensionRegistry.
+            // guardian context cannot be routed safely.
             log.warn(
               {
                 principalType: subResult.ok

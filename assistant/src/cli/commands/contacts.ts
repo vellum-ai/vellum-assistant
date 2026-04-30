@@ -134,7 +134,7 @@ Examples:
   contacts
     .command("list")
     .description("List contacts")
-    .option("--role <role>", "Filter by role (default: contact)", "contact")
+    .option("--role <role>", "Filter by role (contact, guardian, or omit for all)")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
     .option(
@@ -149,7 +149,7 @@ Examples:
       "after",
       `
 Lists contacts with optional filtering. The --role flag accepts: contact
-or guardian (defaults to contact). The --limit flag sets
+or guardian (omit to show all). The --limit flag sets
 the maximum number of results (defaults to 50).
 
 When --query, --channel-address, or --channel-type is provided, a search

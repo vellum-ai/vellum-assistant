@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -108,6 +109,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       conversationId: conv.id,
       hint: updateBulletinHint(),
       source: "updates_bulletin",
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
 
     if (!wakeResult.invoked) {

@@ -150,7 +150,10 @@ mock.module("../activation.js", () => ({
   // injection logic introspects. Stub them to empty so the test stays focused
   // on the wiring, not the pipeline internals (covered in activation.test.ts).
   selectSkillCandidates: async () => new Set<string>(),
-  computeSkillActivation: async () => new Map<string, number>(),
+  computeSkillActivation: async () => ({
+    activation: new Map<string, number>(),
+    breakdown: new Map(),
+  }),
   selectSkillInjections: ({ topK }: { topK: number }) => ({
     topNow: skillState.topSkillIds.slice(0, topK),
   }),
@@ -158,6 +161,30 @@ mock.module("../activation.js", () => ({
 
 mock.module("../skill-store.js", () => ({
   getSkillCapability: (id: string) => skillState.entries.get(id) ?? null,
+}));
+
+// ---------------------------------------------------------------------------
+// Activation-log store mock
+// ---------------------------------------------------------------------------
+//
+// The real `recordMemoryV2ActivationLog` writes to the singleton
+// `getDb()` — but this test uses an isolated in-memory database, so we mock
+// the writer to capture calls in-process. `recordCalls` is the captured log
+// array; `recordShouldThrow` makes the next call throw to verify the caller
+// swallows the failure.
+
+const telemetryState = {
+  recordCalls: [] as Array<Record<string, unknown>>,
+  recordShouldThrow: false,
+};
+
+mock.module("../../memory-v2-activation-log-store.js", () => ({
+  recordMemoryV2ActivationLog: (params: Record<string, unknown>) => {
+    if (telemetryState.recordShouldThrow) {
+      throw new Error("simulated telemetry write failure");
+    }
+    telemetryState.recordCalls.push(params);
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -206,6 +233,18 @@ edges: []
 ref_files: []
 ---
 Carol loves jazz music — Coltrane in particular.`,
+  );
+  // A page with both `edges` and `ref_files` populated so the frontmatter-
+  // injection test can assert the full canonical shape.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "frontmatter-demo.md"),
+    `---
+edges:
+  - alice-vscode
+ref_files:
+  - images/demo.jpg
+---
+Demo body content.`,
   );
 });
 
@@ -319,6 +358,8 @@ function resetState(): void {
   state.queryResponses.sparse.length = 0;
   skillState.topSkillIds.length = 0;
   skillState.entries.clear();
+  telemetryState.recordCalls.length = 0;
+  telemetryState.recordShouldThrow = false;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -365,7 +406,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).not.toBeNull();
     expect(result.block).toContain("<memory>");
-    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).toContain("VS Code");
     expect(result.block).toContain("</memory>");
@@ -512,6 +553,35 @@ describe("injectMemoryV2Block", () => {
     ]);
   });
 
+  test("includes the page frontmatter (edges, ref_files) in each rendered section", async () => {
+    // The frontmatter (`edges`, `ref_files`) lives on disk above the page
+    // body and is part of the page's content. Injection must reproduce both
+    // fields verbatim — bracketed by the canonical `---` delimiters — so the
+    // agent sees the page's edges and any referenced media paths alongside
+    // the prose body.
+    stageTurn([{ slug: "frontmatter-demo", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "show me the demo",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    // Slug header is immediately followed by the frontmatter open delimiter.
+    expect(result.block).toContain("### frontmatter-demo\n---\n");
+    // Both fields render in YAML block style with their populated values.
+    expect(result.block).toContain("edges:\n  - alice-vscode");
+    expect(result.block).toContain("ref_files:\n  - images/demo.jpg");
+    // Body still renders after the closing delimiter.
+    expect(result.block).toContain("Demo body content.");
+  });
+
   test("renders pages in activation-descending order", async () => {
     // Both slugs are fresh (no prior state). carol scores higher than alice
     // on every channel — so carol should be ranked first in topNow and
@@ -594,7 +664,7 @@ describe("injectMemoryV2Block", () => {
   // Skill subsection rendering
   // ---------------------------------------------------------------------------
 
-  test("renders a skill-only block under the same `What I Remember Right Now` header", async () => {
+  test("renders a skill-only block in the same `<memory>` wrapper as concept-page-only blocks", async () => {
     // No concept-page candidates this turn — the candidate query and the three
     // simBatch queries all return empty. The skill pipeline is mocked to
     // surface a single skill.
@@ -625,7 +695,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toBeNull();
     // Same outer wrapping as concept-page-only blocks.
     expect(result.block).toContain("<memory>");
-    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).toContain("</memory>");
     // No concept-page sections; skills subsection present with the right
     // bullet shape and the unconditional `→ use skill_load to activate` suffix.
@@ -875,5 +945,221 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).not.toContain("### Skills You Can Use");
     expect(result.block).not.toContain("example-skill-a");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Activation-log telemetry
+  // ---------------------------------------------------------------------------
+
+  test("writes one activation-log row per turn with concept rows partitioned and sorted", async () => {
+    // Turn 1: seed alice as injected so turn 2 has an `in_context` candidate.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(telemetryState.recordCalls.length).toBe(1);
+
+    // Turn 2: alice carries forward (now `in_context`); carol is freshly
+    // surfaced (`injected`); bob would be a candidate only if it carried
+    // forward, but with no prior bob entry it doesn't appear here.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.6 },
+      { slug: "carol-jazz", denseScore: 0.95 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Carol's music",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      conversationId: string;
+      turn: number;
+      mode: string;
+      concepts: Array<{
+        slug: string;
+        finalActivation: number;
+        status: string;
+        source: string;
+      }>;
+      skills: unknown[];
+      config: { top_k: number };
+    };
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.turn).toBe(2);
+    expect(row.mode).toBe("per-turn");
+    expect(row.config.top_k).toBe(20);
+
+    // The candidate set is the union of fromPrior (alice) and fromAnn
+    // (alice + carol) → two concept rows.
+    expect(row.concepts.length).toBe(2);
+    const slugs = row.concepts.map((c) => c.slug);
+    expect(new Set(slugs)).toEqual(new Set(["alice-vscode", "carol-jazz"]));
+
+    // Sorted descending by finalActivation.
+    for (let i = 1; i < row.concepts.length; i++) {
+      expect(row.concepts[i - 1]!.finalActivation).toBeGreaterThanOrEqual(
+        row.concepts[i]!.finalActivation,
+      );
+    }
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Alice was attached on turn 1 → status `in_context` on turn 2.
+    expect(byslug.get("alice-vscode")!.status).toBe("in_context");
+    // Carol is freshly injected on turn 2.
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+  });
+
+  test("context-load mode marks every rendered slug as `injected`, never `in_context`", async () => {
+    // Turn 1 (per-turn): seed alice as injected so the next turn's prior
+    // `everInjected` includes her — the same setup the per-turn telemetry
+    // test uses, so the difference between modes is unambiguous.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(telemetryState.recordCalls.length).toBe(1);
+
+    // Turn 2 in context-load mode (post-compaction or fresh load). Alice
+    // carries forward AND ranks high again; carol is a brand-new candidate.
+    // Both end up in `topNow` (and therefore in `slugsToRender` since
+    // context-load renders the full top-K). The status field must reflect
+    // that they were physically rendered into the new user message on this
+    // turn — `injected` for both — rather than reading `in_context` for
+    // alice based on stale prior `everInjected` state.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.6 },
+      { slug: "carol-jazz", denseScore: 0.95 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Reload context",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      mode: "context-load",
+      config: makeConfig(),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("context-load");
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Both rendered slugs read as `injected` — alice especially, even though
+    // she's in prior `everInjected`, because context-load actually rendered
+    // her into the fresh user message on this turn.
+    expect(byslug.get("alice-vscode")!.status).toBe("injected");
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+
+    // No slug reads as `in_context` in context-load mode — the cache was
+    // wiped, so there is no prior cached attachment to reference.
+    for (const concept of row.concepts) {
+      expect(concept.status).not.toBe("in_context");
+    }
+  });
+
+  test("context-load mode marks candidates outside `slugsToRender` as `not_injected`", async () => {
+    // Turn 1 (per-turn): seed both alice and bob with positive activation
+    // so they survive into turn 2's prior-state candidate pool.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.9 },
+      { slug: "bob-coffee", denseScore: 0.8 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor and Bob's coffee",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Turn 2 (context-load) with `top_k: 1`: alice and bob both carry
+    // forward as candidates, but only the top-ranked slug is rendered.
+    // Whichever slug doesn't make the cut must read as `not_injected`.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "bob-coffee", denseScore: 0.05 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Reload context",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      mode: "context-load",
+      config: makeConfig({ top_k: 1 }),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("context-load");
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Alice ranked first → she is in `slugsToRender` → `injected`.
+    expect(byslug.get("alice-vscode")!.status).toBe("injected");
+    // Bob was a candidate but didn't make `top_k: 1` → `not_injected`.
+    expect(byslug.get("bob-coffee")!.status).toBe("not_injected");
+  });
+
+  test("telemetry write failure is non-fatal — injection still returns a normal result", async () => {
+    telemetryState.recordShouldThrow = true;
+
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // No row captured (the throw aborted the push), but the caller still
+    // produced a regular block + toInject result and persisted state.
+    expect(telemetryState.recordCalls.length).toBe(0);
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("### alice-vscode");
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+    ]);
   });
 });

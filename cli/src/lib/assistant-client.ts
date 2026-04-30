@@ -13,9 +13,7 @@
  */
 
 import {
-  findAssistantByName,
-  getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { loadGuardianToken } from "./guardian-token.js";
@@ -58,27 +56,13 @@ export class AssistantClient {
    * @throws If no matching assistant is found.
    */
   constructor(opts?: AssistantClientOpts) {
-    const nameOrId = opts?.assistantId;
-    let entry = nameOrId ? findAssistantByName(nameOrId) : null;
-
-    if (nameOrId && !entry) {
-      throw new Error(`No assistant found with name '${nameOrId}'.`);
-    }
-
-    if (!entry) {
-      const active = getActiveAssistant();
-      if (active) {
-        entry = findAssistantByName(active);
-      }
-    }
-
-    if (!entry) {
-      entry = loadLatestAssistant();
-    }
+    const entry = resolveAssistant(opts?.assistantId);
 
     if (!entry) {
       throw new Error(
-        "No assistant found. Hatch one first with 'vellum hatch'.",
+        opts?.assistantId
+          ? `No assistant found with name '${opts.assistantId}'.`
+          : "No assistant found. Hatch one first with 'vellum hatch'.",
       );
     }
 

@@ -9,6 +9,8 @@
  *   - Missing interfaceId with clientId throws BadRequestError
  *   - Invalid interfaceId throws BadRequestError
  *   - Missing both headers skips registration (backwards compat)
+ *   - Duplicate clientId subscribers are deduplicated on reconnect
+ *   - disposeClient() force-disconnects all subscribers for a clientId
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -281,5 +283,159 @@ describe("events client registration", () => {
       ),
     ).toThrow(ServiceUnavailableError);
     expect(hub.listClients()).toHaveLength(0);
+  });
+
+  // ── Client deduplication on reconnect ─────────────────────────────────────
+
+  test("deduplicates stale subscribers when same clientId reconnects", () => {
+    const hub = new AssistantEventHub();
+    const ac1 = new AbortController();
+    const ac2 = new AbortController();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "dedup-001",
+          "x-vellum-interface-id": "chrome-extension",
+        },
+        abortSignal: ac1.signal,
+      },
+      { hub },
+    );
+
+    expect(hub.listClients()).toHaveLength(1);
+    expect(hub.subscriberCount()).toBe(1);
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "dedup-001",
+          "x-vellum-interface-id": "chrome-extension",
+        },
+        abortSignal: ac2.signal,
+      },
+      { hub },
+    );
+
+    expect(hub.listClients()).toHaveLength(1);
+    expect(hub.subscriberCount()).toBe(1);
+    expect(hub.listClients()[0]?.clientId).toBe("dedup-001");
+
+    ac1.abort();
+    ac2.abort();
+  });
+
+  test("deduplication evicts stale entry via onEvict callback", () => {
+    const hub = new AssistantEventHub();
+    const ac1 = new AbortController();
+    const ac2 = new AbortController();
+    let evicted = false;
+
+    hub.subscribe({
+      type: "client" as const,
+      clientId: "evict-cb-001",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+      callback: () => {},
+      onEvict: () => {
+        evicted = true;
+      },
+    });
+
+    expect(evicted).toBe(false);
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "evict-cb-001",
+          "x-vellum-interface-id": "chrome-extension",
+        },
+        abortSignal: ac2.signal,
+      },
+      { hub },
+    );
+
+    expect(evicted).toBe(true);
+    expect(hub.listClients()).toHaveLength(1);
+
+    ac1.abort();
+    ac2.abort();
+  });
+
+  test("different clientIds are not deduplicated", () => {
+    const hub = new AssistantEventHub();
+    const ac1 = new AbortController();
+    const ac2 = new AbortController();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-interface-id": "chrome-extension",
+        },
+        abortSignal: ac1.signal,
+      },
+      { hub },
+    );
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "client-B",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac2.signal,
+      },
+      { hub },
+    );
+
+    expect(hub.listClients()).toHaveLength(2);
+
+    ac1.abort();
+    ac2.abort();
+  });
+
+  // ── disposeClient (force disconnect) ──────────────────────────────────────
+
+  test("disposeClient removes all subscribers for the clientId", () => {
+    const hub = new AssistantEventHub();
+
+    hub.subscribe({
+      type: "client" as const,
+      clientId: "force-dc-001",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+      callback: () => {},
+    });
+
+    expect(hub.listClients()).toHaveLength(1);
+
+    const count = hub.disposeClient("force-dc-001");
+    expect(count).toBe(1);
+    expect(hub.listClients()).toHaveLength(0);
+  });
+
+  test("disposeClient returns 0 for unknown clientId", () => {
+    const hub = new AssistantEventHub();
+    expect(hub.disposeClient("nonexistent")).toBe(0);
+  });
+
+  test("disposeClient fires onEvict for each disposed entry", () => {
+    const hub = new AssistantEventHub();
+    let evictCount = 0;
+
+    hub.subscribe({
+      type: "client" as const,
+      clientId: "force-dc-evict",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+      callback: () => {},
+      onEvict: () => {
+        evictCount++;
+      },
+    });
+
+    hub.disposeClient("force-dc-evict");
+    expect(evictCount).toBe(1);
   });
 });

@@ -143,6 +143,8 @@ export interface ToolResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor modal (narrowest to broadest). */
@@ -227,6 +229,7 @@ export interface MessageComplete {
 
 export interface ErrorMessage {
   type: "error";
+  conversationId?: string;
   code?: string;
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */

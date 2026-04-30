@@ -1,5 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
+import {
+  mkdirSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -47,11 +54,17 @@ function createTestArchive(
       { stdout: "pipe", stderr: "pipe" },
     );
     if (proc.exitCode !== 0) {
-      throw new Error(`Failed to create test archive: ${new TextDecoder().decode(proc.stderr).trim()}`);
+      throw new Error(
+        `Failed to create test archive: ${new TextDecoder().decode(proc.stderr).trim()}`,
+      );
     }
     return Buffer.from(readFileSync(archivePath));
   } finally {
-    try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(stagingDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -78,11 +91,17 @@ function createSymlinkArchive(
       { stdout: "pipe", stderr: "pipe" },
     );
     if (proc.exitCode !== 0) {
-      throw new Error(`Failed to create symlink test archive: ${new TextDecoder().decode(proc.stderr).trim()}`);
+      throw new Error(
+        `Failed to create symlink test archive: ${new TextDecoder().decode(proc.stderr).trim()}`,
+      );
     }
     return Buffer.from(readFileSync(archivePath));
   } finally {
-    try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(stagingDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -93,7 +112,10 @@ const SAMPLE_BUNDLE_BYTES = createTestArchive("bin/test-cli");
 const SAMPLE_BUNDLE_DIGEST = computeDigest(SAMPLE_BUNDLE_BYTES);
 
 /** A different archive to test digest mismatches. */
-const TAMPERED_BUNDLE_BYTES = createTestArchive("bin/test-cli", "#!/usr/bin/env bash\nrm -rf /\n");
+const TAMPERED_BUNDLE_BYTES = createTestArchive(
+  "bin/test-cli",
+  "#!/usr/bin/env bash\nrm -rf /\n",
+);
 
 /**
  * Build a minimal valid SecureCommandManifest for testing.
@@ -110,9 +132,7 @@ function buildSecureManifest(
     commandProfiles: {
       "read-data": {
         description: "Read-only data access",
-        allowedArgvPatterns: [
-          { name: "list", tokens: ["list", "<resource>"] },
-        ],
+        allowedArgvPatterns: [{ name: "list", tokens: ["list", "<resource>"] }],
         deniedSubcommands: ["admin"],
         allowedNetworkTargets: [
           { hostPattern: "api.example.com", protocols: ["https"] },
@@ -159,7 +179,7 @@ beforeEach(() => {
   mkdirSync(testTmpDir, { recursive: true });
 
   // Point CES data root to the temp directory so tests are isolated
-  process.env["BASE_DATA_DIR"] = testTmpDir;
+  process.env["CREDENTIAL_SECURITY_DIR"] = testTmpDir;
 });
 
 afterEach(() => {
@@ -168,7 +188,7 @@ afterEach(() => {
   } catch {
     // Best effort cleanup
   }
-  delete process.env["BASE_DATA_DIR"];
+  delete process.env["CREDENTIAL_SECURITY_DIR"];
 });
 
 // ---------------------------------------------------------------------------
@@ -280,7 +300,9 @@ describe("manifest validation helpers", () => {
     });
 
     test("rejects data: URL", () => {
-      const err = validateSourceUrl("data:application/octet-stream;base64,AA==");
+      const err = validateSourceUrl(
+        "data:application/octet-stream;base64,AA==",
+      );
       expect(err).not.toBeNull();
       expect(err).toContain("data:");
     });
@@ -375,7 +397,9 @@ describe("publishBundle — digest mismatch rejection", () => {
     if (existsSync(toolstoreDir)) {
       const { readdirSync } = require("node:fs");
       const entries = readdirSync(toolstoreDir) as string[];
-      const stagingDirs = entries.filter((e: string) => e.startsWith(".staging-"));
+      const stagingDirs = entries.filter((e: string) =>
+        e.startsWith(".staging-"),
+      );
       expect(stagingDirs).toHaveLength(0);
     }
   });
@@ -450,7 +474,10 @@ describe("publishBundle — immutable and deduplicated by digest", () => {
     expect(firstResult.success).toBe(true);
 
     // Publish a second, different bundle (real tar.gz archive)
-    const otherBytes = createTestArchive("bin/test-cli", "#!/usr/bin/env bash\necho other\n");
+    const otherBytes = createTestArchive(
+      "bin/test-cli",
+      "#!/usr/bin/env bash\necho other\n",
+    );
     const otherDigest = computeDigest(otherBytes);
     const otherManifest = buildSecureManifest({
       bundleDigest: otherDigest,
@@ -464,7 +491,8 @@ describe("publishBundle — immutable and deduplicated by digest", () => {
         expectedDigest: otherDigest,
         bundleId: "other-cli",
         version: "2.0.0",
-        sourceUrl: "https://releases.example.com/other-cli/v2.0.0/bundle.tar.gz",
+        sourceUrl:
+          "https://releases.example.com/other-cli/v2.0.0/bundle.tar.gz",
         secureCommandManifest: otherManifest,
       }),
     );
@@ -631,7 +659,9 @@ describe("publishBundle — symlink escape prevention", () => {
       // Create a real entrypoint
       const entrypointPath = join(stagingDir, "bin/test-cli");
       mkdirSync(join(stagingDir, "bin"), { recursive: true });
-      writeFileSync(entrypointPath, "#!/usr/bin/env bash\necho hello\n", { mode: 0o755 });
+      writeFileSync(entrypointPath, "#!/usr/bin/env bash\necho hello\n", {
+        mode: 0o755,
+      });
 
       // Create a symlink that escapes
       symlinkSync("/etc/passwd", join(stagingDir, "bin/evil-link"));
@@ -663,16 +693,27 @@ describe("publishBundle — symlink escape prevention", () => {
       expect(result.error).toContain("symlink");
       expect(result.error).toContain("outside the bundle directory");
     } finally {
-      try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 
   test("accepts bundle with internal symlinks (not escaping)", () => {
     // Create an archive with a symlink that points within the bundle
-    const stagingDir = join(tmpdir(), `ces-test-internal-symlink-${randomUUID()}`);
+    const stagingDir = join(
+      tmpdir(),
+      `ces-test-internal-symlink-${randomUUID()}`,
+    );
     try {
       mkdirSync(join(stagingDir, "bin"), { recursive: true });
-      writeFileSync(join(stagingDir, "bin/test-cli"), "#!/usr/bin/env bash\necho hello\n", { mode: 0o755 });
+      writeFileSync(
+        join(stagingDir, "bin/test-cli"),
+        "#!/usr/bin/env bash\necho hello\n",
+        { mode: 0o755 },
+      );
       // Create a symlink within the bundle: bin/alias -> test-cli (relative)
       symlinkSync("test-cli", join(stagingDir, "bin/alias"));
 
@@ -701,7 +742,11 @@ describe("publishBundle — symlink escape prevention", () => {
 
       expect(result.success).toBe(true);
     } finally {
-      try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 

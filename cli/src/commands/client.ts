@@ -3,7 +3,7 @@ import { hostname } from "os";
 import {
   findAssistantByName,
   getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
 } from "../lib/assistant-config";
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -12,6 +12,7 @@ import {
 } from "../lib/constants";
 import { loadGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
+import { tuiLog } from "../lib/tui-log";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -76,8 +77,8 @@ function parseArgs(): ParsedArgs {
       }
     }
     if (!entry && hasExplicitUrl) {
-      // URL provided but active assistant missing or unset — use latest for remaining defaults
-      entry = loadLatestAssistant();
+      // URL provided but active assistant missing or unset — resolve for remaining defaults
+      entry = resolveAssistant();
     } else if (!entry) {
       console.error(
         "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
@@ -188,6 +189,9 @@ export async function client(): Promise<void> {
   const { runtimeUrl, assistantId, species, bearerToken, project, zone } =
     parseArgs();
 
+  tuiLog.init();
+  tuiLog.info("session start", { runtimeUrl, assistantId, species });
+
   const { renderChatApp } = await import("../components/DefaultMainScreen");
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -197,6 +201,8 @@ export async function client(): Promise<void> {
     assistantId,
     species,
     () => {
+      tuiLog.info("session end (user disconnect)");
+      tuiLog.close();
       app.unmount();
       process.stdout.write("\x1b[2J\x1b[H");
       console.log(`${ANSI.dim}Disconnected.${ANSI.reset}`);

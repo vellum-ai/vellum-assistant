@@ -1,31 +1,6 @@
 /**
- * Connection policy helpers for daemon autostart and authentication behavior.
- *
- * Token authentication is always required.
- * To explicitly disable auth (e.g. development/testing scenarios),
- * set VELLUM_DAEMON_NOAUTH=1 on both the daemon and the client.
- * This is an intentional opt-in to an unsafe mode — never enable it
- * on connections accessible to untrusted users.
+ * Connection policy helpers for daemon autostart behavior.
  */
-
-/**
- * True when the user has explicitly opted into unauthenticated connections
- * via VELLUM_DAEMON_NOAUTH=1.
- *
- * Requires VELLUM_UNSAFE_AUTH_BYPASS=1 as a safety gate to prevent
- * accidental production use.
- */
-export function hasNoAuthOverride(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  const value = env.VELLUM_DAEMON_NOAUTH?.trim();
-  if (value !== "1" && value !== "true") return false;
-
-  const safetyGate = env.VELLUM_UNSAFE_AUTH_BYPASS?.trim();
-  if (safetyGate !== "1") return false;
-
-  return true;
-}
 
 export function shouldAutoStartDaemon(
   env: Record<string, string | undefined> = process.env,

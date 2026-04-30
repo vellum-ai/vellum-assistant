@@ -56,6 +56,7 @@ import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -159,6 +160,7 @@ export async function memoryV2ConsolidateJob(
         conversationId: conversation.id,
         hint: renderConsolidationPrompt(cutoff),
         source: WAKE_SOURCE,
+        trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       });
       wakeInvoked = result.invoked;
       failureReason = result.reason;

@@ -26,6 +26,7 @@ import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.j
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
+import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
@@ -62,6 +63,7 @@ import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERFACE_ROUTES } from "./interface-routes.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
+import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
@@ -126,6 +128,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
   ...CONVERSATION_MESSAGE_ROUTES,
+  ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
@@ -152,6 +155,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
+  ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,

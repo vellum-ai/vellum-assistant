@@ -86,6 +86,9 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 mock.module("../providers/registry.js", () => ({
+  getProvider: () => undefined,
+  listProviders: () => [],
+  getProviderRoutingSource: () => undefined,
   initializeProviders: () => {},
 }));
 

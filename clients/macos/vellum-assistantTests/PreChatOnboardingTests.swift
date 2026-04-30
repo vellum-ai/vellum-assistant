@@ -84,51 +84,39 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(decoded.assistantName, original.assistantName)
     }
 
-    // MARK: - Assistant Name Pool / Sampling
+    // MARK: - PersonalityGroup Name Pool
 
-    func testAssistantNamePoolHasExpectedSize() {
-        // The pool must be large enough that five random draws still leave
-        // meaningful variety; 25 is the product-spec target.
-        XCTAssertEqual(NameExchangeView.assistantNamePool.count, 25)
+    func testAllNamesHasUniqueEntries() {
+        let allNames = PersonalityGroup.allNames
+        XCTAssertEqual(Set(allNames).count, allNames.count, "All names across groups must be unique")
     }
 
-    func testAssistantNamePoolHasUniqueEntries() {
-        let pool = NameExchangeView.assistantNamePool
-        XCTAssertEqual(Set(pool).count, pool.count, "Pool entries must be unique")
-    }
-
-    func testSampleAssistantNamesReturnsFiveUniqueNamesFromPool() {
-        let sample = NameExchangeView.sampleAssistantNames()
-        let pool = Set(NameExchangeView.assistantNamePool)
-
-        XCTAssertEqual(sample.count, NameExchangeView.suggestionCount)
-        XCTAssertEqual(Set(sample).count, sample.count, "Sampled names must be unique")
-        for name in sample {
-            XCTAssertTrue(pool.contains(name), "Sampled name '\(name)' must come from the pool")
-        }
-    }
-
-    func testStateDisplayedNamesMatchSampleContract() {
+    func testStateDisplayedNamesShowsTasterWhenNoGroupSelected() {
+        PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
-        let pool = Set(NameExchangeView.assistantNamePool)
 
-        XCTAssertEqual(state.displayedAssistantNames.count, NameExchangeView.suggestionCount)
-        XCTAssertEqual(Set(state.displayedAssistantNames).count, state.displayedAssistantNames.count)
-        for name in state.displayedAssistantNames {
-            XCTAssertTrue(pool.contains(name))
-        }
+        XCTAssertNil(state.selectedGroupID)
+        XCTAssertEqual(state.displayedAssistantNames, PreChatOnboardingState.tasterNames)
     }
 
-    func testDefaultAssistantNameIsFromDisplayedSample() {
-        // On a fresh state (no persisted assistantName), the initial pre-fill
-        // should be one of the displayed suggestion pills so the active pill
-        // matches the text field out of the box.
+    func testStateDisplayedNamesFiltersToSelectedGroup() {
+        PreChatOnboardingState.clearPersistedState()
+        let state = PreChatOnboardingState()
+        state.selectedGroupID = "warm"
+
+        let warmGroup = PersonalityGroup.allGroups.first { $0.id == "warm" }!
+        XCTAssertEqual(state.displayedAssistantNames, warmGroup.names)
+    }
+
+    func testDefaultAssistantNameIsEmptyOnFreshState() {
+        // On a fresh state (no persisted assistantName), the initial value
+        // should be empty so the user must make a deliberate choice.
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
 
         XCTAssertTrue(
-            state.displayedAssistantNames.contains(state.assistantName),
-            "Initial assistantName '\(state.assistantName)' should be one of the displayed suggestions"
+            state.assistantName.isEmpty,
+            "Initial assistantName should be empty, got '\(state.assistantName)'"
         )
     }
 
@@ -159,6 +147,7 @@ final class PreChatOnboardingTests: XCTestCase {
         state1.selectedTasks = ["code-building"]
         state1.userName = "TestUser"
         state1.assistantName = "TestAssistant"
+        state1.selectedGroupID = "warm"
         state1.persist()
 
         // Create a new instance — it should restore from UserDefaults
@@ -169,6 +158,7 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(state2.selectedTasks, ["code-building"])
         XCTAssertEqual(state2.userName, "TestUser")
         XCTAssertEqual(state2.assistantName, "TestAssistant")
+        XCTAssertEqual(state2.selectedGroupID, "warm")
     }
 
     func testClearPersistedStateResetsToDefaults() {
@@ -222,12 +212,12 @@ final class PreChatOnboardingTests: XCTestCase {
         state.selectedTools = ["slack"]
         state.selectedTasks = ["writing"]
         state.userName = "Alex"
-        state.assistantName = "Pax"
+        state.assistantName = "Penn"
 
         let context = PreChatOnboardingContext(
             tools: Array(state.selectedTools).sorted(),
             tasks: Array(state.selectedTasks).sorted(),
-            tone: "balanced",
+            tone: "grounded",
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )
@@ -236,9 +226,9 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertNotNil(receivedContext)
         XCTAssertEqual(receivedContext?.tools, ["slack"])
         XCTAssertEqual(receivedContext?.tasks, ["writing"])
-        XCTAssertEqual(receivedContext?.tone, "balanced")
+        XCTAssertEqual(receivedContext?.tone, "grounded")
         XCTAssertEqual(receivedContext?.userName, "Alex")
-        XCTAssertEqual(receivedContext?.assistantName, "Pax")
+        XCTAssertEqual(receivedContext?.assistantName, "Penn")
     }
 
     // MARK: - Identity Cache Seeding

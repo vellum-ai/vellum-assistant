@@ -6,7 +6,7 @@ final class DiskPressureMonitorTests: XCTestCase {
     func testPressureTriggersAtEightyFivePercent() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 85, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.85, assistantId: "assistant-a")
 
         XCTAssertEqual(monitor.alert?.assistantId, "assistant-a")
         XCTAssertEqual(monitor.alert?.displayPercent, 85)
@@ -16,7 +16,7 @@ final class DiskPressureMonitorTests: XCTestCase {
     func testPressureDoesNotTriggerBelowEightyFivePercent() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 84.9, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.849, assistantId: "assistant-a")
 
         XCTAssertNil(monitor.alert)
     }
@@ -24,14 +24,14 @@ final class DiskPressureMonitorTests: XCTestCase {
     func testPressureResolvesOnlyBelowEightyPercent() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
         let initialAlertId = monitor.alert?.id
-        monitor.applyHealthz(healthz(usedMb: 80, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.80, assistantId: "assistant-a")
 
         XCTAssertEqual(monitor.alert?.id, initialAlertId)
         XCTAssertEqual(monitor.alert?.displayPercent, 80)
 
-        monitor.applyHealthz(healthz(usedMb: 79.9, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.799, assistantId: "assistant-a")
 
         XCTAssertNil(monitor.alert)
     }
@@ -39,11 +39,11 @@ final class DiskPressureMonitorTests: XCTestCase {
     func testNewAlertCycleUsesStableNewId() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
         XCTAssertEqual(monitor.alert?.id, "disk-pressure:assistant-a:1")
 
-        monitor.applyHealthz(healthz(usedMb: 70, totalMb: 100), assistantId: "assistant-a")
-        monitor.applyHealthz(healthz(usedMb: 91, totalMb: 100), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.70, assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.91, assistantId: "assistant-a")
 
         XCTAssertEqual(monitor.alert?.id, "disk-pressure:assistant-a:2")
     }
@@ -51,53 +51,46 @@ final class DiskPressureMonitorTests: XCTestCase {
     func testAssistantSwitchClearsStaleAlertAndScopesNextId() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-b")
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-b")
 
         XCTAssertEqual(monitor.alert?.assistantId, "assistant-b")
         XCTAssertEqual(monitor.alert?.id, "disk-pressure:assistant-b:2")
     }
 
-    func testUnreachableOrMissingDiskMetricsClearsAlert() {
+    func testNilUsageFractionClearsAlert() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
-        monitor.applyHealthz(nil, assistantId: "assistant-a")
-        XCTAssertNil(monitor.alert)
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
+        monitor.applyUsageFraction(nil, assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
-        monitor.applyHealthz(DaemonHealthz(status: "ok"), assistantId: "assistant-a")
         XCTAssertNil(monitor.alert)
     }
 
-    func testInvalidDiskTotalClearsAlert() {
+    func testNilAssistantIdClearsAlert() {
         let monitor = makeMonitor(assistantId: "assistant-a")
 
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 100), assistantId: "assistant-a")
-        monitor.applyHealthz(healthz(usedMb: 95, totalMb: 0), assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
+        monitor.applyUsageFraction(0.95, assistantId: nil)
+
+        XCTAssertNil(monitor.alert)
+    }
+
+    func testNonFiniteUsageFractionClearsAlert() {
+        let monitor = makeMonitor(assistantId: "assistant-a")
+
+        monitor.applyUsageFraction(0.95, assistantId: "assistant-a")
+        monitor.applyUsageFraction(.nan, assistantId: "assistant-a")
 
         XCTAssertNil(monitor.alert)
     }
 
     private func makeMonitor(assistantId: String) -> DiskPressureMonitor {
         DiskPressureMonitor(
-            fetchHealthz: { nil },
+            fetchUsageFraction: { nil },
             activeAssistantIdProvider: { assistantId },
-            isConnectedProvider: { true },
             notificationCenter: NotificationCenter(),
             cadenceNanoseconds: 1_000_000_000
-        )
-    }
-
-    private func healthz(usedMb: Double, totalMb: Double) -> DaemonHealthz {
-        DaemonHealthz(
-            status: "ok",
-            disk: DaemonHealthz.DiskInfo(
-                path: "/workspace",
-                totalMb: totalMb,
-                usedMb: usedMb,
-                freeMb: max(totalMb - usedMb, 0)
-            )
         )
     }
 }

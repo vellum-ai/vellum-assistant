@@ -16,10 +16,10 @@
  */
 
 /** Sentinel substituted with the assistant's display name at runtime. */
-export const ASSISTANT_NAME_PLACEHOLDER = "{{ASSISTANT_NAME}}";
+const ASSISTANT_NAME_PLACEHOLDER = "{{ASSISTANT_NAME}}";
 
 /** Sentinel substituted with the guardian's display name at runtime. */
-export const USER_NAME_PLACEHOLDER = "{{USER_NAME}}";
+const USER_NAME_PLACEHOLDER = "{{USER_NAME}}";
 
 /**
  * Sweep prompt — body from design doc §9. The model is asked to surface
@@ -32,7 +32,7 @@ export const USER_NAME_PLACEHOLDER = "{{USER_NAME}}";
  * templated here) so we don't inadvertently expand `{{` inside user buffer
  * content. Recent messages are likewise appended outside the template.
  */
-export const SWEEP_PROMPT = `You are a background helper for ${ASSISTANT_NAME_PLACEHOLDER}. Read these recent messages between ${ASSISTANT_NAME_PLACEHOLDER} and ${USER_NAME_PLACEHOLDER}. The assistant has already called \`remember()\` for the entries shown in \`existingBuffer\`.
+const SWEEP_PROMPT = `You are a background helper for ${ASSISTANT_NAME_PLACEHOLDER}. Read these recent messages between ${ASSISTANT_NAME_PLACEHOLDER} and ${USER_NAME_PLACEHOLDER}. The assistant has already called \`remember()\` for the entries shown in \`existingBuffer\`.
 
 Identify additional facts, preferences, plans, corrections, names, dates, decisions, or notable felt moments that should be remembered but aren't already in \`existingBuffer\`. Emit a list of \`remember()\` entries (each one line, in the assistant's first-person voice). Don't duplicate. Prefer to over-remember rather than miss things.
 

@@ -1,8 +1,7 @@
 import { spawn } from "child_process";
 
 import {
-  findAssistantByName,
-  loadLatestAssistant,
+  resolveAssistant,
   resolveCloud,
 } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
@@ -85,6 +84,9 @@ export async function exec(): Promise<void> {
       "  -it                 Interactive mode with TTY (like docker exec -it)",
     );
     console.log(
+      "  --timeout <secs>    Timeout in seconds (default: 30, 0 = no timeout)",
+    );
+    console.log(
       "  --verbose           Show debug output (SSE events, sentinel parsing)",
     );
     console.log("");
@@ -120,12 +122,20 @@ export async function exec(): Promise<void> {
   let serviceRaw = "assistant";
   let interactive = false;
   let verbose = false;
+  let timeoutMs = 30_000;
 
   for (let i = 0; i < preArgs.length; i++) {
     if (preArgs[i] === "--service" && preArgs[i + 1]) {
       serviceRaw = preArgs[++i];
     } else if (preArgs[i] === "-it" || preArgs[i] === "-ti") {
       interactive = true;
+    } else if (preArgs[i] === "--timeout" && preArgs[i + 1]) {
+      const secs = Number(preArgs[++i]);
+      if (!Number.isFinite(secs) || secs < 0) {
+        console.error("Error: --timeout must be a non-negative number.");
+        process.exit(1);
+      }
+      timeoutMs = secs === 0 ? 0 : secs * 1000;
     } else if (preArgs[i] === "--verbose") {
       verbose = true;
     } else if (!preArgs[i].startsWith("-")) {
@@ -135,7 +145,7 @@ export async function exec(): Promise<void> {
 
   const service = normalizeService(serviceRaw);
 
-  const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
+  const entry = resolveAssistant(nameArg);
 
   if (!entry) {
     if (nameArg) {
@@ -207,7 +217,7 @@ export async function exec(): Promise<void> {
     }
 
     // Non-interactive: sentinel-based output capture with exit code
-    await nonInteractiveExec(assistant, command, { verbose });
+    await nonInteractiveExec(assistant, command, { verbose, timeoutMs });
     return;
   }
 

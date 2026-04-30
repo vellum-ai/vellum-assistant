@@ -8,12 +8,14 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
+import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
 
 export type InboundResult = {
   forwarded: boolean;
   rejected: boolean;
+  verificationIntercepted?: boolean;
   runtimeResponse?: RuntimeInboundResponse;
   rejectionReason?: string;
 };
@@ -76,6 +78,37 @@ export async function handleInbound(
   }
 
   const displayName = event.actor.displayName || event.actor.username;
+
+  // ── Text verification intercept ──
+  // Must run before forwardToRuntime so the assistant never sees
+  // verification code messages. Both success and failure short-circuit.
+  const verificationResult = await tryTextVerificationIntercept({
+    sourceChannel: event.sourceChannel,
+    messageContent: event.message.content,
+    actorExternalUserId: event.actor.actorExternalId,
+    actorChatId: event.message.conversationExternalId,
+    actorDisplayName: event.actor.displayName,
+    actorUsername: event.actor.username,
+    replyCallbackUrl: options?.replyCallbackUrl,
+    assistantId: routing.assistantId,
+  });
+
+  if (verificationResult.intercepted) {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        outcome: verificationResult.outcome,
+        trustClass: verificationResult.trustClass,
+      },
+      "Text verification intercepted — not forwarding to runtime",
+    );
+    return {
+      forwarded: false,
+      rejected: false,
+      verificationIntercepted: true,
+    };
+  }
+
   const transportHints = normalizeTransportHints(
     options?.transportMetadata?.hints,
   );

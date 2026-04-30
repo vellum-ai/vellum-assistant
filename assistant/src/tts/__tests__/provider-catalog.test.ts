@@ -172,9 +172,9 @@ describe("Deepgram catalog entry", () => {
     expect(entry.capabilities.supportedFormats).toContain("opus");
   });
 
-  test("requires a bare API key stored under 'deepgram'", () => {
+  test("requires an API key stored under 'credential/deepgram/api_key'", () => {
     const apiKeySecret = entry.secretRequirements.find(
-      (s) => s.credentialStoreKey === "deepgram",
+      (s) => s.credentialStoreKey === "credential/deepgram/api_key",
     );
     expect(apiKeySecret).toBeDefined();
     expect(apiKeySecret!.displayName).toContain("Deepgram");

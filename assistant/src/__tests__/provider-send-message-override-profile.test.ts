@@ -28,6 +28,7 @@ mock.module("../config/loader.js", () => ({
 
 import { LLMSchema } from "../config/schemas/llm.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -59,6 +60,55 @@ beforeEach(() => {
 });
 
 describe("SendMessageOptions.config.overrideProfile", () => {
+  test("CallSiteConfiguredProvider injects the resolving call site when callers omit it", async () => {
+    let captured: SendMessageOptions | undefined;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(
+        _messages: Message[],
+        _tools?: ToolDefinition[],
+        _systemPrompt?: string,
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options;
+        return makeResponse("anthropic");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(inner, "mainAgent");
+    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { model: "claude-opus-4-7" },
+    });
+
+    expect(captured?.config).toMatchObject({
+      callSite: "mainAgent",
+      model: "claude-opus-4-7",
+    });
+  });
+
+  test("CallSiteConfiguredProvider preserves explicit per-call call sites", async () => {
+    let captured: SendMessageOptions | undefined;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(
+        _messages: Message[],
+        _tools?: ToolDefinition[],
+        _systemPrompt?: string,
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options;
+        return makeResponse("anthropic");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(inner, "mainAgent");
+    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "conversationTitle" },
+    });
+
+    expect(captured?.config?.callSite).toBe("conversationTitle");
+  });
+
   test("RetryProvider resolves model from named profile when overrideProfile is set", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },

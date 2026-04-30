@@ -8,13 +8,16 @@ import {
   test,
 } from "bun:test";
 
-import { eq } from "drizzle-orm";
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
 // Mock render to return the raw content as text
@@ -43,7 +46,6 @@ mock.module("../daemon/process-message.js", () => ({
   // Only processMessage is imported by inbound-message-handler; stub the rest.
   resolveTurnChannel: () => "telegram",
   resolveTurnInterface: () => "telegram",
-  makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
     if (_testProcessMessage) return _testProcessMessage(...args);
@@ -83,10 +85,7 @@ import {
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/guardian-approvals.js";
 import { resetTestTables } from "../memory/raw-query.js";
-import {
-  conversations,
-  externalConversationBindings,
-} from "../memory/schema.js";
+import { conversations } from "../memory/schema.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -161,13 +160,13 @@ function registerPendingInteraction(
   },
 ): ReturnType<typeof mock> {
   const handleConfirmationResponse = mock(() => {});
-  const mockSession = {
+  const _mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
   } as unknown as Conversation;
+  _conversationMocks.set(conversationId, _mockSession);
 
   pendingInteractions.register(requestId, {
-    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {
@@ -1023,141 +1022,6 @@ describe("plain-text channel approval decisions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 16. Guardian verify intercept
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("telegram guardian verify intercept", () => {
-  test("verification code reply works with sourceChannel telegram", async () => {
-    const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
-    const { secret } = createInboundVerificationSession("telegram");
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const req = new Request("http://localhost/channels/inbound", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceChannel: "telegram",
-        interface: "telegram",
-        conversationExternalId: "tg-chat-verify",
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: secret,
-        actorExternalId: "tg-user-42",
-        replyCallbackUrl: "https://gateway.test/deliver",
-      }),
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("verified");
-
-    expect(deliverSpy).toHaveBeenCalled();
-    const replyArgs = deliverSpy.mock.calls[0];
-    const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.chatId).toBe("tg-chat-verify");
-    expect(typeof replyPayload.text).toBe("string");
-    expect(replyPayload.text.toLowerCase()).toContain("guardian");
-    expect(replyPayload.text.toLowerCase()).toContain("verif");
-
-    deliverSpy.mockRestore();
-  });
-
-  test("invalid verification code returns failed via telegram", async () => {
-    const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
-    // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createInboundVerificationSession("telegram");
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const req = new Request("http://localhost/channels/inbound", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceChannel: "telegram",
-        interface: "telegram",
-        conversationExternalId: "tg-chat-verify-fail",
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: "000000",
-        actorExternalId: "tg-user-43",
-        replyCallbackUrl: "https://gateway.test/deliver",
-      }),
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("failed");
-
-    expect(deliverSpy).toHaveBeenCalled();
-    const replyArgs = deliverSpy.mock.calls[0];
-    const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(typeof replyPayload.text).toBe("string");
-    expect(replyPayload.text.toLowerCase()).toContain("verif");
-    expect(replyPayload.text.toLowerCase()).toContain("invalid");
-
-    deliverSpy.mockRestore();
-  });
-
-  test("64-char hex verification codes are intercepted when a pending challenge exists", async () => {
-    const { createHash, randomBytes } = await import("node:crypto");
-    const { createInboundSession } =
-      await import("../memory/channel-verification-sessions.js");
-
-    const secret = randomBytes(32).toString("hex");
-    const challengeHash = createHash("sha256").update(secret).digest("hex");
-    createInboundSession({
-      id: `challenge-hex-${Date.now()}`,
-      channel: "telegram",
-      challengeHash,
-      expiresAt: Date.now() + 600_000,
-    });
-
-    let processMessageCalled = false;
-    const processMessage = async () => {
-      processMessageCalled = true;
-      return { messageId: "msg-hex-not-verify" };
-    };
-
-    const req = new Request("http://localhost/channels/inbound", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceChannel: "telegram",
-        interface: "telegram",
-        conversationExternalId: "tg-chat-hex-message",
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: secret,
-        actorExternalId: "tg-user-hex",
-        replyCallbackUrl: "https://gateway.test/deliver",
-      }),
-    });
-
-    const res = await handleChannelInbound(req, processMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("verified");
-    expect(processMessageCalled).toBe(false);
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 21. Guardian decision scoping — callback for older request
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1470,157 +1334,6 @@ describe("deliver-once idempotency guard", () => {
     deliveryChannels.resetRunDeliveryClaim(runId);
     expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
     deliveryChannels.resetRunDeliveryClaim(runId);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 26. Assistant-scoped guardian verification via handleChannelInbound
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("assistant-scoped guardian verification via handleChannelInbound", () => {
-  test("verification code uses the threaded assistantId (default: self)", async () => {
-    const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
-    const { secret } = createInboundVerificationSession("telegram");
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const req = makeInboundRequest({
-      content: secret,
-      actorExternalId: "user-default-asst",
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("verified");
-
-    deliverSpy.mockRestore();
-  });
-
-  test("verification code with explicit assistantId resolves against canonical scope", async () => {
-    const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
-    const { getGuardianBinding } =
-      await import("../runtime/channel-verification-service.js");
-
-    // All assistant IDs canonicalize to 'self' in the single-tenant daemon
-    const { secret } = createInboundVerificationSession("telegram");
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const req = makeInboundRequest({
-      content: secret,
-      actorExternalId: "user-for-asst-x",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "asst-route-X",
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("verified");
-
-    const bindingX = getGuardianBinding("self", "telegram");
-    expect(bindingX).not.toBeNull();
-    expect(bindingX!.guardianExternalUserId).toBe("user-for-asst-x");
-
-    deliverSpy.mockRestore();
-  });
-
-  test("all assistant IDs share canonical scope for verification", async () => {
-    const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
-
-    // Both IDs canonicalize to 'self', so the challenge is found
-    const { secret } = createInboundVerificationSession("telegram");
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const req = makeInboundRequest({
-      content: secret,
-      actorExternalId: "user-cross-test",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "asst-B-cross",
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.verificationOutcome).toBe("verified");
-
-    deliverSpy.mockRestore();
-  });
-
-  test("inbound with explicit assistantId does not mutate existing external bindings", async () => {
-    upsertContact({
-      displayName: "Incoming User",
-      channels: [
-        {
-          type: "telegram",
-          address: "incoming-user",
-          externalUserId: "incoming-user",
-          status: "active",
-          policy: "allow",
-        },
-      ],
-    });
-
-    const db = getDb();
-    const now = Date.now();
-    ensureConversation("conv-existing-binding");
-    db.insert(externalConversationBindings)
-      .values({
-        conversationId: "conv-existing-binding",
-        sourceChannel: "telegram",
-        externalChatId: "chat-existing-999",
-        externalUserId: "existing-user",
-        createdAt: now,
-        updatedAt: now,
-        lastInboundAt: now,
-      })
-      .run();
-
-    const req = makeInboundRequest({
-      content: "hello from non-self assistant",
-      actorExternalId: "incoming-user",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "asst-non-self",
-    );
-    expect(res.status).toBe(200);
-
-    const binding = db
-      .select()
-      .from(externalConversationBindings)
-      .where(
-        eq(
-          externalConversationBindings.conversationId,
-          "conv-existing-binding",
-        ),
-      )
-      .get();
-    expect(binding).not.toBeNull();
-    expect(binding!.externalUserId).toBe("existing-user");
   });
 });
 

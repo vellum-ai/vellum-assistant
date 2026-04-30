@@ -14,10 +14,15 @@
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
+import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { appendEventToStream } from "../signals/event-stream.js";
+import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import * as pendingInteractions from "./pending-interactions.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -103,11 +108,45 @@ export class AssistantEventHub {
   /**
    * Register a subscriber that will be called for each matching event.
    *
+   * **Client deduplication:** When a client subscriber is registered with a
+   * `clientId` that already exists, all stale entries for that clientId are
+   * disposed first. This prevents subscriber stacking when clients reconnect
+   * (e.g. Chrome extension reload, SSE token refresh) before the old
+   * connection's abort signal fires.
+   *
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
    * it can close its SSE stream) and its entry is removed from the hub.
    */
   subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
+    // Deduplicate: dispose stale subscribers for the same clientId.
+    if (subscriber.type === "client") {
+      const stale: SubscriberEntry[] = [];
+      for (const existing of this.subscribers) {
+        if (
+          existing.type === "client" &&
+          existing.clientId === subscriber.clientId
+        ) {
+          stale.push(existing);
+        }
+      }
+      for (const entry of stale) {
+        entry.active = false;
+        this.subscribers.delete(entry);
+        try {
+          entry.onEvict();
+        } catch {
+          /* ignore eviction callback errors */
+        }
+      }
+      if (stale.length > 0) {
+        log.info(
+          { clientId: subscriber.clientId, count: stale.length },
+          "disposed stale subscribers for reconnecting client",
+        );
+      }
+    }
+
     if (this.subscribers.size >= this.maxSubscribers) {
       const [oldest] = this.subscribers;
       if (!oldest) {
@@ -311,16 +350,51 @@ export class AssistantEventHub {
    * Touch a client subscriber — update `lastActiveAt`. Used by heartbeat.
    */
   touchClient(clientId: string): void {
+    const now = new Date();
     for (const entry of this.subscribers) {
       if (
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
       ) {
-        entry.lastActiveAt = new Date();
-        return;
+        entry.lastActiveAt = now;
       }
     }
+  }
+
+  /**
+   * Force-disconnect a client by disposing all subscribers for the given
+   * `clientId`. Returns the number of disposed entries.
+   *
+   * Used by `assistant clients disconnect <clientId>` to forcibly remove
+   * stale or unwanted client connections.
+   */
+  disposeClient(clientId: string): number {
+    const targets: SubscriberEntry[] = [];
+    for (const entry of this.subscribers) {
+      if (
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        targets.push(entry);
+      }
+    }
+    for (const entry of targets) {
+      entry.active = false;
+      this.subscribers.delete(entry);
+      try {
+        entry.onEvict();
+      } catch {
+        /* ignore eviction callback errors */
+      }
+    }
+    if (targets.length > 0) {
+      log.info(
+        { clientId, count: targets.length },
+        "force-disposed client subscribers",
+      );
+    }
+    return targets.length;
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */
@@ -366,9 +440,47 @@ export function broadcastMessage(
   conversationId?: string,
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
-  const event = buildAssistantEvent(msg, resolvedConversationId);
+
+  // Register pending interactions so approval/host prompts are tracked
+  // regardless of which path triggered the broadcast.
+  if (resolvedConversationId) {
+    registerPendingInteraction(msg, resolvedConversationId);
+  }
+
+  // Emit feed events for confirmation requests (tool approval prompts).
+  if (msg.type === "confirmation_request" && resolvedConversationId) {
+    void emitConfirmationFeedEvent(msg, resolvedConversationId);
+  }
+
+  // `conversation_list_invalidated` is a list-level system event — publish
+  // it unscoped so every subscriber refreshes its sidebar.
+  const scopedConversationId =
+    msg.type === "conversation_list_invalidated"
+      ? undefined
+      : resolvedConversationId;
+  const event = buildAssistantEvent(msg, scopedConversationId);
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event))
+    .then(() => {
+      // When a conversation title changes, also broadcast an unscoped
+      // `conversation_list_invalidated` so every connected client's sidebar
+      // refreshes — not just the client viewing this conversation.
+      if (msg.type === "conversation_title_updated") {
+        return assistantEventHub
+          .publish(
+            buildAssistantEvent({
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          )
+          .catch((err: unknown) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated after title update",
+            );
+          });
+      }
+    })
     .catch((err: unknown) => {
       log.warn({ err }, "assistant-events hub subscriber threw during publish");
     });
@@ -380,4 +492,203 @@ function extractConversationId(msg: ServerMessage): string | undefined {
     return record.conversationId as string;
   }
   return undefined;
+}
+
+// ── Pending interaction registration ──────────────────────────────────────────
+
+function resolveCanonicalRequestSourceType(
+  sourceChannel: string,
+): "desktop" | "channel" | "voice" {
+  if (sourceChannel === "phone") return "voice";
+  if (sourceChannel === "vellum") return "desktop";
+  return "channel";
+}
+
+/**
+ * Register pending interactions for request-type messages so approval and
+ * host prompts are tracked regardless of which code path broadcasts them.
+ *
+ * Heavy dependencies (conversation-store, canonical-guardian-store, etc.) are
+ * imported lazily so that loading this module during tests doesn't trigger
+ * config/data-dir side effects.
+ */
+function registerPendingInteraction(
+  msg: ServerMessage,
+  conversationId: string,
+): void {
+  if (msg.type === "confirmation_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "confirmation",
+      confirmationDetails: {
+        toolName: msg.toolName,
+        input: msg.input,
+        riskLevel: msg.riskLevel,
+        executionTarget: msg.executionTarget,
+        allowlistOptions: msg.allowlistOptions,
+        scopeOptions: msg.scopeOptions,
+        persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+      },
+    });
+
+    // Create canonical guardian request asynchronously — heavy deps are
+    // imported lazily to avoid pulling in conversation-store (and
+    // transitively config/loader → ensureDataDir) at module-load time.
+    void createCanonicalRequestForConfirmation(msg, conversationId);
+  } else if (msg.type === "secret_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "secret",
+    });
+  } else if (msg.type === "host_bash_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_bash",
+    });
+  } else if (msg.type === "host_browser_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_browser",
+    });
+  } else if (msg.type === "host_file_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_file",
+    });
+  } else if (msg.type === "host_cu_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_cu",
+    });
+  } else if (msg.type === "host_transfer_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_transfer",
+    });
+  }
+}
+
+/**
+ * Lazily load heavy dependencies and create a canonical guardian request +
+ * bridge for a confirmation_request message. Runs fire-and-forget from
+ * registerPendingInteraction.
+ */
+async function createCanonicalRequestForConfirmation(
+  msg: ServerMessage & { type: "confirmation_request" },
+  conversationId: string,
+): Promise<void> {
+  try {
+    const [
+      { findConversation },
+      { createCanonicalGuardianRequest, generateCanonicalRequestCode },
+      { redactSecrets },
+      { summarizeToolInput },
+      { DAEMON_INTERNAL_ASSISTANT_ID },
+      { bridgeConfirmationRequestToGuardian },
+    ] = await Promise.all([
+      import("../daemon/conversation-store.js"),
+      import("../memory/canonical-guardian-store.js"),
+      import("../security/secret-scanner.js"),
+      import("../tools/tool-input-summary.js"),
+      import("./assistant-scope.js"),
+      import("./confirmation-request-guardian-bridge.js"),
+    ]);
+
+    const conversation = findConversation(conversationId);
+    const trustContext = conversation?.trustContext;
+    const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+    const inputRecord = msg.input as Record<string, unknown>;
+    const activityRaw =
+      (typeof inputRecord.activity === "string"
+        ? inputRecord.activity
+        : undefined) ??
+      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
+    const canonicalRequest = createCanonicalGuardianRequest({
+      id: msg.requestId,
+      kind: "tool_approval",
+      sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+      sourceChannel,
+      conversationId,
+      requesterExternalUserId: trustContext?.requesterExternalUserId,
+      requesterChatId: trustContext?.requesterChatId,
+      guardianExternalUserId: trustContext?.guardianExternalUserId,
+      guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
+      toolName: msg.toolName,
+      commandPreview:
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined,
+      riskLevel: msg.riskLevel,
+      activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
+      executionTarget: msg.executionTarget,
+      status: "pending",
+      requestCode: generateCanonicalRequestCode(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    if (trustContext && conversation) {
+      bridgeConfirmationRequestToGuardian({
+        canonicalRequest,
+        trustContext,
+        conversationId,
+        toolName: msg.toolName,
+        assistantId: conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      });
+    }
+  } catch (err) {
+    log.debug(
+      { err, conversationId },
+      "Failed to create canonical request from broadcast",
+    );
+  }
+}
+
+// ── Feed events for confirmation requests ─────────────────────────────────────
+
+/**
+ * Emit a feed event when a confirmation request (tool approval prompt) is
+ * broadcast. Emits immediately with a technical preview, then rewrites
+ * into prose in the background and updates the feed item.
+ */
+async function emitConfirmationFeedEvent(
+  msg: ServerMessage & { type: "confirmation_request" },
+  conversationId: string,
+): Promise<void> {
+  try {
+    const inputRecord = msg.input as Record<string, unknown>;
+    const commandPreview =
+      redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) || undefined;
+    const technicalTitle = commandPreview
+      ? `Requesting permission: ${commandPreview}`
+      : `Requesting approval to use ${msg.toolName}.`;
+    const dedupKey = `tool-approval:${msg.requestId}`;
+
+    await emitFeedEvent({
+      source: "assistant",
+      title: technicalTitle,
+      summary: technicalTitle,
+      dedupKey,
+      urgency: msg.riskLevel === "high" ? "high" : "medium",
+      conversationId,
+      detailPanel: { kind: "toolPermission" },
+    });
+
+    // Background: rewrite into prose and update the feed item.
+    if (commandPreview) {
+      const prose = await rewriteCommandPreview(msg.toolName, commandPreview);
+      if (prose) {
+        const proseTitle = `Requesting permission: ${prose}`;
+        await emitFeedEvent({
+          source: "assistant",
+          title: proseTitle,
+          summary: proseTitle,
+          dedupKey,
+          urgency: msg.riskLevel === "high" ? "high" : "medium",
+          conversationId,
+          detailPanel: { kind: "toolPermission" },
+        });
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to emit confirmation feed event from broadcast");
+  }
 }

@@ -23,8 +23,6 @@ import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
@@ -193,6 +191,9 @@ export class UsageTelemetryReporter {
             cache_creation_input_tokens: e.cacheCreationInputTokens ?? null,
             cache_read_input_tokens: e.cacheReadInputTokens ?? null,
             actor: e.actor,
+            llm_call_site: e.callSite,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source: e.inferenceProfileSource,
             recorded_at: e.createdAt,
           }),
         ),
@@ -213,13 +214,10 @@ export class UsageTelemetryReporter {
         ),
       ];
 
-      const assistantId =
-        getExternalAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID;
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
       const payload = {
         device_id: getDeviceId(),
-        assistant_id: assistantId,
         assistant_version: APP_VERSION,
         ...(organizationId ? { organization_id: organizationId } : {}),
         ...(userId ? { user_id: userId } : {}),

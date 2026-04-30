@@ -24,8 +24,14 @@
 // cached prefix bytes-identical across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { DrizzleDb } from "../db-connection.js";
+import {
+  type MemoryV2ConceptRowRecord,
+  type MemoryV2SkillRowRecord,
+  recordMemoryV2ActivationLog,
+} from "../memory-v2-activation-log-store.js";
 import {
   computeOwnActivation,
   computeSkillActivation,
@@ -37,9 +43,11 @@ import {
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import { readEdges } from "./edges.js";
-import { readPage } from "./page-store.js";
+import { readPage, renderPageContent } from "./page-store.js";
 import { getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
+
+const log = getLogger("memory-v2-injection");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -132,7 +140,9 @@ export async function injectMemoryV2Block(
   const edgesIdx = await readEdges(workspaceDir);
 
   // (3) Candidate set: prior-state survivors above epsilon ∪ ANN top-50.
-  const candidates = await selectCandidates({
+  // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets so
+  // telemetry can attribute each candidate back to its source.
+  const { candidates, fromPrior, fromAnn } = await selectCandidates({
     priorState,
     userText: userMessage,
     assistantText: assistantMessage,
@@ -141,18 +151,20 @@ export async function injectMemoryV2Block(
   });
 
   // (4) Own activation: A_o = d·prev + c_user·sim_u + c_a·sim_a + c_now·sim_n.
-  const ownActivation = await computeOwnActivation({
-    candidates,
-    priorState,
-    userText: userMessage,
-    assistantText: assistantMessage,
-    nowText,
-    config,
-  });
+  const { activation: ownActivation, breakdown: ownBreakdown } =
+    await computeOwnActivation({
+      candidates,
+      priorState,
+      userText: userMessage,
+      assistantText: assistantMessage,
+      nowText,
+      config,
+    });
 
   // (5) Spreading activation across the edge graph (k, hops from config).
   const { k, hops, top_k, epsilon } = config.memory.v2;
-  const finalActivation = spreadActivation(ownActivation, edgesIdx, k, hops);
+  const { final: finalActivation, contribution: spreadContribution } =
+    spreadActivation(ownActivation, edgesIdx, k, hops);
 
   // (6) Pick top-K by activation. Per-turn turns subtract everInjected for the
   // injection delta (cache-stable append-only); context-load renders the
@@ -181,13 +193,14 @@ export async function injectMemoryV2Block(
     config,
     topK: config.memory.v2.top_k_skills,
   });
-  const skillActivation = await computeSkillActivation({
-    candidates: skillCandidates,
-    userText: userMessage,
-    assistantText: assistantMessage,
-    nowText,
-    config,
-  });
+  const { activation: skillActivation, breakdown: skillBreakdown } =
+    await computeSkillActivation({
+      candidates: skillCandidates,
+      userText: userMessage,
+      assistantText: assistantMessage,
+      nowText,
+      config,
+    });
   const { topNow: topSkillIds } = selectSkillInjections({
     A: skillActivation,
     topK: config.memory.v2.top_k_skills,
@@ -228,6 +241,92 @@ export async function injectMemoryV2Block(
 
   await save(database, conversationId, nextActivationState);
 
+  // Record per-turn activation telemetry. This runs *before* the cache-stable
+  // empty-block return so we capture diagnostics even on no-op turns. Failures
+  // are warn-logged and never block memory injection.
+  const toInjectSet = new Set(toInject);
+  const renderedSet = new Set(slugsToRender);
+  const topSkillIdSet = new Set(topSkillIds);
+  const conceptRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
+    (slug) => {
+      const breakdown = ownBreakdown.get(slug);
+      const inPrior = fromPrior.has(slug);
+      const inAnn = fromAnn.has(slug);
+      // Status reflects what was rendered for *this* turn:
+      //   - context-load: cache was wiped (turn 1 / post-compaction), so
+      //     `slugsToRender = topNow` and every rendered slug is freshly
+      //     injected on this turn. `in_context` is unreachable because there
+      //     is no prior cached attachment for the inspector to point at.
+      //   - per-turn: cached attachments from prior turns are still on the
+      //     user message, so prior-everInjected slugs are `in_context` and
+      //     the delta (`toInject`) is `injected`.
+      let status: MemoryV2ConceptRowRecord["status"];
+      if (mode === "context-load") {
+        status = renderedSet.has(slug) ? "injected" : "not_injected";
+      } else if (everInjectedSet.has(slug)) {
+        status = "in_context";
+      } else if (toInjectSet.has(slug)) {
+        status = "injected";
+      } else {
+        status = "not_injected";
+      }
+      return {
+        slug,
+        finalActivation: finalActivation.get(slug) ?? 0,
+        ownActivation: ownActivation.get(slug) ?? 0,
+        priorActivation: breakdown?.priorContribution ?? 0,
+        simUser: breakdown?.simUser ?? 0,
+        simAssistant: breakdown?.simAssistant ?? 0,
+        simNow: breakdown?.simNow ?? 0,
+        spreadContribution: spreadContribution.get(slug) ?? 0,
+        source:
+          inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",
+        status,
+      };
+    },
+  );
+  conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
+
+  const skillRows: MemoryV2SkillRowRecord[] = [...skillCandidates].map((id) => {
+    const breakdown = skillBreakdown.get(id);
+    return {
+      id,
+      activation: skillActivation.get(id) ?? 0,
+      simUser: breakdown?.simUser ?? 0,
+      simAssistant: breakdown?.simAssistant ?? 0,
+      simNow: breakdown?.simNow ?? 0,
+      status: topSkillIdSet.has(id) ? "injected" : "not_injected",
+    };
+  });
+  skillRows.sort((a, b) => b.activation - a.activation);
+
+  const v2Cfg = config.memory.v2;
+  try {
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: currentTurn,
+      mode,
+      concepts: conceptRows,
+      skills: skillRows,
+      config: {
+        d: v2Cfg.d,
+        c_user: v2Cfg.c_user,
+        c_assistant: v2Cfg.c_assistant,
+        c_now: v2Cfg.c_now,
+        k: v2Cfg.k,
+        hops: v2Cfg.hops,
+        top_k: v2Cfg.top_k,
+        top_k_skills: v2Cfg.top_k_skills,
+        epsilon: v2Cfg.epsilon,
+      },
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId, turn: currentTurn },
+      "Failed to record memory v2 activation telemetry — continuing",
+    );
+  }
+
   // (7) Cache-stable empty path: nothing to render AND no ranked skills.
   if (slugsToRender.length === 0 && topSkillIds.length === 0) {
     return { block: null, toInject: [] };
@@ -238,7 +337,7 @@ export async function injectMemoryV2Block(
   // the render order. Per-turn: only the new slugs render (prior turns'
   // attachments stay cached on prior user messages). Context-load: full
   // top-K renders so the fresh user message gets a complete activation dump.
-  // Skills are appended after concept-page sections under the same header.
+  // Skills are appended after concept-page sections.
   const block = await renderInjectionBlock(
     workspaceDir,
     slugsToRender,
@@ -266,14 +365,26 @@ export async function injectMemoryV2Block(
  * the missing-pages behavior.
  *
  * The block shape is the §5 layout from the design doc, with an optional
- * trailing skills subsection:
+ * trailing skills subsection. Each concept-page section reproduces the page
+ * as it lives on disk — frontmatter (`edges`, `ref_files`) plus body — so
+ * the agent sees the page's edges and any referenced media paths alongside
+ * the prose:
  *
  *   <memory>
- *   ## What I Remember Right Now
  *   ### <slug-1>
+ *   ---
+ *   edges:
+ *     - <neighbor-slug>
+ *   ref_files:
+ *     - <path/to/asset>
+ *   ---
  *   <body-1>
  *
  *   ### <slug-2>
+ *   ---
+ *   edges: []
+ *   ref_files: []
+ *   ---
  *   <body-2>
  *
  *   ### Skills You Can Use
@@ -281,13 +392,9 @@ export async function injectMemoryV2Block(
  *   - <skill-2 content>
  *   </memory>
  *
- * The same `## What I Remember Right Now` header wraps the block whether
- * the skills section is alone, the concept-page sections are alone, or
- * both are present — keeping the renderer one shape.
- *
  * Returns `null` when both lists collapse to empty after cache misses so
  * the caller can fall through to its empty-block path instead of attaching
- * a header with no contents.
+ * an empty `<memory>` wrapper.
  */
 async function renderInjectionBlock(
   workspaceDir: string,
@@ -297,14 +404,14 @@ async function renderInjectionBlock(
   const pages = await Promise.all(
     slugs.map(async (slug) => {
       const page = await readPage(workspaceDir, slug);
-      return page ? { slug, body: page.body.trim() } : null;
+      return page ? { slug, content: renderPageContent(page).trim() } : null;
     }),
   );
 
   const sections: string[] = [];
   for (const entry of pages) {
-    if (!entry || entry.body.length === 0) continue;
-    sections.push(`### ${entry.slug}\n${entry.body}`);
+    if (!entry || entry.content.length === 0) continue;
+    sections.push(`### ${entry.slug}\n${entry.content}`);
   }
 
   // v2's skills collection is skills-only, so the activation suffix always applies.
@@ -320,6 +427,5 @@ async function renderInjectionBlock(
 
   if (sections.length === 0) return null;
 
-  const inner = `## What I Remember Right Now\n\n${sections.join("\n\n")}`;
-  return `<memory>\n${inner}\n</memory>`;
+  return `<memory>\n${sections.join("\n\n")}\n</memory>`;
 }

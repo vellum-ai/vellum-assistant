@@ -14,7 +14,6 @@
 import {
   isCredentialError,
   isTokenExpired,
-  oauthConnectionAccessTokenPath,
   oauthConnectionRefreshTokenPath,
   persistRefreshedTokens,
   RefreshCircuitBreaker,
@@ -22,6 +21,7 @@ import {
   type SecureKeyBackend,
 } from "@vellumai/credential-storage";
 
+import { getConnectionAccessTokenResult } from "../oauth/credential-token-resolver.js";
 import {
   getApp,
   getConnection,
@@ -321,9 +321,13 @@ export async function withValidToken<T>(
     opts && typeof opts === "object"
       ? getConnection(opts.connectionId)
       : getConnectionByProvider(service, opts);
-  let token = conn
-    ? await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))
+  const tokenResult = conn
+    ? await getConnectionAccessTokenResult({
+        provider: conn.provider,
+        connectionId: conn.id,
+      })
     : undefined;
+  let token = tokenResult?.value;
   if (!token || !conn) {
     throw new TokenExpiredError(
       service,

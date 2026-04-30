@@ -25,7 +25,10 @@ import VellumAssistantShared
 struct InferenceProfileEditor: View {
     @ObservedObject var store: SettingsStore
     @Binding var profile: InferenceProfile
+    var isReadOnly: Bool = false
+    var isCreating: Bool = false
     let onSave: () -> Void
+    var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
 
     /// Effort ladder mirrors the daemon's `EffortLevel` schema. Includes
@@ -97,7 +100,7 @@ struct InferenceProfileEditor: View {
     var body: some View {
         let visibility = parameterVisibility
         VStack(alignment: .leading, spacing: 0) {
-            toolbar
+            editorHeader
             SettingsDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -125,6 +128,9 @@ struct InferenceProfileEditor: View {
                 }
                 .padding(VSpacing.lg)
             }
+            .disabled(isReadOnly)
+            SettingsDivider()
+            editorFooter
         }
         .frame(minWidth: 480, minHeight: 600)
         .background(VColor.surfaceLift)
@@ -134,27 +140,60 @@ struct InferenceProfileEditor: View {
 
     // MARK: - Toolbar
 
-    private var toolbar: some View {
-        HStack(spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Edit Inference Profile")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                if builtInInferenceProfileNames.contains(profile.name) {
-                    Text("Built-in profile")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(.secondary)
-                }
+    private var editorHeader: some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(editorTitle)
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+            if isReadOnly {
+                VBadge(label: "Managed", tone: .neutral, emphasis: .subtle)
             }
             Spacer(minLength: 0)
-            VButton(label: "Cancel", style: .ghost) {
+            VButton(
+                label: "Close",
+                iconOnly: VIcon.x.rawValue,
+                style: .ghost,
+                tintColor: VColor.contentTertiary
+            ) {
                 onCancel()
-            }
-            VButton(label: "Save", style: .primary, isDisabled: !canSave) {
-                saveVisibleProfile()
             }
         }
         .padding(VSpacing.lg)
+    }
+
+    private var editorFooter: some View {
+        HStack(spacing: VSpacing.sm) {
+            Spacer(minLength: 0)
+            if isReadOnly {
+                VButton(label: "Close", style: .outlined) {
+                    onCancel()
+                }
+                if let onSaveAs {
+                    VButton(label: "Save As New", style: .primary) {
+                        onSaveAs()
+                    }
+                }
+            } else {
+                VButton(label: "Cancel", style: .outlined) {
+                    onCancel()
+                }
+                VButton(label: confirmLabel, style: .primary, isDisabled: !canSave) {
+                    saveVisibleProfile()
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+    }
+
+    private var editorTitle: String {
+        if isReadOnly {
+            return profile.displayName
+        }
+        return isCreating ? "New Profile" : "Edit Profile"
+    }
+
+    private var confirmLabel: String {
+        isCreating ? "Create" : "Save"
     }
 
     // MARK: - Fields

@@ -76,13 +76,16 @@ enum SettingsTestFixture {
         ),
     ]
 
-    // MARK: - Built-in profile payloads
+    // MARK: - Managed profile payloads
 
-    /// Mirrors the daemon's migration-052 seed: the three canonical
-    /// built-in inference profiles (quality-optimized, balanced,
-    /// cost-optimized).
+    /// Mirrors the daemon's declarative profile seed: the three canonical
+    /// managed inference profiles (quality-optimized, balanced,
+    /// cost-optimized) with `source: "managed"`.
     static let builtInProfilesPayload: [String: Any] = [
         "quality-optimized": [
+            "source": "managed",
+            "label": "Quality",
+            "description": "Highest quality output",
             "provider": "anthropic",
             "model": "claude-opus-4-7",
             "maxTokens": 32000,
@@ -90,6 +93,9 @@ enum SettingsTestFixture {
             "thinking": ["enabled": true, "streamThinking": true],
         ],
         "balanced": [
+            "source": "managed",
+            "label": "Balanced",
+            "description": "Good balance of quality and speed",
             "provider": "anthropic",
             "model": "claude-sonnet-4-6",
             "maxTokens": 16000,
@@ -97,6 +103,9 @@ enum SettingsTestFixture {
             "thinking": ["enabled": true, "streamThinking": true],
         ],
         "cost-optimized": [
+            "source": "managed",
+            "label": "Fast",
+            "description": "Optimized for speed and cost",
             "provider": "anthropic",
             "model": "claude-haiku-4-5-20251001",
             "maxTokens": 8192,

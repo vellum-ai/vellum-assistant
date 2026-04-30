@@ -1,3 +1,6 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { UsageAttributionProfileSource } from "../usage/types.js";
+
 /** Base fields present on every telemetry event. */
 export interface TelemetryEventBase {
   type: string;
@@ -15,6 +18,9 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
   actor: string;
+  llm_call_site: LLMCallSite | null;
+  inference_profile: string | null;
+  inference_profile_source: UsageAttributionProfileSource | null;
 }
 
 /** Turn event — one per user message. */

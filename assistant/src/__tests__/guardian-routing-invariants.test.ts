@@ -20,6 +20,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -105,13 +110,13 @@ function registerPendingToolApprovalInteraction(
   toolName: string = "shell",
 ): ReturnType<typeof mock> {
   const handleConfirmationResponse = mock(() => {});
-  const mockSession = {
+  const _mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
   } as unknown as import("../daemon/conversation.js").Conversation;
+  _conversationMocks.set(conversationId, _mockSession);
 
   pendingInteractions.register(requestId, {
-    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {

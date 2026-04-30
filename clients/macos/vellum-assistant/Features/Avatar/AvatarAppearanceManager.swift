@@ -104,6 +104,14 @@ final class AvatarAppearanceManager {
     @ObservationIgnored private var identityLoadTask: Task<Void, Never>?
 
     func start() {
+        // Pre-load the bundle icon on a background thread so the
+        // dispatch_once doesn't block the main thread if updateDockIcon()
+        // falls through to restoreBundleIcon() during resetForDisconnect,
+        // clearCustomAvatar, or an authoritative 404 response.
+        // NSWorkspace.icon(forFile:) is documented as thread-safe.
+        // Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+        Task.detached { _ = Self.bundledAppIcon }
+
         identityLoadTask = Task {
             let info = await IdentityInfo.loadAsync()
             guard !Task.isCancelled else { return }

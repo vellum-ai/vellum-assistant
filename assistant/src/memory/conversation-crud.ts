@@ -174,6 +174,8 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  slackContextCompactionWatermarkTs: string | null;
+  slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
   source: string;
   memoryScopeId: string;
@@ -202,6 +204,8 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
+  slackContextCompactionWatermarkTs: "slackContextCompactionWatermarkTs",
+  slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
   source: "source",
   memoryScopeId: "memoryScopeId",
@@ -225,10 +229,7 @@ export interface MessageRow {
   metadata: string | null;
 }
 
-const parseMessage = createRowMapper<
-  typeof messages.$inferSelect,
-  MessageRow
->({
+const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   id: "id",
   conversationId: "conversationId",
   role: "role",
@@ -295,6 +296,8 @@ export function createConversation(
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
+    slackContextCompactionWatermarkTs: null as string | null,
+    slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
     memoryScopeId,
@@ -541,6 +544,12 @@ export function forkConversation(params: {
           : 0,
         contextCompactedAt: preserveSourceCompactionState
           ? sourceConversation.contextCompactedAt
+          : null,
+        slackContextCompactionWatermarkTs: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkTs
+          : null,
+        slackContextCompactionWatermarkAt: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
       })
@@ -1174,6 +1183,22 @@ export function updateConversationContextWindow(
       contextSummary,
       contextCompactedMessageCount,
       contextCompactedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function updateConversationSlackContextWatermark(
+  id: string,
+  watermarkTs: string,
+  compactedAt: number = Date.now(),
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      slackContextCompactionWatermarkTs: watermarkTs,
+      slackContextCompactionWatermarkAt: compactedAt,
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, id))

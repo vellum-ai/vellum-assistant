@@ -72,7 +72,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastError = "previous error"
         model.lastResult = SimulationResult(
             decision: "allow", riskLevel: "low", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
@@ -87,7 +87,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "test",
-            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+            promptPayload: nil, executionTarget: nil, matchedTrustRuleId: nil, error: nil
         )
 
         model.toolName = "host_bash"
@@ -113,7 +113,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "test",
-            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+            promptPayload: nil, executionTarget: nil, matchedTrustRuleId: nil, error: nil
         )
 
         model.toolName = "host_bash"
@@ -154,7 +154,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             reason: "Matched trust rule",
             promptPayload: nil,
             executionTarget: nil,
-            matchedRuleId: "rule-42",
+            matchedTrustRuleId: "rule-42",
             error: nil
         )
 
@@ -170,7 +170,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(model.lastResult?.decision, "allow")
         XCTAssertEqual(model.lastResult?.riskLevel, "low")
         XCTAssertEqual(model.lastResult?.reason, "Matched trust rule")
-        XCTAssertEqual(model.lastResult?.matchedRuleId, "rule-42")
+        XCTAssertEqual(model.lastResult?.matchedTrustRuleId, "rule-42")
     }
 
     func testSimulate_handlesErrorResponse() {
@@ -182,7 +182,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             reason: nil,
             promptPayload: nil,
             executionTarget: nil,
-            matchedRuleId: nil,
+            matchedTrustRuleId: nil,
             error: "Tool not found"
         )
 
@@ -203,7 +203,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testAllowOnce_setsLocalOverrideLabel() {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
@@ -222,7 +222,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testDenyOnce_setsLocalOverrideLabel() {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
@@ -242,13 +242,13 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "Matched trust rule",
-            promptPayload: nil, executionTarget: "host", matchedRuleId: nil, error: nil
+            promptPayload: nil, executionTarget: "host", matchedTrustRuleId: nil, error: nil
         )
 
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "host_bash", snapshotInputJSON: "{}", snapshotExecutionTarget: "host"
         )
 
@@ -273,13 +273,13 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "ok",
-            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+            promptPayload: nil, executionTarget: nil, matchedTrustRuleId: nil, error: nil
         )
 
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
@@ -297,13 +297,13 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "ok",
-            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+            promptPayload: nil, executionTarget: nil, matchedTrustRuleId: nil, error: nil
         )
 
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
+            matchedTrustRuleId: nil, promptPayload: nil,
             snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 

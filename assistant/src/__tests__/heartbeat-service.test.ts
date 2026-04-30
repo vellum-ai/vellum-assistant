@@ -90,14 +90,72 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
 }));
 
-// Mock logger
+// Mock logger — capture warn calls for unreachable-credential assertions
+const loggerWarnCalls: Array<Record<string, unknown>> = [];
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     debug: () => {},
-    warn: () => {},
+    warn: (...args: unknown[]) => {
+      if (args.length > 0 && typeof args[0] === "object" && args[0] !== null) {
+        loggerWarnCalls.push(args[0] as Record<string, unknown>);
+      }
+    },
     error: () => {},
   }),
+}));
+
+// ── Credential health mock ──────────────────────────────────────────
+//
+// HeartbeatService dynamically imports `checkAllCredentials` inside
+// `runCredentialHealthCheck`, so `mock.module` intercepts it. Tests
+// mutate `mockCredentialHealthReport` to drive different scenarios.
+import type {
+  CredentialHealthReport,
+  CredentialHealthResult,
+  CredentialHealthStatus,
+} from "../credential-health/credential-health-service.js";
+
+let mockCredentialHealthReport: CredentialHealthReport | null = null;
+let mockCheckAllCredentialsFail = false;
+
+mock.module("../credential-health/credential-health-service.js", () => ({
+  checkAllCredentials: async () => {
+    if (mockCheckAllCredentialsFail) {
+      throw new Error("CES unreachable");
+    }
+    return (
+      mockCredentialHealthReport ?? {
+        checkedAt: Date.now(),
+        results: [],
+        unhealthy: [],
+      }
+    );
+  },
+}));
+
+// ── Notification signal mock ────────────────────────────────────────
+//
+// `notifyUnhealthyCredentials` dynamically imports `emitNotificationSignal`.
+// Track calls so tests can assert which credentials were notified about.
+const emittedNotificationSignals: Array<{
+  sourceContextId: string;
+  dedupeKey: string;
+  contextPayload: Record<string, unknown>;
+}> = [];
+
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (opts: {
+    sourceContextId: string;
+    dedupeKey: string;
+    contextPayload: Record<string, unknown>;
+  }) => {
+    emittedNotificationSignals.push({
+      sourceContextId: opts.sourceContextId,
+      dedupeKey: opts.dedupeKey,
+      contextPayload: opts.contextPayload,
+    });
+  },
 }));
 
 // Mock conversation title service
@@ -120,7 +178,6 @@ mock.module("../daemon/process-message.js", () => ({
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   resolveTurnChannel: () => "vellum",
   resolveTurnInterface: () => "vellum",
-  makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
 }));
 
@@ -202,6 +259,10 @@ describe("HeartbeatService", () => {
     createdConversations.length = 0;
     conversationIdCounter = 0;
     mockGuardianPersona = null;
+    mockCredentialHealthReport = null;
+    mockCheckAllCredentialsFail = false;
+    emittedNotificationSignals.length = 0;
+    loggerWarnCalls.length = 0;
 
     // Default processMessage mock: capture calls for assertions.
     setTestProcessMessage(async (...args: unknown[]) => {
@@ -770,6 +831,226 @@ describe("HeartbeatService", () => {
       ]);
 
       expect(prompt).toContain("google, slack");
+    });
+  });
+
+  describe("transient credential health suppression", () => {
+    function makeUnhealthyResult(
+      overrides: Partial<CredentialHealthResult> = {},
+    ): CredentialHealthResult {
+      return {
+        connectionId: overrides.connectionId ?? "conn-1",
+        provider: overrides.provider ?? "google",
+        accountInfo: overrides.accountInfo ?? "user@example.com",
+        status: overrides.status ?? ("missing_token" as CredentialHealthStatus),
+        details: overrides.details ?? "Token not found",
+        missingScopes: overrides.missingScopes ?? [],
+        canAutoRecover: overrides.canAutoRecover ?? false,
+      };
+    }
+
+    test("unreachable credentials do not trigger notifications", async () => {
+      mockCredentialHealthReport = {
+        checkedAt: Date.now(),
+        results: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+        unhealthy: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+      };
+
+      const service = createService();
+      await service.runOnce();
+
+      // No notification signals should have been emitted for unreachable
+      expect(emittedNotificationSignals).toHaveLength(0);
+    });
+
+    test("unreachable credentials do not block provider tools in heartbeat prompt", async () => {
+      mockCredentialHealthReport = {
+        checkedAt: Date.now(),
+        results: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+        unhealthy: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+      };
+
+      const service = createService();
+      await service.runOnce();
+
+      // The prompt should NOT contain <credential-status> since unreachable
+      // is not a hard failure and should not tell the LLM to skip providers
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).not.toContain(
+        "<credential-status>",
+      );
+    });
+
+    test("unreachable credentials log a warning", async () => {
+      mockCredentialHealthReport = {
+        checkedAt: Date.now(),
+        results: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+        unhealthy: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+      };
+
+      const service = createService();
+      await service.runOnce();
+
+      // Logger warn should have been called with unreachableCount
+      const unreachableWarns = loggerWarnCalls.filter(
+        (call) => "unreachableCount" in call,
+      );
+      expect(unreachableWarns).toHaveLength(1);
+      expect(unreachableWarns[0].unreachableCount).toBe(1);
+    });
+
+    test("missing_token still notifies and blocks provider tools", async () => {
+      mockCredentialHealthReport = {
+        checkedAt: Date.now(),
+        results: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "missing_token",
+            details: "Token not found in keychain",
+          }),
+        ],
+        unhealthy: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "missing_token",
+            details: "Token not found in keychain",
+          }),
+        ],
+      };
+
+      const service = createService();
+      await service.runOnce();
+
+      // Should have emitted a notification for missing_token
+      expect(emittedNotificationSignals).toHaveLength(1);
+      expect(emittedNotificationSignals[0].contextPayload.status).toBe(
+        "missing_token",
+      );
+      expect(emittedNotificationSignals[0].contextPayload.provider).toBe(
+        "google",
+      );
+
+      // Prompt should include <credential-status> blocking google
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).toContain("<credential-status>");
+      expect(processMessageCalls[0].content).toContain("google");
+    });
+
+    test("mixed report notifies only actionable failures, not unreachable", async () => {
+      mockCredentialHealthReport = {
+        checkedAt: Date.now(),
+        results: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+          makeUnhealthyResult({
+            connectionId: "conn-slack",
+            provider: "slack",
+            status: "revoked",
+            details: "Token was revoked by user",
+          }),
+          makeUnhealthyResult({
+            connectionId: "conn-github",
+            provider: "github",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+        unhealthy: [
+          makeUnhealthyResult({
+            connectionId: "conn-google",
+            provider: "google",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+          makeUnhealthyResult({
+            connectionId: "conn-slack",
+            provider: "slack",
+            status: "revoked",
+            details: "Token was revoked by user",
+          }),
+          makeUnhealthyResult({
+            connectionId: "conn-github",
+            provider: "github",
+            status: "unreachable",
+            details: "CES backend unavailable",
+          }),
+        ],
+      };
+
+      const service = createService();
+      await service.runOnce();
+
+      // Only the revoked credential should trigger a notification
+      expect(emittedNotificationSignals).toHaveLength(1);
+      expect(emittedNotificationSignals[0].contextPayload.provider).toBe(
+        "slack",
+      );
+      expect(emittedNotificationSignals[0].contextPayload.status).toBe(
+        "revoked",
+      );
+
+      // Only slack (revoked = hard failure) should appear in credential-status
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).toContain("<credential-status>");
+      expect(processMessageCalls[0].content).toContain("slack");
+      // google and github are unreachable — should NOT be in credential-status
+      expect(processMessageCalls[0].content).not.toContain("google");
+      expect(processMessageCalls[0].content).not.toContain("github");
+
+      // Should have logged a warning about the 2 unreachable credentials
+      const unreachableWarns = loggerWarnCalls.filter(
+        (call) => "unreachableCount" in call,
+      );
+      expect(unreachableWarns).toHaveLength(1);
+      expect(unreachableWarns[0].unreachableCount).toBe(2);
     });
   });
 });

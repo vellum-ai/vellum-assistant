@@ -59,6 +59,7 @@ export interface SlackConversationHistoryResponse extends SlackApiResponse {
 export interface SlackConversationRepliesResponse extends SlackApiResponse {
   messages: SlackMessage[];
   has_more: boolean;
+  response_metadata?: { next_cursor?: string };
 }
 
 export interface SlackUser {

@@ -8,10 +8,7 @@ import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import type {
-  ConversationTransportMetadata,
-  ServerMessage,
-} from "../message-protocol.js";
+import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
 
 const log = getLogger("handlers");
@@ -24,7 +21,7 @@ export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 // Module-level map for non-conversation secret prompts (e.g. publish_page)
-export const pendingStandaloneSecrets = new Map<
+const pendingStandaloneSecrets = new Map<
   string,
   {
     resolve: (result: SecretPromptResult) => void;
@@ -53,6 +50,8 @@ export interface HistoryToolCall {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   /** Whether the tool was auto-approved (true) or required explicit user input (false). */
   autoApproved?: boolean;
 }
@@ -119,11 +118,12 @@ export interface ConversationCreateOptions {
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
+  /** Slack-only non-persisted notice injected into the active model turn. */
+  slackRuntimeContextNotice?: string;
   memoryScopeId?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
-  onEvent?: (msg: ServerMessage) => void;
+
   /**
    * Optional explicit model override (provider/model string) for this
    * conversation's agent loop. Used by the auto-analyze loop to pin the
@@ -350,6 +350,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.riskLevel = block._riskLevel;
       if (typeof block._riskReason === "string")
         entry.riskReason = block._riskReason;
+      if (typeof block._matchedTrustRuleId === "string")
+        entry.matchedTrustRuleId = block._matchedTrustRuleId;
       if (typeof block._autoApproved === "boolean")
         entry.autoApproved = block._autoApproved;
       toolCalls.push(entry);
@@ -508,7 +510,6 @@ export function requestSecretStandalone(params: {
   allowedTools?: string[];
   allowedDomains?: string[];
 }): Promise<SecretPromptResult> {
-
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {

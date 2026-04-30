@@ -38,6 +38,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),
 }));
 
+mock.module("../runtime/pending-interactions.js", () => ({
+  register: () => {},
+  resolve: () => undefined,
+  get: () => undefined,
+  getAll: () => [],
+  getByConversation: () => [],
+  getByKind: () => [],
+  removeByConversation: () => {},
+  clear: () => {},
+}));
+
 const { SecretPrompter } = await import("../permissions/secret-prompter.js");
 
 describe("secret prompter channel fallback", () => {

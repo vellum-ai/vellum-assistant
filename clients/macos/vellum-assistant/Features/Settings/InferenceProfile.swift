@@ -27,6 +27,19 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// stable `id` for `Identifiable` conformance.
     public var name: String
 
+    /// Origin of the profile. `"managed"` indicates a daemon-seeded profile
+    /// that should be read-only in the UI. User-created profiles have `nil`.
+    public var source: String?
+
+    /// Human-readable label for pickers and list rows (e.g. "Quality").
+    /// Falls back to `name` when absent — see `displayName`.
+    public var label: String?
+
+    /// Longer description surfaced as secondary text in the profiles list.
+    /// Named `profileDescription` because `description` collides with
+    /// Swift's `CustomStringConvertible.description`.
+    public var profileDescription: String?
+
     public var provider: String?
     public var model: String?
     public var maxTokens: Int?
@@ -53,8 +66,23 @@ public struct InferenceProfile: Hashable, Identifiable {
 
     public var id: String { name }
 
+    /// Whether this profile was seeded by the daemon and should be
+    /// treated as read-only in the UI. Users can duplicate a managed
+    /// profile to create a customizable variant.
+    public var isManaged: Bool { source == "managed" }
+
+    /// Label for pickers and list rows. Prefers the explicit `label`
+    /// (e.g. "Quality") and falls back to `name`.
+    public var displayName: String { label ?? name }
+
+    /// Optional secondary text for list row subtitles.
+    public var subtitle: String? { profileDescription }
+
     public init(
         name: String,
+        source: String? = nil,
+        label: String? = nil,
+        profileDescription: String? = nil,
         provider: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
@@ -66,6 +94,9 @@ public struct InferenceProfile: Hashable, Identifiable {
         thinkingStreamThinking: Bool? = nil
     ) {
         self.name = name
+        self.source = source
+        self.label = label
+        self.profileDescription = profileDescription
         self.provider = provider
         self.model = model
         self.maxTokens = maxTokens
@@ -82,6 +113,9 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// produce an explicit `null`, pass `.explicitNull` directly.
     public init(
         name: String,
+        source: String? = nil,
+        label: String? = nil,
+        profileDescription: String? = nil,
         provider: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
@@ -94,6 +128,9 @@ public struct InferenceProfile: Hashable, Identifiable {
     ) {
         self.init(
             name: name,
+            source: source,
+            label: label,
+            profileDescription: profileDescription,
             provider: provider,
             model: model,
             maxTokens: maxTokens,
@@ -114,6 +151,9 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// survive a save.
     public init(name: String, json: [String: Any]) {
         self.name = name
+        self.source = (json["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.label = (json["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.profileDescription = (json["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.provider = (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.maxTokens = json["maxTokens"] as? Int
@@ -153,6 +193,9 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// distinction between "absent" and "null".
     public func toJSON() -> [String: Any] {
         var result: [String: Any] = [:]
+        if let source { result["source"] = source }
+        if let label { result["label"] = label }
+        if let profileDescription { result["description"] = profileDescription }
         if let provider { result["provider"] = provider }
         if let model { result["model"] = model }
         if let maxTokens { result["maxTokens"] = maxTokens }
@@ -234,12 +277,3 @@ public enum TemperatureValue: Hashable {
     }
 }
 
-/// The three first-class profile names the daemon seeds into every
-/// workspace (see migration 052 in `assistant/src/workspace/migrations/`).
-/// The macOS UI uses this set only to render a "Built-in" badge —
-/// deletion and editing remain allowed for these profiles.
-public let builtInInferenceProfileNames: Set<String> = [
-    "quality-optimized",
-    "balanced",
-    "cost-optimized",
-]

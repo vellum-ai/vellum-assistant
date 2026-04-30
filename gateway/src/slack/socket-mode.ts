@@ -692,11 +692,12 @@ export class SlackSocketModeClient {
       return;
     }
 
-    // Track threads on the inbound side so follow-up replies (without
-    // @mention) continue to be forwarded. Any forwarded event that carries
-    // a thread_ts implies bot participation in that thread.
-    const threadTs = (event as { thread_ts?: string }).thread_ts;
-    if (threadTs) {
+    // Track threads only for real participation signals so follow-up replies
+    // continue after app mentions and admitted messages, without reactions,
+    // edits, or deletes arming unrelated threads.
+    const threadTs = normalized.threadTs;
+    const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
+    if (shouldTrackActiveThread && threadTs) {
       this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
     }
 

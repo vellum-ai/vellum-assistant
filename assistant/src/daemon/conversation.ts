@@ -9,7 +9,7 @@
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
- * - conversation-history.ts      — undo, regenerate, consolidateAssistantMessages
+ * - conversation-history.ts      — undo, consolidateAssistantMessages
  * - conversation-surfaces.ts     — handleSurfaceAction, handleSurfaceUndo
  * - conversation-workspace.ts    — refreshWorkspaceTopLevelContext
  * - conversation-usage.ts        — recordUsage
@@ -43,7 +43,11 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getConversationOriginChannel } from "../memory/conversation-crud.js";
+import {
+  getConversation,
+  getConversationOriginChannel,
+  getConversationOverrideProfileFromRow,
+} from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -68,10 +72,7 @@ import {
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import {
-  regenerate as regenerateImpl,
-  undo as undoImpl,
-} from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -92,7 +93,11 @@ import {
 } from "./conversation-process.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
-import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
+import {
+  type ChannelCapabilities,
+  getSlackCompactionWatermarkForPrefix,
+  loadSlackChronologicalContext,
+} from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -220,6 +225,7 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /** @internal */ slackRuntimeContextNotice?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -553,7 +559,11 @@ export class Conversation {
 
     provider
       .sendMessage([warmMessage], tools, systemPrompt, {
-        config: { max_tokens: 1, callSite: "mainAgent" },
+        config: {
+          max_tokens: 1,
+          callSite: "mainAgent",
+          usageTracking: "manual",
+        },
         signal: abort.signal,
       })
       .then(() => {
@@ -789,8 +799,8 @@ export class Conversation {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -803,8 +813,8 @@ export class Conversation {
       this,
       content,
       attachments,
-      onEvent,
-      requestId,
+      onEvent ?? this.sendToClient,
+      requestId ?? crypto.randomUUID(),
       activeSurfaceId,
       currentPage,
       metadata,
@@ -1049,14 +1059,36 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    const conversationRow = getConversation(this.conversationId);
+    const slackChronologicalContext =
+      this.channelCapabilities?.channel === "slack"
+        ? loadSlackChronologicalContext(
+            this.conversationId,
+            this.channelCapabilities,
+            {
+              trustClass: this.trustContext?.trustClass,
+              contextSummary: conversationRow?.contextSummary,
+              contextCompactedMessageCount:
+                conversationRow?.contextCompactedMessageCount,
+              slackContextCompactionWatermarkTs:
+                conversationRow?.slackContextCompactionWatermarkTs,
+            },
+          )
+        : null;
+    const messagesToCompact =
+      slackChronologicalContext?.messages ?? this.messages;
     const result = await this.contextWindowManager.maybeCompact(
-      this.messages,
+      messagesToCompact,
       this.abortController?.signal ?? undefined,
       {
         force: true,
         lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
+        overrideProfile:
+          getConversationOverrideProfileFromRow(
+            getConversation(this.conversationId),
+          ) ?? null,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1072,7 +1104,12 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null);
+      applyCompactionResult(this, result, this.sendToClient, null, {
+        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
+          slackChronologicalContext,
+          result.compactedMessages,
+        ),
+      });
     }
     return result;
   }
@@ -1107,6 +1144,10 @@ export class Conversation {
 
   setTransportHints(hints: string[] | undefined): void {
     this.transportHints = hints;
+  }
+
+  setSlackRuntimeContextNotice(notice: string | undefined): void {
+    this.slackRuntimeContextNotice = notice;
   }
 
   /**
@@ -1220,7 +1261,7 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -1237,7 +1278,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
-    return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
+    return runAgentLoopImpl(
+      this,
+      content,
+      userMessageId,
+      onEvent ?? this.sendToClient,
+      options,
+    );
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
@@ -1247,7 +1294,7 @@ export class Conversation {
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1260,7 +1307,7 @@ export class Conversation {
       this as ProcessConversationContext,
       content,
       attachments,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
       activeSurfaceId,
       currentPage,
@@ -1277,17 +1324,6 @@ export class Conversation {
 
   undo(): number {
     return undoImpl(this as HistoryConversationContext);
-  }
-
-  async regenerate(
-    onEvent: (msg: ServerMessage) => void,
-    requestId?: string,
-  ): Promise<void> {
-    return regenerateImpl(
-      this as HistoryConversationContext,
-      onEvent,
-      requestId,
-    );
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────

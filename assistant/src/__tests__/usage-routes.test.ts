@@ -51,6 +51,8 @@ function seedEvents() {
       runId: "run-1",
       requestId: "req-1",
       actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
       provider: "anthropic",
       model: "claude-sonnet-4-20250514",
       inputTokens: 850,
@@ -72,6 +74,8 @@ function seedEvents() {
       runId: "run-1",
       requestId: "req-2",
       actor: "context_compactor",
+      callSite: "compactionAgent",
+      inferenceProfile: "fast",
       provider: "anthropic",
       model: "claude-haiku-3",
       inputTokens: 500,
@@ -92,6 +96,8 @@ function seedEvents() {
       runId: "run-2",
       requestId: "req-3",
       actor: "main_agent",
+      callSite: null,
+      inferenceProfile: null,
       provider: "openai",
       model: "gpt-4o",
       inputTokens: 2000,
@@ -330,6 +336,150 @@ describe("usage routes", () => {
         breakdown: Array<{ group: string; eventCount: number }>;
       };
       expect(body.breakdown).toHaveLength(3);
+    });
+
+    test("groups by call site with friendly labels and raw keys", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/breakdown?from=${from}&to=${to}&groupBy=call_site`,
+      ) as {
+        breakdown: Array<{
+          group: string;
+          groupKey: string | null;
+          totalInputTokens: number;
+          eventCount: number;
+        }>;
+      };
+
+      expect(body.breakdown.map((row) => row.group)).toEqual([
+        "Main agent",
+        "Context compactor",
+        "Unknown Task",
+      ]);
+      expect(body.breakdown.map((row) => row.groupKey)).toEqual([
+        "mainAgent",
+        "compactionAgent",
+        null,
+      ]);
+      expect(
+        body.breakdown.find((row) => row.groupKey === null)?.totalInputTokens,
+      ).toBe(2000);
+    });
+
+    test("groups by inference profile with unset rows", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/breakdown?from=${from}&to=${to}&groupBy=inference_profile`,
+      ) as {
+        breakdown: Array<{ group: string; groupKey: string | null }>;
+      };
+
+      expect(body.breakdown.map((row) => row.group)).toEqual([
+        "balanced",
+        "fast",
+        "Default / Unset",
+      ]);
+      expect(body.breakdown.map((row) => row.groupKey)).toEqual([
+        "balanced",
+        "fast",
+        null,
+      ]);
+    });
+  });
+
+  describe("GET /v1/usage/series", () => {
+    test("throws BadRequestError when groupBy is missing", () => {
+      expect(() =>
+        dispatch("GET", "usage/series?from=0&to=999999999999"),
+      ).toThrow(BadRequestError);
+    });
+
+    test("throws BadRequestError for invalid groupBy value", () => {
+      expect(() =>
+        dispatch(
+          "GET",
+          "usage/series?from=0&to=999999999999&groupBy=conversation",
+        ),
+      ).toThrow(BadRequestError);
+    });
+
+    test("returns grouped call-site series buckets", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/series?from=${from}&to=${to}&groupBy=call_site&granularity=daily`,
+      ) as {
+        buckets: Array<{
+          date: string;
+          totalInputTokens: number;
+          groups: Record<
+            string,
+            { group: string; groupKey: string | null; totalInputTokens: number }
+          >;
+        }>;
+      };
+
+      expect(body.buckets).toHaveLength(2);
+      expect(body.buckets[0].groups["value:mainAgent"]).toMatchObject({
+        group: "Main agent",
+        groupKey: "mainAgent",
+        totalInputTokens: 850,
+      });
+      expect(body.buckets[0].groups["value:compactionAgent"]).toMatchObject({
+        group: "Context compactor",
+        groupKey: "compactionAgent",
+        totalInputTokens: 500,
+      });
+      expect(body.buckets[1].groups["null:call_site"]).toMatchObject({
+        group: "Unknown Task",
+        groupKey: null,
+        totalInputTokens: 2000,
+      });
+    });
+
+    test("returns grouped inference-profile series buckets", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/series?from=${from}&to=${to}&groupBy=inference_profile&granularity=daily`,
+      ) as {
+        buckets: Array<{
+          groups: Record<
+            string,
+            { group: string; groupKey: string | null; totalInputTokens: number }
+          >;
+        }>;
+      };
+
+      expect(body.buckets[0].groups["value:balanced"]).toMatchObject({
+        group: "balanced",
+        groupKey: "balanced",
+        totalInputTokens: 850,
+      });
+      expect(body.buckets[0].groups["value:fast"]).toMatchObject({
+        group: "fast",
+        groupKey: "fast",
+        totalInputTokens: 500,
+      });
+      expect(body.buckets[1].groups["null:inference_profile"]).toMatchObject({
+        group: "Default / Unset",
+        groupKey: null,
+        totalInputTokens: 2000,
+      });
     });
   });
 });

@@ -117,6 +117,17 @@ export function getCpuLimit(): string | undefined {
 }
 
 /**
+ * VELLUM_MINIKUBE_STORAGE_SIZE — string (K8s resource format), default: undefined
+ * The PVC storage request size for the assistant volume (e.g. "10Gi").
+ * Only set in minikube (local dev) mode. Used by the health endpoint to
+ * report accurate disk capacity on hostPath-backed PVCs where statfsSync
+ * reports the host's entire filesystem instead of the PVC.
+ */
+export function getMinikubeStorageSize(): string | undefined {
+  return str("VELLUM_MINIKUBE_STORAGE_SIZE");
+}
+
+/**
  * VELLUM_PROFILER_RUN_ID — string, default: undefined
  * Unique identifier for the current profiler run. When set, the profiler
  * run store treats this run as "active" and will never prune its directory.
@@ -177,7 +188,6 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_CLOUD",
   "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
-  "VELLUM_DAEMON_NOAUTH",
   "VELLUM_DATA_DIR",
   "VELLUM_DEBUG",
   "VELLUM_DESKTOP_APP",
@@ -198,10 +208,10 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_PROFILER_RUN_ID",
   "VELLUM_ROOT_DIR",
   "VELLUM_SSH_USER",
-  "VELLUM_UNSAFE_AUTH_BYPASS",
   "VELLUM_WORKSPACE_DIR",
   "VELLUM_CPU_LIMIT",
   "VELLUM_MEMORY_LIMIT",
+  "VELLUM_MINIKUBE_STORAGE_SIZE",
 ]);
 
 /**

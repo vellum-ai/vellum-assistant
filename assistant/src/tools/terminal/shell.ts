@@ -1,7 +1,5 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
@@ -11,11 +9,7 @@ import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getDataDir,
-  getProtectedDir,
-  getWorkspaceDir,
-} from "../../util/platform.js";
+import { getDataDir } from "../../util/platform.js";
 import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
@@ -37,7 +31,6 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
-import { wrapCommand } from "./sandbox.js";
 
 /** Build a credential ref resolution trace for diagnostic logging. */
 function buildCredentialRefTrace(
@@ -46,62 +39,6 @@ function buildCredentialRefTrace(
   unresolvedRefs: string[],
 ) {
   return { rawRefs, resolvedIds, unresolvedRefs };
-}
-
-/**
- * Build the list of absolute paths that should be blocked from read access
- * inside the sandbox when CES shell lockdown is active.
- *
- * Blocked paths include:
- * - Gateway security directory (credential store secrets, CES data)
- * - ~/.vellum/workspace/data/db/ - database files that may contain credential metadata
- * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR)
- * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
- */
-function buildCesProtectedPaths(): string[] {
-  const protectedDirs = process.env.GATEWAY_SECURITY_DIR
-    ? [process.env.GATEWAY_SECURITY_DIR]
-    : Array.from(
-        new Set([join(homedir(), ".vellum", "protected"), getProtectedDir()]),
-      );
-  const paths = [...protectedDirs, join(getWorkspaceDir(), "data", "db")];
-
-  // CES bootstrap socket directory - block access to the Unix socket that
-  // accepts RPC commands from the assistant process.
-  const bootstrapSocketDir =
-    process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
-  paths.push(bootstrapSocketDir);
-
-  // IPC socket directories - block access to the shared emptyDir volumes
-  // used for gateway↔daemon IPC in containerized deployments.
-  const gatewayIpcSocketDir =
-    process.env["GATEWAY_IPC_SOCKET_DIR"] || "/run/gateway-ipc";
-  paths.push(gatewayIpcSocketDir);
-
-  const assistantIpcSocketDir =
-    process.env["ASSISTANT_IPC_SOCKET_DIR"] || "/run/assistant-ipc";
-  paths.push(assistantIpcSocketDir);
-
-  // If a full socket path override is set (without the dir env var), block
-  // its parent directory as well.
-  if (
-    !process.env["CES_BOOTSTRAP_SOCKET_DIR"] &&
-    process.env["CES_BOOTSTRAP_SOCKET"]
-  ) {
-    paths.push(dirname(process.env["CES_BOOTSTRAP_SOCKET"]));
-  }
-
-  // CES managed-mode private data root - in managed deployments the CES
-  // data lives outside the Vellum root, so it isn't covered by the
-  // gateway security directory entry above.
-  const cesDataDir = process.env["CES_DATA_DIR"];
-  if (cesDataDir) {
-    paths.push(cesDataDir);
-  } else if (process.env["CES_MANAGED_MODE"]) {
-    paths.push("/ces-data");
-  }
-
-  return paths;
 }
 
 const log = getLogger("shell-tool");
@@ -292,10 +229,6 @@ class ShellTool implements Tool {
       "Executing shell command",
     );
 
-    // The assistant runs exclusively in Docker or platform-managed
-    // environments where the container provides isolation.
-    const sandboxConfig = { enabled: false } as const;
-
     // Acquire proxy session if proxied mode is requested.
     // `getOrStartSession` serializes per-conversation so concurrent proxied
     // commands share a single session instead of each creating one.
@@ -337,16 +270,7 @@ class ShellTool implements Tool {
       env.VELLUM_UNTRUSTED_SHELL = "1";
     }
 
-    // CES shell lockdown: build deny-read paths for protected credential
-    // data, the protected dir, and data sub-dirs that contain secrets.
-    const denyReadPaths: string[] | undefined = shellLockdownActive
-      ? buildCesProtectedPaths()
-      : undefined;
-
-    const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
-      networkMode,
-      denyReadPaths,
-    });
+    const wrapped = { command: "bash", args: ["-c", "--", command] };
 
     // -----------------------------------------------------------------------
     // Background mode: spawn and return immediately. The process output is

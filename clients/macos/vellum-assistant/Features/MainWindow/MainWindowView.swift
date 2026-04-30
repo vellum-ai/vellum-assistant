@@ -533,6 +533,11 @@ struct MainWindowView: View {
                 }
             }
             .animation(VAnimation.standard, value: windowState.imageLightbox != nil)
+            .overlay {
+                ObservationBoundaryView {
+                    UpgradeProgressOverlay(connectionManager: connectionManager)
+                }
+            }
     }
 
     @ViewBuilder

@@ -350,6 +350,7 @@ export function consolidateAssistantMessages(
 export interface HistoryConversationContext {
   readonly conversationId: string;
   readonly traceEmitter: TraceEmitter;
+  /** @internal */ sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
   processing: boolean;
   abortController: AbortController | null;
@@ -357,7 +358,7 @@ export interface HistoryConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isUserMessage?: boolean;
       titleText?: string;
@@ -414,11 +415,10 @@ export function undo(conversation: HistoryConversationContext): number {
  */
 export async function regenerate(
   conversation: HistoryConversationContext,
-  onEvent: (msg: ServerMessage) => void,
   requestId?: string,
 ): Promise<void> {
   if (conversation.processing) {
-    onEvent({ type: "error", message: "Cannot regenerate while processing" });
+    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "Cannot regenerate while processing" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -437,7 +437,7 @@ export async function regenerate(
   // assistant's exchange that we want to regenerate.
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) {
-    onEvent({ type: "error", message: "No messages to regenerate" });
+    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No messages to regenerate" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -454,7 +454,7 @@ export async function regenerate(
 
   // There must be at least one message after the user message (the assistant reply).
   if (lastUserIdx >= conversation.messages.length - 1) {
-    onEvent({ type: "error", message: "No assistant response to regenerate" });
+    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No assistant response to regenerate" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -497,7 +497,7 @@ export async function regenerate(
   }
 
   if (dbUserMsgIdx === -1) {
-    onEvent({ type: "error", message: "No user message found in DB" });
+    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No user message found in DB" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -546,7 +546,7 @@ export async function regenerate(
     .join("");
 
   // Notify client that the old response has been removed.
-  onEvent({
+  conversation.sendToClient({
     type: "undo_complete",
     removedCount: messagesToDelete.length,
     conversationId: conversation.conversationId,
@@ -572,7 +572,7 @@ export async function regenerate(
   // not await the agent loop. Emit a structured trace event so the
   // observability contract is preserved on those paths too.
   void conversation
-    .runAgentLoop(content, existingUserMessageId, onEvent, {
+    .runAgentLoop(content, existingUserMessageId, undefined, {
       isUserMessage: true,
     })
     .catch((err) => {

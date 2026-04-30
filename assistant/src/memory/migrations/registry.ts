@@ -44,6 +44,9 @@ import { migrateScrubCorruptedImageAttachmentsDown } from "./206-scrub-corrupted
 import { downConversationHostAccess } from "./217-conversation-host-access.js";
 import { downNormalizeUserFileByPrincipal } from "./220-normalize-user-file-by-principal.js";
 import { downActivationState } from "./232-activation-state.js";
+import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
+import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
+import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -379,6 +382,27 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 43,
     description: "Create activation_state table for memory v2",
     down: downActivationState,
+  },
+  {
+    key: "migration_memory_v2_activation_logs_v1",
+    version: 44,
+    description:
+      "Create memory_v2_activation_logs table for per-turn v2 activation telemetry consumed by the LLM Context Inspector",
+    down: downMemoryV2ActivationLogs,
+  },
+  {
+    key: "migration_slack_compaction_watermark_v1",
+    version: 45,
+    description:
+      "Add Slack-specific compaction watermark columns to conversations",
+    down: downSlackCompactionWatermark,
+  },
+  {
+    key: "migration_tool_invocations_matched_trust_rule_id_v1",
+    version: 46,
+    description:
+      "Add matched_trust_rule_id column to tool_invocations for trust rule audit and rule editor UI",
+    down: downToolInvocationsMatchedRuleId,
   },
 ];
 

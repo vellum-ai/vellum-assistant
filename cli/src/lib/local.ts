@@ -392,13 +392,17 @@ async function startDaemonFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
       "workspace",
     );
     env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
       "protected",
@@ -523,13 +527,17 @@ async function startDaemonWatchFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
       "workspace",
     );
     env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
       "protected",
@@ -988,8 +996,8 @@ export async function startLocalDaemon(
       for (const key of [
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
-        "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
+        "CREDENTIAL_SECURITY_DIR",
         "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
@@ -1015,13 +1023,17 @@ export async function startLocalDaemon(
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
       if (resources) {
-        daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.VELLUM_WORKSPACE_DIR = join(
           resources.instanceDir,
           ".vellum",
           "workspace",
         );
         daemonEnv.GATEWAY_SECURITY_DIR = join(
+          resources.instanceDir,
+          ".vellum",
+          "protected",
+        );
+        daemonEnv.CREDENTIAL_SECURITY_DIR = join(
           resources.instanceDir,
           ".vellum",
           "protected",
@@ -1196,13 +1208,17 @@ export async function startGateway(
     // assistant DB directly for guardian bootstrap.
     ...(resources
       ? {
-          BASE_DATA_DIR: resources.instanceDir,
           VELLUM_WORKSPACE_DIR: join(
             resources.instanceDir,
             ".vellum",
             "workspace",
           ),
           GATEWAY_SECURITY_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "protected",
+          ),
+          CREDENTIAL_SECURITY_DIR: join(
             resources.instanceDir,
             ".vellum",
             "protected",

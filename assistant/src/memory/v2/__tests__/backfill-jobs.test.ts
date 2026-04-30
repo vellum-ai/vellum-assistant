@@ -413,6 +413,33 @@ describe("memoryV2RebuildEdgesJob", () => {
     expect(alice?.frontmatter.edges).toEqual(["bob", "carol"]);
   });
 
+  test("walks nested concept pages and rewrites their edges: frontmatter", async () => {
+    await writePage(tmpWorkspace, {
+      slug: "alice",
+      frontmatter: { edges: [], ref_files: [] },
+      body: "Atomic concept.\n",
+    });
+    await writePage(tmpWorkspace, {
+      slug: "people/bob",
+      frontmatter: { edges: [], ref_files: [] },
+      body: "Person page.\n",
+    });
+    await writeEdges(tmpWorkspace, {
+      version: 1,
+      edges: [["alice", "people/bob"]],
+    });
+
+    await memoryV2RebuildEdgesJob(
+      makeJob("memory_v2_rebuild_edges"),
+      TEST_CONFIG,
+    );
+
+    const alice = await readPage(tmpWorkspace, "alice");
+    const bob = await readPage(tmpWorkspace, "people/bob");
+    expect(alice?.frontmatter.edges).toEqual(["people/bob"]);
+    expect(bob?.frontmatter.edges).toEqual(["alice"]);
+  });
+
   test("is a no-op for pages whose frontmatter is already correct", async () => {
     // Pre-write the page with the correct edges so the handler should leave
     // it untouched. We can't easily observe "no rewrite happened" from the

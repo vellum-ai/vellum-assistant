@@ -15,8 +15,6 @@ import {
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import {
-  createGuardianBinding,
-  revokeGuardianBinding,
   touchContactInteraction,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
@@ -997,28 +995,6 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, isOutbound },
         "Guardian voice verification succeeded",
       );
-
-      // Create the guardian binding now that verification succeeded.
-      if (result.verificationType === "guardian") {
-        if (result.bindingConflict) {
-          log.warn(
-            {
-              callSessionId: this.callSessionId,
-              existingGuardian: result.bindingConflict.existingGuardian,
-            },
-            "Guardian binding conflict: another user already holds the voice binding",
-          );
-        } else {
-          revokeGuardianBinding("phone");
-          createGuardianBinding({
-            channel: "phone",
-            guardianExternalUserId: fromNumber,
-            guardianDeliveryChatId: fromNumber,
-            guardianPrincipalId: result.canonicalPrincipal!,
-            verifiedVia: "challenge",
-          });
-        }
-      }
 
       if (isOutbound) {
         // Keep the pointer message back to the initiating conversation

@@ -6,8 +6,6 @@ import { ROUTES as SEED_CONVERSATION_ROUTES } from "./seed-conversation.js";
 import { ROUTES as SEEDED_CONVERSATIONS_ROUTES } from "./seeded-conversations.js";
 import { ROUTES as STATE_ROUTES } from "./state.js";
 
-export { assertPlaygroundEnabled } from "./guard.js";
-
 export const ROUTES: RouteDefinition[] = [
   ...FORCE_COMPACT_ROUTES,
   ...INJECT_FAILURES_ROUTES,

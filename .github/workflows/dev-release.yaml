@@ -1168,3 +1168,56 @@ jobs:
             --prerelease
 
           echo "Updated dev-latest rolling release with ${VERSION}"
+
+  # ── Slack notification (first failure only) ──────────────────────────
+
+  notify-releases:
+    name: Notify #releases on first failure
+    needs: [ci-assistant, ci-gateway, ci-credential-executor]
+    if: always()
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine if any CI job failed
+        id: check
+        run: |
+          if [[ "${{ needs.ci-assistant.result }}" == "failure" || \
+                "${{ needs.ci-gateway.result }}" == "failure" || \
+                "${{ needs.ci-credential-executor.result }}" == "failure" ]]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if previous run succeeded (first-failure detection)
+        id: previous
+        if: steps.check.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch the most recent completed run before this one
+          PREV=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/dev-release.yaml/runs?per_page=5&status=completed&exclude_pull_requests=true" \
+            --jq "[.workflow_runs[] | select(.id != ${{ github.run_id }})] | .[0].conclusion" \
+          )
+          echo "Previous run conclusion: $PREV"
+          if [ "$PREV" = "success" ]; then
+            echo "first_failure=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "first_failure=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.previous.outputs.first_failure == 'true'
+        with:
+          sparse-checkout: .github/actions/send-build-alert
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/send-build-alert
+        if: steps.previous.outputs.first_failure == 'true'
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          slack-user-id: ""
+          should-tag: "false"
+          channel: "#releases"

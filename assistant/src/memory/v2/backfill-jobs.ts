@@ -321,14 +321,14 @@ async function recomputeForConversation(
   const { userText, assistantText } = lastExchangeTexts(conversationId);
   if (!userText && !assistantText) return null;
 
-  const candidates = await selectCandidates({
+  const { candidates } = await selectCandidates({
     priorState,
     userText,
     assistantText,
     nowText,
     config,
   });
-  const ownActivation = await computeOwnActivation({
+  const { activation: ownActivation } = await computeOwnActivation({
     candidates,
     priorState,
     userText,
@@ -336,7 +336,7 @@ async function recomputeForConversation(
     nowText,
     config,
   });
-  const spread = spreadActivation(
+  const { final: spread } = spreadActivation(
     ownActivation,
     edgesIdx,
     config.memory.v2.k,

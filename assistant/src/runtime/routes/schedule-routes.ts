@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { runScript } from "../../schedule/run-script.js";
@@ -28,10 +29,6 @@ import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
-const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-} as const;
 
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
@@ -382,7 +379,7 @@ async function handleRunScheduleNow(id: string) {
         { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
           const conversation = await getOrCreateConversation(conversationId, {
-            trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+            trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
           });
           conversation.taskRunId = taskRunId;
           try {
@@ -479,7 +476,7 @@ async function handleRunScheduleNow(id: string) {
       "Executing schedule manually (run now)",
     );
     const activeConversation = await getOrCreateConversation(conversationId, {
-      trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
     activeConversation.taskRunId = undefined;
     await activeConversation.processMessage(

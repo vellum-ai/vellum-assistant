@@ -34,7 +34,6 @@ mock.module("../config/loader.js", () => ({
 mock.module("../daemon/process-message.js", () => ({
   resolveTurnChannel: () => "whatsapp",
   resolveTurnInterface: () => "whatsapp",
-  makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
   processMessage: async () => ({ messageId: `mock-msg-${Date.now()}` }),
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),

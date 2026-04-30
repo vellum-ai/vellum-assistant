@@ -42,6 +42,7 @@ struct PreChatOnboardingFlow: View {
                 NameExchangeView(
                     userName: $state.userName,
                     assistantName: $state.assistantName,
+                    selectedGroupID: $state.selectedGroupID,
                     displayedAssistantNames: state.displayedAssistantNames,
                     onBack: { advanceTo(1) },
                     onComplete: { finish() },
@@ -75,7 +76,7 @@ struct PreChatOnboardingFlow: View {
         let context = PreChatOnboardingContext(
             tools: cleanTools,
             tasks: Array(state.selectedTasks).sorted(),
-            tone: "balanced",
+            tone: state.selectedGroupID ?? PersonalityGroup.defaultGroupID,
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )

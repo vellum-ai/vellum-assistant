@@ -15,11 +15,21 @@ final class PreChatOnboardingState {
     var assistantName: String
     var skippedAll: Bool = false
 
-    /// Random subset of `NameExchangeView.assistantNamePool` displayed as
-    /// quick-tap suggestion pills. Sampled once per state instance so the pills
-    /// remain stable across re-renders and back-navigation within a session.
-    /// Not persisted to UserDefaults — a fresh sample is drawn on each run.
-    let displayedAssistantNames: [String]
+    /// The currently selected personality group ID, or `nil` for no selection.
+    var selectedGroupID: String?
+
+    /// A representative sample shown when no personality group is selected.
+    static let tasterNames = ["Penn", "Sage", "Wren", "Milo", "Nova", "Ember", "Luna", "Iris"]
+
+    /// Names to show as quick-tap pills. When a group is selected, shows only
+    /// that group's names. Otherwise shows a curated taster sample.
+    var displayedAssistantNames: [String] {
+        guard let selectedID = selectedGroupID,
+              let group = PersonalityGroup.allGroups.first(where: { $0.id == selectedID }) else {
+            return Self.tasterNames
+        }
+        return group.names
+    }
 
     // MARK: - Persistence Keys
 
@@ -29,18 +39,18 @@ final class PreChatOnboardingState {
     private static let tasksKey = "\(prefix)selectedTasks"
     private static let userNameKey = "\(prefix)userName"
     private static let assistantNameKey = "\(prefix)assistantName"
+    private static let selectedGroupIDKey = "\(prefix)selectedGroupID"
 
     private static let allKeys: [String] = [
         screenKey, toolsKey, tasksKey,
         userNameKey, assistantNameKey,
+        selectedGroupIDKey,
     ]
 
     // MARK: - Init (restore from UserDefaults)
 
     init() {
-        let sampled = NameExchangeView.sampleAssistantNames()
-        self.displayedAssistantNames = sampled
-        self.assistantName = sampled.first ?? "Pax"
+        self.assistantName = ""
         self.userName = ""
 
         let defaults = UserDefaults.standard
@@ -64,6 +74,8 @@ final class PreChatOnboardingState {
            !name.hasPrefix("vellum-") {
             assistantName = name
         }
+
+        selectedGroupID = defaults.string(forKey: Self.selectedGroupIDKey)
     }
 
     // MARK: - Persist
@@ -75,6 +87,7 @@ final class PreChatOnboardingState {
         defaults.set(Array(selectedTasks), forKey: Self.tasksKey)
         defaults.set(userName, forKey: Self.userNameKey)
         defaults.set(assistantName, forKey: Self.assistantNameKey)
+        defaults.set(selectedGroupID, forKey: Self.selectedGroupIDKey)
     }
 
     // MARK: - Clear

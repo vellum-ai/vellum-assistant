@@ -6,7 +6,7 @@
  * `HostBrowserProxy.instance.request()` end-to-end:
  *
  *   proxy.request()
- *     → sendToExtension (routed via ChromeExtensionRegistry)
+ *     → sendToExtension (routed via assistant event hub)
  *     → mock extension WebSocket receives host_browser_request
  *     → mock CDP handler (Browser.getVersion fake)
  *     → POST /v1/host-browser-result (or WS host_browser_result frame)
@@ -68,7 +68,6 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { mintToken } from "../runtime/auth/token-service.js";
-import { __resetChromeExtensionRegistryForTests } from "../runtime/chrome-extension-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
@@ -102,7 +101,6 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
 
     port = 19800 + Math.floor(Math.random() * 200);
     runtimeBaseUrl = `http://127.0.0.1:${port}`;
@@ -113,7 +111,6 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
   afterEach(async () => {
     await server?.stop();
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
   });
 
   test("happy path: Browser.getVersion round-trips through the mock extension", async () => {
@@ -304,10 +301,14 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
 
     const proxy = HostBrowserProxy.instance;
 
-    const result = await proxy.request(
-      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.05 },
+    const resultPromise = proxy.request(
+      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.5 },
       "conv-timeout",
     );
+
+    await waitFor(() => mockExt.receivedRequests().length === 1);
+
+    const result = await resultPromise;
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("timed out");
@@ -331,7 +332,6 @@ describe("macOS message ingress with connected extension", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
 
     port = 20000 + Math.floor(Math.random() * 200);
     runtimeBaseUrl = `http://127.0.0.1:${port}`;
@@ -342,7 +342,6 @@ describe("macOS message ingress with connected extension", () => {
   afterEach(async () => {
     await server?.stop();
     HostBrowserProxy.reset();
-    __resetChromeExtensionRegistryForTests();
   });
 
   test("macOS turn routes Browser.getVersion through the registry-backed extension", async () => {

@@ -9,7 +9,6 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { Conversation } from "../daemon/conversation.js";
 import type {
   HostTransferCancelRequest,
   HostTransferRequest,
@@ -18,14 +17,6 @@ import type {
   ServerMessage,
 } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function stubConversation(id: string): Conversation {
-  return { id } as unknown as Conversation;
-}
 
 // ---------------------------------------------------------------------------
 // Message type compilation checks
@@ -105,9 +96,7 @@ describe("host_transfer pending interactions", () => {
   });
 
   test("host_transfer can be registered as a pending interaction", () => {
-    const conv = stubConversation("conv-1");
     pendingInteractions.register("req-1", {
-      conversation: conv,
       conversationId: "conv-1",
       kind: "host_transfer",
     });
@@ -119,21 +108,17 @@ describe("host_transfer pending interactions", () => {
   });
 
   test("host_transfer interactions survive removeByConversation", () => {
-    const conv = stubConversation("conv-1");
-
     // Register a confirmation (should be removed) and a host_transfer (should survive)
     pendingInteractions.register("confirm-1", {
-      conversation: conv,
       conversationId: "conv-1",
       kind: "confirmation",
     });
     pendingInteractions.register("transfer-1", {
-      conversation: conv,
       conversationId: "conv-1",
       kind: "host_transfer",
     });
 
-    pendingInteractions.removeByConversation(conv);
+    pendingInteractions.removeByConversation("conv-1");
 
     // Confirmation should be gone
     expect(pendingInteractions.get("confirm-1")).toBeUndefined();
@@ -143,9 +128,7 @@ describe("host_transfer pending interactions", () => {
   });
 
   test("host_transfer interactions can be resolved", () => {
-    const conv = stubConversation("conv-1");
     pendingInteractions.register("req-1", {
-      conversation: conv,
       conversationId: "conv-1",
       kind: "host_transfer",
     });

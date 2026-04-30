@@ -923,30 +923,6 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("assistant trust remove → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust remove",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
-  test("assistant trust add → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust add",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
-  test("assistant trust update → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust update",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
   test("assistant config set → low", async () => {
     const result = await classifier.classify({
       command: "assistant config set key value",

@@ -11,8 +11,10 @@ import { z } from "zod";
  * Slack-only blob for fresh writes; `mergeSlackMetadata` patches Slack fields
  * while preserving unrelated keys on the existing JSON.
  *
- * This file is a pure library addition — no consumers wire into it yet; that
- * happens in later PRs of the slack-thread-aware-context plan.
+ * Slack transcript rendering and backfill paths persist and read this metadata
+ * to reconstruct thread order, reactions, edits, deletes, and lightweight
+ * Slack file markers. Transient late-join notices are current-turn runtime
+ * context only and do not become durable message metadata.
  */
 
 export type SlackEventKind = "message" | "reaction";
@@ -22,6 +24,12 @@ const slackReactionMetadataSchema = z.object({
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),
   op: z.enum(["added", "removed"]),
+});
+
+const slackFileMetadataSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  mimetype: z.string().optional(),
 });
 
 export const slackMessageMetadataSchema = z.object({
@@ -34,9 +42,11 @@ export const slackMessageMetadataSchema = z.object({
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),
   deletedAt: z.number().optional(),
+  slackFiles: z.array(slackFileMetadataSchema).optional(),
 });
 
 export type SlackReactionMetadata = z.infer<typeof slackReactionMetadataSchema>;
+export type SlackFileMetadata = z.infer<typeof slackFileMetadataSchema>;
 export type SlackMessageMetadata = z.infer<typeof slackMessageMetadataSchema>;
 
 /**

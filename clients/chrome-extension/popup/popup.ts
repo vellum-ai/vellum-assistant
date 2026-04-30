@@ -1,10 +1,12 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
- * Manages three screens:
+ * Manages five screens:
  * 1. Welcome — sign in with Vellum or connect to self-hosted
  * 2. Assistant Picker — choose which cloud assistant to connect to
- * 3. Main — connection status, settings
+ * 3. Main — connection status, activity card, settings
+ * 4. Activity — list of browser operations (one row per request/response pair)
+ * 5. Detail — request/response tabs for a single operation
  *
  * The popup determines the initial screen by asking the worker for
  * the current session state. If a session or self-hosted mode is
@@ -12,6 +14,7 @@
  */
 
 import type { AssistantAuthProfile } from '../background/assistant-auth-profile.js';
+import type { OperationEntry } from '../background/event-log.js';
 import {
   deriveSetupMessage,
   deriveHealthStatusDisplay,
@@ -54,13 +57,41 @@ function sendMessage<T>(
 const screenWelcome = document.getElementById('screen-welcome') as HTMLDivElement;
 const screenPicker = document.getElementById('screen-picker') as HTMLDivElement;
 const screenMain = document.getElementById('screen-main') as HTMLDivElement;
+const screenActivity = document.getElementById('screen-activity') as HTMLDivElement;
+const screenDetail = document.getElementById('screen-detail') as HTMLDivElement;
 
-type ScreenId = 'welcome' | 'picker' | 'main';
+// ── Manifest-driven branding ────────────────────────────────────────
+// Read the extension name and icon paths from the manifest so the popup
+// automatically reflects the current environment without hardcoding.
+
+const manifest = chrome.runtime.getManifest();
+const manifestIcons = manifest.icons as Record<string, string> | undefined;
+const icon48Url = manifestIcons?.['48'] ?? '';
+const icon128Url = manifestIcons?.['128'] ?? '';
+const extensionName = typeof manifest.name === 'string' ? manifest.name : 'Vellum Assistant';
+
+// Welcome logo
+const welcomeLogo = document.querySelector<HTMLImageElement>('.welcome-logo');
+if (welcomeLogo && icon128Url) welcomeLogo.src = icon128Url;
+
+// Welcome title
+const welcomeTitle = document.querySelector<HTMLHeadingElement>('.welcome-title');
+if (welcomeTitle) welcomeTitle.textContent = extensionName;
+
+// All 48px env icons (assistant avatar, etc.)
+const envIcons = document.querySelectorAll<HTMLImageElement>('.env-icon-48');
+for (let i = 0; i < envIcons.length; i++) {
+  if (icon48Url) envIcons[i]!.src = icon48Url;
+}
+
+type ScreenId = 'welcome' | 'picker' | 'main' | 'activity' | 'detail';
 
 function showScreen(id: ScreenId): void {
   screenWelcome.style.display = id === 'welcome' ? 'block' : 'none';
   screenPicker.style.display = id === 'picker' ? 'block' : 'none';
   screenMain.style.display = id === 'main' ? 'block' : 'none';
+  screenActivity.style.display = id === 'activity' ? 'block' : 'none';
+  screenDetail.style.display = id === 'detail' ? 'block' : 'none';
 }
 
 /** Show the assistants-fetch error state on the main screen. */
@@ -126,6 +157,28 @@ const assistantAccountEl = document.getElementById('assistant-account') as HTMLP
 // Session actions
 const sessionActions = document.getElementById('session-actions') as HTMLDivElement;
 
+// Activity card
+const activityCard = document.getElementById('activity-card') as HTMLDivElement;
+const activityCount = document.getElementById('activity-count') as HTMLSpanElement;
+
+// ── DOM references (Activity screen) ────────────────────────────────
+
+const activityBack = document.getElementById('activity-back') as HTMLButtonElement;
+const activityListEl = document.getElementById('activity-list') as HTMLDivElement;
+const activityEmpty = document.getElementById('activity-empty') as HTMLParagraphElement;
+
+// ── DOM references (Detail screen) ──────────────────────────────────
+
+const detailBack = document.getElementById('detail-back') as HTMLButtonElement;
+const detailOperationName = document.getElementById('detail-operation-name') as HTMLParagraphElement;
+const detailMeta = document.getElementById('detail-meta') as HTMLParagraphElement;
+const detailTabRequest = document.getElementById('detail-tab-request') as HTMLButtonElement;
+const detailTabResponse = document.getElementById('detail-tab-response') as HTMLButtonElement;
+const detailPanelRequest = document.getElementById('detail-panel-request') as HTMLDivElement;
+const detailPanelResponse = document.getElementById('detail-panel-response') as HTMLDivElement;
+const detailRequestContent = document.getElementById('detail-request-content') as HTMLPreElement;
+const detailResponseContent = document.getElementById('detail-response-content') as HTMLPreElement;
+
 // ── DOM references (Welcome screen) ─────────────────────────────────
 
 const btnSignIn = document.getElementById('btn-sign-in') as HTMLButtonElement;
@@ -146,6 +199,9 @@ let currentDebugDetails: string | null = null;
 
 /** Tracks whether the user has an established mode (self-hosted or cloud). */
 let currentMode: 'self-hosted' | 'cloud' | null = null;
+
+/** Cached operations for the activity list. */
+let cachedOperations: OperationEntry[] = [];
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -329,6 +385,155 @@ troubleshootToggle?.addEventListener('click', () => {
   troubleshootBody.style.display = isExpanded ? 'none' : 'block';
 });
 
+// ── Activity card → Activity screen ─────────────────────────────────
+
+activityCard?.addEventListener('click', () => {
+  refreshOperations(() => {
+    showScreen('activity');
+  });
+});
+
+activityBack?.addEventListener('click', () => {
+  showScreen('main');
+});
+
+// ── Operations ──────────────────────────────────────────────────────
+
+function refreshOperations(callback?: () => void): void {
+  sendMessage<{ ok: boolean; operations: OperationEntry[] }>(
+    { type: 'get-operations' },
+    (response) => {
+      if (!response?.ok) {
+        callback?.();
+        return;
+      }
+      cachedOperations = response.operations;
+      renderActivityList();
+      callback?.();
+    },
+  );
+}
+
+function refreshActivityCount(): void {
+  sendMessage<{ ok: boolean; operations: OperationEntry[] }>(
+    { type: 'get-operations' },
+    (response) => {
+      if (!response?.ok) return;
+      cachedOperations = response.operations;
+      activityCount.textContent = String(response.operations.length);
+    },
+  );
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function renderActivityList(): void {
+  // Clear existing rows
+  const existingRows = activityListEl.querySelectorAll('.activity-row');
+  existingRows.forEach((r) => r.remove());
+
+  if (cachedOperations.length === 0) {
+    activityEmpty.style.display = 'block';
+    return;
+  }
+  activityEmpty.style.display = 'none';
+
+  // Render newest first
+  for (let i = cachedOperations.length - 1; i >= 0; i--) {
+    const op = cachedOperations[i]!;
+    const row = document.createElement('div');
+    row.className = 'activity-row';
+    row.dataset.operationId = String(op.id);
+
+    const iconClass = op.respondedAt
+      ? op.isError ? 'error' : 'success'
+      : 'pending';
+    const iconSymbol = op.respondedAt
+      ? op.isError ? '✗' : '✓'
+      : '⋯';
+
+    const durationText = op.durationMs != null
+      ? ` · ${formatDuration(op.durationMs)}`
+      : '';
+
+    row.innerHTML = [
+      `<div class="activity-row-icon ${iconClass}">${iconSymbol}</div>`,
+      `<div class="activity-row-body">`,
+      `  <p class="activity-row-name">${escapeHtml(op.operationName)}</p>`,
+      `  <p class="activity-row-meta">${escapeHtml(formatTime(op.requestedAt))}${durationText}</p>`,
+      `</div>`,
+      `<svg class="activity-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">`,
+      `  <path d="M4 2L8 6L4 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `</svg>`,
+    ].join('');
+
+    row.addEventListener('click', () => showOperationDetail(op));
+    activityListEl.appendChild(row);
+  }
+}
+
+// ── Operation detail ────────────────────────────────────────────────
+
+function showOperationDetail(op: OperationEntry): void {
+  detailOperationName.textContent = op.operationName;
+
+  const parts: string[] = [formatTime(op.requestedAt)];
+  if (op.durationMs != null) {
+    parts.push(formatDuration(op.durationMs));
+  }
+  if (op.isError) {
+    parts.push('Error');
+  }
+  detailMeta.textContent = parts.join(' · ');
+
+  // Request content
+  if (op.request) {
+    detailRequestContent.textContent = JSON.stringify(op.request, null, 2);
+  } else {
+    detailRequestContent.textContent = 'No request data available';
+  }
+
+  // Response content
+  if (op.responseContent) {
+    try {
+      const parsed = JSON.parse(op.responseContent);
+      detailResponseContent.textContent = JSON.stringify(parsed, null, 2);
+    } catch {
+      detailResponseContent.textContent = op.responseContent;
+    }
+  } else if (op.respondedAt) {
+    detailResponseContent.textContent = 'Empty response';
+  } else {
+    detailResponseContent.textContent = 'Awaiting response…';
+  }
+
+  // Reset to request tab
+  switchDetailTab('request');
+  showScreen('detail');
+}
+
+function switchDetailTab(tab: 'request' | 'response'): void {
+  detailTabRequest.className = `detail-tab${tab === 'request' ? ' active' : ''}`;
+  detailTabResponse.className = `detail-tab${tab === 'response' ? ' active' : ''}`;
+  detailPanelRequest.style.display = tab === 'request' ? 'block' : 'none';
+  detailPanelResponse.style.display = tab === 'response' ? 'block' : 'none';
+}
+
+detailTabRequest?.addEventListener('click', () => switchDetailTab('request'));
+detailTabResponse?.addEventListener('click', () => switchDetailTab('response'));
+
+detailBack?.addEventListener('click', () => {
+  showScreen('activity');
+});
+
 // ── Welcome screen handlers ─────────────────────────────────────────
 
 btnSignIn?.addEventListener('click', () => {
@@ -452,7 +657,7 @@ function renderAssistantList(
     row.className = 'assistant-row';
     row.innerHTML = `
       <div class="assistant-row-icon">
-        <img src="../icons/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
+        <img src="${escapeHtml(icon48Url)}" alt="" width="16" height="16" style="border-radius:3px;" />
       </div>
       <span class="assistant-row-name">${escapeHtml(a.name)}</span>
       <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -535,6 +740,7 @@ function loadMainScreen(): void {
   // the connection lifecycle without a manual toggle.
   sendMessage({ type: 'connect' }, () => {});
   refreshStatus();
+  refreshActivityCount();
   startStatusPoll();
 }
 
@@ -544,6 +750,8 @@ function refreshStatus(): void {
     currentAuthProfile = response.authProfile;
     updateHealthDisplay(response.health, response.healthDetail);
   });
+  // Update activity count on each status poll too
+  refreshActivityCount();
 }
 
 function startStatusPoll(): void {

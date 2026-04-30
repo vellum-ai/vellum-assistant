@@ -244,6 +244,8 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     "buffer.md",
   ],
   isSlackChannelConversation: () => false,
+  getSlackCompactionWatermarkForPrefix: () => null,
+  loadSlackChronologicalContext: () => null,
   loadSlackChronologicalMessages: () => null,
   loadSlackActiveThreadFocusBlock: () => null,
   assembleSlackChronologicalMessages: () => null,

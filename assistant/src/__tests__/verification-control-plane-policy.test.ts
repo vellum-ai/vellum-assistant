@@ -104,10 +104,6 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
-}));
-
 // Re-assert the real verification-control-plane-policy implementation.
 // This overrides any mock that an earlier test file may have installed for
 // this module (e.g. tool-approval-handler.test.ts mocks it with denied:false).

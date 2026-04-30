@@ -313,13 +313,11 @@ function seedPendingConfirmation(
  * confirmation details.
  */
 function registerPendingInteraction(
-  conversation: Conversation,
   requestId: string,
   conversationId: string,
   confirmationDetails?: ConfirmationDetails,
 ): void {
   pendingInteractions.register(requestId, {
-    conversation,
     conversationId,
     kind: "confirmation",
     confirmationDetails,
@@ -349,12 +347,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("approval cascading", () => {
-
-
-
-
-
-
   test("allow (one-time) does NOT cascade", () => {
     const emitted: ServerMessage[] = [];
     const conversationObj = makeConversation(
@@ -366,13 +358,11 @@ describe("approval cascading", () => {
     seedPendingConfirmation(conversationObj, "req-2");
 
     registerPendingInteraction(
-      conversationObj,
       "req-1",
       CONV_ID,
       makeConfirmationDetails(["bash:echo hello"]),
     );
     registerPendingInteraction(
-      conversationObj,
       "req-2",
       CONV_ID,
       makeConfirmationDetails(["bash:echo world"]),
@@ -402,13 +392,11 @@ describe("approval cascading", () => {
     seedPendingConfirmation(conversationObj, "req-2");
 
     registerPendingInteraction(
-      conversationObj,
       "req-1",
       CONV_ID,
       makeConfirmationDetails(["bash:echo hello"]),
     );
     registerPendingInteraction(
-      conversationObj,
       "req-2",
       CONV_ID,
       makeConfirmationDetails(["bash:echo world"]),
@@ -427,7 +415,6 @@ describe("approval cascading", () => {
     expect(confirmMsgs[0].requestId).toBe("req-1");
   });
 
-
   test("already-resolved request handled gracefully", () => {
     const emitted: ServerMessage[] = [];
     const conversationObj = makeConversation(
@@ -439,7 +426,6 @@ describe("approval cascading", () => {
     seedPendingConfirmation(conversationObj, "req-stale");
 
     registerPendingInteraction(
-      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["bash:echo primary"]),
@@ -448,7 +434,6 @@ describe("approval cascading", () => {
     // in the prompter. We'll remove it from the prompter before cascading
     // reaches it to simulate a stale/already-resolved request.
     registerPendingInteraction(
-      conversationObj,
       "req-stale",
       CONV_ID,
       makeConfirmationDetails(["bash:echo stale"]),

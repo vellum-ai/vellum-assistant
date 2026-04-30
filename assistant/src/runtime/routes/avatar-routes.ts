@@ -18,7 +18,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("avatar-routes");
 
-export function publishAvatarUpdated(): void {
+function publishAvatarUpdated(): void {
   const avatarPath = getAvatarImagePath();
   assistantEventHub
     .publish(

@@ -192,9 +192,9 @@ describe("assembleContextBlock", () => {
     expect(assembleContextBlock([])).toBe("");
   });
 
-  test("includes the main heading", () => {
+  test("omits the legacy `What I Remember Right Now` heading", () => {
     const result = assembleContextBlock([makeScored()]);
-    expect(result).toContain("## What I Remember Right Now");
+    expect(result).not.toContain("## What I Remember Right Now");
   });
 
   test("puts prospective nodes under Active Threads", () => {

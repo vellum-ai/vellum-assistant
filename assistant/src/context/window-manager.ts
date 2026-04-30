@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -21,6 +22,8 @@ import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 const log = getLogger("context-window");
 
 export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
+export const CONVERSATION_SUMMARY_CALL_SITE: LLMCallSite =
+  "conversationSummarization";
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
@@ -241,6 +244,8 @@ export interface ContextWindowResult {
   summaryInputTokens: number;
   summaryOutputTokens: number;
   summaryModel: string;
+  summaryCallSite?: LLMCallSite;
+  summaryOverrideProfile?: string | null;
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
@@ -278,6 +283,11 @@ export interface ContextWindowCompactOptions {
    * aggressively. Explicit `minKeepRecentUserTurns` overrides this hint.
    */
   conversationOriginChannel?: string;
+  /**
+   * Per-conversation inference-profile override forwarded to the summary LLM
+   * call and usage attribution.
+   */
+  overrideProfile?: string | null;
   /**
    * Override the target input token budget used for keep-boundary
    * projected-fit checks. Clamped to no looser than `config.targetInputTokens`
@@ -672,6 +682,7 @@ export class ContextWindowManager {
       transcriptBlocks,
       retainedThreadRefs,
       signal,
+      options?.overrideProfile ?? null,
     );
     const summary = summaryUpdate.summary;
     const summaryInputTokens = summaryUpdate.inputTokens;
@@ -748,6 +759,8 @@ export class ContextWindowManager {
       summaryInputTokens,
       summaryOutputTokens,
       summaryModel,
+      summaryCallSite: CONVERSATION_SUMMARY_CALL_SITE,
+      summaryOverrideProfile: options?.overrideProfile ?? null,
       summaryCacheCreationInputTokens,
       summaryCacheReadInputTokens,
       summaryRawResponses,
@@ -994,6 +1007,7 @@ export class ContextWindowManager {
     transcriptBlocks: ContentBlock[],
     retainedThreadRefs: string[],
     signal?: AbortSignal,
+    overrideProfile?: string | null,
   ): Promise<{
     summary: string;
     inputTokens: number;
@@ -1025,15 +1039,20 @@ export class ContextWindowManager {
     const summaryMessage: Message = { role: "user", content: contentBlocks };
     let failed = false;
     try {
+      const providerConfig: Record<string, unknown> = {
+        callSite: CONVERSATION_SUMMARY_CALL_SITE,
+        usageTracking: "manual",
+        max_tokens: this.summaryMaxTokens,
+      };
+      if (overrideProfile) {
+        providerConfig.overrideProfile = overrideProfile;
+      }
       const response = await this.provider.sendMessage(
         [summaryMessage],
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: {
-            callSite: "conversationSummarization" as const,
-            max_tokens: this.summaryMaxTokens,
-          },
+          config: providerConfig,
           signal,
         },
       );

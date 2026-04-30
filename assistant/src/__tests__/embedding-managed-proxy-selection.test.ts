@@ -229,7 +229,7 @@ describe("managed proxy Gemini embedding selection", () => {
   test("does not use managed proxy when provider is explicitly openai", async () => {
     enableManagedProxy();
     enableFlag();
-    mockProviderKeys["openai"] = "user-openai-key";
+    mockProviderKeys[credentialKey("openai", "api_key")] = "user-openai-key";
     const config = makeConfig({ provider: "openai" });
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -241,7 +241,7 @@ describe("managed proxy Gemini embedding selection", () => {
   test("direct Gemini key still works when flag is off", async () => {
     disableManagedProxy();
     disableFlag();
-    mockProviderKeys["gemini"] = "user-gemini-key";
+    mockProviderKeys[credentialKey("gemini", "api_key")] = "user-gemini-key";
     const config = makeConfig({ provider: "gemini" });
 
     const { backend } = await selectEmbeddingBackend(config);

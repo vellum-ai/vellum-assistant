@@ -22,10 +22,7 @@ import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
-import {
-  Conversation,
-  DEFAULT_MEMORY_POLICY,
-} from "./conversation.js";
+import { Conversation, DEFAULT_MEMORY_POLICY } from "./conversation.js";
 import type { ConversationEvictor } from "./conversation-evictor.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { buildTransportHints } from "./transport-hints.js";
@@ -71,11 +68,7 @@ export function findConversationBySurfaceId(
   return undefined;
 }
 
-export function hasConversation(conversationId: string): boolean {
-  return conversations.has(conversationId);
-}
-
-export function conversationCount(): number {
+function conversationCount(): number {
   return conversations.size;
 }
 
@@ -92,7 +85,7 @@ export function conversationEntries(): IterableIterator<
 }
 
 /** Iterate over all active conversation IDs. */
-export function conversationIds(): IterableIterator<string> {
+function conversationIds(): IterableIterator<string> {
   return conversations.keys();
 }
 
@@ -128,19 +121,6 @@ export function getConversationMap(): Map<string, Conversation> {
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
 
-export function getConversationOptions(
-  conversationId: string,
-): ConversationCreateOptions | undefined {
-  return conversationOptions.get(conversationId);
-}
-
-export function setConversationOptions(
-  conversationId: string,
-  options: ConversationCreateOptions,
-): void {
-  conversationOptions.set(conversationId, options);
-}
-
 export function mergeConversationOptions(
   conversationId: string,
   patch: Partial<ConversationCreateOptions>,
@@ -151,11 +131,11 @@ export function mergeConversationOptions(
   });
 }
 
-export function deleteConversationOptions(conversationId: string): void {
+function deleteConversationOptions(conversationId: string): void {
   conversationOptions.delete(conversationId);
 }
 
-export function clearConversationOptions(): void {
+function clearConversationOptions(): void {
   conversationOptions.clear();
 }
 
@@ -326,7 +306,7 @@ export function touchConversation(conversationId: string): void {
   _evictor?.touch(conversationId);
 }
 
-export function removeFromEvictor(conversationId: string): void {
+function removeFromEvictor(conversationId: string): void {
   _evictor?.remove(conversationId);
 }
 

@@ -9,16 +9,22 @@ import {
   writeFileSync,
   writeSync,
 } from "fs";
-import { homedir } from "os";
 import { join } from "path";
+
+import { getConfigDir } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 
 /** Regex matching pino-pretty's short time prefix, e.g. `[12:07:37.467] `. */
 const PINO_TIME_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\]\s*/;
 
-/** Returns the XDG-compatible log directory for Vellum CLI logs. */
+/**
+ * Returns the XDG-compatible log directory for Vellum CLI logs.
+ *
+ * Environment-aware: production uses `$XDG_CONFIG_HOME/vellum/logs`,
+ * non-production environments use `$XDG_CONFIG_HOME/vellum-<env>/logs`.
+ */
 export function getLogDir(): string {
-  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-  return join(configHome, "vellum", "logs");
+  return join(getConfigDir(getCurrentEnvironment()), "logs");
 }
 
 /** Open (or create) a log file in append mode, returning the file descriptor.

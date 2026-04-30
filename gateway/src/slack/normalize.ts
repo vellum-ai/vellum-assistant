@@ -396,6 +396,7 @@ export function normalizeSlackDirectMessage(
       source: {
         updateId: eventId,
         messageId: event.ts,
+        chatType: "im",
         ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,

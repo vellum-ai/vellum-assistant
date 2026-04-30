@@ -113,10 +113,10 @@ export interface RouteDefinition {
    */
   isPublic?: boolean;
   /**
-   * When true, the route requires scope-based policy enforcement that
-   * the HTTP server performs via `enforcePolicy()`. The IPC adapter
-   * excludes these routes until the gateway implements equivalent
-   * scope checking (ATL-315).
+   * When true, the route requires scope-based policy enforcement.
+   * The HTTP server enforces via `enforcePolicy()`. The IPC adapter
+   * includes the resolved policy in the route schema so the gateway's
+   * IPC proxy enforces equivalent scope/principal checks.
    */
   requirePolicyEnforcement?: boolean;
   /**

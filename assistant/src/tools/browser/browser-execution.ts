@@ -722,8 +722,19 @@ export async function executeBrowserNavigate(
     }
 
     // Read the current URL BEFORE calling navigateAndWait so we can
-    // detect the "page never moved" case on timeout.
-    const urlBeforeNav = await getCurrentUrl(cdp, context.signal);
+    // detect the "page never moved" case on timeout. This may fail if
+    // the active tab is on a chrome:// or other privileged URL where
+    // Runtime.evaluate is blocked — in that case we proceed without the
+    // baseline and skip the "page never moved" timeout heuristic.
+    let urlBeforeNav = "";
+    try {
+      urlBeforeNav = await getCurrentUrl(cdp, context.signal);
+    } catch {
+      log.debug(
+        { conversationId: context.conversationId },
+        "Could not read current URL before navigation (tab may be on a privileged page)",
+      );
+    }
 
     // Navigate via CDP Page.navigate + document.readyState polling.
     // navigateAndWait returns { finalUrl, timedOut }; HTTP status is
@@ -844,18 +855,9 @@ export async function executeBrowserNavigate(
 
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await getPageTitle(cdp, context.signal);
-    // HTTP status is not available on the CDP path: `Page.navigate`
-    // resolves the frame id and (on failure) an error text, but does
-    // not carry the response status code. Both the local and extension
-    // paths therefore print "unknown" here. A future phase may subscribe
-    // to `Network.responseReceived` events during the navigation window
-    // if the status is needed again.
-    const status: number | null = null;
-
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
       `Final URL: ${safeFinalUrl}`,
-      `Status: ${status ?? "unknown"}`,
       `Title: ${title || "(none)"}`,
     ];
 

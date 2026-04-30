@@ -92,6 +92,10 @@ let _conversationFactory: (() => Conversation) | undefined;
 let _approvalGenerator: unknown;
 
 mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: () => {
+    if (!_conversationFactory) return undefined;
+    return _conversationFactory();
+  },
   getOrCreateConversation: async (..._args: unknown[]) => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -468,7 +472,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -528,7 +531,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -596,7 +598,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -656,7 +657,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true, { queueDepth: 2 });
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -716,7 +716,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -774,7 +773,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     );
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -969,7 +967,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });

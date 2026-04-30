@@ -298,4 +298,108 @@ describe("first-greeting", () => {
       expect(greeting).not.toContain("\n\n\n");
     });
   });
+
+  describe("tone-specific greetings", () => {
+    const base: OnboardingGreetingContext = {
+      tools: ["github", "linear"],
+      tasks: ["code-building"],
+      tone: "balanced",
+      userName: "Bob",
+      assistantName: "Pip",
+    };
+
+    it("grounded tone produces direct, calm intro", () => {
+      const greeting = getCannedFirstGreeting({ ...base, tone: "grounded" });
+      expect(greeting).toContain("Bob.");
+      expect(greeting).toContain(
+        "I'm Pip. Brand new, and I'll get sharper the more we work together.",
+      );
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("warm tone uses casual phrasing", () => {
+      const greeting = getCannedFirstGreeting({ ...base, tone: "warm" });
+      expect(greeting).toContain("Hey Bob!");
+      expect(greeting).toContain("hang out");
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("energetic tone is punchy", () => {
+      const greeting = getCannedFirstGreeting({ ...base, tone: "energetic" });
+      expect(greeting).toContain("Bob!");
+      expect(greeting).toContain("let's get into it");
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("poetic tone is softer", () => {
+      const greeting = getCannedFirstGreeting({ ...base, tone: "poetic" });
+      expect(greeting).toContain("Hello, Bob.");
+      expect(greeting).toContain("grow alongside you");
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("balanced tone falls back to generic intro", () => {
+      const greeting = getCannedFirstGreeting({ ...base, tone: "balanced" });
+      expect(greeting).toContain("Hey Bob, I'm Pip.");
+      expect(greeting).toContain("I'll get sharper");
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("unknown tone string falls back to generic intro", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "mysterious-future-tone",
+      });
+      expect(greeting).toContain("Hey Bob, I'm Pip.");
+      expect(greeting).toContain("I'll get sharper");
+      expect(greeting.split("\n\n").length).toBe(2);
+    });
+
+    it("each tone produces a distinct intro line", () => {
+      const tones = ["grounded", "warm", "energetic", "poetic"];
+      const intros = tones.map((tone) => {
+        const greeting = getCannedFirstGreeting({ ...base, tone });
+        return greeting.split("\n\n")[0];
+      });
+      const unique = new Set(intros);
+      expect(unique.size).toBe(tones.length);
+    });
+
+    it("warm tone without user name uses Hey!", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "warm",
+        userName: undefined,
+      });
+      expect(greeting).toStartWith("Hey! I'm Pip");
+    });
+
+    it("poetic tone without user name uses Hello.", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "poetic",
+        userName: undefined,
+      });
+      expect(greeting).toStartWith("Hello. I'm Pip");
+    });
+
+    it("grounded tone without user name omits greeting prefix", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "grounded",
+        userName: undefined,
+      });
+      expect(greeting).toStartWith("I'm Pip.");
+    });
+
+    it("tone-specific intro falls back to generic when no assistantName", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "warm",
+        assistantName: undefined,
+      });
+      expect(greeting).toContain("Hey Bob,");
+      expect(greeting).toContain("brand new");
+    });
+  });
 });

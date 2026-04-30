@@ -57,6 +57,7 @@ import {
   getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
+  updateConversationSlackContextWatermark,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -156,10 +157,12 @@ import {
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   getPkbAutoInjectList,
+  getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
-  loadSlackChronologicalMessages,
+  loadSlackChronologicalContext,
+  type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -487,6 +490,7 @@ export interface AgentLoopConversationContext {
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
+  slackRuntimeContextNotice?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -819,8 +823,138 @@ export async function runAgentLoopImpl(
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
     let compactedThisTurn = false;
+    let slackCompactedThisTurn = false;
+    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
+    let currentSlackContextSummary =
+      turnStartConversation?.contextSummary ?? null;
+    let currentSlackContextCompactedMessageCount =
+      turnStartConversation?.contextCompactedMessageCount ?? 0;
+    let currentSlackContextCompactionWatermarkTs =
+      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
+    const loadCurrentSlackChronologicalContext =
+      (): SlackChronologicalContext | null => {
+        if (!isSlackConversation) return null;
+        return loadSlackChronologicalContext(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+          {
+            trustClass: ctx.trustContext?.trustClass,
+            contextSummary: currentSlackContextSummary,
+            contextCompactedMessageCount:
+              currentSlackContextCompactedMessageCount,
+            slackContextCompactionWatermarkTs:
+              currentSlackContextCompactionWatermarkTs,
+          },
+        );
+      };
+    let slackChronologicalContext: SlackChronologicalContext | null =
+      loadCurrentSlackChronologicalContext();
+    const messagesForStartOfTurnCompaction =
+      slackChronologicalContext?.messages ?? ctx.messages;
+    const getSlackProvenanceContextForCompactionBasis = (
+      messages: Message[],
+      compactedMessages: number,
+    ): SlackChronologicalContext | null => {
+      if (!isSlackConversation || compactedMessages <= 0) return null;
+      const context = slackChronologicalContext;
+      if (!context) return null;
+      if (messages !== context.messages) return null;
+      const end = context.compactableStartIndex + compactedMessages;
+      if (
+        end <= context.compactableStartIndex ||
+        end > context.renderedMessages.length ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
+        return null;
+      }
+      return context;
+    };
+    const projectSlackProvenanceAfterCompaction = (
+      context: SlackChronologicalContext | null,
+      compactedBasis: Message[] | undefined,
+      result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+    ): SlackChronologicalContext | null => {
+      if (
+        !isSlackConversation ||
+        !context ||
+        !compactedBasis ||
+        compactedBasis !== context.messages ||
+        result.compactedMessages <= 0 ||
+        result.messages.length === 0 ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
+        return null;
+      }
 
-    const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
+      const keptStart =
+        context.compactableStartIndex + result.compactedMessages;
+      if (keptStart > context.renderedMessages.length) {
+        return null;
+      }
+
+      const retainedRenderedMessages =
+        context.renderedMessages.slice(keptStart);
+      const retainedResultMessages = result.messages.slice(1);
+      if (retainedResultMessages.length !== retainedRenderedMessages.length) {
+        return null;
+      }
+      for (let index = 0; index < retainedResultMessages.length; index++) {
+        if (
+          retainedResultMessages[index] !==
+          retainedRenderedMessages[index]!.message
+        ) {
+          return null;
+        }
+      }
+
+      return {
+        renderedMessages: [
+          {
+            message: result.messages[0]!,
+            sourceChannelTs: null,
+          },
+          ...retainedRenderedMessages,
+        ],
+        messages: result.messages,
+        compactableStartIndex: 1,
+      };
+    };
+    const applySuccessfulCompaction = (
+      result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+      compactedBasis?: Message[],
+    ) => {
+      const provenanceContext = compactedBasis
+        ? getSlackProvenanceContextForCompactionBasis(
+            compactedBasis,
+            result.compactedMessages,
+          )
+        : null;
+      const slackWatermarkTs = getSlackCompactionWatermarkForPrefix(
+        provenanceContext,
+        result.compactedMessages,
+      );
+      applyCompactionResult(ctx, result, onEvent, reqId, {
+        slackContextCompactionWatermarkTs: slackWatermarkTs,
+      });
+      currentSlackContextSummary = result.summaryText;
+      currentSlackContextCompactedMessageCount =
+        ctx.contextCompactedMessageCount;
+      if (slackWatermarkTs) {
+        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
+      }
+      if (isSlackConversation) {
+        slackCompactedThisTurn = true;
+      }
+      slackChronologicalContext = projectSlackProvenanceAfterCompaction(
+        provenanceContext,
+        compactedBasis,
+        result,
+      );
+    };
+
+    const compactCheck = ctx.contextWindowManager.shouldCompact(
+      messagesForStartOfTurnCompaction,
+    );
     // Skip auto-compaction while the circuit breaker is open. Force paths
     // and user-initiated /compact bypass this check.
     const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
@@ -832,6 +966,13 @@ export async function runAgentLoopImpl(
         reqId,
       );
     }
+    const compactionOptions = {
+      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+      precomputedEstimate: compactCheck.estimatedTokens,
+      conversationOriginChannel:
+        getConversationOriginChannel(ctx.conversationId) ?? undefined,
+      overrideProfile: turnOverrideProfile ?? null,
+    };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
     > | null = null;
@@ -843,14 +984,9 @@ export async function runAgentLoopImpl(
           (args) =>
             defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
           {
-            messages: ctx.messages,
+            messages: messagesForStartOfTurnCompaction,
             signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              precomputedEstimate: compactCheck.estimatedTokens,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-            },
+            options: compactionOptions,
           },
           buildPluginTurnContext(ctx, reqId),
           DEFAULT_TIMEOUTS.compaction,
@@ -884,7 +1020,7 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applyCompactionResult(ctx, compacted, onEvent, reqId);
+      applySuccessfulCompaction(compacted, messagesForStartOfTurnCompaction);
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
@@ -1250,14 +1386,25 @@ export async function runAgentLoopImpl(
     // model sees one channel-wide view instead of the gateway's per-turn
     // hints. DMs render as a flat sequence (no thread tags), channels
     // include sibling threads.
-    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
-    const slackChronologicalMessages = isSlackConversation
-      ? loadSlackChronologicalMessages(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          { trustClass: ctx.trustContext?.trustClass },
-        )
-      : null;
+    const slackConversationForInjection = isSlackConversation
+      ? (getConversation(ctx.conversationId) ?? turnStartConversation)
+      : turnStartConversation;
+    if (isSlackConversation && !slackCompactedThisTurn) {
+      slackChronologicalContext ??= loadSlackChronologicalContext(
+        ctx.conversationId,
+        ctx.channelCapabilities!,
+        {
+          trustClass: ctx.trustContext?.trustClass,
+          contextSummary: slackConversationForInjection?.contextSummary,
+          contextCompactedMessageCount:
+            slackConversationForInjection?.contextCompactedMessageCount,
+          slackContextCompactionWatermarkTs:
+            slackConversationForInjection?.slackContextCompactionWatermarkTs,
+        },
+      );
+    }
+    const slackChronologicalMessages =
+      slackChronologicalContext?.messages ?? null;
 
     // Active-thread focus block: when the inbound user message belongs to
     // a Slack thread, append a non-persisted `<active_thread>` tail block
@@ -1270,7 +1417,13 @@ export async function runAgentLoopImpl(
       ? loadSlackActiveThreadFocusBlock(
           ctx.conversationId,
           ctx.channelCapabilities!,
-          { trustClass: ctx.trustContext?.trustClass },
+          {
+            trustClass: ctx.trustContext?.trustClass,
+            contextCompactedMessageCount:
+              slackConversationForInjection?.contextCompactedMessageCount,
+            slackContextCompactionWatermarkTs:
+              slackConversationForInjection?.slackContextCompactionWatermarkTs,
+          },
         )
       : null;
 
@@ -1304,6 +1457,7 @@ export async function runAgentLoopImpl(
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
+      slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
       slackChronologicalMessages,
@@ -1492,8 +1646,10 @@ export async function runAgentLoopImpl(
       // injection reassembly, token re-estimation). Registered plugins that
       // wrap the `overflowReduce` slot see each iteration through their own
       // middleware `next` callback.
+      const messagesForPreflightOverflowReduction =
+        slackChronologicalContext?.messages ?? ctx.messages;
       const overflowArgs: OverflowReduceArgs = {
-        messages: ctx.messages,
+        messages: messagesForPreflightOverflowReduction,
         runMessages,
         systemPrompt: ctx.systemPrompt,
         providerName: estimationProviderName,
@@ -1528,7 +1684,10 @@ export async function runAgentLoopImpl(
               {
                 messages: msgs,
                 signal,
-                options: opts,
+                options: {
+                  ...(opts ?? {}),
+                  overrideProfile: turnOverrideProfile ?? null,
+                },
               },
               buildPluginTurnContext(ctx, reqId),
               DEFAULT_TIMEOUTS.compaction,
@@ -1570,7 +1729,7 @@ export async function runAgentLoopImpl(
             reqId,
           );
         },
-        onCompactionResult: async (result) => {
+        onCompactionResult: async (result, compactedBasis) => {
           // Track circuit-breaker state whenever the reducer invoked
           // compaction. The reducer's forced_compaction tier uses
           // force:true, so it bypasses the open-circuit check, but we
@@ -1584,7 +1743,7 @@ export async function runAgentLoopImpl(
             await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
-            applyCompactionResult(ctx, result, onEvent, reqId);
+            applySuccessfulCompaction(result, compactedBasis);
             shouldInjectWorkspace = true;
           }
         },
@@ -1876,6 +2035,7 @@ export async function runAgentLoopImpl(
               targetInputTokensOverride: preflightBudget,
               conversationOriginChannel:
                 getConversationOriginChannel(ctx.conversationId) ?? undefined,
+              overrideProfile: turnOverrideProfile ?? null,
             },
           },
           buildPluginTurnContext(ctx, reqId),
@@ -1911,7 +2071,7 @@ export async function runAgentLoopImpl(
         );
       }
       if (midLoopCompact.compacted) {
-        applyCompactionResult(ctx, midLoopCompact, onEvent, reqId);
+        applySuccessfulCompaction(midLoopCompact, rawHistory);
         reducerCompacted = true;
         shouldInjectWorkspace = true;
       }
@@ -2122,8 +2282,9 @@ export async function runAgentLoopImpl(
           "assistant_turn",
           reqId,
         );
+        const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
-          ctx.messages,
+          convergenceCompactionBasis,
           {
             providerName: estimationProviderName,
             systemPrompt: ctx.systemPrompt,
@@ -2133,7 +2294,10 @@ export async function runAgentLoopImpl(
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
+            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
+              ...(opts ?? {}),
+              overrideProfile: turnOverrideProfile ?? null,
+            }),
           abortController.signal,
         );
 
@@ -2157,7 +2321,10 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
+          applySuccessfulCompaction(
+            step.compactionResult,
+            convergenceCompactionBasis,
+          );
           shouldInjectWorkspace = true;
           reducerCompacted = true;
         }
@@ -2282,6 +2449,7 @@ export async function runAgentLoopImpl(
                   force: true,
                   minKeepRecentUserTurns: 0,
                   targetInputTokensOverride: correctedTarget,
+                  overrideProfile: turnOverrideProfile ?? null,
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2318,7 +2486,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact?.compacted) {
-            applyCompactionResult(ctx, emergencyCompact, onEvent, reqId);
+            applySuccessfulCompaction(emergencyCompact, ctx.messages);
             reducerCompacted = true;
             shouldInjectWorkspace = true;
           }
@@ -2551,6 +2719,10 @@ export async function runAgentLoopImpl(
       {
         tokens: state.lastCallInputTokens,
         maxTokens: config.llm.default.contextWindow.maxInputTokens,
+      },
+      {
+        callSite: turnCallSite,
+        overrideProfile: turnOverrideProfile ?? null,
       },
     );
 
@@ -2808,6 +2980,7 @@ export async function runAgentLoopImpl(
       });
       onEvent({
         type: "error",
+        conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
       });
@@ -2861,6 +3034,7 @@ export async function runAgentLoopImpl(
     ctx.allowedToolNames = undefined;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.slackRuntimeContextNotice = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
@@ -2901,6 +3075,10 @@ function emitUsage(
   providerName?: string,
   llmCallCount = 1,
   contextWindow?: { tokens: number; maxTokens: number },
+  attribution?: {
+    callSite: LLMCallSite | null;
+    overrideProfile?: string | null;
+  },
 ): void {
   recordUsage(
     {
@@ -2919,6 +3097,7 @@ function emitUsage(
     rawResponse,
     llmCallCount,
     contextWindow,
+    attribution,
   );
 }
 
@@ -2969,19 +3148,32 @@ export function applyCompactionResult(
     summaryCacheCreationInputTokens?: number;
     summaryCacheReadInputTokens?: number;
     summaryRawResponses?: unknown[];
+    summaryCallSite?: LLMCallSite;
+    summaryOverrideProfile?: string | null;
   },
   onEvent: (msg: ServerMessage) => void,
   reqId: string | null,
+  options: {
+    slackContextCompactionWatermarkTs?: string | null;
+  } = {},
 ): void {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
-  ctx.contextCompactedAt = Date.now();
+  const compactedAt = Date.now();
+  ctx.contextCompactedAt = compactedAt;
   ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
+  if (options.slackContextCompactionWatermarkTs) {
+    updateConversationSlackContextWatermark(
+      ctx.conversationId,
+      options.slackContextCompactionWatermarkTs,
+      compactedAt,
+    );
+  }
   enqueueAutoAnalysisOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
@@ -3016,6 +3208,11 @@ export function applyCompactionResult(
     collapseRawResponses(result.summaryRawResponses),
     undefined /* providerName */,
     1 /* llmCallCount */,
+    undefined /* contextWindow */,
+    {
+      callSite: result.summaryCallSite ?? null,
+      overrideProfile: result.summaryOverrideProfile ?? null,
+    },
   );
 }
 

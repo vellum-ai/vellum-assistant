@@ -836,6 +836,12 @@ struct ToolCallStepDetailRow: View {
     @State private var ruleEditorToolCall: ToolCallData?
     /// LLM-generated suggestion to pre-populate the rule editor.
     @State private var ruleEditorSuggestion: TrustRuleSuggestion?
+    /// Existing trust rule that matched this tool call, or nil for create mode.
+    @State private var ruleEditorExistingRule: TrustRule?
+    /// Tracks the in-flight suggestion task so it can be cancelled on re-open or dismiss.
+    @State private var suggestionTask: Task<Void, Never>?
+    /// Tracks the outer badge-tap task (fetchMatchedRule + modal open) so rapid taps don't race.
+    @State private var ruleEditorTask: Task<Void, Never>?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -962,7 +968,31 @@ struct ToolCallStepDetailRow: View {
                 scopeOptions: Self.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: ruleEditorSuggestion,
+                existingRule: ruleEditorExistingRule,
                 onSave: { rule in
+                    let existingRule = ruleEditorExistingRule
+                    Task {
+                        if let existingRule {
+                            try? await Self.trustRuleClient.updateRule(
+                                id: existingRule.id,
+                                risk: rule.riskLevel,
+                                description: nil
+                            )
+                        } else {
+                            try? await Self.trustRuleClient.createRule(
+                                tool: rule.toolName,
+                                pattern: rule.pattern,
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                }(),
+                                scope: rule.scope
+                            )
+                        }
+                    }
+                },
+                onSaveAsNew: { rule in
                     Task {
                         try? await Self.trustRuleClient.createRule(
                             tool: rule.toolName,
@@ -977,8 +1007,13 @@ struct ToolCallStepDetailRow: View {
                     }
                 },
                 onDismiss: {
+                    ruleEditorTask?.cancel()
+                    ruleEditorTask = nil
+                    suggestionTask?.cancel()
+                    suggestionTask = nil
                     ruleEditorToolCall = nil
                     ruleEditorSuggestion = nil
+                    ruleEditorExistingRule = nil
                 }
             )
         }
@@ -1081,8 +1116,9 @@ struct ToolCallStepDetailRow: View {
     @ViewBuilder
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
-            RiskBadgeView(riskLevel: risk) {
-                ruleEditorToolCall = toolCall
+            RiskBadgeView(riskLevel: risk, hasExistingRule: toolCall.matchedTrustRuleId != nil) {
+                ruleEditorTask?.cancel()
+                ruleEditorTask = Task { await openRuleEditorForCompletedCall(toolCall) }
             }
         }
     }
@@ -1121,6 +1157,70 @@ struct ToolCallStepDetailRow: View {
                 pattern: option.pattern
             )
         }
+    }
+
+    // MARK: - Rule Editor
+
+    @MainActor
+    private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
+        // Cancel any previous suggestion task and clear stale state before opening.
+        suggestionTask?.cancel()
+        suggestionTask = nil
+        ruleEditorSuggestion = nil
+
+        // Fetch the matched rule first (fast HTTP list) so the modal opens in the
+        // correct create/edit mode. Suggestion fires in the background after open.
+        let existingRule = try? await fetchMatchedRule(toolCall)
+        guard !Task.isCancelled else { return }
+        ruleEditorExistingRule = existingRule
+        guard !Task.isCancelled else { return }
+        ruleEditorToolCall = toolCall  // Opens the modal immediately
+
+        // LLM suggestion fires while the modal is already visible. The modal
+        // reacts via .onChange(of: suggestion?.pattern) in applySuggestionOrDefaults.
+        suggestionTask = Task { @MainActor in
+            guard let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule) else { return }
+            guard !Task.isCancelled else { return }
+            ruleEditorSuggestion = suggestion
+        }
+    }
+
+    private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {
+        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
+            (pattern: $0.pattern, label: $0.label)
+        }
+        let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
+            (scope: $0.scope, label: $0.label)
+        }
+        let fullCommand: String = {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+            return toolCall.inputSummary
+        }()
+        return try await Self.trustRuleClient.suggestRule(
+            tool: toolCall.toolName,
+            command: fullCommand,
+            riskAssessment: (
+                risk: toolCall.riskLevel ?? "medium",
+                reasoning: toolCall.riskReason ?? "",
+                reasonDescription: toolCall.reasonDescription ?? ""
+            ),
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: dirScopeOpts,
+            intent: "auto_approve",
+            existingRule: existingRule.map { (id: $0.id, pattern: $0.pattern, risk: $0.risk) }
+        )
+    }
+
+    private func fetchMatchedRule(_ toolCall: ToolCallData) async throws -> TrustRule {
+        guard let matchedId = toolCall.matchedTrustRuleId else {
+            throw TrustRuleClientError.notFound
+        }
+        let rules = try await Self.trustRuleClient.listRules(tool: toolCall.toolName)
+        guard let rule = rules.first(where: { $0.id == matchedId }) else {
+            throw TrustRuleClientError.notFound
+        }
+        return rule
     }
 
     // MARK: - Detail Content

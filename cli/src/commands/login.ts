@@ -3,9 +3,8 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 
 import {
-  findAssistantByName,
   getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
   loadAllAssistants,
   removeAssistantEntry,
   setActiveAssistant,
@@ -205,10 +204,7 @@ export async function login(): Promise<void> {
     // Register the local assistant with the platform (non-fatal).
     // Mirrors the desktop app's LocalAssistantBootstrapService flow.
     try {
-      const activeName = getActiveAssistant();
-      const entry = activeName
-        ? findAssistantByName(activeName)
-        : loadLatestAssistant();
+      const entry = resolveAssistant();
 
       // Skip managed ("vellum") assistants — they are handled by the platform.
       if (entry && entry.cloud !== "vellum") {

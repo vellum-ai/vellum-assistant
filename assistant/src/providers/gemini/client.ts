@@ -34,6 +34,16 @@ function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
 }
 
+function stripGeminiHttpOptions(
+  config: genai.GenerateContentConfig,
+): genai.GenerateContentConfig {
+  const { httpOptions: _httpOptions, ...rest } =
+    config as genai.GenerateContentConfig & {
+      httpOptions?: unknown;
+    };
+  return rest;
+}
+
 /**
  * Detect Gemini's context-overflow signals on an `ApiError`. Gemini surfaces
  * this condition via its "RESOURCE_EXHAUSTED" category. The Gemini SDK's
@@ -162,6 +172,9 @@ export class GeminiProvider implements Provider {
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
+    const usageAttributionHeaders = configObj?.usageAttributionHeaders as
+      | Record<string, string>
+      | undefined;
     const activeModel = modelOverride ?? this.model;
 
     try {
@@ -193,6 +206,9 @@ export class GeminiProvider implements Provider {
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
       geminiConfig.abortSignal = timeoutSignal;
+      if (usageAttributionHeaders) {
+        geminiConfig.httpOptions = { headers: usageAttributionHeaders };
+      }
 
       // Accumulate from streaming chunks
       let fullText = "";
@@ -296,7 +312,7 @@ export class GeminiProvider implements Provider {
       const rawRequest = {
         model: activeModel,
         contents: geminiContents,
-        config: geminiConfig,
+        config: stripGeminiHttpOptions(geminiConfig),
       };
       const rawResponse = {
         model: responseModel,

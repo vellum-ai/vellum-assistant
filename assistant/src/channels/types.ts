@@ -136,47 +136,12 @@ export function supportsHostProxy(
   capability?: HostProxyCapability,
 ): boolean {
   // macOS supports all four host proxy capabilities including host_browser.
-  // The host_browser proxy is provisioned via the SSE sender path (or via the
-  // ChromeExtensionRegistry when an extension connection is present). When no
+  // The host_browser proxy is provisioned via the assistant event hub. When no
   // extension is connected, browser tools fall through to cdp-inspect/local
   // via the CDP factory's candidate chain.
   if (id === "macos") return true;
   if (id === "chrome-extension" && capability === "host_browser") return true;
   return false;
-}
-
-/**
- * Whether the interface can service host_browser frames via the
- * ChromeExtensionRegistry (WebSocket) when an extension connection exists.
- *
- * Returns `true` for interfaces where the daemon should set
- * `hostBrowserSenderOverride` and provision a `HostBrowserProxy` when the
- * guardian has an active extension connection — currently `chrome-extension`
- * and `macos`.
- *
- * Use this instead of hard-coding interface checks so new desktop interfaces
- * only need to be added in one place.
- */
-export function canServiceRegistryBrowser(id: InterfaceId): boolean {
-  return id === "chrome-extension" || id === "macos";
-}
-
-/**
- * Whether the interface can service host_browser frames via the SSE event
- * hub when a chrome-extension client is connected over SSE (cloud mode).
- *
- * In cloud/platform-hosted deployments the chrome extension connects via
- * SSE (`GET /v1/events`) instead of a direct WebSocket. There is no
- * ChromeExtensionRegistry entry, but the extension is a valid SSE consumer
- * for `host_browser_request` frames and can POST results back to
- * `/v1/host-browser-result`.
- *
- * Returns `true` for interfaces that should provision a `HostBrowserProxy`
- * with the SSE hub sender when a chrome-extension SSE client is present in
- * the assistant event hub's client subscriber metadata.
- */
-export function canServiceSseBrowser(id: InterfaceId): boolean {
-  return id === "web" || id === "chrome-extension" || id === "macos";
 }
 
 export interface TurnInterfaceContext {
