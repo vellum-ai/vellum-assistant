@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
@@ -72,11 +72,22 @@ async function pushSchemaNoPrompt(
 
 let db: GatewayDb | null = null;
 
-function canonicalizeExistingPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
+function canonicalizePathThroughExistingParent(path: string): string {
+  const resolvedPath = resolve(path);
+  const pendingSegments: string[] = [];
+  let currentPath = resolvedPath;
+
+  while (true) {
+    try {
+      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
+    } catch {
+      const parentPath = dirname(currentPath);
+      if (parentPath === currentPath) {
+        return resolvedPath;
+      }
+      pendingSegments.push(basename(currentPath));
+      currentPath = parentPath;
+    }
   }
 }
 
@@ -99,8 +110,9 @@ function assertTestDbIsIsolated(): void {
     );
   }
 
-  const resolvedSecurityDir = canonicalizeExistingPath(securityDir);
-  const realSecurityDir = canonicalizeExistingPath(
+  const resolvedSecurityDir =
+    canonicalizePathThroughExistingParent(securityDir);
+  const realSecurityDir = canonicalizePathThroughExistingParent(
     process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR?.trim() ||
       join(homedir(), ".vellum", "protected"),
   );

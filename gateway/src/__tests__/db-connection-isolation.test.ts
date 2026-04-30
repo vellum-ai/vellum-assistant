@@ -98,6 +98,36 @@ test("initGatewayDb refuses symlink aliases to the real security dir during test
   }
 });
 
+test("initGatewayDb refuses missing children under symlink aliases to the real security dir", async () => {
+  resetGatewayDb();
+  const testRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vellum-gateway-db-isolation-")),
+  );
+
+  try {
+    const fakeHome = join(testRoot, "home");
+    const realSecurityDir = join(fakeHome, ".vellum", "protected");
+    const aliasParent = join(testRoot, "aliases");
+    const securityLink = join(aliasParent, "gateway-security-link");
+    const missingChild = join(securityLink, "new-security-dir");
+
+    mkdirSync(realSecurityDir, { recursive: true });
+    mkdirSync(aliasParent, { recursive: true });
+    symlinkSync(realSecurityDir, securityLink, "dir");
+
+    process.env.HOME = fakeHome;
+    process.env.GATEWAY_SECURITY_DIR = missingChild;
+    process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR = realSecurityDir;
+    delete process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS;
+
+    await expect(initGatewayDb()).rejects.toThrow(
+      "Refusing to open the real gateway security DB during tests",
+    );
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
 test("initGatewayDb does not migrate legacy gateway DBs during tests", async () => {
   resetGatewayDb();
   const testRoot = realpathSync(

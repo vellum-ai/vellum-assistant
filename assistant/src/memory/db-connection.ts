@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -12,11 +12,22 @@ export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
 let db: DrizzleDb | null = null;
 
-function canonicalizeExistingPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
+function canonicalizePathThroughExistingParent(path: string): string {
+  const resolvedPath = resolve(path);
+  const pendingSegments: string[] = [];
+  let currentPath = resolvedPath;
+
+  while (true) {
+    try {
+      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
+    } catch {
+      const parentPath = dirname(currentPath);
+      if (parentPath === currentPath) {
+        return resolvedPath;
+      }
+      pendingSegments.push(basename(currentPath));
+      currentPath = parentPath;
+    }
   }
 }
 
@@ -39,8 +50,9 @@ function assertTestDbIsIsolated(): void {
     );
   }
 
-  const resolvedWorkspaceDir = canonicalizeExistingPath(workspaceDir);
-  const realWorkspaceDir = canonicalizeExistingPath(
+  const resolvedWorkspaceDir =
+    canonicalizePathThroughExistingParent(workspaceDir);
+  const realWorkspaceDir = canonicalizePathThroughExistingParent(
     process.env.VELLUM_TEST_REAL_WORKSPACE_DIR?.trim() ||
       join(homedir(), ".vellum", "workspace"),
   );

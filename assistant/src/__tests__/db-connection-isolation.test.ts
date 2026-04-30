@@ -93,3 +93,33 @@ test("getDb refuses symlink aliases to the real workspace during tests", () => {
     rmSync(testRoot, { recursive: true, force: true });
   }
 });
+
+test("getDb refuses missing children under symlink aliases to the real workspace", () => {
+  resetDb();
+  const testRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vellum-db-isolation-")),
+  );
+
+  try {
+    const fakeHome = join(testRoot, "home");
+    const realWorkspace = join(fakeHome, ".vellum", "workspace");
+    const aliasParent = join(testRoot, "aliases");
+    const workspaceLink = join(aliasParent, "workspace-link");
+    const missingChild = join(workspaceLink, "new-test-workspace");
+
+    mkdirSync(realWorkspace, { recursive: true });
+    mkdirSync(aliasParent, { recursive: true });
+    symlinkSync(realWorkspace, workspaceLink, "dir");
+
+    process.env.HOME = fakeHome;
+    process.env.VELLUM_WORKSPACE_DIR = missingChild;
+    process.env.VELLUM_TEST_REAL_WORKSPACE_DIR = realWorkspace;
+    delete process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
+
+    expect(() => getDb()).toThrow(
+      "Refusing to open the real assistant workspace DB during tests",
+    );
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
