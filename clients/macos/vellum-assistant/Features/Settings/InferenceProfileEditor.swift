@@ -52,6 +52,10 @@ struct InferenceProfileEditor: View {
     /// with `0`. Synced into `profile.maxTokens` on every change.
     @State private var maxTokensText: String = ""
 
+    /// Tracks whether the user has manually edited the Key field. When
+    /// false, the key auto-derives from the Display Name as kebab-case.
+    @State private var isKeyDirty: Bool = false
+
     // MARK: - Validation
 
     /// True when the user has picked a provider but no model — the most
@@ -104,7 +108,9 @@ struct InferenceProfileEditor: View {
             SettingsDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    nameField
+                    labelField
+                    descriptionField
+                    keyField
                     providerField
                     modelField
                     if visibility.maxTokens {
@@ -133,7 +139,15 @@ struct InferenceProfileEditor: View {
             editorFooter
         }
         .background(VColor.surfaceLift)
-        .onAppear { syncMaxTokensFromBinding() }
+        .onAppear {
+            syncMaxTokensFromBinding()
+            // Only treat the key as user-owned for edits and views of
+            // existing profiles. Creates and duplicates keep the key
+            // auto-derived from Display Name so renaming stays in sync.
+            if !isCreating {
+                isKeyDirty = true
+            }
+        }
         .onChange(of: profile.maxTokens) { _, _ in syncMaxTokensFromBinding() }
     }
 
@@ -145,7 +159,8 @@ struct InferenceProfileEditor: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
             if isReadOnly {
-                VBadge(label: "Managed", tone: .neutral, emphasis: .subtle)
+                VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
+                    .help("Profiles managed by Vellum cannot be edited, but can be copied")
             }
             Spacer(minLength: 0)
             VButton(
@@ -216,16 +231,58 @@ struct InferenceProfileEditor: View {
         }
     }
 
-    private var nameField: some View {
-        labeled("Name") {
+    private var labelField: some View {
+        labeled("Display Name") {
             VTextField(
-                placeholder: "Profile name",
+                placeholder: "e.g. Fast & Cheap",
                 text: Binding(
-                    get: { profile.name },
-                    set: { profile.name = $0 }
+                    get: { profile.label ?? "" },
+                    set: { newValue in
+                        profile.label = newValue.isEmpty ? nil : newValue
+                        if !isKeyDirty {
+                            profile.name = Self.toKebabCase(newValue)
+                        }
+                    }
                 )
             )
         }
+    }
+
+    private var descriptionField: some View {
+        labeled("Description") {
+            VTextField(
+                placeholder: "e.g. Fastest responses at lower cost",
+                text: Binding(
+                    get: { profile.profileDescription ?? "" },
+                    set: { profile.profileDescription = $0.isEmpty ? nil : $0 }
+                )
+            )
+        }
+    }
+
+    private var keyField: some View {
+        labeled("Key") {
+            VTextField(
+                placeholder: "profile-key",
+                text: Binding(
+                    get: { profile.name },
+                    set: { newValue in
+                        isKeyDirty = true
+                        profile.name = newValue
+                    }
+                )
+            )
+        }
+    }
+
+    /// Converts a display name to a kebab-case key.
+    /// "Fast & Cheap" → "fast-cheap", "My Profile" → "my-profile"
+    static func toKebabCase(_ input: String) -> String {
+        input
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
     }
 
     private var providerField: some View {

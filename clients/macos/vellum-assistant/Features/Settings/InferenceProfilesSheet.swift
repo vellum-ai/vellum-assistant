@@ -246,7 +246,8 @@ struct InferenceProfilesSheet: View {
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                     if profile.isManaged {
-                        VBadge(label: "Managed", tone: .neutral, emphasis: .subtle)
+                        VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
+                            .help("Profiles managed by Vellum cannot be edited, but can be copied")
                     }
                 }
                 if let subtitle = profile.subtitle {
@@ -451,6 +452,8 @@ struct InferenceProfilesSheet: View {
         actionError = nil
         guard let source = store.profiles.first(where: { $0.name == name }) else { return }
         var copy = source
+        let sourceDisplayName = source.displayName
+        copy.label = "\(sourceDisplayName) (copy)"
         copy.name = uniqueProfileName(prefix: "\(name)-copy")
         // Clear the managed source so the duplicate is treated as a
         // user-created profile and is fully editable.
