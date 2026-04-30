@@ -8,6 +8,7 @@ import type {
 import {
   bucketEventsByDay,
   bucketEventsByHour,
+  compareUsageBuckets,
   type UsageEventBucketRow,
 } from "./usage-buckets.js";
 
@@ -122,7 +123,5 @@ export function bucketGroupedUsageEvents(
     groupedBucket.eventCount += row.llm_call_count ?? 1;
   }
 
-  return Array.from(buckets.values()).sort((a, b) =>
-    a.bucketId.localeCompare(b.bucketId),
-  );
+  return Array.from(buckets.values()).sort(compareUsageBuckets);
 }

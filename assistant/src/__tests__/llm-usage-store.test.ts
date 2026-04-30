@@ -1176,6 +1176,44 @@ describe("getUsageGroupedSeries", () => {
       totalInputTokens: 200,
     });
   });
+
+  test("orders grouped hourly buckets chronologically across positive-offset fall back", () => {
+    insertEventAt(Date.UTC(2026, 3, 4, 15, 15), {
+      inferenceProfile: "first-hour",
+      inputTokens: 100,
+    });
+    insertEventAt(Date.UTC(2026, 3, 4, 16, 15), {
+      inferenceProfile: "second-hour",
+      inputTokens: 200,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 4, 15),
+        to: Date.UTC(2026, 3, 4, 17),
+      },
+      "inference_profile",
+      "hourly",
+      "Australia/Sydney",
+      { fillEmpty: true },
+    );
+
+    const duplicateTwoAmBuckets = buckets.filter(
+      (entry) => entry.date === "2026-04-05 02:00",
+    );
+    expect(duplicateTwoAmBuckets.map((entry) => entry.bucketId)).toEqual([
+      "2026-04-05 02:00|660",
+      "2026-04-05 02:00|600",
+    ]);
+    expect(duplicateTwoAmBuckets[0].groups["value:first-hour"]).toMatchObject({
+      group: "first-hour",
+      totalInputTokens: 100,
+    });
+    expect(duplicateTwoAmBuckets[1].groups["value:second-hour"]).toMatchObject({
+      group: "second-hour",
+      totalInputTokens: 200,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
