@@ -368,7 +368,8 @@ struct CallSiteOverrideRow: View {
         }
         var parts: [String] = []
         if let profile = draft.profile {
-            parts.append("Profile: \(profile)")
+            let display = profiles.first(where: { $0.name == profile })?.displayName ?? profile
+            parts.append(display)
         } else if let provider = draft.provider, let model = draft.model {
             parts.append("\(providerDisplayName(provider)) \u{00B7} \(modelDisplayName(provider, model))")
         } else if let model = draft.model {
