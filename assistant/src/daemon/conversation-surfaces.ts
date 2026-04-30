@@ -1552,6 +1552,7 @@ export async function handleSurfaceAction(
       );
       onEvent({
         type: "error",
+        conversationId: ctx.conversationId,
         message: `Failed to process surface action: ${message}`,
       });
     });
