@@ -2,8 +2,6 @@ import type {
   EmbeddingBackend,
   EmbeddingInput,
   EmbeddingRequestOptions,
-} from "./embedding-backend.js";
-import type {
   EmbeddingTaskType,
   MultimodalEmbeddingInput,
 } from "./embedding-types.js";

@@ -11,8 +11,11 @@ import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
+  type EmbeddingBackend,
   type EmbeddingInput,
   embeddingInputContentHash,
+  type EmbeddingProviderName,
+  type EmbeddingRequestOptions,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
   type SparseEmbedding,
@@ -260,22 +263,6 @@ function geminiCacheExtras(config: AssistantConfig): string[] {
     extras.push(`dim=${config.memory.embeddings.geminiDimensions}`);
   }
   return extras;
-}
-
-export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
-
-export interface EmbeddingRequestOptions {
-  signal?: AbortSignal;
-}
-
-export interface EmbeddingBackend {
-  readonly provider: EmbeddingProviderName;
-  readonly model: string;
-  embed(
-    inputs: EmbeddingInput[],
-    options?: EmbeddingRequestOptions,
-  ): Promise<number[][]>;
-  dispose?(): void;
 }
 
 export interface EmbeddingBackendSelection {
