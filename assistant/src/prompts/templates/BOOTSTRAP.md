@@ -80,9 +80,11 @@ The user profile (users/{{USER_PERSONA_FILE}}) has fields: preferred name, prono
 
 SOUL.md captures communication style. Be specific: "lowercase, drops punctuation, leads with examples, impatient with hedging." Write what you actually observe.
 
-The current contents of all three files are in your system prompt — use that exact text as `old_string`. Do not run any read steps before editing. Do not call file_read, bash, or any tool to check current file contents. The system prompt version is authoritative. Use it directly.
+The current contents of SOUL.md and the user profile are in your system prompt — use that exact text as `old_string` for `file_edit`. Do not run any read steps before editing. Do not call file_read, bash, or any tool to check current file contents. The system prompt version is authoritative. Use it directly.
 
-Use `file_edit` for any structured write (IDENTITY.md, SOUL.md, user profile). Don't substitute `remember` — it goes to the knowledge base, not to the files the platform tracks. Names, emoji, and tagline go in IDENTITY.md via `file_edit`.
+For IDENTITY.md, use `file_write` (not `file_edit`) to overwrite the entire file. Keep the comment line, the header, the format instruction, and all five `- **Label:**` fields. Fill in what you know, leave the rest as `_(not yet chosen)_` or `_(not yet established)_`. Add `## Identity Intro` after `## Avatar` with a short tagline.
+
+Use `file_edit` for SOUL.md and the user profile. Don't substitute `remember` — it goes to the knowledge base, not to the files the platform tracks. Names, emoji, and tagline go in IDENTITY.md via `file_write`.
 
 ## Next steps, when they come up
 
