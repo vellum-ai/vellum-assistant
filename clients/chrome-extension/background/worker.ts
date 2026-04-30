@@ -59,7 +59,7 @@ import {
 } from "./relay-connection.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
 import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
-import { appendEvent, getEventLog } from "./event-log.js";
+import { appendEvent, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -407,6 +407,10 @@ async function dispatchHostBrowserResult(
   appendEvent("outbound", "host_browser_result", {
     summary: `${result.requestId.slice(0, 8)}${result.isError ? " (error)" : ""}`,
     isError: result.isError,
+  });
+  recordResponse(result.requestId, {
+    isError: result.isError,
+    responseContent: result.content,
   });
   if (relayConnection) {
     // Read the live mode from the active connection so that
@@ -781,6 +785,12 @@ async function handleSseMessage(data: unknown): Promise<void> {
     appendEvent("inbound", "host_browser_request", {
       summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
     });
+    recordRequest(req.requestId, req.cdpMethod, {
+      cdpMethod: req.cdpMethod,
+      cdpParams: req.cdpParams,
+      cdpSessionId: req.cdpSessionId,
+      conversationId: req.conversationId,
+    });
     await hostBrowserDispatcher.handle(req);
     return;
   }
@@ -1022,6 +1032,12 @@ async function handleServerMessage(raw: string): Promise<void> {
       const req = parsed as HostBrowserRequestEnvelope;
       appendEvent("inbound", "host_browser_request", {
         summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
+      });
+      recordRequest(req.requestId, req.cdpMethod, {
+        cdpMethod: req.cdpMethod,
+        cdpParams: req.cdpParams,
+        cdpSessionId: req.cdpSessionId,
+        conversationId: req.conversationId,
       });
       await hostBrowserDispatcher.handle(req);
       return;
@@ -1421,6 +1437,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === "get-event-log") {
     sendResponseFn({ ok: true, entries: getEventLog() });
     return false; // synchronous
+  }
+
+  if (message.type === "get-operations") {
+    sendResponseFn({ ok: true, operations: getOperations() });
+    return false;
+  }
+
+  if (message.type === "get-operation-detail") {
+    const op = getOperationById(message.operationId as number);
+    sendResponseFn({ ok: !!op, operation: op ?? null });
+    return false;
   }
 
   // Unknown message type — let Chrome close the port naturally.

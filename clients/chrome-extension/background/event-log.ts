@@ -1,13 +1,12 @@
 /**
  * In-memory ring buffer for chrome extension relay events.
  *
- * Captures incoming requests, outgoing results, cancellations, and
- * session events — everything except keepalive heartbeats. The popup
- * reads the log via a `get-event-log` message to show recent activity
- * in the Connected tab.
+ * Events are stored as correlated **operations** — each inbound request
+ * is paired with its outbound result by `requestId`. The popup reads
+ * the operation list to show a single row per browser action.
  *
- * Only the last {@link MAX_ENTRIES} entries are retained. The buffer is
- * ephemeral — it resets when the service worker restarts.
+ * Only the last {@link MAX_OPERATIONS} operations are retained. The
+ * buffer is ephemeral — it resets when the service worker restarts.
  */
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -29,12 +28,41 @@ export interface EventLogEntry {
   isError?: boolean;
 }
 
+/**
+ * A correlated request → response pair. One row in the activity list.
+ */
+export interface OperationEntry {
+  /** Unique operation ID (monotonically increasing). */
+  id: number;
+  /** The correlation key (requestId from the host_browser envelope). */
+  requestId: string;
+  /** The CDP method or synthetic Vellum.* method. */
+  operationName: string;
+  /** ISO 8601 timestamp of the request. */
+  requestedAt: string;
+  /** ISO 8601 timestamp of the response, if received. */
+  respondedAt?: string;
+  /** Duration in milliseconds, if response received. */
+  durationMs?: number;
+  /** Whether the result was an error. */
+  isError?: boolean;
+  /** Raw request envelope (for detail view). */
+  request?: Record<string, unknown>;
+  /** Raw response content string (for detail view). */
+  responseContent?: string;
+}
+
 // ── Ring buffer ─────────────────────────────────────────────────────
 
 const MAX_ENTRIES = 100;
+const MAX_OPERATIONS = 50;
 
 let nextId = 1;
 const buffer: EventLogEntry[] = [];
+
+let nextOpId = 1;
+const operations: OperationEntry[] = [];
+const operationsByRequestId = new Map<string, OperationEntry>();
 
 export function appendEvent(
   direction: EventLogDirection,
@@ -56,13 +84,65 @@ export function appendEvent(
   return entry;
 }
 
-/** Return a snapshot of the log (oldest first). */
+/**
+ * Record an inbound request as a new operation.
+ */
+export function recordRequest(
+  requestId: string,
+  operationName: string,
+  request?: Record<string, unknown>,
+): OperationEntry {
+  const op: OperationEntry = {
+    id: nextOpId++,
+    requestId,
+    operationName,
+    requestedAt: new Date().toISOString(),
+    request,
+  };
+  operations.push(op);
+  operationsByRequestId.set(requestId, op);
+  if (operations.length > MAX_OPERATIONS) {
+    const evicted = operations.shift()!;
+    operationsByRequestId.delete(evicted.requestId);
+  }
+  return op;
+}
+
+/**
+ * Record the response for an existing operation (correlate by requestId).
+ */
+export function recordResponse(
+  requestId: string,
+  opts?: { isError?: boolean; responseContent?: string },
+): void {
+  const op = operationsByRequestId.get(requestId);
+  if (!op) return;
+  op.respondedAt = new Date().toISOString();
+  op.isError = opts?.isError;
+  op.responseContent = opts?.responseContent;
+  op.durationMs = new Date(op.respondedAt).getTime() - new Date(op.requestedAt).getTime();
+}
+
+/** Return a snapshot of operations (oldest first). */
+export function getOperations(): OperationEntry[] {
+  return [...operations];
+}
+
+/** Return a snapshot of the raw log (oldest first). */
 export function getEventLog(): EventLogEntry[] {
   return [...buffer];
+}
+
+/** Return a single operation by its numeric ID. */
+export function getOperationById(id: number): OperationEntry | undefined {
+  return operations.find((op) => op.id === id);
 }
 
 /** Clear the log (mainly for testing). */
 export function clearEventLog(): void {
   buffer.length = 0;
   nextId = 1;
+  operations.length = 0;
+  operationsByRequestId.clear();
+  nextOpId = 1;
 }

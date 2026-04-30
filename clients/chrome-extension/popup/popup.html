@@ -35,7 +35,8 @@
       font-size: 13px;
       color: var(--text-1);
       background: linear-gradient(180deg, #10131b 0%, var(--bg) 100%);
-      width: 300px;
+      width: 420px;
+      min-height: 300px;
       padding: 16px;
       -webkit-font-smoothing: antialiased;
     }
@@ -302,93 +303,208 @@
       margin-bottom: 4px;
     }
 
-    /* ── Event Log ────────────────────────────────────────────────── */
+    /* ── Activity card (clickable, navigates to activity screen) ── */
 
-    .event-log-toggle {
+    .activity-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
       display: flex;
       align-items: center;
-      gap: 6px;
-      width: 100%;
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 8px 0;
+      justify-content: space-between;
+    }
+
+    .activity-card:hover {
+      border-color: var(--border-hover);
+      background: var(--surface-2);
+    }
+
+    .activity-card-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .activity-card-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-1);
+    }
+
+    .activity-card-count {
+      font-size: 11px;
+      background: var(--surface-2);
       color: var(--text-2);
-      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 10px;
       font-weight: 500;
     }
-    .event-log-toggle:hover { color: var(--text); }
-    .event-log-toggle .chevron {
-      font-size: 9px;
-      transition: transform 0.15s;
-      display: inline-block;
-    }
-    .event-log-toggle[aria-expanded="true"] .chevron {
-      transform: rotate(90deg);
+
+    .activity-card-arrow {
+      color: var(--text-3);
+      flex-shrink: 0;
     }
 
-    .event-log-container {
-      max-height: 260px;
-      overflow-y: auto;
+    /* ── Activity list screen ────────────────────────────────────── */
+
+    .activity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg);
-      margin-bottom: 8px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s;
     }
 
-    .event-log-empty {
-      padding: 16px;
-      text-align: center;
-      color: var(--text-2);
+    .activity-row:hover {
+      border-color: var(--border-hover);
+    }
+
+    .activity-row-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
       font-size: 12px;
     }
 
-    .event-log-row {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      padding: 5px 10px;
-      font-size: 11px;
-      font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-      border-bottom: 1px solid var(--border);
+    .activity-row-icon.success {
+      background: var(--green-soft);
+      color: var(--green);
     }
-    .event-log-row:last-child { border-bottom: none; }
 
-    .event-log-time {
-      color: var(--text-2);
-      white-space: nowrap;
-      flex-shrink: 0;
+    .activity-row-icon.error {
+      background: var(--red-soft);
+      color: var(--red);
     }
-    .event-log-dir {
-      font-weight: 600;
-      flex-shrink: 0;
-      width: 14px;
-      text-align: center;
+
+    .activity-row-icon.pending {
+      background: var(--yellow-soft);
+      color: var(--yellow);
     }
-    .event-log-dir.inbound { color: var(--blue); }
-    .event-log-dir.outbound { color: var(--green); }
-    .event-log-type {
-      color: var(--text);
-      white-space: nowrap;
+
+    .activity-row-body {
+      flex: 1;
+      min-width: 0;
     }
-    .event-log-summary {
-      color: var(--text-2);
+
+    .activity-row-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-1);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .event-log-row.is-error .event-log-type,
-    .event-log-row.is-error .event-log-summary {
-      color: var(--red);
-    }
-    .event-log-badge {
-      background: var(--surface-2);
-      color: var(--text-2);
+
+    .activity-row-meta {
       font-size: 10px;
-      padding: 1px 6px;
-      border-radius: 8px;
-      margin-left: auto;
+      color: var(--text-3);
+      margin-top: 2px;
+    }
+
+    .activity-row-arrow {
+      color: var(--text-3);
       flex-shrink: 0;
+    }
+
+    .activity-empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+
+    /* ── Operation detail screen ─────────────────────────────────── */
+
+    .detail-header {
+      margin-bottom: 14px;
+    }
+
+    .detail-operation-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .detail-meta {
+      font-size: 11px;
+      color: var(--text-3);
+    }
+
+    .detail-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .detail-tab {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-3);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      text-align: center;
+      transition: color 0.15s, border-color 0.15s;
+      width: auto;
+    }
+
+    .detail-tab:hover {
+      color: var(--text-2);
+    }
+
+    .detail-tab.active {
+      color: var(--text-1);
+      border-bottom-color: var(--text-1);
+    }
+
+    .detail-panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .detail-panel pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--text-2);
+      margin: 0;
+    }
+
+    .detail-panel .empty-msg {
+      color: var(--text-3);
+      font-size: 12px;
+      text-align: center;
+      padding: 16px 0;
     }
 
     /* ── Divider ─────────────────────────────────────────────────── */
@@ -905,24 +1021,15 @@
         </div>
       </div>
 
-    <!-- Event log: collapsible activity feed -->
-    <div id="event-log-section">
-      <button
-        type="button"
-        class="event-log-toggle"
-        id="event-log-toggle"
-        aria-expanded="false"
-        aria-controls="event-log-body"
-      >
-        <span class="chevron">&#9654;</span>
-        Activity
-        <span class="event-log-badge" id="event-log-count">0</span>
-      </button>
-      <div id="event-log-body" style="display:none;">
-        <div class="event-log-container" id="event-log-container">
-          <p class="event-log-empty" id="event-log-empty">No events yet</p>
-        </div>
+    <!-- Activity card: clickable card that navigates to activity list -->
+    <div id="activity-card" class="activity-card">
+      <div class="activity-card-left">
+        <span class="activity-card-label">Activity</span>
+        <span class="activity-card-count" id="activity-count">0</span>
       </div>
+      <svg class="activity-card-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M5 2L10 7L5 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
 
     <p class="error-text" id="error-text" style="display:none"></p>
@@ -973,6 +1080,46 @@
       <button id="btn-sign-out" type="button" class="btn-ghost-sm">
           Sign out
         </button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 4: Activity List
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-activity" class="screen" style="display:none;">
+    <header>
+      <button id="activity-back" type="button" class="btn-icon" aria-label="Back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Activity</h1>
+    </header>
+    <div id="activity-list" class="activity-list"></div>
+    <p id="activity-empty" class="activity-empty">No browser operations yet</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 5: Operation Detail
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-detail" class="screen" style="display:none;">
+    <header>
+      <button id="detail-back" type="button" class="btn-icon" aria-label="Back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Operation Detail</h1>
+    </header>
+    <div class="detail-header">
+      <p class="detail-operation-name" id="detail-operation-name"></p>
+      <p class="detail-meta" id="detail-meta"></p>
+    </div>
+    <div class="detail-tabs">
+      <button type="button" class="detail-tab active" id="detail-tab-request" data-tab="request">Request</button>
+      <button type="button" class="detail-tab" id="detail-tab-response" data-tab="response">Response</button>
+    </div>
+    <div class="detail-panel" id="detail-panel-request">
+      <pre id="detail-request-content"></pre>
+    </div>
+    <div class="detail-panel" id="detail-panel-response" style="display:none;">
+      <pre id="detail-response-content"></pre>
     </div>
   </div>
 
