@@ -315,7 +315,7 @@ export interface ContextWindowManagerOptions {
 export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
-  private readonly config: ContextWindowConfig;
+  private config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
   /**
    * Number of leading messages that are non-persisted (injected inherited
@@ -347,6 +347,10 @@ export class ContextWindowManager {
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
+  }
+
+  updateConfig(config: ContextWindowConfig): void {
+    this.config = config;
   }
 
   /**

@@ -18,6 +18,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
+import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -25,6 +26,17 @@ import type { ContentBlock, Message } from "../providers/types.js";
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
     "../memory/conversation-crud.js",
+  ) as Record<string, unknown>),
+};
+const tokenEstimatorRealSnapshot = {
+  ...(createRequire(import.meta.url)("../context/token-estimator.js") as Record<
+    string,
+    unknown
+  >),
+};
+const conversationRuntimeAssemblyRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../daemon/conversation-runtime-assembly.js",
   ) as Record<string, unknown>),
 };
 
@@ -35,36 +47,43 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
+const defaultLlmConfig: LLMConfig = {
+  default: {
+    provider: "anthropic",
+    model: "mock-model",
+    maxTokens: 4096,
+    effort: "max" as const,
+    speed: "standard" as const,
+    verbosity: "medium" as const,
+    temperature: null,
+    thinking: { enabled: false, streamThinking: true },
+    contextWindow: {
+      enabled: true,
+      maxInputTokens: 200_000,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
+    },
+    openrouter: { only: [] },
+  },
+  profiles: {},
+  profileOrder: [],
+  callSites: {},
+  pricingOverrides: [],
+};
+
+let mockLlmConfig: LLMConfig = structuredClone(defaultLlmConfig);
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
+    llm: mockLlmConfig,
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     ui: {},
@@ -179,6 +198,14 @@ afterAll(() => {
     "../memory/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
+  mock.module(
+    "../context/token-estimator.js",
+    () => tokenEstimatorRealSnapshot,
+  );
+  mock.module(
+    "../daemon/conversation-runtime-assembly.js",
+    () => conversationRuntimeAssemblyRealSnapshot,
+  );
 });
 
 mock.module("../memory/retriever.js", () => ({
@@ -269,7 +296,7 @@ mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
-const recordUsageMock = mock(() => {});
+const recordUsageMock = mock((..._args: unknown[]) => {});
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -579,6 +606,7 @@ function buildLongConversation(messageCount: number): Message[] {
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  mockLlmConfig = structuredClone(defaultLlmConfig);
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -592,6 +620,49 @@ beforeEach(() => {
 });
 
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
+  test("usage update context max follows active main-agent profile budget", async () => {
+    mockLlmConfig = {
+      ...structuredClone(defaultLlmConfig),
+      activeProfile: "short-context",
+      profiles: {
+        "short-context": {
+          source: "user",
+          contextWindow: { maxInputTokens: 150_000 },
+        },
+      },
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun: async (messages, onEvent) => {
+        onEvent({
+          type: "usage",
+          inputTokens: 12_000,
+          outputTokens: 300,
+          model: "mock-model",
+          providerDurationMs: 25,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "response" }],
+          },
+        ];
+      },
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    const mainAgentUsageCall = recordUsageMock.mock.calls.find(
+      (call) => call[5] === "main_agent",
+    );
+    expect(mainAgentUsageCall).toBeDefined();
+    expect(mainAgentUsageCall?.[11]).toEqual({
+      tokens: 12_000,
+      maxTokens: 150_000,
+    });
+  });
+
   // ── Test 1 ────────────────────────────────────────────────────────
   // BUG: When the agent loop makes progress (adds messages to history)
   // before hitting context_too_large, the convergence loop at line 864

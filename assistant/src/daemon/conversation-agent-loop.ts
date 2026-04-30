@@ -25,8 +25,13 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  contextWindowConfigFromEffective,
+  resolveEffectiveContextWindow,
+} from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -644,6 +649,22 @@ export async function runAgentLoopImpl(
   const turnOverrideProfile =
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
+
+  const config = getConfig();
+  const effectiveContextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: turnCallSite,
+    overrideProfile: turnOverrideProfile ?? undefined,
+  });
+  const turnContextWindowConfig = contextWindowConfigFromEffective(
+    config.llm.default.contextWindow,
+    effectiveContextWindow,
+  );
+  (
+    ctx.contextWindowManager as ContextWindowManager & {
+      updateConfig?: (config: ContextWindowConfig) => void;
+    }
+  ).updateConfig?.(turnContextWindowConfig);
 
   // Snapshot for `createToolExecutor` to read into `ToolContext.overrideProfile`
   // — see field doc on `AgentLoopConversationContext` for why the tool needs
@@ -1494,9 +1515,8 @@ export async function runAgentLoopImpl(
     // After runtime injections are applied, estimate the prompt token count
     // and proactively invoke the reducer if already above budget. This avoids
     // a wasted provider round-trip that would just fail with context_too_large.
-    const config = getConfig();
-    const overflowRecovery = config.llm.default.contextWindow.overflowRecovery;
-    const providerMaxTokens = config.llm.default.contextWindow.maxInputTokens;
+    const overflowRecovery = effectiveContextWindow.overflowRecovery;
+    const providerMaxTokens = effectiveContextWindow.maxInputTokens;
     // Widen safety margin for large conversations where estimation error
     // compounds across many messages with tool results.
     const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
@@ -1580,7 +1600,7 @@ export async function runAgentLoopImpl(
         runMessages,
         systemPrompt: ctx.systemPrompt,
         providerName: estimationProviderName,
-        contextWindow: config.llm.default.contextWindow,
+        contextWindow: turnContextWindowConfig,
         preflightBudget,
         toolTokenBudget,
         maxAttempts: overflowRecovery.maxAttempts,
@@ -1896,6 +1916,7 @@ export async function runAgentLoopImpl(
       turnCallSite,
       loopTurnCtx,
       turnOverrideProfile,
+      effectiveContextWindow.maxInputTokens,
     );
 
     rlog.info(
@@ -2048,6 +2069,7 @@ export async function runAgentLoopImpl(
         turnCallSite,
         loopTurnCtx,
         turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
       );
     }
 
@@ -2104,6 +2126,7 @@ export async function runAgentLoopImpl(
         turnCallSite,
         loopTurnCtx,
         turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
       );
 
       if (state.orderingErrorDetected) {
@@ -2215,7 +2238,7 @@ export async function runAgentLoopImpl(
           {
             providerName: estimationProviderName,
             systemPrompt: ctx.systemPrompt,
-            contextWindow: config.llm.default.contextWindow,
+            contextWindow: turnContextWindowConfig,
             targetTokens: correctedTarget,
             toolTokenBudget,
           },
@@ -2299,6 +2322,7 @@ export async function runAgentLoopImpl(
           turnCallSite,
           loopTurnCtx,
           turnOverrideProfile,
+          effectiveContextWindow.maxInputTokens,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -2459,6 +2483,7 @@ export async function runAgentLoopImpl(
             turnCallSite,
             loopTurnCtx,
             turnOverrideProfile,
+            effectiveContextWindow.maxInputTokens,
           );
         }
         // action === "fail_gracefully" falls through to the final error below
@@ -2645,7 +2670,7 @@ export async function runAgentLoopImpl(
       state.exchangeLlmCallCount,
       {
         tokens: state.lastCallInputTokens,
-        maxTokens: config.llm.default.contextWindow.maxInputTokens,
+        maxTokens: effectiveContextWindow.maxInputTokens,
       },
       {
         callSite: turnCallSite,

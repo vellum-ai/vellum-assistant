@@ -6710,7 +6710,6 @@ paths:
                   type: string
                   enum:
                     - migrate
-                    - rebuild-edges
                     - reembed
                     - activation-recompute
                 force:

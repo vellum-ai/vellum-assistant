@@ -1,12 +1,5 @@
 import { rmSync, writeFileSync } from "node:fs";
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -84,6 +77,8 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: { v2: { enabled: false } },
+    conversations: { skipAutoRetitling: false },
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },

@@ -23,8 +23,13 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  contextWindowConfigFromEffective,
+  resolveEffectiveContextWindow,
+} from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -485,13 +490,20 @@ export class Conversation {
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? config.llm.default.speed;
     const llmDefault = config.llm.default;
+    const initialContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite: "mainAgent",
+    });
+    const initialContextWindowConfig = contextWindowConfigFromEffective(
+      llmDefault.contextWindow,
+      initialContextWindow,
+    );
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
       {
         maxTokens,
-        maxInputTokens: llmDefault.contextWindow.maxInputTokens,
         thinking: llmDefault.thinking,
         effort: llmDefault.effort,
         ...(fastModeEnabled && resolvedSpeed === "fast"
@@ -507,7 +519,7 @@ export class Conversation {
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
-      config: llmDefault.contextWindow,
+      config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
   }
@@ -1060,6 +1072,24 @@ export class Conversation {
 
   async forceCompact(): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
+    const overrideProfile =
+      getConversationOverrideProfileFromRow(conversationRow) ?? null;
+    const config = getConfig();
+    const effectiveContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite: "mainAgent",
+      overrideProfile: overrideProfile ?? undefined,
+    });
+    (
+      this.contextWindowManager as ContextWindowManager & {
+        updateConfig?: (config: ContextWindowConfig) => void;
+      }
+    ).updateConfig?.(
+      contextWindowConfigFromEffective(
+        config.llm.default.contextWindow,
+        effectiveContextWindow,
+      ),
+    );
     const slackChronologicalContext =
       this.channelCapabilities?.channel === "slack"
         ? loadSlackChronologicalContext(
@@ -1085,10 +1115,7 @@ export class Conversation {
         lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
-        overrideProfile:
-          getConversationOverrideProfileFromRow(
-            getConversation(this.conversationId),
-          ) ?? null,
+        overrideProfile,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other

@@ -60,6 +60,8 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: { v2: { enabled: false } },
+    conversations: { skipAutoRetitling: false },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
