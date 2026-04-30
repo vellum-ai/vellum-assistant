@@ -51,22 +51,30 @@ final class CodexOAuthLoopback: @unchecked Sendable {
     private var listener: NWListener?
     private var connections: [NWConnection] = []
     private var continuation: CheckedContinuation<String, Error>?
+    private var readyContinuation: CheckedContinuation<Void, Error>?
     private var didFinish = false
 
     init(expectedState: String) {
         self.expectedState = expectedState
     }
 
+    /// Bind the loopback listener and wait for it to reach `.ready`. Must be
+    /// called before launching the browser — a fast OAuth redirect can
+    /// otherwise hit `localhost:1455` before the socket is bound.
+    func startListening() async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            lock.withLock { self.readyContinuation = cont }
+            do {
+                try setupListener()
+            } catch {
+                resumeReady(.failure(mapBindError(error)))
+            }
+        }
+    }
+
     func waitForCallback(timeout: TimeInterval) async throws -> String {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             lock.withLock { self.continuation = cont }
-            do {
-                try start()
-            } catch {
-                finish(.failure(mapBindError(error)))
-                return
-            }
-
             let timeoutSeconds = max(1, Int(timeout))
             queue.asyncAfter(deadline: .now() + .seconds(timeoutSeconds)) { [weak self] in
                 self?.finish(.failure(CodexOAuthLoopbackError.timeout))
@@ -80,15 +88,21 @@ final class CodexOAuthLoopback: @unchecked Sendable {
 
     // MARK: - Private
 
-    private func start() throws {
+    private func setupListener() throws {
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: port)
         let listener = try NWListener(using: params)
 
         listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
+            case .ready:
+                self.resumeReady(.success(()))
             case .failed(let error):
-                self?.finish(.failure(self?.mapBindError(error) ?? .transport(error.localizedDescription)))
+                let mapped = self.mapBindError(error)
+                if !self.resumeReady(.failure(mapped)) {
+                    self.finish(.failure(mapped))
+                }
             default:
                 break
             }
@@ -100,6 +114,23 @@ final class CodexOAuthLoopback: @unchecked Sendable {
 
         lock.withLock { self.listener = listener }
         listener.start(queue: queue)
+    }
+
+    /// Resumes the bind continuation exactly once. Returns `true` if this call
+    /// consumed it (so callers can tell pre-ready failures from post-ready ones).
+    @discardableResult
+    private func resumeReady(_ result: Result<Void, CodexOAuthLoopbackError>) -> Bool {
+        let pending: CheckedContinuation<Void, Error>?
+        lock.lock()
+        pending = readyContinuation
+        readyContinuation = nil
+        lock.unlock()
+        guard let pending else { return false }
+        switch result {
+        case .success: pending.resume()
+        case .failure(let err): pending.resume(throwing: err)
+        }
+        return true
     }
 
     private func handle(_ connection: NWConnection) {
@@ -232,6 +263,13 @@ final class CodexOAuthLoopback: @unchecked Sendable {
         listener?.cancel()
         for connection in openConnections {
             connection.cancel()
+        }
+
+        // If the listener never reached .ready before this teardown, drain
+        // the bind continuation so startListening() doesn't dangle.
+        switch result {
+        case .success: resumeReady(.success(()))
+        case .failure(let err): resumeReady(.failure(err))
         }
 
         switch result {

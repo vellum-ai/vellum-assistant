@@ -384,6 +384,14 @@
       "label": "Inference Profiles",
       "description": "Show inference profile picker in chat, active profile dropdown, Manage Profiles button, and per-task overrides link in Settings",
       "defaultEnabled": false
+    },
+    {
+      "id": "openai-codex-oauth",
+      "scope": "macos",
+      "key": "openai-codex-oauth",
+      "label": "OpenAI Codex OAuth (Sign in with ChatGPT)",
+      "description": "Surface a 'Sign in with ChatGPT' button in onboarding alongside the OpenAI API-key field. Mints subscription-backed tokens via PKCE OAuth against auth.openai.com and routes inference to chatgpt.com/backend-api/codex/responses. Requires the daemon-side VELLUM_ENABLE_OPENAI_CODEX_OAUTH=1 to register the OAuth-backed provider.",
+      "defaultEnabled": false
     }
   ]
 }

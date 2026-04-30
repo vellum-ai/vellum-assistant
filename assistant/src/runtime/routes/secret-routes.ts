@@ -474,7 +474,10 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         setPlatformUserId(undefined);
         setSentryUserId(undefined);
       }
-      if (isManagedProxyCredential(service, field)) {
+      if (
+        isManagedProxyCredential(service, field) ||
+        service === "openai_codex_oauth"
+      ) {
         await refreshProvidersAfterSecretChange();
       }
       log.info({ service, field }, "Credential deleted via HTTP");

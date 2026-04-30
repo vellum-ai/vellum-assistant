@@ -54,7 +54,22 @@ enum CodexOAuthFlow {
 
         let loopback = CodexOAuthLoopback(expectedState: state)
 
-        let authorizeURL = try buildAuthorizeURL(challenge: pkce.challenge, state: state)
+        // Bind the loopback before opening the browser — a fast OAuth redirect
+        // (already-authorized session) can otherwise hit `localhost:1455`
+        // before the socket is ready and fail the sign-in.
+        do {
+            try await loopback.startListening()
+        } catch let err as CodexOAuthLoopbackError {
+            throw CodexOAuthFlowError.loopback(err)
+        }
+
+        let authorizeURL: URL
+        do {
+            authorizeURL = try buildAuthorizeURL(challenge: pkce.challenge, state: state)
+        } catch {
+            loopback.stop()
+            throw error
+        }
 
         guard NSWorkspace.shared.open(authorizeURL) else {
             loopback.stop()
