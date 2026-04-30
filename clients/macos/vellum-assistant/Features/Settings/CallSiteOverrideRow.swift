@@ -283,7 +283,7 @@ struct CallSiteOverrideRow: View {
                         }
                     }
                 ),
-                options: profiles.map { (label: $0.name, value: $0.name) }
+                options: profiles.map { (label: $0.displayName, value: $0.name) }
                     + [(label: Self.customLabel, value: Self.customSentinel)]
             )
         }
