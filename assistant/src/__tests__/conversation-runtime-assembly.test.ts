@@ -2825,6 +2825,37 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("dm context");
   });
 
+  test("slack late-join notice is model-facing and non-persisted", async () => {
+    const slackChannelCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const notice =
+      "Slack context note: this turn joined an existing thread. 3 earlier thread messages were backfilled before the current message.";
+
+    const { messages: result, blocks } = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
+      {
+        channelCapabilities: slackChannelCaps,
+        slackRuntimeContextNotice: notice,
+        transportHints: [notice],
+      },
+    );
+
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<slack_context_notice>");
+    expect(allText).toContain(notice);
+    expect(allText).not.toContain("<transport_hints>");
+    expect(JSON.stringify(blocks)).not.toContain(notice);
+  });
+
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
     const { messages: result } = await applyRuntimeInjections(
