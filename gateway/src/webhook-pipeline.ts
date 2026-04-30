@@ -90,6 +90,10 @@ export function processInboundResult(
     return { ok: true, rejected: true };
   }
 
+  if (result.verificationIntercepted) {
+    return { ok: true, rejected: false };
+  }
+
   if (!result.forwarded) {
     logger.error({ cacheKey }, "Failed to forward message to runtime");
     dedupCache.unreserve(cacheKey);

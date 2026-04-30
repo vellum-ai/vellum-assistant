@@ -419,6 +419,8 @@ export function createTelegramWebhookHandler(
               );
             });
           }
+        } else if (result.verificationIntercepted) {
+          // Verification handled — no error, no forward needed
         } else if (!result.forwarded) {
           tlog.error(
             { updateId: payload.update_id },
@@ -736,6 +738,10 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "routing_rejected",
           );
+        return respond({ ok: true });
+      }
+
+      if (result.verificationIntercepted) {
         return respond({ ok: true });
       }
 
