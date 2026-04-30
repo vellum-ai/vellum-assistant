@@ -193,6 +193,8 @@ const ContextOverflowRecoveryFragmentSchema = z.object({
 
 // Leaf primitives for context-window fields.
 const ContextEnabledSchema = z.boolean();
+export const DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS = 200000;
+
 const ContextMaxInputTokensSchema = z.number().int().positive();
 const ContextTargetBudgetRatioSchema = z.number().finite().gt(0).lte(1);
 const ContextCompactThresholdSchema = z.number().finite().gt(0).lte(1);
@@ -200,7 +202,9 @@ const ContextSummaryBudgetRatioSchema = z.number().finite().gt(0).lte(1);
 
 const ContextWindowSchema = z.object({
   enabled: ContextEnabledSchema.default(true),
-  maxInputTokens: ContextMaxInputTokensSchema.default(200000),
+  maxInputTokens: ContextMaxInputTokensSchema.default(
+    DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  ),
   targetBudgetRatio: ContextTargetBudgetRatioSchema.default(0.3),
   compactThreshold: ContextCompactThresholdSchema.default(0.8),
   summaryBudgetRatio: ContextSummaryBudgetRatioSchema.default(0.05),

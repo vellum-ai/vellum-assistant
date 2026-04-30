@@ -43,7 +43,7 @@ export function resolveCallSiteConfig(
   const activeFragment =
     llm.activeProfile != null ? llm.profiles?.[llm.activeProfile] : undefined;
   if (activeFragment != null) {
-    layers.push(activeFragment as Mergeable);
+    layers.push(profileConfigFragment(activeFragment));
   }
 
   // Layer: per-call ad-hoc override (e.g. a chat conversation's pinned
@@ -53,7 +53,7 @@ export function resolveCallSiteConfig(
       ? llm.profiles?.[opts.overrideProfile]
       : undefined;
   if (overrideFragment != null) {
-    layers.push(overrideFragment as Mergeable);
+    layers.push(profileConfigFragment(overrideFragment));
   }
 
   const site = llm.callSites?.[callSite];
@@ -70,7 +70,7 @@ export function resolveCallSiteConfig(
           `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
         );
       }
-      layers.push(profileFragment as Mergeable);
+      layers.push(profileConfigFragment(profileFragment));
     }
     // Strip the `profile` discriminator before merging — it isn't a
     // `LLMConfigBase` field.
@@ -86,6 +86,16 @@ export function resolveCallSiteConfig(
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+function profileConfigFragment(profile: ProfileEntry): Mergeable {
+  const {
+    source: _source,
+    label: _label,
+    description: _description,
+    ...config
+  } = profile;
+  return config as Mergeable;
+}
 
 /**
  * Returns true for objects we should recurse into during deep merge. We
