@@ -29,13 +29,12 @@
  *   5. Bootstrap a background conversation (mirrors `runUpdateBulletinJobIfNeeded`)
  *      and call `wakeAgentForOpportunity()` with the templated hint. The wake
  *      reuses the assistant's full system prompt + tools.
- *   6. On wake success, enqueue `memory_v2_rebuild_edges` (regenerate
- *      frontmatter from `edges.json`) and `memory_v2_reembed` (re-index any
- *      pages the agent touched). Tracking touched pages via mtime would be
- *      more precise but is fragile across filesystems; the embedder's
- *      content-hash cache makes a conservative full-reembed effectively free.
- *      On wake failure no follow-ups are enqueued — the agent didn't run, so
- *      there's nothing to regenerate or re-embed.
+ *   6. On wake success, enqueue `memory_v2_reembed` to re-index any pages the
+ *      agent touched. Tracking touched pages via mtime would be more precise
+ *      but is fragile across filesystems; the embedder's content-hash cache
+ *      makes a conservative full-reembed effectively free. On wake failure
+ *      no follow-ups are enqueued — the agent didn't run, so there's nothing
+ *      to re-embed.
  *   7. Release the lock.
  *
  * The handler never propagates a wake exception: it logs, cleans up the
@@ -75,15 +74,13 @@ const log = getLogger("memory-v2-consolidate");
 const WAKE_SOURCE = "memory_v2_consolidation";
 
 /**
- * Follow-up jobs to fan out after a successful consolidation. Both are stubs
- * from PR 6 today; PR 21 will replace them with real handlers.
+ * Follow-up jobs to fan out after a successful consolidation.
  *
  * Conservatively re-embeds every page rather than tracking which pages the
  * agent touched: mtime-diffing is fragile across filesystems, and the
  * embedder's content-hash cache makes unchanged pages effectively free.
  */
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [
-  "memory_v2_rebuild_edges",
   "memory_v2_reembed",
 ] as const;
 

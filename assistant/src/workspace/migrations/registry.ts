@@ -58,6 +58,8 @@ import { repairStaleGeminiModelIdsMigration } from "./057-repair-stale-gemini-mo
 import { releaseNotesAcpSessionsUiMigration } from "./058-release-notes-acp-sessions-ui.js";
 import { movePidToWorkspaceMigration } from "./059-move-pid-to-workspace.js";
 import { memoryV2InitMigration } from "./060-memory-v2-init.js";
+import { moveBackupKeyToWorkspaceMigration } from "./061-move-backup-key-to-workspace.js";
+import { dropMemoryV2EdgesJsonMigration } from "./062-drop-memory-v2-edges-json.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -127,4 +129,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesAcpSessionsUiMigration,
   movePidToWorkspaceMigration,
   memoryV2InitMigration,
+  moveBackupKeyToWorkspaceMigration,
+  dropMemoryV2EdgesJsonMigration,
 ];

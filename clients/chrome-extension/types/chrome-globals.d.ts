@@ -129,12 +129,16 @@ interface ChromeRuntimeNamespace {
     responseCallback?: (response: TResponse) => void,
   ): void;
   getManifest(): ChromeRuntimeManifest;
+  /** Resolve a path relative to the extension root into an absolute chrome-extension:// URL. */
+  getURL(path: string): string;
 }
 
 interface ChromeTab {
   id?: number;
   windowId?: number;
   url?: string;
+  /** URL of a tab that hasn't committed yet (e.g. during loading). */
+  pendingUrl?: string;
   active?: boolean;
   title?: string;
   index?: number;

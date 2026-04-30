@@ -158,6 +158,89 @@ final class ComposerThresholdPickerTests: XCTestCase {
         XCTAssertEqual(ThresholdPreset.from(riskThreshold: .medium), .relaxed)
         XCTAssertEqual(ThresholdPreset.from(riskThreshold: .high), .fullAccess)
     }
+
+    func testDisplayOverrideUsesDraftOnlyBeforeConversationExists() {
+        XCTAssertEqual(
+            ComposerThresholdPicker.displayOverride(
+                assistantConversationId: nil,
+                conversationOverride: nil,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            ),
+            RiskThreshold.high.rawValue
+        )
+
+        XCTAssertEqual(
+            ComposerThresholdPicker.displayOverride(
+                assistantConversationId: "   ",
+                conversationOverride: nil,
+                draftInteractiveOverride: RiskThreshold.medium.rawValue
+            ),
+            RiskThreshold.medium.rawValue
+        )
+    }
+
+    func testDisplayOverrideIgnoresDraftForExistingConversationWithoutOverride() {
+        XCTAssertNil(
+            ComposerThresholdPicker.displayOverride(
+                assistantConversationId: "51fc92c1-73f6-4e90-870e-1da80a5a7052",
+                conversationOverride: nil,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            )
+        )
+    }
+
+    func testDisplayOverridePrefersConversationOverrideForExistingConversation() {
+        XCTAssertEqual(
+            ComposerThresholdPicker.displayOverride(
+                assistantConversationId: "51fc92c1-73f6-4e90-870e-1da80a5a7052",
+                conversationOverride: RiskThreshold.low.rawValue,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            ),
+            RiskThreshold.low.rawValue
+        )
+    }
+
+    func testDisplayOverrideDiagnosticNilForDraftConversation() {
+        XCTAssertNil(
+            ComposerThresholdPicker.displayOverrideDiagnostic(
+                assistantConversationId: nil,
+                conversationOverride: nil,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            )
+        )
+    }
+
+    func testDisplayOverrideDiagnosticReportsDraftWithoutConversationOverride() {
+        XCTAssertEqual(
+            ComposerThresholdPicker.displayOverrideDiagnostic(
+                assistantConversationId: "51fc92c1-73f6-4e90-870e-1da80a5a7052",
+                conversationOverride: nil,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            ),
+            "draft_present_without_conversation_override"
+        )
+    }
+
+    func testDisplayOverrideDiagnosticReportsConflictWithConversationOverride() {
+        XCTAssertEqual(
+            ComposerThresholdPicker.displayOverrideDiagnostic(
+                assistantConversationId: "51fc92c1-73f6-4e90-870e-1da80a5a7052",
+                conversationOverride: RiskThreshold.low.rawValue,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            ),
+            "draft_conflicts_with_conversation_override"
+        )
+    }
+
+    func testDisplayOverrideDiagnosticNilWhenValuesMatch() {
+        XCTAssertNil(
+            ComposerThresholdPicker.displayOverrideDiagnostic(
+                assistantConversationId: "51fc92c1-73f6-4e90-870e-1da80a5a7052",
+                conversationOverride: RiskThreshold.high.rawValue,
+                draftInteractiveOverride: RiskThreshold.high.rawValue
+            )
+        )
+    }
 }
 
 private final class MockThresholdClient: ThresholdClientProtocol {

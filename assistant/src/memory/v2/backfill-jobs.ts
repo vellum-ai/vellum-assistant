@@ -2,14 +2,10 @@
 // Memory v2 — Backfill job handlers
 // ---------------------------------------------------------------------------
 //
-// Four operator-triggered backfills, all wired through the same job queue so
+// Three operator-triggered backfills, all wired through the same job queue so
 // they can be enqueued from the IPC route, the CLI, or recovery paths:
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
-//   - `memory_v2_rebuild_edges`        — regenerate every page's `edges:`
-//     frontmatter from `memory/edges.json` (the source of truth for graph
-//     topology). Defensive against drift, hand-edits, and consolidation
-//     leaving stale frontmatter behind.
 //   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
 //     per slug, plus four reserved-slug jobs for the meta files
 //     (`__essentials__`, `__threads__`, `__recent__`, `__buffer__`).
@@ -18,10 +14,10 @@
 //     replaces or deletes pages that other conversations still reference.
 //
 // Each handler is intentionally small — heavy lifting lives in the modules
-// they delegate to (`migration.ts`, `edges.ts`, `page-store.ts`,
-// `embed-concept-page.ts`, `activation.ts`, `activation-store.ts`). Keeping
-// the wrappers thin means the same code paths exercised by tests of those
-// modules run unchanged when a backfill kicks them off.
+// they delegate to (`migration.ts`, `page-store.ts`, `embed-concept-page.ts`,
+// `activation.ts`, `activation-store.ts`). Keeping the wrappers thin means
+// the same code paths exercised by tests of those modules run unchanged when
+// a backfill kicks them off.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -40,12 +36,12 @@ import {
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import { readEdges } from "./edges.js";
+import { getEdgeIndex } from "./edge-index.js";
 import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
-import { listPages, readPage, writePage } from "./page-store.js";
+import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
 
@@ -107,87 +103,6 @@ export async function memoryV2MigrateJob(
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// memory_v2_rebuild_edges — recompute every page's edges: frontmatter
-// ---------------------------------------------------------------------------
-
-/**
- * Job handler: walk every concept page on disk, recompute its `edges:`
- * frontmatter from `memory/edges.json`, and write back via `writePage` so
- * the YAML block reflects the current topology.
- *
- * `memory/edges.json` is the source of truth for graph topology — frontmatter
- * is a derived view that downstream readers (LLM during consolidation,
- * humans inspecting pages) consume but never mutate. The rebuild is
- * defensive against three failure modes:
- *   1. A consolidation pass replaced a page's body but didn't update its
- *      `edges:` list (missed write).
- *   2. A user hand-edited a page and replaced or removed the `edges:` list.
- *   3. An older v2 build wrote frontmatter without canonical ordering.
- *
- * Other frontmatter fields (`ref_files`) are preserved as-is — the page
- * remains the only source of truth for everything beyond `edges`. Pages
- * that fail to read are logged and skipped so one corrupt page doesn't
- * block the rest of the rebuild.
- */
-export async function memoryV2RebuildEdgesJob(
-  _job: MemoryJob,
-  _config: AssistantConfig,
-): Promise<void> {
-  const workspaceDir = getWorkspaceDir();
-  const idx = await readEdges(workspaceDir);
-
-  // Build slug → sorted neighbor list once, then look up per page. Sets
-  // dedup automatically; sorting at materialization time keeps the
-  // rendered YAML stable across runs.
-  const neighborsBySlug = new Map<string, Set<string>>();
-  const ensureSet = (slug: string): Set<string> => {
-    let set = neighborsBySlug.get(slug);
-    if (!set) {
-      set = new Set<string>();
-      neighborsBySlug.set(slug, set);
-    }
-    return set;
-  };
-  for (const [a, b] of idx.edges) {
-    if (a === b) continue;
-    ensureSet(a).add(b);
-    ensureSet(b).add(a);
-  }
-
-  const slugs = await listPages(workspaceDir);
-  let rewritten = 0;
-  for (const slug of slugs) {
-    let page;
-    try {
-      page = await readPage(workspaceDir, slug);
-    } catch (err) {
-      log.warn({ err, slug }, "Skipping page with unreadable frontmatter");
-      continue;
-    }
-    if (!page) continue;
-
-    const desired = [...(neighborsBySlug.get(slug) ?? [])].sort();
-    if (
-      page.frontmatter.edges.length === desired.length &&
-      page.frontmatter.edges.every((e, i) => e === desired[i])
-    ) {
-      continue;
-    }
-
-    await writePage(workspaceDir, {
-      ...page,
-      frontmatter: { ...page.frontmatter, edges: desired },
-    });
-    rewritten += 1;
-  }
-
-  log.info(
-    { slugCount: slugs.length, rewritten },
-    "Memory v2 rebuild-edges complete",
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +175,7 @@ export async function memoryV2ActivationRecomputeJob(
   const conversations = listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
   );
-  const edgesIdx = await readEdges(workspaceDir);
+  const edgeIndex = await getEdgeIndex(workspaceDir);
   const nowText = await loadNowText(workspaceDir);
 
   let updated = 0;
@@ -273,7 +188,7 @@ export async function memoryV2ActivationRecomputeJob(
       nextState = await recomputeForConversation({
         conversationId: conv.id,
         priorState,
-        edgesIdx,
+        edgeIndex,
         nowText,
         config,
       });
@@ -300,7 +215,7 @@ export async function memoryV2ActivationRecomputeJob(
 interface RecomputeForConversationParams {
   conversationId: string;
   priorState: NonNullable<Awaited<ReturnType<typeof hydrate>>>;
-  edgesIdx: Awaited<ReturnType<typeof readEdges>>;
+  edgeIndex: Awaited<ReturnType<typeof getEdgeIndex>>;
   nowText: string;
   config: AssistantConfig;
 }
@@ -316,7 +231,7 @@ interface RecomputeForConversationParams {
 async function recomputeForConversation(
   params: RecomputeForConversationParams,
 ): Promise<Awaited<ReturnType<typeof hydrate>> | null> {
-  const { conversationId, priorState, edgesIdx, nowText, config } = params;
+  const { conversationId, priorState, edgeIndex, nowText, config } = params;
 
   const { userText, assistantText } = lastExchangeTexts(conversationId);
   if (!userText && !assistantText) return null;
@@ -338,7 +253,7 @@ async function recomputeForConversation(
   });
   const { final: spread } = spreadActivation(
     ownActivation,
-    edgesIdx,
+    edgeIndex,
     config.memory.v2.k,
     config.memory.v2.hops,
   );

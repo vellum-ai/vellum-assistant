@@ -12,7 +12,11 @@ import {
   enqueueMemoryJob,
   type MemoryJobType,
 } from "../../memory/jobs-store.js";
-import { readEdges, validateEdges } from "../../memory/v2/edges.js";
+import {
+  getEdgeIndex,
+  totalEdgeCount,
+  validateEdgeTargets,
+} from "../../memory/v2/edge-index.js";
 import { listPages, readPage } from "../../memory/v2/page-store.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -24,7 +28,7 @@ import type { RouteHandlerArgs } from "./types.js";
 
 const MemoryV2BackfillParams = z
   .object({
-    op: z.enum(["migrate", "rebuild-edges", "reembed", "activation-recompute"]),
+    op: z.enum(["migrate", "reembed", "activation-recompute"]),
     force: z.boolean().optional(),
   })
   .strict();
@@ -37,7 +41,6 @@ export type MemoryV2BackfillResult = {
 
 const OP_TO_JOB_TYPE: Record<MemoryV2BackfillOp, MemoryJobType> = {
   migrate: "memory_v2_migrate",
-  "rebuild-edges": "memory_v2_rebuild_edges",
   reembed: "memory_v2_reembed",
   "activation-recompute": "memory_v2_activation_recompute",
 };
@@ -98,21 +101,13 @@ async function handleValidate({
     }
   }
 
-  const edgesIdx = await readEdges(workspaceDir);
-  const validation = validateEdges(edgesIdx, knownSlugs);
-
-  const missing = new Set(validation.missing);
-  const missingEdgeEndpoints: MissingEdgeEndpoint[] = [];
-  for (const [from, to] of edgesIdx.edges) {
-    if (missing.has(from) || missing.has(to)) {
-      missingEdgeEndpoints.push({ from, to });
-    }
-  }
+  const edgeIndex = await getEdgeIndex(workspaceDir);
+  const { missing } = validateEdgeTargets(edgeIndex, knownSlugs);
 
   return {
     pageCount: knownSlugs.size,
-    edgeCount: edgesIdx.edges.length,
-    missingEdgeEndpoints,
+    edgeCount: totalEdgeCount(edgeIndex),
+    missingEdgeEndpoints: missing,
     oversizedPages,
     parseFailures,
   };

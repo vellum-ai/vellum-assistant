@@ -279,20 +279,16 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
     expect(hint).toContain(`${new Date().getFullYear()}`);
   });
 
-  test("enqueues memory_v2_rebuild_edges and memory_v2_reembed follow-up jobs on success", async () => {
+  test("enqueues the memory_v2_reembed follow-up job on success", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
     if (result.kind === "invoked") {
-      expect(result.followUpJobIds).toEqual(["job-1", "job-2"]);
+      expect(result.followUpJobIds).toEqual(["job-1"]);
     }
 
-    expect(enqueuedJobs).toHaveLength(2);
+    expect(enqueuedJobs).toHaveLength(1);
     expect(enqueuedJobs[0]).toEqual({
-      type: "memory_v2_rebuild_edges",
-      payload: {},
-    });
-    expect(enqueuedJobs[1]).toEqual({
       type: "memory_v2_reembed",
       payload: {},
     });

@@ -18,14 +18,19 @@ export async function createTerminalSession(
   cols: number,
   rows: number,
   platformUrl?: string,
+  service?: string,
 ): Promise<{ session_id: string }> {
   const baseUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, unknown> = { cols, rows };
+  if (service) {
+    body.service = service;
+  }
   const response = await fetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/`,
     {
       method: "POST",
       headers: await authHeaders(token, platformUrl),
-      body: JSON.stringify({ cols, rows }),
+      body: JSON.stringify(body),
     },
   );
   if (!response.ok) {

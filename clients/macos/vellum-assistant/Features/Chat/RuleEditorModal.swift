@@ -57,6 +57,13 @@ struct RuleEditorModal: View {
         scopeOptions.count == 1
     }
 
+    /// In edit mode, generalized options excluding the existing rule's own pattern.
+    /// Prevents offering a "Save As New" option that would duplicate the existing rule.
+    private var narrowerOptions: [ScopeOptionItem] {
+        guard let existing = existingRule else { return generalizedOptions }
+        return generalizedOptions.filter { $0.pattern != existing.pattern }
+    }
+
     /// Whether the options look like a pipeline decomposition (all "program *" patterns).
     /// Pipeline commands produce per-program wildcards that aren't useful as individual radio choices.
     private var isPipelineDecomposition: Bool {
@@ -124,14 +131,7 @@ struct RuleEditorModal: View {
     /// Whether the Save As New button should be visible.
     private var showSaveAsNew: Bool {
         guard onSaveAsNew != nil, existingRule != nil else { return false }
-        // Hide while suggestion is loading — avoids flickering when the suggestion
-        // arrives and turns out to match the existing rule pattern.
-        guard let suggestion else { return false }
-        // Suppress if LLM found nothing narrower than the existing rule's pattern
-        if let existing = existingRule, suggestion.pattern == existing.pattern {
-            return false
-        }
-        return !generalizedOptions.isEmpty
+        return !narrowerOptions.isEmpty
     }
 
     private func applySuggestionOrDefaults() {
@@ -143,9 +143,14 @@ struct RuleEditorModal: View {
                 selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
             }
             if !hasUserInteracted {
-                // In single-option mode the only Save As New choice is index 0; reset
-                // the initial default of 1 so the option isn't permanently out-of-bounds.
-                if isSingleOption { selectedPatternIndex = 0 }
+                // Default to the first narrower option so the selection isn't stale
+                // or pointing at the existing rule's own pattern.
+                if let firstNarrower = narrowerOptions.first,
+                   let idx = scopeOptions.firstIndex(where: { $0.pattern == firstNarrower.pattern }) {
+                    selectedPatternIndex = idx
+                } else if isSingleOption {
+                    selectedPatternIndex = 0
+                }
             }
             if let suggestion, !hasUserInteracted {
                 // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
@@ -234,8 +239,7 @@ struct RuleEditorModal: View {
             if let existingRule {
                 // Edit mode: show existing rule pattern as read-only
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10))
+                    VIconView(.lock, size: 10)
                         .foregroundStyle(VColor.contentTertiary)
                     Text(existingRule.pattern)
                         .font(VFont.bodyMediumDefault.monospaced())
@@ -253,15 +257,17 @@ struct RuleEditorModal: View {
                 )
 
                 // Narrower scope options for Save As New
-                if showSaveAsNew, !generalizedOptions.isEmpty {
+                if showSaveAsNew {
                     Text("Or narrow the scope:")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .accessibilityAddTraits(.isHeader)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(Array(generalizedOptions.enumerated()), id: \.element.id) { index, option in
-                            patternRow(option: option, index: index)
+                        ForEach(narrowerOptions, id: \.id) { option in
+                            if let scopeIdx = scopeOptions.firstIndex(where: { $0.pattern == option.pattern }) {
+                                patternRow(option: option, index: isSingleOption ? scopeIdx : scopeIdx - 1)
+                            }
                         }
                     }
                 }

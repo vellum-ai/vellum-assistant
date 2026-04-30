@@ -1390,10 +1390,6 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
-  // Bind conversationId so messages that don't carry it (e.g. confirmation_request)
-  // still get routed correctly.
-  const sendEvent = (msg: ServerMessage) =>
-    broadcastMessage(msg, mapping.conversationId);
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create each host proxy for interfaces that support the matching
   // capability. macOS supports all four; the chrome-extension interface only
@@ -1405,7 +1401,7 @@ export async function handleSendMessage(
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      const proxy = new HostBashProxy(sendEvent, (requestId) => {
+      const proxy = new HostBashProxy(broadcastMessage, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostBashProxy(proxy);
@@ -1415,15 +1411,18 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
+      const fileProxy = new HostFileProxy(broadcastMessage, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
     if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      const transferProxy = new HostTransferProxy(sendEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
+      const transferProxy = new HostTransferProxy(
+        broadcastMessage,
+        (requestId) => {
+          pendingInteractions.resolve(requestId);
+        },
+      );
       conversation.setHostTransferProxy(transferProxy);
     }
   } else if (!conversation.isProcessing()) {
@@ -1432,7 +1431,7 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
+      const cuProxy = new HostCuProxy(broadcastMessage, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostCuProxy(cuProxy);
@@ -1462,7 +1461,7 @@ export async function handleSendMessage(
   // is non-interactive (no SSE prompter UI) but still has a connected client
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(sendEvent, !isInteractive, {
+  conversation.updateClient(broadcastMessage, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -1526,19 +1525,19 @@ export async function handleSendMessage(
       };
 
       setTimeout(() => {
-        sendEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
           messageId: persisted.id,
           clientMessageId,
         });
-        sendEvent({
+        broadcastMessage({
           type: "assistant_text_delta",
           text: cannedGreeting,
           conversationId,
         });
-        sendEvent({ type: "message_complete", conversationId });
+        broadcastMessage({ type: "message_complete", conversationId });
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1591,7 +1590,7 @@ export async function handleSendMessage(
       content: content ?? "",
       attachments,
       conversation,
-      onEvent: sendEvent,
+      onEvent: broadcastMessage,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active. Mirrors conversation-process.ts behavior.
@@ -1624,7 +1623,7 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
-      sendEvent,
+      broadcastMessage,
       requestId,
       undefined, // activeSurfaceId
       undefined, // currentPage
@@ -1829,7 +1828,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        sendEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -1837,14 +1836,14 @@ export async function handleSendMessage(
           clientMessageId,
         });
         if (modelInfoEvent) {
-          sendEvent(modelInfoEvent);
+          broadcastMessage(modelInfoEvent);
         }
-        sendEvent({
+        broadcastMessage({
           type: "assistant_text_delta",
           text: message,
           conversationId,
         });
-        sendEvent({
+        broadcastMessage({
           type: "message_complete",
           conversationId: conversationId,
         });
@@ -1890,7 +1889,7 @@ export async function handleSendMessage(
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
       try {
-        sendEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -1914,15 +1913,15 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        sendEvent({
+        broadcastMessage({
           type: "assistant_text_delta",
           text: responseText,
           conversationId,
         });
-        sendEvent({ type: "message_complete", conversationId });
+        broadcastMessage({ type: "message_complete", conversationId });
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
-        sendEvent({
+        broadcastMessage({
           type: "conversation_error",
           conversationId,
           code: "UNKNOWN",
@@ -1960,7 +1959,7 @@ export async function handleSendMessage(
     throw err;
   }
 
-  sendEvent({
+  broadcastMessage({
     type: "user_message_echo",
     text: resolvedContent,
     conversationId: mapping.conversationId,
@@ -1969,9 +1968,9 @@ export async function handleSendMessage(
     clientMessageId,
   });
 
-  // Fire-and-forget the agent loop; events flow to the hub via sendEvent.
+  // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
-    .runAgentLoop(resolvedContent, messageId, sendEvent, {
+    .runAgentLoop(resolvedContent, messageId, broadcastMessage, {
       isInteractive,
       isUserMessage: true,
     })

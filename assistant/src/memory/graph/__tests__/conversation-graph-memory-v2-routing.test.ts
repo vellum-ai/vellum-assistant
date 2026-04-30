@@ -141,10 +141,6 @@ beforeAll(() => {
   // has something concrete to render. Generic placeholders only.
   mkdirSync(join(tmpWorkspace, "memory", "concepts"), { recursive: true });
   writeFileSync(
-    join(tmpWorkspace, "memory", "edges.json"),
-    JSON.stringify({ version: 1, edges: [] }),
-  );
-  writeFileSync(
     join(tmpWorkspace, "memory", "concepts", "alice-vscode.md"),
     `---\nedges: []\nref_files: []\n---\nAlice prefers VS Code as her editor.`,
   );

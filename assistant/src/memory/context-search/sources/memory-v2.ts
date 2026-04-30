@@ -8,8 +8,9 @@
 //
 //   1. Activation + 2-hop spreading. ANN top-K against the v2 concept-page
 //      Qdrant collection seeds the candidate set; fused dense+sparse scores
-//      become A_o; `spreadActivation` walks 1- and 2-hop neighbors via
-//      `edges.json`; we pick the top-N by final activation.
+//      become A_o; `spreadActivation` walks 1- and 2-hop predecessors via
+//      the in-memory edge index (`getEdgeIndex`); we pick the top-N by final
+//      activation.
 //   2. Lexical file-search fallback. Walks `memory/concepts/*.md` and
 //      term-matches the query so the agent can still find pages activation
 //      missed (rare-term queries, slug literals, etc.). Mirrors the pkb
@@ -31,7 +32,7 @@ import { getLogger } from "../../../util/logger.js";
 import { embedWithRetry } from "../../embed.js";
 import { generateSparseEmbedding } from "../../embedding-backend.js";
 import { spreadActivation } from "../../v2/activation.js";
-import { readEdges } from "../../v2/edges.js";
+import { getEdgeIndex } from "../../v2/edge-index.js";
 import {
   getConceptsDir,
   readPage,
@@ -210,11 +211,11 @@ async function activationEvidence(
     );
   }
 
-  const edgesIdx = await readEdges(context.workingDir);
+  const edgeIndex = await getEdgeIndex(context.workingDir);
   const { k, hops } = context.config.memory.v2;
   const { final: finalActivation } = spreadActivation(
     ownActivation,
-    edgesIdx,
+    edgeIndex,
     k,
     hops,
   );

@@ -352,6 +352,12 @@ export interface HistoryResponseToolCall {
   riskReason?: string;
   /** Whether the tool was auto-approved (true) or required explicit user input (false). */
   autoApproved?: boolean;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
 export interface HistoryResponseSurface {

@@ -40,7 +40,6 @@ export type MemoryJobType =
   | "memory_v2_sweep"
   | "memory_v2_consolidate"
   | "memory_v2_migrate"
-  | "memory_v2_rebuild_edges"
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute";
 

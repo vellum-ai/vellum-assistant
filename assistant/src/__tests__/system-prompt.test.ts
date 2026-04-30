@@ -322,6 +322,119 @@ describe("buildSystemPrompt", () => {
     });
   });
 
+  describe("BOOTSTRAP.md voice block injection", () => {
+    test("prepends warm voice block before BOOTSTRAP.md content when tone is 'warm'", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "warm",
+        },
+      });
+      expect(result).toContain("## Voice\nFriendly and easy");
+      // Voice block should appear inside the First-Run Ritual section, before the BOOTSTRAP.md body
+      const ritualIdx = result.indexOf("# First-Run Ritual");
+      const voiceIdx = result.indexOf("## Voice\nFriendly and easy");
+      const bootstrapBodyIdx = result.indexOf("# First run\n\nWelcome aboard.");
+      expect(ritualIdx).toBeGreaterThan(-1);
+      expect(voiceIdx).toBeGreaterThan(ritualIdx);
+      expect(voiceIdx).toBeLessThan(bootstrapBodyIdx);
+    });
+
+    test("prepends poetic voice block when tone is 'poetic'", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "poetic",
+        },
+      });
+      expect(result).toContain("## Voice\nThoughtful and unhurried");
+    });
+
+    test("prepends grounded voice block when tone is 'grounded'", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "grounded",
+        },
+      });
+      expect(result).toContain("## Voice\nCalm, direct, precise");
+    });
+
+    test("does not inject voice block when tone is missing", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "",
+        },
+      });
+      expect(result).not.toContain("## Voice");
+    });
+
+    test("does not inject voice block when tone is unrecognized", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "robotic",
+        },
+      });
+      expect(result).not.toContain("## Voice");
+    });
+
+    test("does not inject voice block when onboardingContext is absent", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("## Voice");
+    });
+
+    test("voice block appears inside First-Run Ritual section before BOOTSTRAP.md body", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Onboarding\n\nStep 1: Do stuff.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "energetic",
+        },
+      });
+      const ritualIdx = result.indexOf("# First-Run Ritual");
+      const voiceIdx = result.indexOf("## Voice\nFast and generative");
+      const bodyIdx = result.indexOf("# Onboarding\n\nStep 1: Do stuff.");
+      expect(ritualIdx).toBeGreaterThan(-1);
+      expect(voiceIdx).toBeGreaterThan(ritualIdx);
+      expect(bodyIdx).toBeGreaterThan(voiceIdx);
+    });
+  });
+
   describe("app-builder tool ownership guidance", () => {
     test("iteration guidance does not mention app_update for HTML changes", () => {
       const result = buildSystemPrompt();

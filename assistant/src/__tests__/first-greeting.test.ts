@@ -65,7 +65,15 @@ describe("first-greeting", () => {
 
     it("no-onboarding greeting uses two-paragraph structure", () => {
       expect(CANNED_FIRST_GREETING).toContain("\n\n");
-      expect(CANNED_FIRST_GREETING).toContain("I can ask");
+      const paragraphs = CANNED_FIRST_GREETING.split("\n\n");
+      expect(paragraphs.length).toBe(2);
+    });
+
+    it("no-onboarding greeting does not contain old self-deprecation text", () => {
+      expect(CANNED_FIRST_GREETING).not.toContain("no name, no memories");
+      expect(CANNED_FIRST_GREETING).not.toContain("Brand new");
+      expect(CANNED_FIRST_GREETING).not.toContain("I can ask");
+      expect(CANNED_FIRST_GREETING).not.toContain("get sharper");
     });
   });
 
@@ -73,333 +81,227 @@ describe("first-greeting", () => {
     const base: OnboardingGreetingContext = {
       tools: [],
       tasks: [],
-      tone: "balanced",
+      tone: "grounded",
     };
 
-    it("full dev stack: GitHub + Linear, Building + PM", () => {
+    it("grounded + name + assistantName", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["github", "linear"],
-        tasks: ["code-building", "project-management"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "grounded",
+        userName: "Alice",
+        assistantName: "Pax",
       });
-      expect(greeting).toContain("Hey Bob, I'm Pip.");
-      expect(greeting).toContain("You mentioned using GitHub and Linear");
-      expect(greeting).toContain(
-        "shipping code or figuring out what to ship next",
+      expect(greeting).toBe(
+        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
       );
-      expect(greeting).toContain("\n\n");
     });
 
-    it("PM + comms: Linear + Notion, PM + Writing", () => {
+    it("warm + name + assistantName", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["linear", "notion"],
-        tasks: ["project-management", "writing"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "warm",
+        userName: "Alice",
+        assistantName: "Remy",
       });
-      expect(greeting).toContain("You mentioned using Notion and Linear");
-      expect(greeting).toContain("writing a spec or pushing something forward");
+      expect(greeting).toBe(
+        "Hey Alice, I'm Remy. Good to meet you.\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+      );
     });
 
-    it("writer: Notion + Google Drive, Writing only", () => {
+    it("energetic + no names", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["notion", "google-drive"],
-        tasks: ["writing"],
-        userName: "Bob",
-        assistantName: "Luna",
+        tone: "energetic",
+        assistantName: "Pax",
       });
-      expect(greeting).toContain("You mentioned using Notion and Google Drive");
-      expect(greeting).toContain("drafting something or cleaning up docs");
+      expect(greeting).toBe(
+        "Hey, I'm Pax. Let's see what you've got.\n\nWe can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+      );
     });
 
-    it("single task no tools: Building only", () => {
+    it("poetic + name + assistantName", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tasks: ["code-building"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "poetic",
+        userName: "Alice",
+        assistantName: "Pax",
       });
-      expect(greeting).toContain("Probably shipping something or debugging");
-      expect(greeting).not.toContain("You mentioned using");
+      expect(greeting).toBe(
+        "Hey Alice, I'm Pax.\n\nWe can start with whatever's in front of you, or just talk for a bit first. Either way.",
+      );
     });
 
-    it("single tool single task: GitHub + Building", () => {
+    it("name only (no assistantName)", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["github"],
-        tasks: ["code-building"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "grounded",
+        userName: "Alice",
       });
-      expect(greeting).toContain("You mentioned using GitHub");
+      expect(greeting).toBe(
+        "Hey Alice,\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+      );
     });
 
-    it("many hats: 4 selections", () => {
+    it("assistantName only (no userName)", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tasks: ["code-building", "writing", "research", "project-management"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "grounded",
+        assistantName: "Pax",
       });
-      expect(greeting).toContain("wear a lot of hats");
-      expect(greeting).toContain("Where should we start?");
+      expect(greeting).toBe(
+        "Hey, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+      );
     });
 
-    it("many hats: 6 selections", () => {
+    it("no name, no assistantName, no tone returns CANNED_FIRST_GREETING", () => {
       const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: [
-          "code-building",
-          "writing",
-          "research",
-          "project-management",
-          "scheduling",
-          "personal",
-        ],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("wear a lot of hats");
-    });
-
-    it("no tasks with tools: no-signal branch", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: ["gmail", "linear"],
+        tools: [],
         tasks: [],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "",
       });
-      expect(greeting).toContain("What's on your plate?");
-      expect(greeting).toContain("I can ask you a few questions");
+      expect(greeting).toBe(CANNED_FIRST_GREETING);
     });
 
-    it("missing name uses Hey comma opener", () => {
+    it("no names but valid tone uses tone-aware greeting", () => {
       const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: ["code-building"],
-        assistantName: "Pip",
+        tools: [],
+        tasks: [],
+        tone: "warm",
       });
-      expect(greeting).toStartWith("Hey, I'm Pip.");
-    });
-
-    it("3-selection falls back to highest-priority single template", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: ["writing", "research", "scheduling"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("drafting something or cleaning up docs");
-    });
-
-    it("unlisted 2-combo falls back to highest-priority single", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: ["research", "personal"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain(
-        "digging into a topic or making sense of something",
+      expect(greeting).toBe(
+        "Hey,\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
       );
     });
 
-    it("uses capital I throughout", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: ["code-building"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("I'm Pip");
-      expect(greeting).toContain("I'll get sharper");
-      expect(greeting).toContain("Am I on the right track");
+    it("each valid tone with no names produces distinct invite", () => {
+      const greetings = ["grounded", "warm", "energetic", "poetic"].map(
+        (tone) => getCannedFirstGreeting({ tools: [], tasks: [], tone }),
+      );
+      const unique = new Set(greetings);
+      expect(unique.size).toBe(4);
     });
 
-    it("two-paragraph structure with blank line", () => {
+    it("unknown tone falls back to grounded defaults", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tasks: ["code-building"],
-        userName: "Bob",
-        assistantName: "Pip",
+        tone: "mysterious-future-tone",
+        userName: "Alice",
+        assistantName: "Pax",
+      });
+      expect(greeting).toBe(
+        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+      );
+    });
+
+    it("two-paragraph structure preserved", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "grounded",
+        userName: "Alice",
+        assistantName: "Pax",
       });
       const paragraphs = greeting.split("\n\n");
       expect(paragraphs.length).toBe(2);
-    });
-
-    it("picks relevant tools for guess, not arbitrary selection order", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: [
-          "notion",
-          "linear",
-          "gmail",
-          "google-calendar",
-          "github",
-          "apple-notes",
-        ],
-        tasks: ["code-building", "project-management"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("You mentioned using GitHub and Linear");
-      expect(greeting).not.toContain("Apple Notes");
-      expect(greeting).not.toContain("Notion");
-    });
-
-    it("falls back to no-tool prefix when no relevant tools match", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: ["notion", "apple-notes"],
-        tasks: ["code-building"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("Probably shipping something or debugging");
-      expect(greeting).not.toContain("You mentioned using");
-    });
-
-    it("life admin guess uses verb phrase", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: ["gmail", "google-calendar"],
-        tasks: ["personal"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain(
-        "You mentioned using Gmail and Google Calendar",
-      );
-      expect(greeting).toContain("juggling travel, bills, or household stuff");
-    });
-
-    it("uses personalized greeting when assistantName present but no user name/tasks/tools", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("I'm Pip");
-      expect(greeting).not.toContain("no name, no memories");
-    });
-
-    it("falls back to no-signal branch for unknown task types", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tasks: ["future-task-type"],
-        userName: "Bob",
-        assistantName: "Pip",
-      });
-      expect(greeting).toContain("What's on your plate?");
-      expect(greeting).not.toContain("\n\n\n");
     });
   });
 
   describe("tone-specific greetings", () => {
     const base: OnboardingGreetingContext = {
-      tools: ["github", "linear"],
-      tasks: ["code-building"],
-      tone: "balanced",
+      tools: [],
+      tasks: [],
+      tone: "grounded",
       userName: "Bob",
-      assistantName: "Pip",
+      assistantName: "Pax",
     };
 
-    it("grounded tone produces direct, calm intro", () => {
+    it("grounded intro close is empty, invite is grounded", () => {
       const greeting = getCannedFirstGreeting({ ...base, tone: "grounded" });
-      expect(greeting).toContain("Bob.");
-      expect(greeting).toContain(
-        "I'm Pip. Brand new, and I'll get sharper the more we work together.",
+      const [intro, invite] = greeting.split("\n\n");
+      expect(intro).toBe("Hey Bob, I'm Pax.");
+      expect(invite).toBe(
+        "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
       );
-      expect(greeting.split("\n\n").length).toBe(2);
     });
 
-    it("warm tone uses casual phrasing", () => {
+    it("warm intro close is 'Good to meet you.', invite is warm", () => {
       const greeting = getCannedFirstGreeting({ ...base, tone: "warm" });
-      expect(greeting).toContain("Hey Bob!");
-      expect(greeting).toContain("hang out");
-      expect(greeting.split("\n\n").length).toBe(2);
+      const [intro, invite] = greeting.split("\n\n");
+      expect(intro).toBe("Hey Bob, I'm Pax. Good to meet you.");
+      expect(invite).toBe(
+        "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+      );
     });
 
-    it("energetic tone is punchy", () => {
+    it("energetic intro close is 'Let's see what you've got.', invite is energetic", () => {
       const greeting = getCannedFirstGreeting({ ...base, tone: "energetic" });
-      expect(greeting).toContain("Bob!");
-      expect(greeting).toContain("let's get into it");
-      expect(greeting.split("\n\n").length).toBe(2);
+      const [intro, invite] = greeting.split("\n\n");
+      expect(intro).toBe("Hey Bob, I'm Pax. Let's see what you've got.");
+      expect(invite).toBe(
+        "We can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+      );
     });
 
-    it("poetic tone is softer", () => {
+    it("poetic intro close is empty, invite is poetic", () => {
       const greeting = getCannedFirstGreeting({ ...base, tone: "poetic" });
-      expect(greeting).toContain("Hello, Bob.");
-      expect(greeting).toContain("grow alongside you");
-      expect(greeting.split("\n\n").length).toBe(2);
+      const [intro, invite] = greeting.split("\n\n");
+      expect(intro).toBe("Hey Bob, I'm Pax.");
+      expect(invite).toBe(
+        "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
+      );
     });
 
-    it("balanced tone falls back to generic intro", () => {
-      const greeting = getCannedFirstGreeting({ ...base, tone: "balanced" });
-      expect(greeting).toContain("Hey Bob, I'm Pip.");
-      expect(greeting).toContain("I'll get sharper");
-      expect(greeting.split("\n\n").length).toBe(2);
-    });
-
-    it("unknown tone string falls back to generic intro", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tone: "mysterious-future-tone",
-      });
-      expect(greeting).toContain("Hey Bob, I'm Pip.");
-      expect(greeting).toContain("I'll get sharper");
-      expect(greeting.split("\n\n").length).toBe(2);
-    });
-
-    it("each tone produces a distinct intro line", () => {
+    it("each tone produces a distinct full greeting", () => {
       const tones = ["grounded", "warm", "energetic", "poetic"];
-      const intros = tones.map((tone) => {
-        const greeting = getCannedFirstGreeting({ ...base, tone });
-        return greeting.split("\n\n")[0];
+      const greetings = tones.map((tone) => {
+        return getCannedFirstGreeting({ ...base, tone });
       });
-      const unique = new Set(intros);
+      const unique = new Set(greetings);
       expect(unique.size).toBe(tones.length);
     });
 
-    it("warm tone without user name uses Hey!", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tone: "warm",
-        userName: undefined,
+    it("each tone produces distinct invite text", () => {
+      const tones = ["grounded", "warm", "energetic", "poetic"];
+      const invites = tones.map((tone) => {
+        const greeting = getCannedFirstGreeting({ ...base, tone });
+        return greeting.split("\n\n")[1];
       });
-      expect(greeting).toStartWith("Hey! I'm Pip");
+      const unique = new Set(invites);
+      expect(unique.size).toBe(tones.length);
     });
+  });
 
-    it("poetic tone without user name uses Hello.", () => {
+  describe("tasks and tools fields are ignored", () => {
+    it("tasks do not appear in output", () => {
       const greeting = getCannedFirstGreeting({
-        ...base,
-        tone: "poetic",
-        userName: undefined,
-      });
-      expect(greeting).toStartWith("Hello. I'm Pip");
-    });
-
-    it("grounded tone without user name omits greeting prefix", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
+        tools: ["github", "linear"],
+        tasks: ["code-building", "project-management"],
         tone: "grounded",
-        userName: undefined,
+        userName: "Alice",
+        assistantName: "Pax",
       });
-      expect(greeting).toStartWith("I'm Pip.");
+      expect(greeting).not.toContain("GitHub");
+      expect(greeting).not.toContain("Linear");
+      expect(greeting).not.toContain("code");
+      expect(greeting).not.toContain("shipping");
+      expect(greeting).not.toContain("You mentioned using");
+      expect(greeting).not.toContain("wear a lot of hats");
+      expect(greeting).not.toContain("Am I on the right track");
     });
 
-    it("tone-specific intro falls back to generic when no assistantName", () => {
+    it("tools do not appear in output", () => {
       const greeting = getCannedFirstGreeting({
-        ...base,
+        tools: ["gmail", "google-calendar", "slack", "notion"],
+        tasks: ["scheduling", "personal", "writing", "research"],
         tone: "warm",
-        assistantName: undefined,
+        userName: "Bob",
+        assistantName: "Remy",
       });
-      expect(greeting).toContain("Hey Bob,");
-      expect(greeting).toContain("brand new");
+      expect(greeting).not.toContain("Gmail");
+      expect(greeting).not.toContain("Google Calendar");
+      expect(greeting).not.toContain("Slack");
+      expect(greeting).not.toContain("Notion");
+      expect(greeting).not.toContain("scheduling");
+      expect(greeting).not.toContain("personal");
     });
   });
 });

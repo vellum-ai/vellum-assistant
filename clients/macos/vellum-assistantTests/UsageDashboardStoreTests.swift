@@ -192,7 +192,7 @@ struct UsageDashboardStoreDecodingTests {
         {
             "breakdown": [
                 {
-                    "group": "Main agent",
+                    "group": "Main Agent",
                     "groupKey": "mainAgent",
                     "totalInputTokens": 800,
                     "totalOutputTokens": 400,
@@ -203,7 +203,7 @@ struct UsageDashboardStoreDecodingTests {
         }
         """
         let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: Data(json.utf8))
-        #expect(decoded.breakdown[0].group == "Main agent")
+        #expect(decoded.breakdown[0].group == "Main Agent")
         #expect(decoded.breakdown[0].groupKey == "mainAgent")
     }
 
@@ -222,7 +222,7 @@ struct UsageDashboardStoreDecodingTests {
                     "eventCount": 5,
                     "groups": {
                         "value:mainAgent": {
-                            "group": "Main agent",
+                            "group": "Main Agent",
                             "groupKey": "mainAgent",
                             "totalInputTokens": 500,
                             "totalOutputTokens": 250,
@@ -238,7 +238,7 @@ struct UsageDashboardStoreDecodingTests {
         #expect(decoded.buckets.count == 1)
         #expect(decoded.buckets[0].bucketId == "2026-03-01")
         #expect(decoded.buckets[0].displayLabel == "Mar 1")
-        #expect(decoded.buckets[0].groups["value:mainAgent"]?.group == "Main agent")
+        #expect(decoded.buckets[0].groups["value:mainAgent"]?.group == "Main Agent")
         #expect(decoded.buckets[0].groups["value:mainAgent"]?.groupKey == "mainAgent")
     }
 

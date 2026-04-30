@@ -645,7 +645,7 @@ struct UsageTabContentViewPopulatedTests {
                 eventCount: 2,
                 groups: [
                     "value:mainAgent": UsageSeriesGroupValue(
-                        group: "Main agent",
+                        group: "Main Agent",
                         groupKey: "mainAgent",
                         totalInputTokens: 100,
                         totalOutputTokens: 50,
@@ -657,7 +657,7 @@ struct UsageTabContentViewPopulatedTests {
         ])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
             UsageGroupBreakdownEntry(
-                group: "Main agent",
+                group: "Main Agent",
                 groupKey: "mainAgent",
                 totalInputTokens: 100,
                 totalOutputTokens: 50,
@@ -675,7 +675,7 @@ struct UsageTabContentViewPopulatedTests {
         #expect(client.lastBreakdownGroupBy == "call_site")
         #expect(joined.contains("Inference Usage"))
         #expect(joined.contains("Daily Trend by Task"))
-        #expect(joined.contains("Main agent"))
+        #expect(joined.contains("Main Agent"))
 
         await store.selectGroupBy(.inferenceProfile)
         #expect(client.lastSeriesGroupBy == "inference_profile")

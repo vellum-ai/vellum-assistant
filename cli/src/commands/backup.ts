@@ -1,14 +1,19 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { findAssistantByName } from "../lib/assistant-config";
+import type { AssistantEntry } from "../lib/assistant-config.js";
+import { findAssistantByName } from "../lib/assistant-config.js";
 import { getBackupsDir, formatSize } from "../lib/backup-ops.js";
 import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
+import { pollJobUntilDone } from "../lib/job-polling.js";
 import {
+  MigrationInProgressError,
+  localRuntimeExportToGcs,
+  localRuntimePollJobStatus,
+} from "../lib/local-runtime-client.js";
+import {
+  platformRequestSignedUrl,
   readPlatformToken,
-  platformInitiateExport,
-  platformPollExportStatus,
-  platformDownloadExport,
 } from "../lib/platform-client.js";
 
 export async function backup(): Promise<void> {
@@ -73,7 +78,7 @@ export async function backup(): Promise<void> {
   }
 
   if (cloud === "vellum") {
-    await backupPlatform(name, outputArg, entry.runtimeUrl);
+    await backupPlatform(entry, name, outputArg);
     return;
   }
 
@@ -188,39 +193,66 @@ export async function backup(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Platform (Vellum-hosted) backup via Django async migration export
+// Platform-managed (cloud="vellum") backup over GCS.
+//
+// The runtime exports the bundle straight to a platform-issued signed GCS
+// URL; the CLI then downloads from GCS to local disk. Bytes never flow
+// through Django. Same architectural shape as the platform-source half of
+// `vellum teleport`. Output format and success log lines match mode 1
+// (runtime-direct local backup) so users see one consistent UX.
+//
+// Lifecycle: the GCS bucket has a 1-day TTL on `uploads/<org>/*` objects
+// (see `vellum-assistant-platform/django/app/assistant/migration/views.py`
+// and `migration/services.py`). Backup is single-shot with no import to
+// trigger best-effort cleanup, so the bundle sits in GCS up to 24h before
+// TTL deletion. No explicit cleanup endpoint exists; relying on TTL is
+// intentional.
 // ---------------------------------------------------------------------------
-
 async function backupPlatform(
+  entry: AssistantEntry,
   name: string,
   outputArg?: string,
-  runtimeUrl?: string,
 ): Promise<void> {
-  // Step 1 — Authenticate
-  const token = readPlatformToken();
-  if (!token) {
-    console.error("Not logged in. Run 'vellum login' first.");
+  const platformToken = readPlatformToken();
+  if (!platformToken) {
+    console.error(
+      "Not logged in. Run 'vellum login' first (required for platform-managed backup).",
+    );
     process.exit(1);
   }
+  // Pin upload, download, and runtime requests to the same platform instance
+  // the assistant lives on. Using `getPlatformUrl()` instead would target
+  // whatever the lockfile / env-var resolves to, which may differ from
+  // `entry.runtimeUrl` for staging/dev assistants and end up signing URLs
+  // for the wrong GCS bucket. Mirrors the teleport bundlePlatformUrl
+  // threading at `cli/src/commands/teleport.ts:1311-1312`.
+  const platformUrl = entry.runtimeUrl;
+  // Track the working platform token across kickoff/poll/download so a
+  // 401-driven refresh during polling stays consistent through the final
+  // signed-download request.
+  let exportPlatformToken = platformToken;
 
-  // Step 2 — Initiate export job
+  // Step 1 — Request a signed upload URL.
+  const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+    { operation: "upload" },
+    exportPlatformToken,
+    platformUrl,
+  );
+
+  // Step 2 — Kick off runtime export-to-GCS through the platform's
+  // wildcard runtime proxy. `localRuntimeExportToGcs` builds the
+  // `/v1/assistants/<id>/migrations/export-to-gcs` URL for cloud="vellum"
+  // and uses platform-token auth (no guardian-token bootstrap).
   let jobId: string;
   try {
-    const result = await platformInitiateExport(
-      token,
-      "CLI backup",
-      runtimeUrl,
-    );
-    jobId = result.jobId;
+    ({ jobId } = await localRuntimeExportToGcs(entry, exportPlatformToken, {
+      uploadUrl,
+      description: "CLI backup",
+    }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-      process.exit(1);
-    }
-    if (msg.includes("429")) {
+    if (err instanceof MigrationInProgressError) {
       console.error(
-        "Too many export requests. Please wait before trying again.",
+        `Error: Another backup or teleport export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish, then re-run.`,
       );
       process.exit(1);
     }
@@ -229,65 +261,79 @@ async function backupPlatform(
 
   console.log(`Export started (job ${jobId})...`);
 
-  // Step 3 — Poll for completion
-  const POLL_INTERVAL_MS = 2_000;
-  const TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
-  const deadline = Date.now() + TIMEOUT_MS;
-  let downloadUrl: string | undefined;
-
-  while (Date.now() < deadline) {
-    let status: { status: string; downloadUrl?: string; error?: string };
-    try {
-      status = await platformPollExportStatus(jobId, token, runtimeUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Let non-transient errors (e.g. 404 "job not found") propagate immediately
-      if (msg.includes("not found")) {
-        throw err;
+  // Step 3 — Poll the job through the wildcard proxy. The dedicated
+  // `/v1/migrations/jobs/{id}/` endpoint queries platform-side ImportJob
+  // records and would 404 on runtime-created job IDs.
+  const terminal = await pollJobUntilDone({
+    label: "platform export",
+    poll: () => localRuntimePollJobStatus(entry, exportPlatformToken, jobId),
+    refreshOn401: async () => {
+      const refreshed = readPlatformToken();
+      if (!refreshed) {
+        throw new Error(
+          "Platform auth expired during export and no credential was found on disk. Run 'vellum login' and retry.",
+        );
       }
-      console.warn(`Polling failed, retrying... (${msg})`);
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      continue;
-    }
+      exportPlatformToken = refreshed;
+    },
+  });
 
-    if (status.status === "complete") {
-      downloadUrl = status.downloadUrl;
-      break;
-    }
-
-    if (status.status === "failed") {
-      console.error(`Export failed: ${status.error ?? "unknown error"}`);
-      process.exit(1);
-    }
-
-    // Still in progress — wait and retry
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  if (!downloadUrl) {
-    console.error("Export timed out after 5 minutes.");
+  if (terminal.status === "failed") {
+    console.error(`Error: Export failed: ${terminal.error}`);
     process.exit(1);
   }
 
-  // Step 4 — Download bundle
+  // Step 4 — Request a signed download URL for the same bundle and fetch
+  // it from GCS directly. No auth on signed URLs.
+  // Use `exportPlatformToken` (not the original `platformToken`) so a
+  // poll-loop 401 refresh doesn't get clobbered here — otherwise a long
+  // export that recovered mid-poll via re-auth would still 401 on the
+  // download-URL request and abort an otherwise successful run.
+  const { url: bundleUrl } = await platformRequestSignedUrl(
+    { operation: "download", bundleKey },
+    exportPlatformToken,
+    platformUrl,
+  );
+
+  let downloadResponse: Response;
+  try {
+    downloadResponse = await fetch(bundleUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Error: Failed to fetch bundle from GCS: ${msg}`);
+    process.exit(1);
+  }
+  if (!downloadResponse.ok) {
+    const body = await downloadResponse.text().catch(() => "");
+    console.error(
+      `Error: Failed to fetch bundle from GCS (${downloadResponse.status}): ${body}`,
+    );
+    process.exit(1);
+  }
+
+  const arrayBuffer = await downloadResponse.arrayBuffer();
+  const data = new Uint8Array(arrayBuffer);
+
+  // Step 5 — Write to disk using the same path resolution mode 1 uses.
   const isoTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputPath =
     outputArg || join(getBackupsDir(), `${name}-${isoTimestamp}.vbundle`);
-
   mkdirSync(dirname(outputPath), { recursive: true });
-
-  const response = await platformDownloadExport(downloadUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const data = new Uint8Array(arrayBuffer);
-
   writeFileSync(outputPath, data);
 
-  // Step 5 — Print success
+  // Step 6 — Print success. Manifest SHA is included only if the runtime
+  // surfaced it via the unified job result; the export-to-gcs runtime
+  // route does not set the legacy `X-Vbundle-Manifest-Sha256` response
+  // header.
   console.log(`Backup saved to ${outputPath}`);
   console.log(`Size: ${formatSize(data.byteLength)}`);
-
-  const manifestSha = response.headers.get("X-Vbundle-Manifest-Sha256");
-  if (manifestSha) {
+  const manifestSha =
+    terminal.status === "complete" &&
+    terminal.result &&
+    typeof terminal.result === "object"
+      ? (terminal.result as Record<string, unknown>).manifest_sha256
+      : undefined;
+  if (typeof manifestSha === "string") {
     console.log(`Manifest SHA-256: ${manifestSha}`);
   }
 }

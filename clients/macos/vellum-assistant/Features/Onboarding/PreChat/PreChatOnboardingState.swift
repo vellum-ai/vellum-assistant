@@ -18,18 +18,14 @@ final class PreChatOnboardingState {
     /// The currently selected personality group ID, or `nil` for no selection.
     var selectedGroupID: String?
 
-    /// A representative sample shown when no personality group is selected.
-    static let tasterNames = ["Penn", "Sage", "Wren", "Milo", "Nova", "Ember", "Luna", "Iris"]
+    /// Number of name suggestion pills to display.
+    static let suggestionLimit = 6
 
-    /// Names to show as quick-tap pills. When a group is selected, shows only
-    /// that group's names. Otherwise shows a curated taster sample.
-    var displayedAssistantNames: [String] {
-        guard let selectedID = selectedGroupID,
-              let group = PersonalityGroup.allGroups.first(where: { $0.id == selectedID }) else {
-            return Self.tasterNames
-        }
-        return group.names
-    }
+    /// Names shown as quick-tap pills for this onboarding session. Sampled
+    /// once at state creation from the full `PersonalityGroup.allNames` pool
+    /// and held stable for the rest of the flow — picking a vibe does not
+    /// refresh the suggestions, since names are no longer tied to vibes.
+    let displayedAssistantNames: [String]
 
     // MARK: - Persistence Keys
 
@@ -40,11 +36,12 @@ final class PreChatOnboardingState {
     private static let userNameKey = "\(prefix)userName"
     private static let assistantNameKey = "\(prefix)assistantName"
     private static let selectedGroupIDKey = "\(prefix)selectedGroupID"
+    private static let displayedNamesKey = "\(prefix)displayedAssistantNames"
 
     private static let allKeys: [String] = [
         screenKey, toolsKey, tasksKey,
         userNameKey, assistantNameKey,
-        selectedGroupIDKey,
+        selectedGroupIDKey, displayedNamesKey,
     ]
 
     // MARK: - Init (restore from UserDefaults)
@@ -54,6 +51,18 @@ final class PreChatOnboardingState {
         self.userName = ""
 
         let defaults = UserDefaults.standard
+
+        // Restore the same suggestion sample across launches mid-flow; otherwise
+        // sample a fresh `suggestionLimit` names from the full pool. Sampling
+        // happens here (not lazily) so picking a vibe later does not perturb it.
+        if let persisted = defaults.stringArray(forKey: Self.displayedNamesKey),
+           persisted.count == Self.suggestionLimit {
+            self.displayedAssistantNames = persisted
+        } else {
+            let sampled = Array(PersonalityGroup.allNames.shuffled().prefix(Self.suggestionLimit))
+            self.displayedAssistantNames = sampled
+            defaults.set(sampled, forKey: Self.displayedNamesKey)
+        }
 
         currentScreen = min(defaults.integer(forKey: Self.screenKey), 2)
 

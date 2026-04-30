@@ -1220,6 +1220,15 @@ final class ChatActionHandler {
             if !dirOpts.isEmpty {
                 vm.messages[msgIdx].toolCalls[tcIdx].riskDirectoryScopeOptions = dirOpts
             }
+            // Populate riskScopeOptions from the confirmation's allowlistOptions so the
+            // Rule Editor modal has real classifier-produced patterns available when
+            // "Allow and Create Rule" is clicked (before the tool result arrives).
+            let scopeOptsFromConfirmation = confirmation.allowlistOptions.map {
+                ToolResultRiskScopeOption(pattern: $0.pattern, label: $0.label)
+            }
+            if !scopeOptsFromConfirmation.isEmpty {
+                vm.messages[msgIdx].toolCalls[tcIdx].riskScopeOptions = scopeOptsFromConfirmation
+            }
         }
         let confirmMsg = ChatMessage(
             role: .assistant,

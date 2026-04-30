@@ -212,6 +212,31 @@ describe("POST /v1/trust-rules/suggest", () => {
     expect(callArgs.currentThreshold).toBe("medium");
   });
 
+  test("passes existingRule when provided", async () => {
+    const bodyWithExistingRule = {
+      ...VALID_BODY,
+      existingRule: {
+        id: "rule-123",
+        pattern: "bash *",
+        risk: "low",
+      },
+    };
+
+    const handler = createTrustRulesSuggestHandler();
+    const res = await handler(jsonRequest(bodyWithExistingRule));
+
+    expect(res.status).toBe(200);
+    expect(ipcSuggestTrustRuleMock).toHaveBeenCalledTimes(1);
+    const callArgs = ipcSuggestTrustRuleMock.mock.calls[0][0] as {
+      existingRule: unknown;
+    };
+    expect(callArgs.existingRule).toEqual({
+      id: "rule-123",
+      pattern: "bash *",
+      risk: "low",
+    });
+  });
+
   test("passes directoryScopeOptions when provided", async () => {
     const bodyWithDirScope = {
       ...VALID_BODY,

@@ -558,6 +558,9 @@ export async function check(
     decision: approvalDecision.decision,
     reason: enrichedReason,
     matchedRule: approvalDecision.matchedRule,
+    hasSandboxAutoApprove:
+      approvalDecision.reason ===
+        "Workspace filesystem operation (sandbox auto-approve)" || undefined,
   };
 }
 

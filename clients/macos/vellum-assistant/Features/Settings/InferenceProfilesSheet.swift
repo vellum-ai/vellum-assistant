@@ -73,25 +73,23 @@ struct InferenceProfilesSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            SettingsDivider()
-            profilesList
-            SettingsDivider()
-            footer
+            if editorState != nil {
+                editorInline
+            } else {
+                header
+                SettingsDivider()
+                profilesList
+                SettingsDivider()
+                footer
+            }
         }
-        .frame(width: 560, height: 540)
+        .frame(width: 560, height: 600)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .sheet(item: $editorState) { _ in
-            editorSheet
-        }
         .sheet(item: $blockedState) { _ in
             blockedDeleteSheet
         }
         .onChange(of: editorState) { _, newValue in
-            // Clear the draft when the editor dismisses so the next
-            // session starts from a clean slate. Re-seeding happens in
-            // `beginCreate` / `beginEdit` / `beginDuplicate`.
             if newValue == nil {
                 editorDraft = InferenceProfile(name: "")
                 editorOriginalName = nil
@@ -102,6 +100,7 @@ struct InferenceProfilesSheet: View {
                 replacementSelection = ""
             }
         }
+        .animation(VAnimation.fast, value: editorState != nil)
     }
 
     // MARK: - Header / Footer
@@ -109,10 +108,10 @@ struct InferenceProfilesSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Inference Profiles")
+                Text("Model Profiles")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Bundle a provider, model, and tuning into a named profile. Assign profiles to call sites or pick one for a single chat.")
+                Text("Bundle a provider and model into a named profile. Assign profiles to specific actions or swap between them when chatting.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -247,7 +246,8 @@ struct InferenceProfilesSheet: View {
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                     if profile.isManaged {
-                        VBadge(label: "Managed", tone: .neutral, emphasis: .subtle)
+                        VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
+                            .help("Profiles managed by Vellum cannot be edited, but can be copied")
                     }
                 }
                 if let subtitle = profile.subtitle {
@@ -282,9 +282,9 @@ struct InferenceProfilesSheet: View {
         }
     }
 
-    // MARK: - Editor Sheet
+    // MARK: - Inline Editor
 
-    private var editorSheet: some View {
+    private var editorInline: some View {
         let isViewMode: Bool = {
             if case .view = editorState { return true }
             return false
@@ -305,16 +305,8 @@ struct InferenceProfilesSheet: View {
                 Task { await commitEditor() }
             },
             onSaveAs: isViewMode ? {
-                // Transition from view mode to a duplicate-style create:
-                // clear the managed source, generate a unique name, and
-                // open a fresh editable editor.
                 guard let originalName = editorOriginalName else { return }
-                editorState = nil
-                // Defer so the sheet dismissal animation completes before
-                // the new sheet presents.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    beginDuplicate(originalName)
-                }
+                beginDuplicate(originalName)
             } : nil,
             onCancel: {
                 editorState = nil
@@ -460,6 +452,8 @@ struct InferenceProfilesSheet: View {
         actionError = nil
         guard let source = store.profiles.first(where: { $0.name == name }) else { return }
         var copy = source
+        let sourceDisplayName = source.displayName
+        copy.label = "\(sourceDisplayName) (copy)"
         copy.name = uniqueProfileName(prefix: "\(name)-copy")
         // Clear the managed source so the duplicate is treated as a
         // user-created profile and is fully editable.

@@ -290,8 +290,8 @@ Examples:
       "after",
       `
 Grouping dimensions:
-  call_site          Groups by user-facing task (Main agent, Memory extraction,
-                     Conversation title, etc.)
+  call_site          Groups by user-facing task (Main Agent, Memory Extraction,
+                     Conversation Title, etc.)
   inference_profile  Groups by inference profile; unset historical rows are
                      shown as Default / Unset
   provider           Groups by LLM provider (anthropic, openai, etc.)

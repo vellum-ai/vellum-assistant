@@ -479,7 +479,7 @@ describe("handleBackupCreate", () => {
     await handleBackupCreate();
     expect(mockReadBackupKeyCalls).toBe(0);
     const keyFileExists = await import("node:fs").then((m) =>
-      m.existsSync(join(ROOT, "workspace", "protected", "backup.key")),
+      m.existsSync(join(ROOT, "workspace", ".backup.key")),
     );
     expect(keyFileExists).toBe(false);
   });

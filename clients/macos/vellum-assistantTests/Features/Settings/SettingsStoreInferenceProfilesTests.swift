@@ -345,6 +345,36 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertNil(stored?.thinkingStreamThinking)
     }
 
+    func testReplaceProfileRoundTripsContextWindowOverride() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "long-context": [
+                        "provider": "openai",
+                        "model": "gpt-5.5",
+                        "contextWindow": [
+                            "maxInputTokens": 150000,
+                            "summaryBudgetRatio": 0.05,
+                        ],
+                    ]
+                ]
+            ]
+        ])
+
+        var replacement = store.profiles.first(where: { $0.name == "long-context" })!
+        replacement.contextWindowMaxInputTokens = 175000
+        let success = await store.replaceProfile(name: "long-context", fragment: replacement)
+        XCTAssertTrue(success)
+
+        let call = mockSettingsClient.replaceInferenceProfileCalls[0]
+        let contextWindow = call.fragment["contextWindow"] as? [String: Any]
+        XCTAssertEqual(contextWindow?["maxInputTokens"] as? Int, 175000)
+        XCTAssertEqual(contextWindow?["summaryBudgetRatio"] as? Double, 0.05)
+
+        let stored = store.profiles.first(where: { $0.name == "long-context" })
+        XCTAssertEqual(stored?.contextWindowMaxInputTokens, 175000)
+    }
+
     // MARK: - deleteProfile blocked-by-active
 
     func testDeleteProfileBlockedByActive() async {
@@ -392,6 +422,36 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         let result = await store.deleteProfile(name: "fast")
         if case .blockedByCallSites(let ids) = result {
             XCTAssertEqual(Set(ids), ["memoryRetrieval", "mainAgent"])
+        } else {
+            XCTFail("Expected .blockedByCallSites, got \(result)")
+        }
+        XCTAssertNil(lastProfilesPatch())
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "fast" }))
+    }
+
+    func testDeleteProfileBlockedByRawCallSitesWhenCatalogUnavailable() async {
+        CallSiteCatalog.shared.clearForTesting()
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "fast": ["model": "claude-haiku-4-5"],
+                ],
+            ]
+        ])
+        store.loadCallSiteOverrides(config: [
+            "llm": [
+                "callSites": [
+                    "futureCallSite": ["profile": "fast"],
+                ]
+            ]
+        ])
+        XCTAssertTrue(store.callSiteOverrides.isEmpty)
+
+        let result = await store.deleteProfile(name: "fast")
+        if case .blockedByCallSites(let ids) = result {
+            XCTAssertEqual(ids, ["futureCallSite"])
         } else {
             XCTFail("Expected .blockedByCallSites, got \(result)")
         }

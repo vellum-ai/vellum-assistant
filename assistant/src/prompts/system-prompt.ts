@@ -24,6 +24,16 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
+const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
+  grounded:
+    "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
+  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements. Warmth comes through in how you engage, not in hedging about yourself. Never say you're new, running on instinct, or still figuring yourself out.",
+  energetic:
+    "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
+  poetic:
+    "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
+};
+
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
@@ -287,15 +297,21 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // until onboarding completes.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
 
-  if (identity && !identityIsTemplate) {
-    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-    // the model doesn't treat unresolved fields as prompts to ask the user.
-    const cleanedIdentity = identity
-      .split("\n")
-      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-      .join("\n");
-    if (cleanedIdentity.trim()) {
-      dynamicParts.push(cleanedIdentity);
+  if (identity && (!identityIsTemplate || includeBootstrap)) {
+    if (identityIsTemplate) {
+      // During bootstrap the model needs to see the template structure
+      // so it can produce a valid file_write with the right fields.
+      dynamicParts.push(identity);
+    } else {
+      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+      // the model doesn't treat unresolved fields as prompts to ask the user.
+      const cleanedIdentity = identity
+        .split("\n")
+        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+        .join("\n");
+      if (cleanedIdentity.trim()) {
+        dynamicParts.push(cleanedIdentity);
+      }
     }
   }
   if (soul) dynamicParts.push(soul);
@@ -307,10 +323,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       "{{USER_PERSONA_FILE}}",
       `${userSlug}.md`,
     );
+    let bootstrapContent = bootstrapWithSlug;
+    const voiceBlock = options?.onboardingContext?.tone
+      ? BOOTSTRAP_VOICE_BLOCKS[options.onboardingContext.tone]
+      : undefined;
+    if (voiceBlock) {
+      bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
+    }
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrapWithSlug,
+        bootstrapContent,
     );
 
     if (options?.onboardingContext) {

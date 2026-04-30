@@ -88,10 +88,10 @@ struct APIKeysSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("API Keys")
+                Text("Provider API Keys")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Add API keys for the providers you want to use with inference profiles.")
+                Text("Add API keys for the LLM providers you want to use.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

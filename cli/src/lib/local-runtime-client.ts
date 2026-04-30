@@ -1,7 +1,10 @@
+import type { AssistantEntry } from "./assistant-config.js";
 import {
+  authHeaders,
   parseUnifiedJobStatus,
   type UnifiedJobStatus,
 } from "./platform-client.js";
+import { resolveRuntimeMigrationUrl } from "./runtime-url.js";
 
 /**
  * Thrown when the local runtime returns 409 for an export/import request
@@ -32,6 +35,29 @@ function bearerHeaders(token: string): Record<string, string> {
     "Content-Type": "application/json",
     Accept: "application/json",
   };
+}
+
+/**
+ * Build the auth + content headers for a runtime migration request.
+ *
+ * - For `cloud === "vellum"` we go through the platform's wildcard runtime
+ *   proxy, which authenticates user-session / vak_ tokens via DRF's default
+ *   authentication classes — `authHeaders()` produces the right combination
+ *   (`X-Session-Token` + `Vellum-Organization-Id`, or `Authorization: Bearer
+ *   vak_...`).
+ * - For local/docker the runtime endpoint expects a guardian-token bearer.
+ */
+async function migrationRequestHeaders(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl">,
+  token: string,
+): Promise<Record<string, string>> {
+  if (entry.cloud === "vellum") {
+    return {
+      ...(await authHeaders(token, entry.runtimeUrl)),
+      Accept: "application/json",
+    };
+  }
+  return bearerHeaders(token);
 }
 
 interface Raw409Body {
@@ -69,13 +95,21 @@ async function throwIfInProgress(
 }
 
 /**
- * Kick off an async export-to-GCS job on the local runtime.
- * POSTs to `{runtimeUrl}/v1/migrations/export-to-gcs` and returns the
- * 202-accepted job_id. On 409 (another export in flight) throws
- * {@link MigrationInProgressError} with the existing job_id.
+ * Kick off an async export-to-GCS job on the assistant's runtime.
+ *
+ * For local/docker assistants this POSTs to
+ * `{runtimeUrl}/v1/migrations/export-to-gcs` with guardian-token bearer
+ * auth. For platform-managed (cloud="vellum") assistants the URL is rewritten
+ * to the wildcard-runtime-proxy shape
+ * `{platformUrl}/v1/assistants/<assistantId>/migrations/export-to-gcs` and
+ * authenticated via the platform-token header set the platform's DRF auth
+ * accepts (session / vak_).
+ *
+ * Returns the 202-accepted `job_id`. On 409 (another export in flight)
+ * throws {@link MigrationInProgressError} with the existing job_id.
  */
 export async function localRuntimeExportToGcs(
-  runtimeUrl: string,
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
   token: string,
   params: { uploadUrl: string; description?: string },
 ): Promise<{ jobId: string }> {
@@ -84,11 +118,14 @@ export async function localRuntimeExportToGcs(
     body.description = params.description;
   }
 
-  const response = await fetch(`${runtimeUrl}/v1/migrations/export-to-gcs`, {
-    method: "POST",
-    headers: bearerHeaders(token),
-    body: JSON.stringify(body),
-  });
+  const response = await fetch(
+    resolveRuntimeMigrationUrl(entry, "export-to-gcs"),
+    {
+      method: "POST",
+      headers: await migrationRequestHeaders(entry, token),
+      body: JSON.stringify(body),
+    },
+  );
 
   await throwIfInProgress(response, "export_in_progress");
 
@@ -110,20 +147,29 @@ export async function localRuntimeExportToGcs(
 }
 
 /**
- * Kick off an async import-from-GCS job on the local runtime.
- * POSTs to `{runtimeUrl}/v1/migrations/import-from-gcs` with a signed
- * download URL. On 409 throws {@link MigrationInProgressError}.
+ * Kick off an async import-from-GCS job on the assistant's runtime.
+ *
+ * For local/docker assistants this POSTs to
+ * `{runtimeUrl}/v1/migrations/import-from-gcs` with guardian-token bearer
+ * auth. For platform-managed (cloud="vellum") assistants the URL is rewritten
+ * to the wildcard-runtime-proxy shape
+ * `{platformUrl}/v1/assistants/<assistantId>/migrations/import-from-gcs` and
+ * authenticated via the platform token. On 409 throws
+ * {@link MigrationInProgressError}.
  */
 export async function localRuntimeImportFromGcs(
-  runtimeUrl: string,
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
   token: string,
   params: { bundleUrl: string },
 ): Promise<{ jobId: string }> {
-  const response = await fetch(`${runtimeUrl}/v1/migrations/import-from-gcs`, {
-    method: "POST",
-    headers: bearerHeaders(token),
-    body: JSON.stringify({ bundle_url: params.bundleUrl }),
-  });
+  const response = await fetch(
+    resolveRuntimeMigrationUrl(entry, "import-from-gcs"),
+    {
+      method: "POST",
+      headers: await migrationRequestHeaders(entry, token),
+      body: JSON.stringify({ bundle_url: params.bundleUrl }),
+    },
+  );
 
   await throwIfInProgress(response, "import_in_progress");
 
@@ -145,21 +191,28 @@ export async function localRuntimeImportFromGcs(
 }
 
 /**
- * Poll the local runtime's unified job-status endpoint.
- * GETs `{runtimeUrl}/v1/migrations/jobs/{jobId}` and parses into
- * {@link UnifiedJobStatus}.
+ * Poll the runtime's unified job-status endpoint.
+ *
+ * For local/docker assistants this GETs
+ * `{runtimeUrl}/v1/migrations/jobs/{jobId}` directly (guardian-token
+ * bearer). For platform-managed assistants it routes through the wildcard
+ * runtime proxy at
+ * `{platformUrl}/v1/assistants/<assistantId>/migrations/jobs/{jobId}` with
+ * platform-token auth — important: the platform's dedicated
+ * `/v1/migrations/jobs/{id}/` endpoint queries platform-side ImportJob
+ * records and would 404 on runtime-created job IDs.
  */
 export async function localRuntimePollJobStatus(
-  runtimeUrl: string,
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
   token: string,
   jobId: string,
 ): Promise<UnifiedJobStatus> {
-  const response = await fetch(`${runtimeUrl}/v1/migrations/jobs/${jobId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
+  const response = await fetch(
+    resolveRuntimeMigrationUrl(entry, `jobs/${jobId}`),
+    {
+      headers: await migrationRequestHeaders(entry, token),
     },
-  });
+  );
 
   if (response.status === 404) {
     throw new Error("Migration job not found");

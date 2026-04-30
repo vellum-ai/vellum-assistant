@@ -97,6 +97,9 @@ export type AgentEvent =
       isContainerized?: boolean;
       riskScopeOptions?: Array<{ pattern: string; label: string }>;
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+      approvalMode?: string;
+      approvalReason?: string;
+      riskThreshold?: string;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -280,6 +283,9 @@ export type LoopToolExecutor = (
   isContainerized?: boolean;
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+  approvalMode?: string;
+  approvalReason?: string;
+  riskThreshold?: string;
 }>;
 
 export class AgentLoop {
@@ -994,6 +1000,9 @@ export class AgentLoop {
             isContainerized: result.isContainerized,
             riskScopeOptions: result.riskScopeOptions,
             riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
+            approvalMode: result.approvalMode,
+            approvalReason: result.approvalReason,
+            riskThreshold: result.riskThreshold,
           });
         }
 

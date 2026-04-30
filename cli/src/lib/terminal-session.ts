@@ -93,6 +93,7 @@ export function resolveManagedAssistant(
 export async function interactiveSession(
   assistant: ResolvedManagedAssistant,
   initialCommand?: string,
+  service?: string,
 ): Promise<void> {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
@@ -105,6 +106,7 @@ export async function interactiveSession(
     cols,
     rows,
     assistant.platformUrl,
+    service,
   );
 
   // --- TTY raw mode setup ---
@@ -268,7 +270,7 @@ export function shellEscapeArgs(args: string[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Run a command non-interactively in a managed assistant container. Creates
+ * Run a command non-interactively in a managed assistant service. Creates
  * an ephemeral terminal session, sends the command wrapped in sentinels for
  * reliable output extraction, captures the result, and exits with the
  * remote command's exit code.
@@ -282,7 +284,7 @@ export interface NonInteractiveExecOptions {
 export async function nonInteractiveExec(
   assistant: ResolvedManagedAssistant,
   command: string[],
-  options?: NonInteractiveExecOptions,
+  options?: NonInteractiveExecOptions & { service?: string },
 ): Promise<void> {
   const verbose = options?.verbose ?? false;
   const timeoutMs = options?.timeoutMs ?? 30_000;
@@ -298,6 +300,7 @@ export async function nonInteractiveExec(
     120,
     24,
     assistant.platformUrl,
+    options?.service,
   );
 
   dbg(`session created: ${sessionId}`);
@@ -338,7 +341,9 @@ export async function nonInteractiveExec(
 
       if (verbose) {
         const text = bytes.toString("utf-8");
-        dbg(`SSE event #${eventCount} (seq=${event.seq}, ${bytes.length}B): ${JSON.stringify(text)}`);
+        dbg(
+          `SSE event #${eventCount} (seq=${event.seq}, ${bytes.length}B): ${JSON.stringify(text)}`,
+        );
       }
 
       // Wait for shell prompt before sending command
@@ -380,7 +385,9 @@ export async function nonInteractiveExec(
           normalized.includes(endSentinel + "\n") &&
           normalized.includes(exitCodeSentinel)
         ) {
-          dbg(`end + exit code sentinels detected — waiting 500ms for final output`);
+          dbg(
+            `end + exit code sentinels detected — waiting 500ms for final output`,
+          );
           // Give a moment for final output to arrive
           setTimeout(() => abortController.abort(), 500);
         }

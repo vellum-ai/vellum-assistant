@@ -173,9 +173,9 @@ describe("getBackupKeyPath", () => {
     }
   });
 
-  test("ends with /protected/backup.key when env var is unset", () => {
+  test("ends with /.backup.key when env var is unset", () => {
     delete process.env.VELLUM_BACKUP_KEY_PATH;
-    expect(getBackupKeyPath().endsWith("/protected/backup.key")).toBe(true);
+    expect(getBackupKeyPath().endsWith("/.backup.key")).toBe(true);
   });
 
   test("returns the env var override when VELLUM_BACKUP_KEY_PATH is set", () => {

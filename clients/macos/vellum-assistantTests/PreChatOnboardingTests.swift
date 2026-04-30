@@ -91,21 +91,38 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(Set(allNames).count, allNames.count, "All names across groups must be unique")
     }
 
-    func testStateDisplayedNamesShowsTasterWhenNoGroupSelected() {
+    func testStateDisplayedNamesSamplesFromFullPool() {
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
 
-        XCTAssertNil(state.selectedGroupID)
-        XCTAssertEqual(state.displayedAssistantNames, PreChatOnboardingState.tasterNames)
+        XCTAssertEqual(state.displayedAssistantNames.count, PreChatOnboardingState.suggestionLimit)
+        let pool = Set(PersonalityGroup.allNames)
+        for name in state.displayedAssistantNames {
+            XCTAssertTrue(pool.contains(name), "\(name) is not in the personality-group pool")
+        }
+        XCTAssertEqual(
+            Set(state.displayedAssistantNames).count,
+            state.displayedAssistantNames.count,
+            "Sampled names must be unique"
+        )
     }
 
-    func testStateDisplayedNamesFiltersToSelectedGroup() {
+    func testStateDisplayedNamesAreNotTiedToSelectedGroup() {
         PreChatOnboardingState.clearPersistedState()
         let state = PreChatOnboardingState()
-        state.selectedGroupID = "warm"
+        let initial = state.displayedAssistantNames
 
-        let warmGroup = PersonalityGroup.allGroups.first { $0.id == "warm" }!
-        XCTAssertEqual(state.displayedAssistantNames, warmGroup.names)
+        state.selectedGroupID = "warm"
+        XCTAssertEqual(state.displayedAssistantNames, initial,
+                       "Picking a vibe must not refresh the suggestion sample")
+
+        state.selectedGroupID = "energetic"
+        XCTAssertEqual(state.displayedAssistantNames, initial,
+                       "Switching vibes must not refresh the suggestion sample")
+
+        state.selectedGroupID = nil
+        XCTAssertEqual(state.displayedAssistantNames, initial,
+                       "Clearing the vibe must not refresh the suggestion sample")
     }
 
     func testDefaultAssistantNameIsEmptyOnFreshState() {

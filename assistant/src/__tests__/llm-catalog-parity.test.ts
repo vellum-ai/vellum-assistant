@@ -38,6 +38,9 @@ interface ClientCatalogModel {
   displayName: string;
   contextWindowTokens?: number;
   maxOutputTokens?: number;
+  defaultContextWindowTokens?: number;
+  longContextPricingThresholdTokens?: number;
+  longContextMode?: "native-model" | "provider-request-option" | "unsupported";
   supportsThinking?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
@@ -149,6 +152,13 @@ describe("LLM catalog parity: daemon vs client", () => {
           daemonModel.contextWindowTokens,
         );
         expect(clientModel.maxOutputTokens).toBe(daemonModel.maxOutputTokens);
+        expect(clientModel.defaultContextWindowTokens).toBe(
+          daemonModel.defaultContextWindowTokens,
+        );
+        expect(clientModel.longContextPricingThresholdTokens).toBe(
+          daemonModel.longContextPricingThresholdTokens,
+        );
+        expect(clientModel.longContextMode).toBe(daemonModel.longContextMode);
         expect(clientModel.supportsThinking).toBe(daemonModel.supportsThinking);
         expect(clientModel.supportsCaching).toBe(daemonModel.supportsCaching);
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);

@@ -10,11 +10,10 @@ import Foundation
 ///
 /// Only the leaves the macOS UI exposes are modeled here: `provider`,
 /// `model`, `maxTokens`, `effort`, `speed`, `verbosity`, `temperature`,
-/// and the two `thinking` sub-fields. Other `LLMConfigFragment` leaves
-/// (e.g. `contextWindow`, `openrouter`) flow through the daemon's config
-/// layer untouched — the JSON mapper preserves only the fields it knows
-/// about, but `SettingsStore.patchConfig` merges into the live config so
-/// unknown keys are not clobbered.
+/// the two `thinking` sub-fields, and `contextWindow.maxInputTokens`.
+/// Other `LLMConfigFragment` leaves (e.g. `openrouter` and non-UI
+/// `contextWindow` sub-fields) are preserved by the JSON mapper so edits
+/// can round-trip profile fragments without clobbering hidden settings.
 ///
 /// Conformance is intentionally limited to `Hashable` and `Identifiable`.
 /// `Codable` is *not* on the list because the wire shape is bespoke (the
@@ -46,6 +45,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public var effort: String?
     public var speed: String?
     public var verbosity: String?
+    public var contextWindowMaxInputTokens: Int?
 
     /// Three-state temperature so JSON round-trips preserve the daemon's
     /// `null` vs absent distinction. The resolver's `deepMerge` skips
@@ -63,6 +63,8 @@ public struct InferenceProfile: Hashable, Identifiable {
 
     /// Maps to `thinking.streamThinking` in the fragment JSON.
     public var thinkingStreamThinking: Bool?
+
+    private var preservedJSON: [String: Any]
 
     public var id: String { name }
 
@@ -89,6 +91,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         effort: String? = nil,
         speed: String? = nil,
         verbosity: String? = nil,
+        contextWindowMaxInputTokens: Int? = nil,
         temperature: TemperatureValue = .unset,
         thinkingEnabled: Bool? = nil,
         thinkingStreamThinking: Bool? = nil
@@ -103,9 +106,11 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.effort = effort
         self.speed = speed
         self.verbosity = verbosity
+        self.contextWindowMaxInputTokens = contextWindowMaxInputTokens
         self.temperature = temperature
         self.thinkingEnabled = thinkingEnabled
         self.thinkingStreamThinking = thinkingStreamThinking
+        self.preservedJSON = [:]
     }
 
     /// Convenience overload that accepts an `Optional<Double>`. `nil`
@@ -122,6 +127,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         effort: String? = nil,
         speed: String? = nil,
         verbosity: String? = nil,
+        contextWindowMaxInputTokens: Int? = nil,
         temperature: Double?,
         thinkingEnabled: Bool? = nil,
         thinkingStreamThinking: Bool? = nil
@@ -137,6 +143,7 @@ public struct InferenceProfile: Hashable, Identifiable {
             effort: effort,
             speed: speed,
             verbosity: verbosity,
+            contextWindowMaxInputTokens: contextWindowMaxInputTokens,
             temperature: TemperatureValue(value: temperature),
             thinkingEnabled: thinkingEnabled,
             thinkingStreamThinking: thinkingStreamThinking
@@ -160,10 +167,13 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.effort = (json["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.speed = (json["speed"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.verbosity = (json["verbosity"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let contextWindow = json["contextWindow"] as? [String: Any]
+        self.contextWindowMaxInputTokens = Self.intValue(contextWindow?["maxInputTokens"])
         self.temperature = TemperatureValue(jsonValue: json["temperature"], present: json.keys.contains("temperature"))
         let thinking = json["thinking"] as? [String: Any]
         self.thinkingEnabled = thinking?["enabled"] as? Bool
         self.thinkingStreamThinking = thinking?["streamThinking"] as? Bool
+        self.preservedJSON = Self.preservedJSON(from: json)
     }
 
     /// Returns a copy of `self` with every non-nil field on `fragment`
@@ -178,6 +188,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         if let v = fragment.effort { merged.effort = v }
         if let v = fragment.speed { merged.speed = v }
         if let v = fragment.verbosity { merged.verbosity = v }
+        if let v = fragment.contextWindowMaxInputTokens { merged.contextWindowMaxInputTokens = v }
         // `.unset` means "no opinion" — any other state overrides.
         if fragment.temperature != .unset { merged.temperature = fragment.temperature }
         if let v = fragment.thinkingEnabled { merged.thinkingEnabled = v }
@@ -192,7 +203,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// `.explicitNull` so the daemon receives the original wire-shape
     /// distinction between "absent" and "null".
     public func toJSON() -> [String: Any] {
-        var result: [String: Any] = [:]
+        var result = preservedJSON
         if let source { result["source"] = source }
         if let label { result["label"] = label }
         if let profileDescription { result["description"] = profileDescription }
@@ -202,6 +213,17 @@ public struct InferenceProfile: Hashable, Identifiable {
         if let effort { result["effort"] = effort }
         if let speed { result["speed"] = speed }
         if let verbosity { result["verbosity"] = verbosity }
+        var contextWindow = (result["contextWindow"] as? [String: Any]) ?? [:]
+        if let contextWindowMaxInputTokens {
+            contextWindow["maxInputTokens"] = contextWindowMaxInputTokens
+        } else {
+            contextWindow.removeValue(forKey: "maxInputTokens")
+        }
+        if contextWindow.isEmpty {
+            result.removeValue(forKey: "contextWindow")
+        } else {
+            result["contextWindow"] = contextWindow
+        }
         switch temperature {
         case .unset:
             break
@@ -217,6 +239,81 @@ public struct InferenceProfile: Hashable, Identifiable {
             result["thinking"] = thinking
         }
         return result
+    }
+
+    private static func preservedJSON(from json: [String: Any]) -> [String: Any] {
+        var preserved = json
+        for key in [
+            "source",
+            "label",
+            "description",
+            "provider",
+            "model",
+            "maxTokens",
+            "effort",
+            "speed",
+            "verbosity",
+            "temperature",
+            "thinking",
+        ] {
+            preserved.removeValue(forKey: key)
+        }
+
+        if var contextWindow = json["contextWindow"] as? [String: Any] {
+            contextWindow.removeValue(forKey: "maxInputTokens")
+            if contextWindow.isEmpty {
+                preserved.removeValue(forKey: "contextWindow")
+            } else {
+                preserved["contextWindow"] = contextWindow
+            }
+        } else {
+            preserved.removeValue(forKey: "contextWindow")
+        }
+        return preserved
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let double = value as? Double, double.rounded() == double {
+            return Int(double)
+        }
+        return nil
+    }
+
+    public static func == (lhs: InferenceProfile, rhs: InferenceProfile) -> Bool {
+        lhs.name == rhs.name
+            && lhs.source == rhs.source
+            && lhs.label == rhs.label
+            && lhs.profileDescription == rhs.profileDescription
+            && lhs.provider == rhs.provider
+            && lhs.model == rhs.model
+            && lhs.maxTokens == rhs.maxTokens
+            && lhs.effort == rhs.effort
+            && lhs.speed == rhs.speed
+            && lhs.verbosity == rhs.verbosity
+            && lhs.contextWindowMaxInputTokens == rhs.contextWindowMaxInputTokens
+            && lhs.temperature == rhs.temperature
+            && lhs.thinkingEnabled == rhs.thinkingEnabled
+            && lhs.thinkingStreamThinking == rhs.thinkingStreamThinking
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(source)
+        hasher.combine(label)
+        hasher.combine(profileDescription)
+        hasher.combine(provider)
+        hasher.combine(model)
+        hasher.combine(maxTokens)
+        hasher.combine(effort)
+        hasher.combine(speed)
+        hasher.combine(verbosity)
+        hasher.combine(contextWindowMaxInputTokens)
+        hasher.combine(temperature)
+        hasher.combine(thinkingEnabled)
+        hasher.combine(thinkingStreamThinking)
     }
 }
 
@@ -276,4 +373,3 @@ public enum TemperatureValue: Hashable {
         return nil
     }
 }
-

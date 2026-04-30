@@ -66,8 +66,12 @@ const screenDetail = document.getElementById('screen-detail') as HTMLDivElement;
 
 const manifest = chrome.runtime.getManifest();
 const manifestIcons = manifest.icons as Record<string, string> | undefined;
-const icon48Url = manifestIcons?.['48'] ?? '';
-const icon128Url = manifestIcons?.['128'] ?? '';
+// Manifest icon paths are extension-root-relative (e.g. "icons/local/icon48.png").
+// The popup HTML lives at popup/popup.html, so setting img.src to the raw manifest
+// path would resolve relative to popup/ and 404. Use chrome.runtime.getURL() to
+// produce absolute chrome-extension:// URLs that resolve correctly from any context.
+const icon48Url = manifestIcons?.['48'] ? chrome.runtime.getURL(manifestIcons['48']) : '';
+const icon128Url = manifestIcons?.['128'] ? chrome.runtime.getURL(manifestIcons['128']) : '';
 const extensionName = typeof manifest.name === 'string' ? manifest.name : 'Vellum Assistant';
 
 // Welcome logo

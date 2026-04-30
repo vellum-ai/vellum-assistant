@@ -7,14 +7,19 @@
  * registry entry instead of another if/else branch.
  */
 
+import { isAbsolute, resolve, sep } from "node:path";
+
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { addAppConversationId } from "../memory/app-store.js";
+import { invalidateEdgeIndex } from "../memory/v2/edge-index.js";
+import { getConceptsDir } from "../memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
@@ -239,6 +244,34 @@ registerHook("bash", (_name, input, result) => {
     }
   }
 });
+
+// Invalidate the in-memory v2 edge index when the LLM writes or edits a file
+// under `memory/concepts/`. The page-store invalidates on programmatic writes;
+// this hook covers consolidation, where the LLM edits page frontmatter through
+// the file tools rather than through `writePage`.
+function invalidateEdgeIndexIfConceptPage(
+  input: Record<string, unknown>,
+): void {
+  const rawPath = input.path;
+  if (typeof rawPath !== "string" || rawPath.length === 0) return;
+  const workspaceDir = getWorkspaceDir();
+  const conceptsRoot = getConceptsDir(workspaceDir);
+  const absPath = isAbsolute(rawPath)
+    ? resolve(rawPath)
+    : resolve(workspaceDir, rawPath);
+  const rootWithSep = conceptsRoot.endsWith(sep)
+    ? conceptsRoot
+    : conceptsRoot + sep;
+  if (absPath.startsWith(rootWithSep)) {
+    invalidateEdgeIndex(workspaceDir);
+  }
+}
+registerHook("file_write", (_name, input) =>
+  invalidateEdgeIndexIfConceptPage(input),
+);
+registerHook("file_edit", (_name, input) =>
+  invalidateEdgeIndexIfConceptPage(input),
+);
 
 // ── Runner ───────────────────────────────────────────────────────────
 

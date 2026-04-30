@@ -1,4 +1,5 @@
 import { getIsContainerized } from "../config/env-registry.js";
+import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
 import {
   check,
   classifyRisk,
@@ -8,6 +9,7 @@ import {
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import type { ApprovalMode, ApprovalReason, RiskThreshold } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
@@ -33,6 +35,9 @@ export type PermissionDecision =
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
+      approvalMode?: ApprovalMode;
+      approvalReason?: ApprovalReason;
+      riskThreshold?: RiskThreshold;
     }
   | {
       allowed: false;
@@ -49,6 +54,9 @@ export type PermissionDecision =
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
+      approvalMode?: ApprovalMode;
+      approvalReason?: ApprovalReason;
+      riskThreshold?: RiskThreshold;
     };
 
 export class PermissionChecker {
@@ -129,6 +137,14 @@ export class PermissionChecker {
       // riskMeta is absent (non-classifier tools like MCP don't populate it).
       const matchedTrustRuleId = result.matchedRule?.id;
 
+      // Resolved threshold snapshot for provenance. getAutoApproveThreshold
+      // returns from cache (populated by check() above), so this is free.
+      const conversationThreshold = await getAutoApproveThreshold(
+        policyContext.conversationId,
+        policyContext.executionContext,
+      );
+      const riskThreshold = conversationThreshold as RiskThreshold;
+
       // Some callers force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved -
       // only allow → prompt promotion happens here.
@@ -169,6 +185,7 @@ export class PermissionChecker {
           reason: result.reason,
           durationMs,
         });
+        const provenance = mapApprovalProvenance("denied", { matchedTrustRuleId });
         return {
           allowed: false,
           decision: "denied",
@@ -176,6 +193,8 @@ export class PermissionChecker {
           content: result.reason,
           matchedTrustRuleId,
           riskMeta,
+          ...provenance,
+          riskThreshold,
         };
       }
 
@@ -202,6 +221,8 @@ export class PermissionChecker {
           riskLevel,
           matchedTrustRuleId,
           riskMeta,
+          ...mapApprovalProvenance("platform_auto_approve", {}),
+          riskThreshold,
         };
       }
 
@@ -259,6 +280,8 @@ export class PermissionChecker {
               riskLevel,
               matchedTrustRuleId,
               riskMeta,
+              ...mapApprovalProvenance("guardian_auto_approve", {}),
+              riskThreshold: bgThreshold as RiskThreshold,
             };
           }
         }
@@ -293,6 +316,11 @@ export class PermissionChecker {
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
             matchedTrustRuleId,
             riskMeta,
+            // Do not pass matchedTrustRuleId here: an ask-rule match put us in
+            // the prompt path, but the *reason* for denial is no interactive
+            // client, not a deny rule. Always emit no_interactive_client.
+            ...mapApprovalProvenance("denied", {}),
+            riskThreshold,
           };
         }
 
@@ -379,6 +407,11 @@ export class PermissionChecker {
             content: denialMessage,
             matchedTrustRuleId,
             riskMeta,
+            ...mapApprovalProvenance(decision, {
+              wasTimeout: response.wasTimeout,
+              wasSystemCancel: response.wasSystemCancel,
+            }),
+            riskThreshold,
           };
         }
 
@@ -389,11 +422,24 @@ export class PermissionChecker {
           wasPrompted: true,
           matchedTrustRuleId,
           riskMeta,
+          ...mapApprovalProvenance(decision, { wasPrompted: true }),
+          riskThreshold,
         };
       }
 
       // result.decision === 'allow'
-      return { allowed: true, decision: "allow", riskLevel, matchedTrustRuleId, riskMeta };
+      return {
+        allowed: true,
+        decision: "allow",
+        riskLevel,
+        matchedTrustRuleId,
+        riskMeta,
+        ...mapApprovalProvenance("allow", {
+          hasSandboxAutoApprove: result.hasSandboxAutoApprove,
+          matchedTrustRuleId,
+        }),
+        riskThreshold,
+      };
     } catch (err) {
       if (err instanceof Error) {
         (err as Error & { riskLevel?: string }).riskLevel = riskLevel;

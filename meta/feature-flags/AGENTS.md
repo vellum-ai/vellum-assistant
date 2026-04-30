@@ -11,7 +11,7 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 "conversation-starters"
 ```
 
-The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. macOS-scope flags follow the same convention:
+The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. client-scope flags follow the same convention:
 
 ```
 "user-hosted-enabled"

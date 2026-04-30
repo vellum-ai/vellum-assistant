@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 
 import { getWorkspacePromptPath } from "../util/platform.js";
 
+type Tone = "grounded" | "warm" | "energetic" | "poetic";
+
 export interface OnboardingGreetingContext {
   tools: string[];
   tasks: string[];
@@ -12,9 +14,9 @@ export interface OnboardingGreetingContext {
 }
 
 export const CANNED_FIRST_GREETING = [
-  "Hey — brand new, no name, no memories, no idea who you are yet. I'll get sharper the more we work together.",
+  "Hey,",
   "",
-  "What can I do for you? Or I can ask you some questions to get started.",
+  "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
 ].join("\n");
 
 /**
@@ -46,217 +48,59 @@ export function getCannedFirstGreeting(
   return CANNED_FIRST_GREETING;
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  "google-calendar": "Google Calendar",
-  slack: "Slack",
-  notion: "Notion",
-  linear: "Linear",
-  jira: "Jira",
-  github: "GitHub",
-  figma: "Figma",
-  "google-drive": "Google Drive",
-  excel: "Excel",
-  "apple-notes": "Apple Notes",
-};
-
-const TASK_PRIORITY: string[] = [
-  "code-building",
-  "project-management",
-  "writing",
-  "research",
-  "scheduling",
-  "personal",
-];
-
-interface Guess {
-  text: string;
-  preferredTools: string[];
-}
-
-const SINGLE_GUESSES: Record<string, Guess> = {
-  "code-building": {
-    text: "shipping something or debugging",
-    preferredTools: ["github", "linear", "jira"],
-  },
-  writing: {
-    text: "drafting something or cleaning up docs",
-    preferredTools: ["notion", "google-drive", "apple-notes"],
-  },
-  research: {
-    text: "digging into a topic or making sense of something",
-    preferredTools: ["notion", "google-drive"],
-  },
-  "project-management": {
-    text: "planning the week, writing a spec, or pushing something forward",
-    preferredTools: ["notion", "linear", "google-drive"],
-  },
-  scheduling: {
-    text: "planning the week or prepping for meetings",
-    preferredTools: ["google-calendar", "outlook", "linear"],
-  },
-  personal: {
-    text: "juggling travel, bills, or household stuff",
-    preferredTools: ["gmail", "google-calendar", "apple-notes"],
-  },
-};
-
-const COMBO_GUESSES: Record<string, Guess> = {
-  "code-building+project-management": {
-    text: "shipping code or figuring out what to ship next",
-    preferredTools: ["github", "linear", "jira"],
-  },
-  "code-building+writing": {
-    text: "shipping code or writing something up",
-    preferredTools: ["github", "linear", "jira"],
-  },
-  "project-management+writing": {
-    text: "writing a spec or pushing something forward",
-    preferredTools: ["notion", "linear", "google-drive"],
-  },
-  "research+writing": {
-    text: "drafting something or digging into a topic",
-    preferredTools: ["notion", "google-drive"],
-  },
-  "project-management+scheduling": {
-    text: "planning the week or prepping for something",
-    preferredTools: ["google-calendar", "outlook", "linear"],
-  },
-};
-
-function comboKey(a: string, b: string): string {
-  return [a, b].sort().join("+");
-}
-
-function highestPriorityTask(tasks: string[]): string | undefined {
-  for (const t of TASK_PRIORITY) {
-    if (tasks.includes(t)) return t;
-  }
-  return tasks[0];
-}
-
-const TONE_INTROS: Record<
-  string,
-  {
-    greeting: (userName?: string) => string;
-    selfIntro: (assistantName: string) => string;
-  }
-> = {
-  grounded: {
-    greeting: (u) => (u ? `${u}.` : ""),
-    selfIntro: (n) =>
-      `I'm ${n}. Brand new, and I'll get sharper the more we work together.`,
-  },
-  warm: {
-    greeting: (u) => (u ? `Hey ${u}!` : "Hey!"),
-    selfIntro: (n) =>
-      `I'm ${n} — brand new, but I'll get better the more we hang out.`,
-  },
-  energetic: {
-    greeting: (u) => (u ? `${u}!` : "Hey!"),
-    selfIntro: (n) => `I'm ${n}. Fresh start — let's get into it.`,
-  },
-  poetic: {
-    greeting: (u) => (u ? `Hello, ${u}.` : "Hello."),
-    selfIntro: (n) => `I'm ${n}. Still quite new — I'll grow alongside you.`,
-  },
+const TONE_INTRO_CLOSE: Record<Tone, string> = {
+  grounded: "",
+  warm: "Good to meet you.",
+  energetic: "Let's see what you've got.",
+  poetic: "",
 };
 
 function buildIntroLine(
-  userName?: string,
-  assistantName?: string,
-  tone?: string,
+  name?: string,
+  assistant?: string,
+  tone: Tone = "grounded",
 ): string {
-  const toneEntry = tone ? TONE_INTROS[tone] : undefined;
-
-  if (toneEntry && assistantName) {
-    const greetPart = toneEntry.greeting(userName);
-    const selfPart = toneEntry.selfIntro(assistantName);
-    return greetPart ? `${greetPart} ${selfPart}` : selfPart;
-  }
-
-  const namepart = userName ? `Hey ${userName},` : "Hey,";
-  const who = assistantName
-    ? `I'm ${assistantName}. Brand new, and I'll get sharper the more we work together.`
-    : "brand new, and I'll get sharper the more we work together.";
-  return `${namepart} ${who}`;
+  const greeting = name ? `Hey ${name},` : "Hey,";
+  const who = assistant ? `I'm ${assistant}.` : "";
+  const close = assistant ? TONE_INTRO_CLOSE[tone] : "";
+  return [greeting, who, close].filter(Boolean).join(" ");
 }
 
-function pickRelevantTools(
-  preferredTools: string[],
-  userTools: string[],
-): string[] {
-  const userSet = new Set(userTools);
-  const matched: string[] = [];
-  for (const t of preferredTools) {
-    if (userSet.has(t)) {
-      matched.push(TOOL_LABELS[t] ?? t);
-      if (matched.length === 2) break;
-    }
-  }
-  return matched;
+const TONE_INVITE: Record<Tone, string> = {
+  grounded:
+    "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+  warm: "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+  energetic:
+    "We can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+  poetic:
+    "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
+};
+
+function buildInvite(tone: Tone = "grounded"): string {
+  return TONE_INVITE[tone];
 }
 
-function buildSpecificGuess(tasks: string[], tools: string[]): string {
-  let guess: Guess | undefined;
+const VALID_TONES = new Set<string>([
+  "grounded",
+  "warm",
+  "energetic",
+  "poetic",
+]);
 
-  if (tasks.length === 2) {
-    guess = COMBO_GUESSES[comboKey(tasks[0], tasks[1])];
-  }
-
-  if (!guess) {
-    const top = highestPriorityTask(tasks);
-    guess = top ? SINGLE_GUESSES[top] : undefined;
-  }
-
-  if (!guess) return "";
-
-  const relevant = pickRelevantTools(guess.preferredTools, tools);
-
-  if (relevant.length === 2) {
-    return `You mentioned using ${relevant[0]} and ${relevant[1]} — probably ${guess.text}? Am I on the right track, or something else on your mind?`;
-  }
-  if (relevant.length === 1) {
-    return `You mentioned using ${relevant[0]} — probably ${guess.text}? Am I on the right track, or something else on your mind?`;
-  }
-
-  return `Probably ${guess.text}? Am I on the right track, or something else on your mind?`;
+function resolveTone(raw?: string): Tone {
+  return raw && VALID_TONES.has(raw) ? (raw as Tone) : "grounded";
 }
 
 function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
-  const userName = ctx.userName?.trim();
-  const assistantName = ctx.assistantName?.trim();
+  const name = ctx.userName?.trim();
+  const assistant = ctx.assistantName?.trim();
+  const tone = resolveTone(ctx.tone);
 
-  const hasName = userName && userName.length > 0;
-  const hasTasks = ctx.tasks.length > 0;
-  const hasTools = ctx.tools.length > 0;
-
-  const hasAssistantName = assistantName && assistantName.length > 0;
-
-  if (!hasName && !hasTasks && !hasTools && !hasAssistantName) {
+  if (!name && !assistant && !VALID_TONES.has(ctx.tone)) {
     return CANNED_FIRST_GREETING;
   }
 
-  const intro = buildIntroLine(
-    hasName ? userName : undefined,
-    assistantName,
-    ctx.tone,
-  );
-
-  let secondParagraph: string;
-
-  if (ctx.tasks.length >= 4) {
-    secondParagraph =
-      "Looks like you wear a lot of hats. Where should we start?";
-  } else if (ctx.tasks.length === 0) {
-    secondParagraph =
-      "What's on your plate? Or if it's easier, I can ask you a few questions to get oriented.";
-  } else {
-    secondParagraph =
-      buildSpecificGuess(ctx.tasks, ctx.tools) ||
-      "What's on your plate? Or if it's easier, I can ask you a few questions to get oriented.";
-  }
-
-  return [intro, "", secondParagraph].join("\n");
+  const intro = buildIntroLine(name, assistant, tone);
+  const invite = buildInvite(tone);
+  return [intro, "", invite].join("\n");
 }

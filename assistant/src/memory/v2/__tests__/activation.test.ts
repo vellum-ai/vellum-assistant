@@ -7,8 +7,9 @@
  *   - `computeOwnActivation`: applies `A_o = d·prev + c_user·simU + c_a·simA +
  *      c_now·simN`; clamps to [0,1]; orphan in candidates returns 0 when no
  *      sim hits.
- *   - `spreadActivation`: orphan yields A == A_o; symmetric two-node ring is
- *      symmetric; hops=2 reaches second-degree but not third; bounded in [0,1].
+ *   - `spreadActivation`: orphan yields A == A_o; spread walks incoming edges
+ *      only (A→B boosts B but not A); hops=2 reaches second-degree predecessors
+ *      but not third; bounded in [0,1].
  *   - `selectInjections`: top-K rank, deterministic tie-break, delta against
  *      `everInjected`.
  *
@@ -139,7 +140,8 @@ mock.module("@qdrant/js-client-rest", () => ({
 
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
-import type { ActivationState, EdgesIndex } from "../types.js";
+import type { EdgeIndex } from "../edge-index.js";
+import type { ActivationState } from "../types.js";
 
 const {
   computeOwnActivation,
@@ -536,81 +538,116 @@ describe("computeOwnActivation", () => {
 // spreadActivation
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a directed `EdgeIndex` from a flat list of `[from, to]` pairs. Each
+ * entry is interpreted as a directed edge `from → to`; self-loops are dropped.
+ */
+function buildEdgeIndex(edges: Array<[string, string]>): EdgeIndex {
+  const outgoing = new Map<string, Set<string>>();
+  const incoming = new Map<string, Set<string>>();
+  for (const [from, to] of edges) {
+    if (from === to) continue;
+    let outSet = outgoing.get(from);
+    if (!outSet) {
+      outSet = new Set<string>();
+      outgoing.set(from, outSet);
+    }
+    outSet.add(to);
+    let inSet = incoming.get(to);
+    if (!inSet) {
+      inSet = new Set<string>();
+      incoming.set(to, inSet);
+    }
+    inSet.add(from);
+  }
+  return { outgoing, incoming };
+}
+
 describe("spreadActivation", () => {
   test("orphan node yields A == A_o", () => {
-    const edges: EdgesIndex = { version: 1, edges: [] };
+    const edges = buildEdgeIndex([]);
     const own = new Map([["alice", 0.7]]);
     const out = spreadActivation(own, edges, 0.5, 2);
     expect(out.final.get("alice")).toBeCloseTo(0.7, 6);
   });
 
-  test("symmetric two-node ring yields symmetric activation", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+  test("directed edge boosts only the target, not the source", () => {
+    // Edge alice→bob: alice activation flows into bob; bob does NOT push back
+    // into alice. alice (a pure source under this graph) keeps its own value.
+    const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([
       ["alice", 0.6],
-      ["bob", 0.6],
+      ["bob", 0.0],
     ]);
     const out = spreadActivation(own, edges, 0.5, 2);
-    // Both nodes have one neighbor, equal own-activation → equal final A.
-    expect(out.final.get("alice")).toBeCloseTo(out.final.get("bob") ?? 0, 6);
-    // Numerator: 0.6 + 0.5*0.6 = 0.9. Denominator: 1 + 0.5*1 = 1.5. A = 0.6.
+    // alice has no incoming edges → final == own.
     expect(out.final.get("alice")).toBeCloseTo(0.6, 6);
+    // bob's incoming = {alice}: numerator = 0 + 0.5*0.6 = 0.3, denom = 1.5.
+    expect(out.final.get("bob")).toBeCloseTo(0.3 / 1.5, 6);
   });
 
-  test("asymmetric two-node ring picks up neighbor activation", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+  test("two-cycle (A→B and B→A) lets activation flow both ways", () => {
+    // With both directions present, each node is the other's predecessor.
+    const edges = buildEdgeIndex([
+      ["alice", "bob"],
+      ["bob", "alice"],
+    ]);
     const own = new Map([
       ["alice", 0.0],
       ["bob", 0.8],
     ]);
     const out = spreadActivation(own, edges, 0.5, 2);
-    // alice: numerator = 0 + 0.5*0.8 = 0.4. denominator = 1 + 0.5 = 1.5.
-    //        A = 0.2666...
+    // alice: incoming {bob}=0.8 → numerator = 0 + 0.5*0.8 = 0.4, denom = 1.5.
     expect(out.final.get("alice")).toBeCloseTo(0.4 / 1.5, 6);
-    // bob:   numerator = 0.8 + 0.5*0 = 0.8. denominator = 1.5. A = 0.5333...
+    // bob:   incoming {alice}=0.0 → numerator = 0.8 + 0 = 0.8, denom = 1.5.
     expect(out.final.get("bob")).toBeCloseTo(0.8 / 1.5, 6);
   });
 
-  test("hops=2 reaches second-degree neighbors but stops there", () => {
-    // Path graph: alice -- bob -- carol -- delta
-    // From alice's perspective: bob is 1-hop, carol is 2-hop, delta is 3-hop.
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [
-        ["alice", "bob"],
-        ["bob", "carol"],
-        ["carol", "delta"],
-      ],
-    };
+  test("pure source (high outgoing, zero incoming) collapses to final == own", () => {
+    // alice → bob → carol; alice has no incoming edges.
+    const edges = buildEdgeIndex([
+      ["alice", "bob"],
+      ["bob", "carol"],
+    ]);
     const own = new Map([
-      ["alice", 0.0],
+      ["alice", 0.5],
       ["bob", 0.0],
-      ["carol", 1.0], // 2 hops from alice
-      ["delta", 1.0], // 3 hops from alice — must NOT contribute
+      ["carol", 0.0],
     ]);
     const out = spreadActivation(own, edges, 0.5, 2);
-    // alice: 1-hop = {bob} (0), 2-hop = {carol} (1.0).
+    expect(out.final.get("alice")).toBeCloseTo(0.5, 6);
+  });
+
+  test("hops=2 reaches second-degree predecessors but stops there", () => {
+    // Directed path: alice → bob → carol → delta
+    // From delta's perspective: carol is 1-hop predecessor, bob is 2-hop,
+    // alice is 3-hop. Activation on bob (2-hop) reaches delta; activation on
+    // alice (3-hop) does NOT.
+    const edges = buildEdgeIndex([
+      ["alice", "bob"],
+      ["bob", "carol"],
+      ["carol", "delta"],
+    ]);
+    const own = new Map([
+      ["alice", 1.0], // 3-hop predecessor of delta — must NOT contribute
+      ["bob", 1.0], // 2-hop predecessor of delta
+      ["carol", 0.0],
+      ["delta", 0.0],
+    ]);
+    const out = spreadActivation(own, edges, 0.5, 2);
+    // delta: 1-hop {carol}=0, 2-hop {bob}=1.0.
     //   numerator   = 0 + 0.5*0 + 0.25*1.0 = 0.25
     //   denominator = 1 + 0.5*1 + 0.25*1   = 1.75
     //   A = 0.25 / 1.75 ≈ 0.142857
-    expect(out.final.get("alice")).toBeCloseTo(0.25 / 1.75, 6);
+    expect(out.final.get("delta")).toBeCloseTo(0.25 / 1.75, 6);
   });
 
   test("output is bounded in [0, 1] for arbitrary inputs", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [
-        ["alice", "bob"],
-        ["bob", "carol"],
-        ["alice", "carol"],
-      ],
-    };
+    const edges = buildEdgeIndex([
+      ["alice", "bob"],
+      ["bob", "carol"],
+      ["alice", "carol"],
+    ]);
     const own = new Map([
       ["alice", 1.0],
       ["bob", 1.0],
@@ -624,10 +661,7 @@ describe("spreadActivation", () => {
   });
 
   test("hops=0 collapses to A == A_o", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+    const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([
       ["alice", 0.4],
       ["bob", 0.9],
@@ -638,10 +672,7 @@ describe("spreadActivation", () => {
   });
 
   test("k=0 collapses to A == A_o", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+    const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([
       ["alice", 0.4],
       ["bob", 0.9],
@@ -651,24 +682,21 @@ describe("spreadActivation", () => {
     expect(out.final.get("bob")).toBeCloseTo(0.9, 6);
   });
 
-  test("missing neighbor activation contributes 0 to the numerator", () => {
-    // alice and bob are connected, but bob is not in `ownActivation` — so
-    // bob's contribution is 0, while the denominator still counts the
-    // structural neighbor.
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
-    const own = new Map([["alice", 0.6]]);
+  test("missing predecessor activation contributes 0 to the numerator", () => {
+    // Edge alice→bob: bob has predecessor alice. alice is not in
+    // `ownActivation`, so it contributes 0 to the numerator while the
+    // denominator still counts the structural predecessor.
+    const edges = buildEdgeIndex([["alice", "bob"]]);
+    const own = new Map([["bob", 0.6]]);
     const out = spreadActivation(own, edges, 0.5, 2);
     // numerator = 0.6 + 0.5*0 = 0.6. denominator = 1 + 0.5*1 = 1.5.
-    expect(out.final.get("alice")).toBeCloseTo(0.4, 6);
+    expect(out.final.get("bob")).toBeCloseTo(0.4, 6);
   });
 
   test("empty own-activation map returns empty result", () => {
     const out = spreadActivation(
       new Map(),
-      { version: 1, edges: [["a", "b"]] },
+      buildEdgeIndex([["a", "b"]]),
       0.5,
       2,
     );
@@ -677,10 +705,12 @@ describe("spreadActivation", () => {
   });
 
   test("contribution equals final - own for each slug", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+    // Two-cycle: A→B and B→A so both nodes have predecessors and the spread
+    // moves each off its own value in opposite directions.
+    const edges = buildEdgeIndex([
+      ["alice", "bob"],
+      ["bob", "alice"],
+    ]);
     const own = new Map([
       ["alice", 0.0],
       ["bob", 0.8],
@@ -690,16 +720,14 @@ describe("spreadActivation", () => {
       const ownValue = own.get(slug) ?? 0;
       expect(out.contribution.get(slug)).toBeCloseTo(finalValue - ownValue, 6);
     }
-    // alice gained spread; bob lost some (1-hop neighbor's 0 dilutes its 0.8).
+    // alice gained spread (predecessor bob=0.8); bob lost some (predecessor
+    // alice=0 dilutes its own 0.8).
     expect(out.contribution.get("alice")).toBeGreaterThan(0);
     expect(out.contribution.get("bob")).toBeLessThan(0);
   });
 
   test("contribution is 0 for every slug when hops == 0", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+    const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([
       ["alice", 0.4],
       ["bob", 0.9],
@@ -710,10 +738,7 @@ describe("spreadActivation", () => {
   });
 
   test("contribution is 0 for every slug when k == 0", () => {
-    const edges: EdgesIndex = {
-      version: 1,
-      edges: [["alice", "bob"]],
-    };
+    const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([
       ["alice", 0.4],
       ["bob", 0.9],

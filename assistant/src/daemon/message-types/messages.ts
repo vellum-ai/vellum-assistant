@@ -151,6 +151,12 @@ export interface ToolResult {
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
 export interface ConfirmationRequest {

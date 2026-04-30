@@ -159,7 +159,15 @@ export interface EventHandlerState {
   /** Stores risk metadata keyed by tool_use_id (populated in handleToolResult). */
   readonly toolRiskOutcomes: Map<
     string,
-    { riskLevel: string; riskReason?: string; autoApproved: boolean; matchedTrustRuleId?: string }
+    {
+      riskLevel: string;
+      riskReason?: string;
+      autoApproved: boolean;
+      matchedTrustRuleId?: string;
+      approvalMode?: string;
+      approvalReason?: string;
+      riskThreshold?: string;
+    }
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
@@ -525,6 +533,9 @@ export function handleToolResult(
       riskReason: event.riskReason,
       autoApproved: !state.toolConfirmationOutcomes.has(event.toolUseId),
       matchedTrustRuleId: event.matchedTrustRuleId,
+      approvalMode: event.approvalMode,
+      approvalReason: event.approvalReason,
+      riskThreshold: event.riskThreshold,
     });
   }
 
@@ -605,6 +616,9 @@ export function handleToolResult(
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
     riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
+    approvalMode: event.approvalMode,
+    approvalReason: event.approvalReason,
+    riskThreshold: event.riskThreshold,
   });
 }
 
@@ -658,6 +672,9 @@ function annotatePersistedAssistantMessage(
         if (risk.riskReason) rec._riskReason = risk.riskReason;
         rec._autoApproved = risk.autoApproved;
         if (risk.matchedTrustRuleId) rec._matchedTrustRuleId = risk.matchedTrustRuleId;
+        if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
+        if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
+        if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;
         modified = true;
       }
     }

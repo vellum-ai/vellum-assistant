@@ -262,6 +262,7 @@ function makeConfirmationEmittingSession(opts?: {
       onEvent({
         type: "confirmation_request",
         requestId: reqId,
+        conversationId: "conv-auto",
         toolName: tool,
         input: { command: "ls" },
         riskLevel: "medium",
