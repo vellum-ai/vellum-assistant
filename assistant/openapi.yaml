@@ -10975,6 +10975,20 @@ paths:
                   enum:
                     - auto_approve
                     - escalate
+                existingRule:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    pattern:
+                      type: string
+                    risk:
+                      type: string
+                  required:
+                    - id
+                    - pattern
+                    - risk
+                  additionalProperties: false
               required:
                 - tool
                 - command
