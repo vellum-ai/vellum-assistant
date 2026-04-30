@@ -784,7 +784,13 @@ export async function runDaemon(): Promise<void> {
         } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
         maybeSeedMemoryV2Skills(config);
-        await seedCliGraphNodes();
+        const { buildCliProgram } = await import("../cli/program.js");
+        const program = await buildCliProgram();
+        const cliCommands = program.commands.map((c) => ({
+          name: c.name(),
+          description: c.description(),
+        }));
+        await seedCliGraphNodes(cliCommands);
         void seedUninstalledCatalogSkillMemories().catch((err) =>
           log.warn(
             { err },

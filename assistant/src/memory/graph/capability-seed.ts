@@ -7,7 +7,6 @@
 
 import { and, eq, like, sql } from "drizzle-orm";
 
-import { buildCliProgram } from "../../cli/program.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
@@ -155,15 +154,19 @@ export function seedSkillGraphNodes(): void {
 /**
  * Seed graph nodes for all CLI commands.
  * Prunes stale nodes whose commands are no longer registered.
+ *
+ * @param commands — pre-built list of CLI command names and descriptions.
+ *   Accepting this as a parameter (instead of importing `buildCliProgram`
+ *   directly) breaks the capability-seed → cli/program circular dependency.
  */
-export async function seedCliGraphNodes(): Promise<void> {
+export async function seedCliGraphNodes(
+  commands: ReadonlyArray<{ name: string; description: string }>,
+): Promise<void> {
   try {
-    const program = await buildCliProgram();
-
     const seenKeys = new Set<string>();
-    for (const cmd of program.commands) {
-      upsertCliCapabilityNode(cmd.name(), cmd.description());
-      seenKeys.add(`${CLI_SOURCE_PREFIX}${cmd.name()}`);
+    for (const cmd of commands) {
+      upsertCliCapabilityNode(cmd.name, cmd.description);
+      seenKeys.add(`${CLI_SOURCE_PREFIX}${cmd.name}`);
     }
 
     pruneStaleCapabilities(CLI_SOURCE_PREFIX, seenKeys);
