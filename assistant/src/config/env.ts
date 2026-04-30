@@ -88,22 +88,11 @@ export function getRuntimeHttpHost(): string {
 }
 
 /**
- * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true AND the
- * safety gate VELLUM_UNSAFE_AUTH_BYPASS=1 is also set. Without the safety
- * gate, the bypass is ignored.
+ * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true.
+ * Used in platform-managed deployments where the platform handles auth.
  */
 export function isHttpAuthDisabled(): boolean {
-  if (str("DISABLE_HTTP_AUTH")?.toLowerCase() !== "true") return false;
-  return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() === "1";
-}
-
-/**
- * True when DISABLE_HTTP_AUTH is set but the safety gate
- * VELLUM_UNSAFE_AUTH_BYPASS=1 is missing — used for warning messages.
- */
-export function hasUngatedHttpAuthDisabled(): boolean {
-  if (str("DISABLE_HTTP_AUTH")?.toLowerCase() !== "true") return false;
-  return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() !== "1";
+  return str("DISABLE_HTTP_AUTH")?.toLowerCase() === "true";
 }
 
 // ── Monitoring ───────────────────────────────────────────────────────────────

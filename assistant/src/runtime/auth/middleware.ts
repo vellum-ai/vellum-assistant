@@ -17,7 +17,7 @@
  * Replaces both the legacy bearer shared-secret check and the
  * actor-token HMAC middleware with a single JWT verification path.
  *
- * In dev mode (DISABLE_HTTP_AUTH + VELLUM_UNSAFE_AUTH_BYPASS), JWT
+ * When DISABLE_HTTP_AUTH is set (platform-managed deployments), JWT
  * verification is skipped and a synthetic AuthContext is constructed
  * so downstream code always has a typed context to consume.
  */

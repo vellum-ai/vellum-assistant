@@ -11,12 +11,53 @@ const log = getLogger("auth");
 
 type GetClientIp = () => string;
 
+// ---------------------------------------------------------------------------
+// DISABLE_HTTP_AUTH — platform-managed deployments bypass JWT validation
+// ---------------------------------------------------------------------------
+
+let _httpAuthDisabled: boolean | undefined;
+
+/**
+ * True when HTTP auth is disabled via DISABLE_HTTP_AUTH=true.
+ * Cached after first call so the env var is only read once.
+ */
+export function isHttpAuthDisabled(): boolean {
+  if (_httpAuthDisabled === undefined) {
+    _httpAuthDisabled =
+      process.env.DISABLE_HTTP_AUTH?.trim().toLowerCase() === "true";
+  }
+  return _httpAuthDisabled;
+}
+
+/**
+ * Log the auth bypass state at gateway startup.
+ * Call once from the main entrypoint after the logger is ready.
+ */
+export function logAuthBypassState(): void {
+  if (!isHttpAuthDisabled()) return;
+  const isPlatform =
+    process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+    process.env.IS_PLATFORM?.trim() === "1";
+  if (isPlatform) {
+    log.info(
+      "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
+    );
+  } else {
+    log.warn(
+      "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All endpoints are accessible without a bearer token.",
+    );
+  }
+}
+
 /**
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
  * Both guards validate a JWT bearer token (aud=vellum-gateway) and record
  * failures against the rate limiter. `requireEdgeAuthWithScope` additionally
  * checks for a specific scope in the token's profile.
+ *
+ * When DISABLE_HTTP_AUTH is set (platform-managed deployments), all JWT
+ * checks are bypassed — the platform handles authentication upstream.
  */
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
@@ -31,6 +72,7 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Response | null {
+    if (isHttpAuthDisabled()) return null;
     if (server && isLoopbackPeer(server, req)) {
       return null;
     }
@@ -65,6 +107,7 @@ export function createAuthMiddleware(
     scope: Scope,
     server?: Server<unknown>,
   ): Response | null {
+    if (isHttpAuthDisabled()) return null;
     if (server && isLoopbackPeer(server, req)) {
       return null;
     }
