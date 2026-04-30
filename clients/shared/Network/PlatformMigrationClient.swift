@@ -83,7 +83,7 @@ public enum PlatformMigrationClient {
         let (data, statusCode) = try await executeWithRetry(
             request: request,
             label: "upload-url",
-            nonRetryableStatusCodes: [503, 404]
+            nonRetryableStatusCodes: [404]
         )
 
         if statusCode == 503 || statusCode == 404 {
