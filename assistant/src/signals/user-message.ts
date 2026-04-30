@@ -15,7 +15,6 @@ import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import {
   processMessageInBackground,
@@ -109,15 +108,6 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  const hubSender = (msg: ServerMessage) => {
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    broadcastMessage(msg, msgConversationId ?? conversationId);
-  };
-
   if (conversation.isProcessing()) {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
@@ -139,7 +129,7 @@ async function dispatchUserMessage(params: {
     const result = conversation.enqueueMessage(
       params.content,
       resolvedAttachments,
-      hubSender,
+      broadcastMessage,
       requestId,
       undefined,
       undefined,
@@ -157,7 +147,7 @@ async function dispatchUserMessage(params: {
     conversationId,
     params.content,
     attachmentIds.length > 0 ? attachmentIds : undefined,
-    { onEvent: hubSender },
+    { onEvent: broadcastMessage },
     params.sourceChannel,
     params.sourceInterface,
   );
