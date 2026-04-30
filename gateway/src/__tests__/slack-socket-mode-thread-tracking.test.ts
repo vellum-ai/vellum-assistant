@@ -280,6 +280,77 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("does not pre-track unrouted app mention threads during slow mentioned-user lookup", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    let resolveDelayedMention: ((response: Response) => void) | undefined;
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "USLOW") {
+        return new Promise<Response>((resolve) => {
+          resolveDelayedMention = resolve;
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-mention",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@USLOW> can you help here?",
+              ts: "1700000000.000250",
+              channel: "C-unrouted",
+              thread_ts: "1700000000.000240",
+            },
+          },
+        }),
+        ws,
+      );
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "reply should not be admitted by rejected mention",
+              ts: "1700000000.000260",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: "1700000000.000240",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+
+      expect(resolveDelayedMention).toBeDefined();
+      resolveDelayedMention!(makeSlackUserResponse());
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("accepts unmentioned thread replies after a top-level app mention", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

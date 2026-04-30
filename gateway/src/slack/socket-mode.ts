@@ -3,6 +3,7 @@ import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
+import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -591,7 +592,12 @@ export class SlackSocketModeClient {
     if (isAppMention) {
       const appMentionEvent = event as SlackAppMentionEvent;
       const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
-      if (threadTs) {
+      const routing = resolveAssistant(
+        this.config.gatewayConfig,
+        appMentionEvent.channel,
+        appMentionEvent.user,
+      );
+      if (threadTs && !isRejection(routing)) {
         this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
       }
     }
