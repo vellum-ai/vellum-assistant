@@ -17,6 +17,8 @@ export const VELAY_WEBSOCKET_MESSAGE_TYPES = {
 } as const;
 
 export type VelayHeaders = Record<string, string[]>;
+export type VelayWebSocketMessageType =
+  (typeof VELAY_WEBSOCKET_MESSAGE_TYPES)[keyof typeof VELAY_WEBSOCKET_MESSAGE_TYPES];
 
 export type VelayRegisteredFrame = {
   type: typeof VELAY_FRAME_TYPES.registered;
@@ -65,7 +67,7 @@ export type VelayWebSocketOpenErrorFrame = {
 export type VelayWebSocketMessageFrame = {
   type: typeof VELAY_FRAME_TYPES.websocketMessage;
   connection_id: string;
-  message_type: keyof typeof VELAY_WEBSOCKET_MESSAGE_TYPES;
+  message_type: VelayWebSocketMessageType;
   body_base64?: string;
 };
 
@@ -83,5 +85,17 @@ export type VelayFrame =
   | VelayWebSocketOpenFrame
   | VelayWebSocketOpenedFrame
   | VelayWebSocketOpenErrorFrame
+  | VelayWebSocketMessageFrame
+  | VelayWebSocketCloseFrame;
+
+export type VelayWebSocketFrame =
+  | VelayWebSocketOpenFrame
+  | VelayWebSocketOpenedFrame
+  | VelayWebSocketOpenErrorFrame
+  | VelayWebSocketMessageFrame
+  | VelayWebSocketCloseFrame;
+
+export type VelayWebSocketInboundFrame =
+  | VelayWebSocketOpenFrame
   | VelayWebSocketMessageFrame
   | VelayWebSocketCloseFrame;

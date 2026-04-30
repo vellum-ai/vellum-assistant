@@ -1,0 +1,381 @@
+import { Buffer } from "node:buffer";
+import type { OutgoingHttpHeaders } from "node:http";
+import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
+
+import {
+  VELAY_FRAME_TYPES,
+  VELAY_WEBSOCKET_MESSAGE_TYPES,
+  type VelayFrame,
+  type VelayHeaders,
+  type VelayWebSocketCloseFrame,
+  type VelayWebSocketInboundFrame,
+  type VelayWebSocketMessageFrame,
+  type VelayWebSocketOpenErrorFrame,
+  type VelayWebSocketOpenedFrame,
+  type VelayWebSocketOpenFrame,
+} from "./protocol.js";
+
+const MAX_PENDING_MESSAGES = 100;
+
+type PendingMessage = string | Uint8Array;
+
+type BridgeConnection = {
+  ws: WebSocket;
+  opened: boolean;
+  openErrorSent: boolean;
+  pendingMessages: PendingMessage[];
+  suppressNextCloseFrame: boolean;
+};
+
+type SendVelayFrame = (frame: VelayFrame) => void;
+
+export class VelayWebSocketBridge {
+  private readonly connections = new Map<string, BridgeConnection>();
+
+  constructor(
+    private readonly gatewayLoopbackBaseUrl: string,
+    private readonly sendFrame: SendVelayFrame,
+  ) {}
+
+  handleFrame(frame: VelayWebSocketInboundFrame): void {
+    switch (frame.type) {
+      case VELAY_FRAME_TYPES.websocketOpen:
+        this.open(frame);
+        return;
+      case VELAY_FRAME_TYPES.websocketMessage:
+        this.message(frame);
+        return;
+      case VELAY_FRAME_TYPES.websocketClose:
+        this.close(frame);
+        return;
+    }
+  }
+
+  open(frame: VelayWebSocketOpenFrame): void {
+    this.closeExisting(frame.connection_id);
+
+    const url = buildLoopbackWebSocketUrl(this.gatewayLoopbackBaseUrl, frame);
+    if (!url) {
+      this.sendOpenError(frame.connection_id, "Invalid WebSocket path");
+      return;
+    }
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url, {
+        headers: headersFromVelay(frame.headers),
+        ...(frame.subprotocol ? { protocol: frame.subprotocol } : {}),
+      });
+    } catch {
+      this.sendOpenError(frame.connection_id, "WebSocket connection failed");
+      return;
+    }
+
+    const connection: BridgeConnection = {
+      ws,
+      opened: false,
+      openErrorSent: false,
+      pendingMessages: [],
+      suppressNextCloseFrame: false,
+    };
+    this.connections.set(frame.connection_id, connection);
+
+    ws.binaryType = "arraybuffer";
+    ws.addEventListener("open", () => {
+      if (this.connections.get(frame.connection_id) !== connection) return;
+
+      connection.opened = true;
+      this.sendFrame({
+        type: VELAY_FRAME_TYPES.websocketOpened,
+        connection_id: frame.connection_id,
+      } satisfies VelayWebSocketOpenedFrame);
+
+      for (const message of connection.pendingMessages) {
+        ws.send(message);
+      }
+      connection.pendingMessages = [];
+    });
+
+    ws.addEventListener("message", (event) => {
+      void this.forwardLocalMessage(
+        frame.connection_id,
+        connection,
+        event.data,
+      );
+    });
+
+    ws.addEventListener("close", (event) => {
+      this.handleLocalClose(frame.connection_id, connection, event);
+    });
+
+    ws.addEventListener("error", () => {
+      if (connection.opened) return;
+      this.failOpeningConnection(
+        frame.connection_id,
+        connection,
+        "WebSocket connection failed",
+      );
+    });
+  }
+
+  message(frame: VelayWebSocketMessageFrame): void {
+    const connection = this.connections.get(frame.connection_id);
+    if (!connection) return;
+
+    const message = decodeVelayMessage(frame);
+    if (message === undefined) {
+      this.closeConnection(
+        frame.connection_id,
+        connection,
+        1003,
+        "Invalid message",
+      );
+      return;
+    }
+
+    if (connection.opened && connection.ws.readyState === WebSocket.OPEN) {
+      connection.ws.send(message);
+      return;
+    }
+
+    if (connection.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+      this.closeConnection(
+        frame.connection_id,
+        connection,
+        1008,
+        "Buffer overflow",
+      );
+      return;
+    }
+    connection.pendingMessages.push(message);
+  }
+
+  close(frame: VelayWebSocketCloseFrame): void {
+    const connection = this.connections.get(frame.connection_id);
+    if (!connection) return;
+
+    connection.suppressNextCloseFrame = true;
+    this.closeConnection(
+      frame.connection_id,
+      connection,
+      frame.code,
+      frame.reason,
+    );
+  }
+
+  closeAll(code = 1001, reason = "Tunnel closed"): void {
+    for (const [connectionId, connection] of this.connections) {
+      connection.suppressNextCloseFrame = true;
+      this.closeConnection(connectionId, connection, code, reason);
+    }
+  }
+
+  getConnectionCount(): number {
+    return this.connections.size;
+  }
+
+  private async forwardLocalMessage(
+    connectionId: string,
+    connection: BridgeConnection,
+    data: unknown,
+  ): Promise<void> {
+    if (this.connections.get(connectionId) !== connection) return;
+
+    const message = await encodeLocalMessage(connectionId, data);
+    if (this.connections.get(connectionId) !== connection) return;
+    this.sendFrame(message);
+  }
+
+  private handleLocalClose(
+    connectionId: string,
+    connection: BridgeConnection,
+    event: CloseEvent,
+  ): void {
+    if (this.connections.get(connectionId) !== connection) return;
+    this.connections.delete(connectionId);
+    connection.pendingMessages = [];
+
+    if (!connection.opened) {
+      this.sendOpenErrorOnce(
+        connectionId,
+        connection,
+        "WebSocket connection failed",
+      );
+      return;
+    }
+
+    if (connection.suppressNextCloseFrame) return;
+    this.sendFrame({
+      type: VELAY_FRAME_TYPES.websocketClose,
+      connection_id: connectionId,
+      code: event.code,
+      reason: event.reason,
+    } satisfies VelayWebSocketCloseFrame);
+  }
+
+  private failOpeningConnection(
+    connectionId: string,
+    connection: BridgeConnection,
+    reason: string,
+  ): void {
+    if (this.connections.get(connectionId) === connection) {
+      this.connections.delete(connectionId);
+    }
+    connection.pendingMessages = [];
+    this.sendOpenErrorOnce(connectionId, connection, reason);
+    closeWebSocket(connection.ws);
+  }
+
+  private closeExisting(connectionId: string): void {
+    const existing = this.connections.get(connectionId);
+    if (!existing) return;
+    existing.suppressNextCloseFrame = true;
+    this.closeConnection(connectionId, existing, 1000, "Replaced");
+  }
+
+  private closeConnection(
+    connectionId: string,
+    connection: BridgeConnection,
+    code?: number,
+    reason?: string,
+  ): void {
+    if (this.connections.get(connectionId) === connection) {
+      this.connections.delete(connectionId);
+    }
+    connection.pendingMessages = [];
+    closeWebSocket(connection.ws, code, reason);
+  }
+
+  private sendOpenError(connectionId: string, reason: string): void {
+    this.sendFrame({
+      type: VELAY_FRAME_TYPES.websocketOpenError,
+      connection_id: connectionId,
+      reason,
+    } satisfies VelayWebSocketOpenErrorFrame);
+  }
+
+  private sendOpenErrorOnce(
+    connectionId: string,
+    connection: BridgeConnection,
+    reason: string,
+  ): void {
+    if (connection.openErrorSent) return;
+    connection.openErrorSent = true;
+    this.sendOpenError(connectionId, reason);
+  }
+}
+
+function buildLoopbackWebSocketUrl(
+  gatewayLoopbackBaseUrl: string,
+  frame: VelayWebSocketOpenFrame,
+): string | undefined {
+  if (!isSafeOriginRelativePath(frame.path)) return undefined;
+
+  const rawQuery = frame.raw_query ?? "";
+  const query = rawQuery === "" ? "" : `?${rawQuery.replace(/^\?/, "")}`;
+  const httpUrl = buildUpstreamUrl(gatewayLoopbackBaseUrl, frame.path, query);
+
+  try {
+    const url = new URL(httpUrl);
+    if (url.protocol === "http:") url.protocol = "ws:";
+    if (url.protocol === "https:") url.protocol = "wss:";
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function isSafeOriginRelativePath(path: string): boolean {
+  if (!path.startsWith("/") || path.startsWith("//")) return false;
+  if (path.includes("\\") || path.includes("?") || path.includes("#")) {
+    return false;
+  }
+  try {
+    const parsed = new URL(path, "http://127.0.0.1");
+    return parsed.origin === "http://127.0.0.1" && parsed.pathname === path;
+  } catch {
+    return false;
+  }
+}
+
+function headersFromVelay(headers: VelayHeaders): OutgoingHttpHeaders {
+  const cleaned = stripHopByHop(headersToWeb(headers));
+  const outgoing: OutgoingHttpHeaders = {};
+
+  for (const [name, value] of cleaned.entries()) {
+    if (name.startsWith("sec-websocket-")) continue;
+    outgoing[name] = value;
+  }
+  return outgoing;
+}
+
+function headersToWeb(headers: VelayHeaders): Headers {
+  const webHeaders = new Headers();
+  for (const [name, values] of Object.entries(headers)) {
+    for (const value of values) {
+      webHeaders.append(name, value);
+    }
+  }
+  return webHeaders;
+}
+
+function decodeVelayMessage(
+  frame: VelayWebSocketMessageFrame,
+): PendingMessage | undefined {
+  if (!isBase64(frame.body_base64 ?? "")) return undefined;
+
+  const bytes = Buffer.from(frame.body_base64 ?? "", "base64");
+  if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.text) {
+    return bytes.toString("utf8");
+  }
+  if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.binary) {
+    return new Uint8Array(bytes);
+  }
+  return undefined;
+}
+
+async function encodeLocalMessage(
+  connectionId: string,
+  data: unknown,
+): Promise<VelayWebSocketMessageFrame> {
+  if (typeof data === "string") {
+    return {
+      type: VELAY_FRAME_TYPES.websocketMessage,
+      connection_id: connectionId,
+      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+      body_base64: Buffer.from(data).toString("base64"),
+    };
+  }
+
+  return {
+    type: VELAY_FRAME_TYPES.websocketMessage,
+    connection_id: connectionId,
+    message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
+    body_base64: Buffer.from(await binaryToBytes(data)).toString("base64"),
+  };
+}
+
+async function binaryToBytes(data: unknown): Promise<Uint8Array> {
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
+  return Buffer.from(String(data));
+}
+
+function closeWebSocket(ws: WebSocket, code?: number, reason?: string): void {
+  if (
+    ws.readyState === WebSocket.OPEN ||
+    ws.readyState === WebSocket.CONNECTING
+  ) {
+    ws.close(code, reason);
+  }
+}
+
+function isBase64(value: string): boolean {
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+    value,
+  );
+}
