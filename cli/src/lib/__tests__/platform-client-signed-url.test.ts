@@ -291,7 +291,7 @@ describe("platformRequestSignedUrl", () => {
     expect(signedUrlCalls[0]!.headers.Authorization).toBeUndefined();
   });
 
-  test("503 → throws so callers can fall back to legacy inline upload", async () => {
+  test("5xx error response → surfaces platform detail message", async () => {
     const { fetchMock } = captureFetch(() => {
       return new Response(JSON.stringify({ detail: "temporarily down" }), {
         status: 503,
@@ -305,7 +305,7 @@ describe("platformRequestSignedUrl", () => {
         VAK_TOKEN,
         PLATFORM_URL,
       ),
-    ).rejects.toThrow(/503/);
+    ).rejects.toThrow(/temporarily down/);
   });
 });
 
