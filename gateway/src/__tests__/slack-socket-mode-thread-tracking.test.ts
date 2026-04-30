@@ -103,7 +103,7 @@ function createHarness(
   harness.config = {
     appToken: "xapp-test",
     botToken: "xoxb-test",
-    botUserId: "U-bot",
+    botUserId: "UBOT",
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
@@ -151,7 +151,7 @@ describe("SlackSocketModeClient thread tracking", () => {
             event: {
               type: "app_mention",
               user: "U-mentioned",
-              text: "<@U-bot> can you help here?",
+              text: "<@UBOT> can you help here?",
               ts: "1700000000.000100",
               channel: "C-thread",
               thread_ts: "1700000000.000000",
@@ -160,6 +160,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-mention");
@@ -185,6 +186,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
       expect(emitted[1].event.source.updateId).toBe("Ev-reply");
@@ -194,6 +196,156 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[1].event.source.chatType).toBe("channel");
       expect(emitted[1].threadTs).toBe("1700000000.000000");
       expect(emitted[1].event.source.threadId).toBe("1700000000.000000");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("tracks app mention thread before slow mentioned-user lookup completes", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    let resolveDelayedMention: ((response: Response) => void) | undefined;
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "ULEO") {
+        return new Promise<Response>((resolve) => {
+          resolveDelayedMention = resolve;
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-race-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-race-mention",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@ULEO> can you help here?",
+              ts: "1700000000.000150",
+              channel: "C-thread",
+              thread_ts: "1700000000.000140",
+            },
+          },
+        }),
+        ws,
+      );
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-race-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-race-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up while lookup is still pending",
+              ts: "1700000000.000160",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000140",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-race-reply");
+      expect(emitted[0].event.message.content).toBe(
+        "following up while lookup is still pending",
+      );
+
+      expect(resolveDelayedMention).toBeDefined();
+      resolveDelayedMention!(makeSlackUserResponse());
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.source.updateId).toBe("Ev-race-mention");
+      expect(emitted[1].event.message.content).toBe(
+        "@Example User can you help here?",
+      );
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not pre-track unrouted app mention threads during slow mentioned-user lookup", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    let resolveDelayedMention: ((response: Response) => void) | undefined;
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "USLOW") {
+        return new Promise<Response>((resolve) => {
+          resolveDelayedMention = resolve;
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-mention",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@USLOW> can you help here?",
+              ts: "1700000000.000250",
+              channel: "C-unrouted",
+              thread_ts: "1700000000.000240",
+            },
+          },
+        }),
+        ws,
+      );
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "reply should not be admitted by rejected mention",
+              ts: "1700000000.000260",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: "1700000000.000240",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+
+      expect(resolveDelayedMention).toBeDefined();
+      resolveDelayedMention!(makeSlackUserResponse());
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
     } finally {
       rawDb.close();
     }
@@ -220,7 +372,7 @@ describe("SlackSocketModeClient thread tracking", () => {
             event: {
               type: "app_mention",
               user: "U-mentioned",
-              text: "<@U-bot> can you help here?",
+              text: "<@UBOT> can you help here?",
               ts: "1700000000.000300",
               channel: "C-thread",
             },
@@ -228,6 +380,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-top-level-mention");
@@ -253,6 +406,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
       expect(emitted[1].event.source.updateId).toBe("Ev-top-level-reply");
@@ -294,6 +448,7 @@ describe("SlackSocketModeClient thread tracking", () => {
         }),
         ws,
       );
+      await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm");
@@ -411,6 +566,7 @@ describe("SlackSocketModeClient thread tracking", () => {
           }),
           ws,
         );
+        await flushAsyncEventEmission();
 
         expect(emitted).toHaveLength(1);
       } finally {
@@ -418,4 +574,57 @@ describe("SlackSocketModeClient thread tracking", () => {
       }
     },
   );
+
+  test("renders live app mention user IDs as display-name labels", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "ULEO") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              name: "leo",
+              profile: { display_name: "Leo" },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mention-label",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mention-label",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@ULEO> please look",
+              ts: "1700000000.000800",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.content).toBe("@Leo please look");
+      expect(emitted[0].event.message.content).not.toContain("<@ULEO>");
+      expect(emitted[0].event.message.content).not.toContain("ULEO");
+    } finally {
+      rawDb.close();
+    }
+  });
 });
