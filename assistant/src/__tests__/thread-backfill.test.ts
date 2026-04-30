@@ -228,8 +228,6 @@ interface PersistedRow {
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
-  backfillReason: string | undefined;
-  backfillOmittedMiddle: boolean | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
 }
 
@@ -243,8 +241,6 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
-      backfillReason: undefined,
-      backfillOmittedMiddle: undefined,
       slackFiles: undefined,
     };
     if (!row.metadata) {
@@ -279,8 +275,6 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
-      backfillReason: slackMeta?.backfillReason,
-      backfillOmittedMiddle: slackMeta?.backfillOmittedMiddle,
       slackFiles: slackMeta?.slackFiles?.map((file) => ({
         name: file.name,
         ...(file.mimetype ? { mimetype: file.mimetype } : {}),
@@ -366,7 +360,6 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(byChannelTs.get("1234.0")?.content).toBe("parent");
     expect(byChannelTs.get("1234.0")?.displayName).toBe("Parent User");
     expect(byChannelTs.get("1234.0")?.threadTs).toBeUndefined();
-    expect(byChannelTs.get("1234.0")?.backfillReason).toBe("thread_late_join");
 
     expect(byChannelTs.get("1234.1")?.content).toBe("first reply");
     expect(byChannelTs.get("1234.1")?.threadTs).toBe("1234.0");
@@ -462,7 +455,6 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(
       persisted.filter((p) => p.channelTs === ts(499960)).map((p) => p.content),
     ).toEqual(["recent 499960"]);
-    expect(persisted.some((p) => p.backfillOmittedMiddle === true)).toBe(true);
     expect(
       persisted.find((p) => p.channelTs === ts(499999))?.slackFiles,
     ).toEqual([{ name: "requirements.txt", mimetype: "text/plain" }]);

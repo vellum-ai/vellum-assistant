@@ -1043,7 +1043,7 @@ export async function handleChannelInbound({
       // the missing messages so the chronological renderer (PR 18) has the
       // full conversation. Awaited (mirrors the DM cold-start path above)
       // so the agent loop dispatched immediately afterwards observes the
-      // backfilled parent — without this, `loadSlackChronologicalMessages`
+      // backfilled parent — without this, Slack context assembly
       // can race the persist and miss thread context. Backfill is bounded
       // (parent + ~50 messages) and the agent latency is dominated by the
       // LLM call, so the added latency is negligible. Failures are
@@ -1407,8 +1407,6 @@ async function persistBackfilledSlackMessage(params: {
   conversationId: string;
   channelId: string;
   message: ProviderMessage;
-  backfillReason: SlackMessageMetadata["backfillReason"];
-  backfillOmittedMiddle?: boolean;
 }): Promise<void> {
   const { message } = params;
   const slackFiles = readSlackFilesFromProviderMetadata(message.metadata);
@@ -1419,9 +1417,6 @@ async function persistBackfilledSlackMessage(params: {
     eventKind: "message",
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
-    isBackfill: true,
-    backfillReason: params.backfillReason,
-    ...(params.backfillOmittedMiddle ? { backfillOmittedMiddle: true } : {}),
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
   const role = message.metadata?.isBot === true ? "assistant" : "user";
@@ -1540,7 +1535,6 @@ async function runBackfillSlackDmIfCold(params: {
           conversationId: params.conversationId,
           channelId: params.channelId,
           message,
-          backfillReason: "dm_cold_start",
         });
         seen.add(message.id);
         written++;
@@ -1636,9 +1630,11 @@ const SLACK_UPPER_ADJACENT_SHRINKING_WINDOWS_MICROS = [
 export interface SlackThreadBackfillResult {
   fetched: number;
   persisted: number;
-  reason?: SlackMessageMetadata["backfillReason"];
+  reason?: SlackBackfillReason;
   omittedMiddle: boolean;
 }
+
+type SlackBackfillReason = "thread_late_join" | "thread_delta";
 
 function emptySlackThreadBackfillResult(): SlackThreadBackfillResult {
   return { fetched: 0, persisted: 0, omittedMiddle: false };
@@ -2051,7 +2047,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     const isInitialLateJoin =
       lowerBoundTs === undefined &&
       threadState.storedChannelTs.size === (excludeChannelTs ? 1 : 0);
-    const reason: SlackMessageMetadata["backfillReason"] = isInitialLateJoin
+    const reason: SlackBackfillReason = isInitialLateJoin
       ? "thread_late_join"
       : "thread_delta";
     let omittedMiddle = false;
@@ -2086,7 +2082,6 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     }
 
     let persisted = 0;
-    let firstPersistedInOmittedSegment = true;
     for (const message of fetched) {
       if (!message.id) continue;
       if (threadState.storedChannelTs.has(message.id)) continue;
@@ -2095,13 +2090,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           conversationId,
           channelId,
           message,
-          backfillReason: reason,
-          backfillOmittedMiddle:
-            omittedMiddle && firstPersistedInOmittedSegment,
         });
         threadState.storedChannelTs.add(message.id);
         persisted++;
-        firstPersistedInOmittedSegment = false;
       } catch (err) {
         log.warn(
           { err, conversationId, channelId, threadTs, channelTs: message.id },
