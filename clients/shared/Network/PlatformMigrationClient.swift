@@ -26,8 +26,8 @@ public enum PlatformMigrationClient {
         }
     }
 
-    /// Status of an asynchronous import job returned by the polling endpoint.
-    public struct ImportJobStatus {
+    /// Status of an asynchronous migration job (import or export) returned by the unified job-status endpoint.
+    public struct JobStatus {
         public let status: String
         public let jobId: String?
         public let error: String?
@@ -207,15 +207,15 @@ public enum PlatformMigrationClient {
         return (statusCode: statusCode, data: data)
     }
 
-    /// Polls the status of an asynchronous import job.
+    /// Polls the status of an asynchronous migration job.
     ///
-    /// - Parameter jobId: The job ID returned by `importFromGcs` when it responds with 202.
-    /// - Returns: An `ImportJobStatus` with the current status, optional error, and result data.
+    /// - Parameter jobId: The job ID returned by an async migration response (export or import).
+    /// - Returns: A `JobStatus` with the current status, optional error, and result data.
     /// - Throws: `PlatformMigrationError` on auth or request failures.
-    public static func pollImportStatus(jobId: String) async throws -> ImportJobStatus {
+    public static func pollJobStatus(jobId: String) async throws -> JobStatus {
         let (baseURL, token, orgId) = try resolveAuthContext()
 
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import/\(jobId)/status/") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/jobs/\(jobId)/") else {
             throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
         }
 
@@ -227,10 +227,10 @@ public enum PlatformMigrationClient {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
 
-        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-status")
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "job-status")
 
         guard statusCode == 200 else {
-            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: "Import status check failed")
+            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: "Job status check failed")
         }
 
         // Parse status and error from top level, keep raw data for result
@@ -245,38 +245,7 @@ public enum PlatformMigrationClient {
             resultData = try? JSONSerialization.data(withJSONObject: result)
         }
 
-        return ImportJobStatus(status: status, jobId: jobIdValue, error: error, resultData: resultData)
-    }
-
-    /// Imports a migration bundle by sending the raw data directly to the platform.
-    ///
-    /// This is the fallback path when signed URL uploads are not available. Mirrors
-    /// the platform's `/v1/migrations/import/` octet-stream contract (the inline-import
-    /// legacy path): POST the bundle data as an octet-stream body.
-    ///
-    /// - Parameter bundleData: The raw bundle data to import.
-    /// - Returns: A tuple of the HTTP status code and raw response data.
-    /// - Throws: `PlatformMigrationError` on auth failures, or network errors from `URLSession`.
-    public static func importInline(bundleData: Data) async throws -> (statusCode: Int, data: Data) {
-        let (baseURL, token, orgId) = try resolveAuthContext()
-
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import/") else {
-            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 3600
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        request.httpBody = bundleData
-
-        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-inline")
-
-        return (statusCode: statusCode, data: data)
+        return JobStatus(status: status, jobId: jobIdValue, error: error, resultData: resultData)
     }
 
     // MARK: - Internals
