@@ -11,6 +11,7 @@ export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
   defaultAssistantId: string | undefined;
   gatewayInternalBaseUrl: string;
+  velayBaseUrl?: string;
   logFile: LogFileConfig;
   maxAttachmentBytes: Record<
     "telegram" | "slack" | "whatsapp" | "default",
@@ -92,6 +93,7 @@ export function loadConfig(): GatewayConfig {
   const assistantRuntimeBaseUrl = `http://${assistantHost}:${runtimePort}`;
 
   const gatewayInternalBaseUrl = `http://127.0.0.1:${port}`;
+  const velayBaseUrl = process.env.VELAY_BASE_URL?.trim() || undefined;
 
   // Read operational settings from workspace config (Docker) or env vars (CLI).
   const wsConfig = readWorkspaceConfig();
@@ -142,6 +144,7 @@ export function loadConfig(): GatewayConfig {
       routingEntryCount: routingEntries.length,
       unmappedPolicy,
       hasDefaultAssistant: !!defaultAssistantId,
+      hasVelayBaseUrl: !!velayBaseUrl,
       port,
       runtimeProxyRequireAuth,
       trustProxy: false,
@@ -153,6 +156,7 @@ export function loadConfig(): GatewayConfig {
     assistantRuntimeBaseUrl,
     defaultAssistantId,
     gatewayInternalBaseUrl,
+    velayBaseUrl,
     logFile,
     maxAttachmentBytes: {
       telegram: 20 * 1024 * 1024, // Telegram Bot API getFile (download) limit

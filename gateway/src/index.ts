@@ -156,6 +156,7 @@ import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
+import { createVelayTunnelClient } from "./velay/client.js";
 
 const log = getLogger("main");
 
@@ -277,6 +278,10 @@ async function main() {
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
   const configFileCache = new ConfigFileCache();
+  const velayTunnelClient = createVelayTunnelClient(config, {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  });
 
   // ── Avatar sync ──
   const avatarChannelSyncer = new AvatarChannelSyncer();
@@ -1532,6 +1537,7 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
   logAuthBypassState();
+  velayTunnelClient?.start();
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
@@ -2020,6 +2026,7 @@ async function main() {
     avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
+    velayTunnelClient?.stop();
     ipcServer.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
