@@ -62,7 +62,9 @@ Examples:
     .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = await getSecureKeyAsync(credentialKey(provider, "api_key"));
+        const value =
+          (await getSecureKeyAsync(credentialKey(provider, "api_key"))) ??
+          (await getSecureKeyAsync(provider));
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {
