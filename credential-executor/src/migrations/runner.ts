@@ -67,9 +67,8 @@ function saveCheckpoints(
  *
  * - Skips migrations that already have a checkpoint entry (`"completed"` or
  *   `"failed"`). Only `"started"` and `"rolling_back"` entries are cleared
- *   and re-run (crash recovery — migrations must be idempotent).
- * - Re-runs any migration whose checkpoint is `"started"` or
- *   `"rolling_back"` (crash recovery — migrations must be idempotent).
+ *   and re-run on the next startup (crash recovery — migrations must be
+ *   idempotent).
  * - Marks failed migrations as `"failed"` and continues startup; a failed
  *   migration does not block the RPC server from starting.
  *
@@ -106,7 +105,7 @@ export async function runCesMigrations(
   }
 
   for (const migration of migrations) {
-    if (checkpoints.applied[migration.id]?.status === "completed") {
+    if (checkpoints.applied[migration.id]) {
       continue;
     }
 
