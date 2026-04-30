@@ -24,6 +24,16 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
+const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
+  grounded:
+    "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
+  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements.",
+  energetic:
+    "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
+  poetic:
+    "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
+};
+
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
@@ -307,10 +317,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       "{{USER_PERSONA_FILE}}",
       `${userSlug}.md`,
     );
+    let bootstrapContent = bootstrapWithSlug;
+    const voiceBlock = options?.onboardingContext?.tone
+      ? BOOTSTRAP_VOICE_BLOCKS[options.onboardingContext.tone]
+      : undefined;
+    if (voiceBlock) {
+      bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
+    }
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrapWithSlug,
+        bootstrapContent,
     );
 
     if (options?.onboardingContext) {
