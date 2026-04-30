@@ -4,6 +4,12 @@ import Foundation
 
 @MainActor
 final class MockSettingsClient: SettingsClientProtocol {
+    init(seedCallSiteCatalog: Bool = true) {
+        if seedCallSiteCatalog {
+            CallSiteCatalog.shared.replaceForTesting(Self.defaultCallSiteCatalogResponse)
+        }
+    }
+
     // MARK: - Spy State
 
     var fetchVercelConfigCallCount = 0
@@ -49,6 +55,49 @@ final class MockSettingsClient: SettingsClientProtocol {
     var patchConfigResponse: Bool = true
     var replaceInferenceProfileCalls: [(name: String, fragment: [String: Any])] = []
     var replaceInferenceProfileResponse: Bool = true
+    var callSiteCatalogResponse: CallSiteCatalogResponse? = MockSettingsClient.defaultCallSiteCatalogResponse
+
+    static let defaultCallSiteCatalogResponse = CallSiteCatalogResponse(
+        domains: [
+            CallSiteCatalogDomain(id: "agentLoop", displayName: "Agent Loop"),
+            CallSiteCatalogDomain(id: "memory", displayName: "Memory"),
+            CallSiteCatalogDomain(id: "workspace", displayName: "Workspace"),
+            CallSiteCatalogDomain(id: "ui", displayName: "UI"),
+            CallSiteCatalogDomain(id: "skills", displayName: "Skills"),
+        ],
+        callSites: [
+            CallSiteCatalogEntry(
+                id: "mainAgent",
+                displayName: "Main Agent",
+                description: "The primary conversation agent that handles user messages.",
+                domain: "agentLoop"
+            ),
+            CallSiteCatalogEntry(
+                id: "memoryRetrieval",
+                displayName: "Memory Retrieval",
+                description: "Retrieves relevant memories to augment the agent context.",
+                domain: "memory"
+            ),
+            CallSiteCatalogEntry(
+                id: "commitMessage",
+                displayName: "Commit Message",
+                description: "Generates a git commit message for staged changes.",
+                domain: "workspace"
+            ),
+            CallSiteCatalogEntry(
+                id: "trustRuleSuggestion",
+                displayName: "Trust Rule Suggestion",
+                description: "Suggests a trust rule pattern when the user creates a new rule.",
+                domain: "ui"
+            ),
+            CallSiteCatalogEntry(
+                id: "inference",
+                displayName: "Inference",
+                description: "General-purpose LLM inference call site for skill use.",
+                domain: "skills"
+            ),
+        ]
+    )
 
     // MARK: - Protocol Methods
 
@@ -188,5 +237,5 @@ final class MockSettingsClient: SettingsClientProtocol {
         return checkApiKeyExistsResponse
     }
 
-    func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? { nil }
+    func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? { callSiteCatalogResponse }
 }

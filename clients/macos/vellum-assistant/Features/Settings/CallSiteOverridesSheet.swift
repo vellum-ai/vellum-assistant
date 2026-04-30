@@ -122,7 +122,7 @@ struct CallSiteOverridesSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear { syncDraftsFromStore() }
         .task {
-            catalog.ensureLoaded()
+            await store.ensureCallSiteCatalogLoaded()
         }
         .onChange(of: store.callSiteOverrides) { _, _ in
             syncDraftsFromStore()

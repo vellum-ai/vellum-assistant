@@ -71,43 +71,81 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
 
 /// Catalog of every LLM call site the assistant exposes.
 ///
-/// Starts pre-seeded with the static catalog so the UI works before the
-/// API fetch completes. `ensureLoaded(using:)` fetches from the assistant
-/// runtime and replaces the seed data with the authoritative API response,
-/// then sets `isLoaded = true`.
+/// Display metadata is owned by the assistant runtime's
+/// `config/llm/call-sites` API. The client may hydrate from the last cached
+/// response while fetching, but must not define a parallel call-site list.
 @MainActor
 @Observable
 public final class CallSiteCatalog {
     public static let shared = CallSiteCatalog()
 
-    public private(set) var domains: [CallSiteDomain] = CallSiteCatalog.staticDomains
-    public private(set) var callSites: [CallSiteOverride] = CallSiteCatalog.staticCallSites
+    public private(set) var domains: [CallSiteDomain]
+    public private(set) var callSites: [CallSiteOverride]
     public private(set) var isLoaded: Bool = false
 
-    @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTask: (id: UUID, task: Task<CallSiteCatalogResponse?, Never>)?
+    @ObservationIgnored private var latestRequestId: UUID?
 
-    private init() {}
+    private static let cachedResponseKey = "llmCallSiteCatalogResponse.v1"
+
+    private init() {
+        if let cached = Self.loadCachedResponse() {
+            self.domains = Self.domains(from: cached)
+            self.callSites = Self.callSites(from: cached)
+        } else {
+            self.domains = []
+            self.callSites = []
+        }
+    }
 
     /// Fetch the catalog from the assistant API if not already loaded.
-    /// Safe to call multiple times — subsequent calls before the first
-    /// fetch completes are no-ops.
-    @MainActor public func ensureLoaded(using client: SettingsClientProtocol = SettingsClient()) {
-        guard !isLoaded, fetchTask == nil else { return }
-        fetchTask = Task { @MainActor in
-            if let response = await client.fetchCallSiteCatalog() {
-                self.domains = response.domains.map { CallSiteDomain(id: $0.id, displayName: $0.displayName) }
-                self.callSites = response.callSites.map {
-                    CallSiteOverride(
-                        id: $0.id,
-                        displayName: $0.displayName,
-                        callSiteDescription: $0.description,
-                        domain: $0.domain
-                    )
-                }
-                self.isLoaded = true
-            }
-            self.fetchTask = nil
+    /// Safe to call multiple times — concurrent callers share one request.
+    @discardableResult
+    @MainActor public func ensureLoaded(using client: SettingsClientProtocol = SettingsClient()) async -> Bool {
+        await load(using: client, force: false)
+    }
+
+    /// Re-fetch the catalog even when a prior response has already loaded.
+    @discardableResult
+    @MainActor public func reload(using client: SettingsClientProtocol = SettingsClient()) async -> Bool {
+        await load(using: client, force: true)
+    }
+
+    @discardableResult
+    private func load(using client: SettingsClientProtocol, force: Bool) async -> Bool {
+        if isLoaded && !force {
+            return true
         }
+
+        let requestId: UUID
+        let task: Task<CallSiteCatalogResponse?, Never>
+        if let fetchTask, !force {
+            requestId = fetchTask.id
+            task = fetchTask.task
+        } else {
+            requestId = UUID()
+            let newTask = Task { @MainActor in await client.fetchCallSiteCatalog() }
+            latestRequestId = requestId
+            fetchTask = (id: requestId, task: newTask)
+            task = newTask
+        }
+
+        let response = await task.value
+        if fetchTask?.id == requestId {
+            fetchTask = nil
+        }
+        guard latestRequestId == requestId else {
+            return false
+        }
+
+        guard let response else {
+            return false
+        }
+
+        apply(response)
+        Self.storeCachedResponse(response)
+        isLoaded = true
+        return true
     }
 
     // MARK: - Computed accessors
@@ -130,58 +168,55 @@ public final class CallSiteCatalog {
     public static var byId: [String: CallSiteOverride] { shared.byId }
     public static var validIds: Set<String> { shared.validIds }
 
-    // MARK: - Static seed (fallback / initial state)
+    // MARK: - Catalog hydration
 
-    private static let staticDomains: [CallSiteDomain] = [
-        CallSiteDomain(id: "agentLoop",     displayName: "Agent Loop"),
-        CallSiteDomain(id: "memory",        displayName: "Memory"),
-        CallSiteDomain(id: "workspace",     displayName: "Workspace"),
-        CallSiteDomain(id: "ui",            displayName: "UI"),
-        CallSiteDomain(id: "notifications", displayName: "Notifications"),
-        CallSiteDomain(id: "skills",        displayName: "Skills"),
-    ]
+    private func apply(_ response: CallSiteCatalogResponse) {
+        domains = Self.domains(from: response)
+        callSites = Self.callSites(from: response)
+    }
 
-    private static let staticCallSites: [CallSiteOverride] = [
-        // agentLoop
-        CallSiteOverride(id: "mainAgent",         displayName: "Main Agent",         callSiteDescription: "The primary conversation agent that handles user messages.",             domain: "agentLoop"),
-        CallSiteOverride(id: "subagentSpawn",     displayName: "Subagent Spawn",     callSiteDescription: "Spawns a subagent to handle a delegated subtask.",                      domain: "agentLoop"),
-        CallSiteOverride(id: "heartbeatAgent",    displayName: "Heartbeat Agent",    callSiteDescription: "Runs background tasks and proactive checks on a schedule.",              domain: "agentLoop"),
-        CallSiteOverride(id: "filingAgent",       displayName: "Filing Agent",       callSiteDescription: "Files memories and updates the knowledge base after conversations.",     domain: "agentLoop"),
-        CallSiteOverride(id: "compactionAgent",   displayName: "Compaction Agent",   callSiteDescription: "Compacts conversation history to stay within context limits.",           domain: "agentLoop"),
-        CallSiteOverride(id: "analyzeConversation", displayName: "Analyze Conversation", callSiteDescription: "Analyzes conversation content for summaries and insights.",          domain: "agentLoop"),
-        CallSiteOverride(id: "callAgent",         displayName: "Call Agent",         callSiteDescription: "Handles voice call conversations.",                                      domain: "agentLoop"),
-        // memory
-        CallSiteOverride(id: "memoryExtraction",    displayName: "Memory Extraction",    callSiteDescription: "Extracts memorable facts from conversation turns.",                  domain: "memory"),
-        CallSiteOverride(id: "memoryConsolidation", displayName: "Memory Consolidation", callSiteDescription: "Merges and deduplicates related memories.",                         domain: "memory"),
-        CallSiteOverride(id: "memoryRetrieval",     displayName: "Memory Retrieval",     callSiteDescription: "Retrieves relevant memories to augment the agent context.",          domain: "memory"),
-        CallSiteOverride(id: "memoryV2Migration",   displayName: "Memory V2 Migration",  callSiteDescription: "One-time migration of memories to the V2 storage format.",           domain: "memory"),
-        CallSiteOverride(id: "memoryV2Sweep",       displayName: "Memory V2 Sweep",      callSiteDescription: "Background sweep pass for V2 memory maintenance.",                   domain: "memory"),
-        CallSiteOverride(id: "recall",              displayName: "Recall",               callSiteDescription: "Searches memory to answer a specific question during a turn.",        domain: "memory"),
-        CallSiteOverride(id: "narrativeRefinement", displayName: "Narrative Refinement", callSiteDescription: "Refines the autobiographical narrative stored in memory.",            domain: "memory"),
-        CallSiteOverride(id: "patternScan",         displayName: "Pattern Scan",         callSiteDescription: "Scans memories for recurring behavioral patterns.",                   domain: "memory"),
-        // workspace
-        CallSiteOverride(id: "conversationSummarization", displayName: "Conversation Summarization", callSiteDescription: "Generates a summary of a completed conversation.",       domain: "workspace"),
-        CallSiteOverride(id: "commitMessage",             displayName: "Commit Message",             callSiteDescription: "Generates a git commit message for staged changes.",      domain: "workspace"),
-        // ui
-        CallSiteOverride(id: "conversationStarters", displayName: "Conversation Starters", callSiteDescription: "Generates suggested conversation openers for the home screen.",   domain: "ui"),
-        CallSiteOverride(id: "conversationTitle",    displayName: "Conversation Title",    callSiteDescription: "Generates a title for a conversation from its content.",           domain: "ui"),
-        CallSiteOverride(id: "identityIntro",        displayName: "Identity Intro",        callSiteDescription: "Generates the assistant's introductory identity text.",            domain: "ui"),
-        CallSiteOverride(id: "emptyStateGreeting",   displayName: "Empty State Greeting",  callSiteDescription: "Generates a greeting shown on the empty conversation screen.",     domain: "ui"),
-        CallSiteOverride(id: "guardianQuestionCopy", displayName: "Guardian Question Copy", callSiteDescription: "Generates copy for guardian onboarding questions.",               domain: "ui"),
-        CallSiteOverride(id: "approvalCopy",         displayName: "Approval Copy",         callSiteDescription: "Generates copy for tool approval prompts shown to the user.",      domain: "ui"),
-        CallSiteOverride(id: "approvalConversation", displayName: "Approval Conversation", callSiteDescription: "Handles conversational approval flows.",                           domain: "ui"),
-        CallSiteOverride(id: "feedEventCopy",        displayName: "Feed Event Copy",        callSiteDescription: "Generates copy for home feed event cards.",                        domain: "ui"),
-        CallSiteOverride(id: "trustRuleSuggestion",  displayName: "Trust Rule Suggestion",  callSiteDescription: "Suggests a trust rule pattern when the user creates a new rule.",  domain: "ui"),
-        // notifications
-        CallSiteOverride(id: "notificationDecision",  displayName: "Notification Decision",  callSiteDescription: "Decides whether a background event warrants sending a notification.", domain: "notifications"),
-        CallSiteOverride(id: "preferenceExtraction",  displayName: "Preference Extraction",  callSiteDescription: "Extracts notification and communication preferences from messages.",    domain: "notifications"),
-        // skills
-        CallSiteOverride(id: "interactionClassifier",      displayName: "Interaction Classifier",      callSiteDescription: "Classifies the type of interaction to route it correctly.",   domain: "skills"),
-        CallSiteOverride(id: "styleAnalyzer",              displayName: "Style Analyzer",              callSiteDescription: "Analyzes the user's communication style for personalization.", domain: "skills"),
-        CallSiteOverride(id: "inviteInstructionGenerator", displayName: "Invite Instruction Generator", callSiteDescription: "Generates setup instructions for new skill invites.",          domain: "skills"),
-        CallSiteOverride(id: "skillCategoryInference",     displayName: "Skill Category Inference",    callSiteDescription: "Infers the category of a skill from its description.",         domain: "skills"),
-        CallSiteOverride(id: "meetConsentMonitor",         displayName: "Meet Consent Monitor",        callSiteDescription: "Monitors meeting consent signals during live calls.",           domain: "skills"),
-        CallSiteOverride(id: "meetChatOpportunity",        displayName: "Meet Chat Opportunity",        callSiteDescription: "Identifies opportunities to engage in meeting chat.",           domain: "skills"),
-        CallSiteOverride(id: "inference",                  displayName: "Inference",                   callSiteDescription: "General-purpose LLM inference call site for skill use.",        domain: "skills"),
-    ]
+    private static func domains(from response: CallSiteCatalogResponse) -> [CallSiteDomain] {
+        response.domains.map { CallSiteDomain(id: $0.id, displayName: $0.displayName) }
+    }
+
+    private static func callSites(from response: CallSiteCatalogResponse) -> [CallSiteOverride] {
+        response.callSites.map {
+            CallSiteOverride(
+                id: $0.id,
+                displayName: $0.displayName,
+                callSiteDescription: $0.description,
+                domain: $0.domain
+            )
+        }
+    }
+
+    private static func loadCachedResponse() -> CallSiteCatalogResponse? {
+        guard let data = UserDefaults.standard.data(forKey: cachedResponseKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(CallSiteCatalogResponse.self, from: data)
+    }
+
+    private static func storeCachedResponse(_ response: CallSiteCatalogResponse) {
+        guard let data = try? JSONEncoder().encode(response) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: cachedResponseKey)
+    }
+
+    func replaceForTesting(_ response: CallSiteCatalogResponse, isLoaded: Bool = true) {
+        fetchTask = nil
+        latestRequestId = nil
+        apply(response)
+        self.isLoaded = isLoaded
+    }
+
+    func clearForTesting() {
+        fetchTask = nil
+        latestRequestId = nil
+        domains = []
+        callSites = []
+        isLoaded = false
+        UserDefaults.standard.removeObject(forKey: Self.cachedResponseKey)
+    }
 }

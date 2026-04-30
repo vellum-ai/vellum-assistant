@@ -202,11 +202,13 @@ final class InferenceProfilesSheetTests: XCTestCase {
     /// Deleting the active profile produces `.blockedByActive`. The sheet
     /// uses this to drive its `BlockedDeleteState.active` presentation.
     func testDeletingActiveProfileReturnsBlockedByActiveResult() async {
-        seedBuiltInsAndCustom()
-        XCTAssertEqual(store.activeProfile, "balanced")
+        seedBuiltInsAndCustom(includeCustom: true)
+        let switched = await store.setActiveProfile("experimental")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(store.activeProfile, "experimental")
 
-        let result = await store.deleteProfile(name: "balanced")
-        XCTAssertEqual(result, .blockedByActive("balanced"))
+        let result = await store.deleteProfile(name: "experimental")
+        XCTAssertEqual(result, .blockedByActive("experimental"))
     }
 
     /// Deleting a profile that's referenced by call sites returns
@@ -295,38 +297,40 @@ final class InferenceProfilesSheetTests: XCTestCase {
 
     // MARK: - Rename flow
 
-    /// Renaming the active profile must atomically migrate the
+    /// Renaming a custom active profile must atomically migrate the
     /// `activeProfile` pointer and any callsite overrides onto the new
     /// name BEFORE deleting the old key, so the rename never leaves a
     /// stale dangling reference. Mirrors the orchestration in
     /// `commitEditor` — exercised here at the store level.
     func testRenameActiveProfileMigratesActivePointerAndDropsOldKey() async {
-        seedBuiltInsAndCustom()
-        XCTAssertEqual(store.activeProfile, "balanced")
+        seedBuiltInsAndCustom(includeCustom: true)
+        let switched = await store.setActiveProfile("experimental")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(store.activeProfile, "experimental")
 
         // Step 1: write the new key with the migrated draft.
         let renamed = InferenceProfile(
-            name: "balanced-renamed",
+            name: "experimental-renamed",
             provider: "anthropic",
             model: "claude-sonnet-4-6",
             maxTokens: 16000,
             effort: "high"
         )
-        let setSuccess = await store.setProfile(name: "balanced-renamed", fragment: renamed)
+        let setSuccess = await store.setProfile(name: "experimental-renamed", fragment: renamed)
         XCTAssertTrue(setSuccess)
 
         // Step 2: re-target the active pointer.
-        let activeSuccess = await store.setActiveProfile("balanced-renamed")
+        let activeSuccess = await store.setActiveProfile("experimental-renamed")
         XCTAssertTrue(activeSuccess)
 
         // Step 3: drop the old key. After re-targeting, this must
         // succeed (no `.blockedByActive`).
-        let result = await store.deleteProfile(name: "balanced")
+        let result = await store.deleteProfile(name: "experimental")
         XCTAssertEqual(result, .deleted)
 
-        XCTAssertEqual(store.activeProfile, "balanced-renamed")
-        XCTAssertFalse(store.profiles.contains(where: { $0.name == "balanced" }))
-        XCTAssertTrue(store.profiles.contains(where: { $0.name == "balanced-renamed" }))
+        XCTAssertEqual(store.activeProfile, "experimental-renamed")
+        XCTAssertFalse(store.profiles.contains(where: { $0.name == "experimental" }))
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental-renamed" }))
     }
 
     /// Renaming a profile referenced by call sites must re-target every

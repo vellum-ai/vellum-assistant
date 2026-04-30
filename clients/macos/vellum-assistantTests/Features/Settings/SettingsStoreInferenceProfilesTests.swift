@@ -399,6 +399,36 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertTrue(store.profiles.contains(where: { $0.name == "fast" }))
     }
 
+    func testDeleteProfileBlockedByRawCallSitesWhenCatalogUnavailable() async {
+        CallSiteCatalog.shared.clearForTesting()
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "fast": ["model": "claude-haiku-4-5"],
+                ],
+            ]
+        ])
+        store.loadCallSiteOverrides(config: [
+            "llm": [
+                "callSites": [
+                    "futureCallSite": ["profile": "fast"],
+                ]
+            ]
+        ])
+        XCTAssertTrue(store.callSiteOverrides.isEmpty)
+
+        let result = await store.deleteProfile(name: "fast")
+        if case .blockedByCallSites(let ids) = result {
+            XCTAssertEqual(ids, ["futureCallSite"])
+        } else {
+            XCTFail("Expected .blockedByCallSites, got \(result)")
+        }
+        XCTAssertNil(lastProfilesPatch())
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "fast" }))
+    }
+
     // MARK: - deleteProfile success
 
     func testDeleteProfileSucceedsWhenUnreferenced() async {
