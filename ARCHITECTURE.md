@@ -4,23 +4,23 @@ This file is the cross-system architecture index. Detailed designs live in domai
 
 ## Architecture Docs
 
-| Domain | Architecture Doc |
-|---|---|
-| Assistant runtime | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md) |
-| Gateway ingress/webhooks | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md) |
-| Clients (macOS/iOS) | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) |
-| Assistant memory deep dive | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md) |
-| Assistant integrations deep dive | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md) |
-| Assistant scheduling deep dive | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md) |
-| Assistant security deep dive | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) |
+| Domain                                      | Architecture Doc                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
+| Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
+| Clients (macOS/iOS)                         | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
+| Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
+| Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
+| Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
+| Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
 | macOS keychain broker (removed, historical) | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
-| Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
-| Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
-| Credential Execution Service (CES) | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
-| Environment and data layout | [Environment and Data Layout](#environment-and-data-layout) (this file) |
-| Multi-local instance isolation | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file) |
-| Docker volume architecture | [Docker Volume Architecture](#docker-volume-architecture) (this file) |
-| Service communication matrix | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md) |
+| Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
+| Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
+| Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
+| Environment and data layout                 | [Environment and Data Layout](#environment-and-data-layout) (this file)                            |
+| Multi-local instance isolation              | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file)                      |
+| Docker volume architecture                  | [Docker Volume Architecture](#docker-volume-architecture) (this file)                              |
+| Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 
 ## Cross-Cutting Invariants
 
@@ -39,6 +39,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
   - `@vellumai/ces-client` — Typed HTTP and RPC client for assistant/gateway-to-CES calls (credential CRUD, log export, RPC handshake/envelope). Sub-module exports: `@vellumai/ces-client/http-credentials`, `@vellumai/ces-client/http-log-export`, `@vellumai/ces-client/rpc-client`.
 
   Secure commands are manifest-driven: each bundle declares an auth adapter (`env_var`, `temp_file`, or `credential_process`), an egress mode (`proxy_required` or `no_network`), and allowed argv patterns; generic HTTP clients, interpreters, and shell trampolines are structurally denied as entrypoints. CES-owned durable state (grants and audit logs) is never read or written by the assistant directly. Credential key files (`keys.enc`, `store.key`) are stored on the CES security volume (`/ces-security`) in Docker mode — no other container has access to this volume. `host_bash` is outside the strong CES secrecy guarantee. Response/output filtering (header stripping, body clamping, secret scrubbing) is defense-in-depth, not the primary protection. Managed rollout requires a third runtime image alongside the assistant and gateway images, with corresponding `vembda` pod-template changes; rollout is gated by five feature flags (`ces-tools`, `ces-shell-lockdown`, `ces-secure-install`, `ces-grant-audit`, `ces-managed-sidecar`; keys are simple kebab-case, e.g. `ces-tools`), all defaulting to off. See [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md).
+
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
 - macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap. See [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) for the full flow.
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is simple kebab-case (e.g., `browser`, `ces-tools`); the legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `macos`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API and the IPC `get_feature_flags` method (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the assistant resolves effective flag state via IPC to the gateway socket (`gateway.sock`) — see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
@@ -51,31 +52,31 @@ Environments are **namespaces**, not containers. `VELLUM_ENVIRONMENT` selects a 
 
 ### Per-assistant data directories
 
-Every local assistant's daemon root is `<resources.instanceDir>/.vellum/`. The daemon receives `instanceDir` via the `BASE_DATA_DIR` environment variable set by the CLI on every spawn (`cli/src/lib/local.ts`), and the gateway reads the same variable in `gateway/src/paths.ts:getRootDir`. `assistant/src/util/platform.ts:vellumRoot` returns `join(BASE_DATA_DIR, ".vellum")` when the variable is set, and falls back to `join(homedir(), ".vellum")` otherwise. All root-level state (PID file, `.env`, `runtime-port`, `protected/` with its encrypted keys, trust rules, credentials, capability token, approved-devices list, etc.) and the workspace directory (`getWorkspaceDir()` = `vellumRoot()/workspace` when `VELLUM_WORKSPACE_DIR` is unset) derive from this helper.
+Every local assistant's daemon root is `<resources.instanceDir>/.vellum/`. The CLI passes per-instance paths to spawned daemons and gateways via explicit environment variables: `VELLUM_WORKSPACE_DIR` (workspace data), `GATEWAY_SECURITY_DIR` (gateway security state), and `CREDENTIAL_SECURITY_DIR` (CES key stores). `assistant/src/util/platform.ts:vellumRoot` resolves the root from `VELLUM_WORKSPACE_DIR` when set, falling back to `join(homedir(), ".vellum")`. All root-level state (PID file, `.env`, `runtime-port`, `protected/` with its encrypted keys, trust rules, credentials, capability token, approved-devices list, etc.) and the workspace directory derive from these helpers.
 
 Allocation of `instanceDir` for new hatches:
 
-| Environment | `instanceDir` path |
-|---|---|
-| `production` | `$XDG_DATA_HOME/vellum/assistants/<name>/` |
+| Environment                     | `instanceDir` path                               |
+| ------------------------------- | ------------------------------------------------ |
+| `production`                    | `$XDG_DATA_HOME/vellum/assistants/<name>/`       |
 | non-production (`vellum-<env>`) | `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` |
 
 There is no "first local" special case — every new hatch goes through the same allocator (`cli/src/lib/assistant-config.ts:allocateLocalResources`) and lands under the XDG multi-instance tree. `~/.vellum/` is never an allocation target; it is only reached via existing lockfile entries whose `instanceDir = homedir()` was recorded before this change.
 
 ### Lockfile
 
-| Environment | Canonical path | Read fallback |
-|---|---|---|
-| `production` | `~/.vellum.lock.json` | `~/.vellum.lockfile.json` (legacy rename) |
-| non-production | `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json` | (none — new path) |
+| Environment    | Canonical path                                | Read fallback                             |
+| -------------- | --------------------------------------------- | ----------------------------------------- |
+| `production`   | `~/.vellum.lock.json`                         | `~/.vellum.lockfile.json` (legacy rename) |
+| non-production | `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json` | (none — new path)                         |
 
 The CLI routes all lockfile reads/writes through `cli/src/lib/environments/paths.ts:getLockfilePath` / `getLockfilePaths` so non-production environments land in the env-scoped XDG config tree. The parent directory is created on first write.
 
 ### Config directory (XDG-shared auth state)
 
-| Environment | Config dir |
-|---|---|
-| `production` | `$XDG_CONFIG_HOME/vellum/` |
+| Environment    | Config dir                       |
+| -------------- | -------------------------------- |
+| `production`   | `$XDG_CONFIG_HOME/vellum/`       |
 | non-production | `$XDG_CONFIG_HOME/vellum-<env>/` |
 
 Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Swift client (`clients/shared/Utilities/VellumPaths.swift:configDir`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
@@ -84,7 +85,7 @@ Platform tokens (`platform-token`), device IDs (`device-id`), and guardian token
 
 Backwards compatibility lives entirely in the read path — no on-disk migration is performed.
 
-- Existing production lockfile entries with `instanceDir = homedir()` continue to work: the daemon receives `BASE_DATA_DIR = homedir()` and resolves to `~/.vellum/` exactly as before.
+- Existing production lockfile entries with `instanceDir = homedir()` continue to work: the daemon receives `VELLUM_WORKSPACE_DIR = homedir()/.vellum/workspace` and resolves to `~/.vellum/` exactly as before.
 - Production writes still go to the legacy `~/.vellum.lock.json` filename; the rename-era `~/.vellum.lockfile.json` is accepted as a read fallback.
 - Unknown values of `VELLUM_ENVIRONMENT` (anything outside the seed table) resolve to `vellum` rather than a fabricated `vellum-<garbage>` directory, so misconfiguration degrades gracefully to the production path.
 
@@ -103,7 +104,7 @@ Each named instance gets its own directory tree. The exact location depends on e
 ```
 ~/.vellum.lock.json                                       # Global lockfile
 ~/.local/share/vellum/assistants/
-├── alice/                                                # instanceDir for alice (= BASE_DATA_DIR)
+├── alice/                                                # instanceDir for alice
 │   └── .vellum/                                          # Daemon root (vellumRoot())
 │       ├── vellum.pid                                    # Daemon PID (duplicated by the CLI on spawn)
 │       ├── gateway.pid
@@ -130,7 +131,9 @@ All instances are created with explicit names via `vellum hatch --name <name>`.
 ### Isolation model
 
 Each instance gets its own:
-- **`BASE_DATA_DIR`**: Set to `resources.instanceDir`. The daemon (and gateway) append `.vellum` to this to derive the root directory, so all runtime files land under the instance.
+
+- **`VELLUM_WORKSPACE_DIR`**: Set to `<instanceDir>/.vellum/workspace`. The daemon resolves all workspace state (DB, logs, memory indices) relative to this directory.
+- **`GATEWAY_SECURITY_DIR`** / **`CREDENTIAL_SECURITY_DIR`**: Set to `<instanceDir>/.vellum/protected`. The gateway and credential-executor resolve their security state (keys, trust rules, credentials) relative to these directories.
 - **Daemon port** (`RUNTIME_HTTP_PORT`), **Gateway port** (`GATEWAY_PORT`), **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning upward from the environment's base port — see "Port allocation" below.
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
@@ -197,11 +200,11 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
 - **Gateway IPC volume** (`/run/gateway-ipc`): Contains `gateway.sock` — the Unix domain socket used for assistant→gateway IPC calls (feature flags, trust rules, credentials). Set via `GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc`.
 - **Assistant IPC volume** (`/run/assistant-ipc`): Contains `assistant.sock` — the Unix domain socket used for gateway→assistant reverse IPC calls. Set via `ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc`.
-- **Inner dockerd data volume** (`/var/lib/docker`): Persistent storage for the `dockerd` that runs *inside* the assistant container. Holds the pulled meet-bot image and any in-flight bot container state so image pulls don't repeat on every assistant restart. Only the assistant container mounts this volume.
+- **Inner dockerd data volume** (`/var/lib/docker`): Persistent storage for the `dockerd` that runs _inside_ the assistant container. Holds the pulled meet-bot image and any in-flight bot container state so image pulls don't repeat on every assistant restart. Only the assistant container mounts this volume.
 
 ### Meet Docker-in-Docker Model
 
-In Docker mode, Meet bots are **nested** containers spawned by a `dockerd` running *inside* the assistant container. The assistant container runs an init supervisor that starts both the daemon and a local `dockerd`; the Meet subsystem connects to that inner engine and spawns bot containers as children of the assistant container.
+In Docker mode, Meet bots are **nested** containers spawned by a `dockerd` running _inside_ the assistant container. The assistant container runs an init supervisor that starts both the daemon and a local `dockerd`; the Meet subsystem connects to that inner engine and spawns bot containers as children of the assistant container.
 
 ```
   host Docker Engine
@@ -223,7 +226,7 @@ Each bot container receives a bind of `/workspace` sourced from the assistant's 
 
 **Bot lifecycle is coupled to the assistant container.** Because the inner `dockerd` process runs inside the assistant container, if that container dies the inner engine dies with it and every bot container is torn down automatically. There are no orphan bot containers on the host — `docker ps` on the host only ever lists the assistant/gateway/CES containers.
 
-**Bare-metal fallback.** When the assistant runs directly on the host (bare-metal / local-dev mode) there is no inner `dockerd`; the daemon connects to the host's Docker engine and spawns bot containers as *siblings* of the assistant process. In that configuration host-level `docker ps` does see each bot, and an ungraceful assistant exit can leave orphan bot containers — the meet-bot image's built-in max-meeting-minutes timeout caps their lifetime.
+**Bare-metal fallback.** When the assistant runs directly on the host (bare-metal / local-dev mode) there is no inner `dockerd`; the daemon connects to the host's Docker engine and spawns bot containers as _siblings_ of the assistant process. In that configuration host-level `docker ps` does see each bot, and an ungraceful assistant exit can leave orphan bot containers — the meet-bot image's built-in max-meeting-minutes timeout caps their lifetime.
 
 **Security boundary — single-user local only.** The Docker-in-Docker model requires the assistant container to run with `--privileged`, or at minimum `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`, so the inner `dockerd` can set up cgroups, overlay mounts, and container networks. This is acceptable for single-user local deployments where the assistant already runs with the user's privileges. It is **not** acceptable as-is for managed/multi-tenant mode: Kubernetes deployments must configure Pod Security Admission to allow this privilege level on the assistant pod, or swap in a different bot-spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances. Managed Meet support is explicitly out of scope for this Docker-in-Docker approach — see [`vellum-assistant-platform`](../vellum-assistant-platform).
 
@@ -598,21 +601,23 @@ All feature flags (assistant-scoped and macOS-scoped) are declared in the unifie
 
 **Separation of concerns:**
 
-| Flag Type | Scope | Storage | Managed By |
-|-----------|-------|---------|------------|
+| Flag Type                                      | Scope                           | Storage                                   | Managed By                                                                                 |
+| ---------------------------------------------- | ------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Assistant feature flags (`scope: "assistant"`) | Gateway-managed, protected file | `GATEWAY_SECURITY_DIR/feature-flags.json` | Gateway `get_feature_flags` IPC (assistant) + `/v1/feature-flags` REST API (macOS clients) |
-| macOS client feature flags (`scope: "macos"`) | Local-only, per-device | UserDefaults (plist) | macOS app directly |
+| macOS client feature flags (`scope: "macos"`)  | Local-only, per-device          | UserDefaults (plist)                      | macOS app directly                                                                         |
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Flags not declared in the registry default to enabled (open by default).
 
 **Canonical key format:** Simple kebab-case (e.g., `browser`, `ces-tools`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
+
 1. `~/.vellum/protected/feature-flags.json` overrides (local) or gateway IPC socket (Docker)
 2. Defaults registry `defaultEnabled`
 3. `true` (unknown flags are open by default)
 
 **Domain docs:**
+
 - Assistant-side resolver and enforcement points: [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)
 - Gateway defaults loader and REST API: [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)
 
