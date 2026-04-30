@@ -54,6 +54,12 @@ export interface HistoryToolCall {
   matchedTrustRuleId?: string;
   /** Whether the tool was auto-approved (true) or required explicit user input (false). */
   autoApproved?: boolean;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
 export interface HistorySurface {
@@ -354,6 +360,12 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.matchedTrustRuleId = block._matchedTrustRuleId;
       if (typeof block._autoApproved === "boolean")
         entry.autoApproved = block._autoApproved;
+      if (typeof block._approvalMode === "string")
+        entry.approvalMode = block._approvalMode;
+      if (typeof block._approvalReason === "string")
+        entry.approvalReason = block._approvalReason;
+      if (typeof block._riskThreshold === "string")
+        entry.riskThreshold = block._riskThreshold;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);

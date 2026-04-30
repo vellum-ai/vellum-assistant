@@ -112,6 +112,9 @@ export class ToolExecutor {
         }
       | undefined;
     let permMatchedTrustRuleId: string | undefined;
+    let permApprovalMode: string | undefined;
+    let permApprovalReason: string | undefined;
+    let permRiskThreshold: string | undefined;
     const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
@@ -191,6 +194,9 @@ export class ToolExecutor {
         decision = permResult.decision;
         permRiskMeta = permResult.riskMeta;
         permMatchedTrustRuleId = permResult.matchedTrustRuleId;
+        permApprovalMode = permResult.approvalMode;
+        permApprovalReason = permResult.approvalReason;
+        permRiskThreshold = permResult.riskThreshold;
 
         if (!permResult.allowed) {
           return {
@@ -202,6 +208,9 @@ export class ToolExecutor {
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
             matchedTrustRuleId: permMatchedTrustRuleId,
+            approvalMode: permApprovalMode,
+            approvalReason: permApprovalReason,
+            riskThreshold: permRiskThreshold,
           };
         }
 
@@ -412,6 +421,15 @@ export class ToolExecutor {
       }
       if (permMatchedTrustRuleId) {
         execResult = { ...execResult, matchedTrustRuleId: permMatchedTrustRuleId };
+      }
+      if (permApprovalMode) {
+        execResult = { ...execResult, approvalMode: permApprovalMode };
+      }
+      if (permApprovalReason) {
+        execResult = { ...execResult, approvalReason: permApprovalReason };
+      }
+      if (permRiskThreshold) {
+        execResult = { ...execResult, riskThreshold: permRiskThreshold };
       }
 
       return execResult;

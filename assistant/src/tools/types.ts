@@ -96,6 +96,12 @@ export interface ToolExecutionResult {
   riskReason?: string;
   /** ID of the trust rule that matched this invocation (if any). */
   matchedTrustRuleId?: string;
+  /** How the decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at the time of execution. */
+  riskThreshold?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
