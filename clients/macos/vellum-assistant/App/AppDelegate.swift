@@ -807,9 +807,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // the quit sequence so the new version launches after termination.
         updateManager.installDeferredUpdateIfAvailable()
 
-        // Restore the Vellum logo so the pinned dock tile caches the
-        // correct icon instead of whatever avatar was showing at quit time.
-        AvatarAppearanceManager.shared.restoreBundleIcon()
+        // Clear the runtime icon override so the dock tile reverts to the
+        // bundle icon. applicationIconImage is an in-process property that
+        // dies with the process; the Dock independently resolves the bundle
+        // icon for pinned tiles on process exit. Setting nil is Apple's
+        // documented API to restore the original icon and avoids the 2s+
+        // NSWorkspace.icon(forFile:) filesystem read that restoreBundleIcon()
+        // would trigger if the static had never been accessed (LUM-1301).
+        //
+        // Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
+        NSApplication.shared.applicationIconImage = nil
 
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
