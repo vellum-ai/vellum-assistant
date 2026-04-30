@@ -44,6 +44,7 @@ function userMsg(
     deletedAt?: number;
     role?: "user" | "assistant";
     createdAt?: number;
+    slackFiles?: Array<{ name: string; mimetype?: string }>;
   } = {},
 ): RenderableSlackMessage {
   return {
@@ -59,6 +60,7 @@ function userMsg(
       eventKind: "message",
       editedAt: opts.editedAt,
       deletedAt: opts.deletedAt,
+      slackFiles: opts.slackFiles,
     },
   };
 }
@@ -240,6 +242,28 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, null, "yo 👋", { role: "assistant" }),
     ]);
     expect(out).toEqual([textMsg("assistant", "yo 👋")]);
+  });
+
+  test("backfilled Slack file metadata renders as concise attachment markers", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "shared the draft", {
+        slackFiles: [{ name: "requirements.txt", mimetype: "text/plain" }],
+      }),
+      userMsg(TS_14_26, "@bob", "", {
+        slackFiles: [{ name: "diagram.png", mimetype: "image/png" }],
+      }),
+    ]);
+
+    expect(out).toEqual([
+      textMsg(
+        "user",
+        "[11/14/23 14:25 @alice]: shared the draft [attached file: requirements.txt, text/plain]",
+      ),
+      textMsg(
+        "user",
+        "[11/14/23 14:26 @bob]: [attached file: diagram.png, image/png]",
+      ),
+    ]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {

@@ -146,6 +146,30 @@ function formatEpochMs(ms: number): string {
   return `${mo}/${da}/${yy} ${hh}:${mm}`;
 }
 
+function renderSlackFileMarkers(
+  files: SlackMessageMetadata["slackFiles"],
+): string {
+  if (!files || files.length === 0) return "";
+  return files
+    .map((file) => {
+      const name = file.name.replace(/\s+/g, " ").trim();
+      const mime = file.mimetype?.replace(/\s+/g, " ").trim();
+      return mime
+        ? `[attached file: ${name}, ${mime}]`
+        : `[attached file: ${name}]`;
+    })
+    .join(" ");
+}
+
+function appendSlackFileMarkers(
+  content: string,
+  files: SlackMessageMetadata["slackFiles"],
+): string {
+  const markers = renderSlackFileMarkers(files);
+  if (!markers) return content;
+  return content.length > 0 ? `${content} ${markers}` : markers;
+}
+
 /**
  * Sort key for chronological ordering.
  *
@@ -197,7 +221,7 @@ function sortKey(msg: RenderableSlackMessage): number {
 function renderMessage(msg: RenderableSlackMessage): string {
   if (msg.role === "assistant") {
     if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
-    return msg.content;
+    return appendSlackFileMarkers(msg.content, msg.metadata?.slackFiles);
   }
 
   const meta = msg.metadata;
@@ -222,7 +246,7 @@ function renderMessage(msg: RenderableSlackMessage): string {
   if (meta.editedAt !== undefined) {
     head += `, edited ${formatEpochMs(meta.editedAt)}`;
   }
-  head += `]: ${msg.content}`;
+  head += `]: ${appendSlackFileMarkers(msg.content, meta.slackFiles)}`;
   return head;
 }
 

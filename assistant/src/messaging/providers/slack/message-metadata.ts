@@ -24,6 +24,12 @@ const slackReactionMetadataSchema = z.object({
   op: z.enum(["added", "removed"]),
 });
 
+const slackFileMetadataSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  mimetype: z.string().optional(),
+});
+
 export const slackMessageMetadataSchema = z.object({
   source: z.literal("slack"),
   channelId: z.string(),
@@ -34,9 +40,17 @@ export const slackMessageMetadataSchema = z.object({
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),
   deletedAt: z.number().optional(),
+  isBackfill: z.boolean().optional(),
+  backfillReason: z
+    .enum(["thread_late_join", "thread_delta", "dm_cold_start"])
+    .optional(),
+  backfillOmittedCount: z.number().optional(),
+  backfillOmittedMiddle: z.boolean().optional(),
+  slackFiles: z.array(slackFileMetadataSchema).optional(),
 });
 
 export type SlackReactionMetadata = z.infer<typeof slackReactionMetadataSchema>;
+export type SlackFileMetadata = z.infer<typeof slackFileMetadataSchema>;
 export type SlackMessageMetadata = z.infer<typeof slackMessageMetadataSchema>;
 
 /**

@@ -70,7 +70,10 @@ import {
   _backfillTriggerCache,
   triggerSlackThreadBackfillIfNeeded,
 } from "../runtime/routes/inbound-message-handler.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  setAdapterProcessMessage,
+} from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 
@@ -190,6 +193,9 @@ interface PersistedRow {
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
+  backfillReason: string | undefined;
+  backfillOmittedMiddle: boolean | undefined;
+  slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
 }
 
 function readPersistedSlackRows(conversationId: string): PersistedRow[] {
@@ -202,6 +208,9 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
+      backfillReason: undefined,
+      backfillOmittedMiddle: undefined,
+      slackFiles: undefined,
     };
     if (!row.metadata) {
       out.push(blank);
@@ -235,6 +244,12 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
+      backfillReason: slackMeta?.backfillReason,
+      backfillOmittedMiddle: slackMeta?.backfillOmittedMiddle,
+      slackFiles: slackMeta?.slackFiles?.map((file) => ({
+        name: file.name,
+        ...(file.mimetype ? { mimetype: file.mimetype } : {}),
+      })),
     });
   }
   return out;
@@ -315,6 +330,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(byChannelTs.get("1234.0")?.content).toBe("parent");
     expect(byChannelTs.get("1234.0")?.displayName).toBe("Parent User");
     expect(byChannelTs.get("1234.0")?.threadTs).toBeUndefined();
+    expect(byChannelTs.get("1234.0")?.backfillReason).toBe("thread_late_join");
 
     expect(byChannelTs.get("1234.1")?.content).toBe("first reply");
     expect(byChannelTs.get("1234.1")?.threadTs).toBe("1234.0");
@@ -323,6 +339,84 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(byChannelTs.get("1234.2")?.content).toBe("second reply");
     expect(byChannelTs.get("1234.2")?.threadTs).toBe("1234.0");
     expect(byChannelTs.get("1234.2")?.displayName).toBe("Reply Two");
+  });
+
+  test("initial late-join backfill preserves early and recent anchors without loading the middle", async () => {
+    const conv = createTestConversation();
+    const ts = (n: number) => `1234.${String(n).padStart(6, "0")}`;
+
+    backfillThreadMock.mockImplementation(async (_channel, _thread, opts) => {
+      if (opts?.limit === 25) {
+        return Array.from({ length: 25 }, (_, i) =>
+          makeBackfillMessage({
+            id: ts(i),
+            text: i === 0 ? "root context" : `early ${i}`,
+            threadId: i === 0 ? undefined : ts(0),
+          }),
+        );
+      }
+      return [
+        ...Array.from({ length: 50 }, (_, i) => {
+          const n = i + 50;
+          return makeBackfillMessage({
+            id: ts(n),
+            text: n === 99 ? "recent file share" : `recent ${n}`,
+            threadId: ts(0),
+            ...(n === 99
+              ? {
+                  metadata: {
+                    slackFiles: [
+                      {
+                        id: "F123",
+                        name: "requirements.txt",
+                        mimetype: "text/plain",
+                      },
+                    ],
+                  },
+                }
+              : {}),
+          });
+        }),
+        makeBackfillMessage({
+          id: ts(60),
+          text: "duplicate recent row",
+          threadId: ts(0),
+        }),
+      ];
+    });
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: ts(0),
+      excludeChannelTs: ts(100),
+    });
+
+    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
+    expect(backfillThreadMock.mock.calls[0][2]?.limit).toBe(25);
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[1][2]?.limit).toBe(50);
+    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe(ts(100));
+
+    expect(result.reason).toBe("thread_late_join");
+    expect(result.omittedMiddle).toBe(true);
+
+    const persisted = readPersistedSlackRows(conv.id);
+    expect(persisted.length).toBe(75);
+    expect(persisted.find((p) => p.channelTs === ts(0))?.content).toBe(
+      "root context",
+    );
+    expect(persisted.find((p) => p.channelTs === ts(30))).toBeUndefined();
+    expect(persisted.find((p) => p.channelTs === ts(99))?.content).toBe(
+      "recent file share",
+    );
+    expect(
+      persisted.filter((p) => p.channelTs === ts(60)).map((p) => p.content),
+    ).toEqual(["recent 60"]);
+    expect(persisted.some((p) => p.backfillOmittedMiddle === true)).toBe(true);
+    expect(persisted.find((p) => p.channelTs === ts(99))?.slackFiles).toEqual([
+      { name: "requirements.txt", mimetype: "text/plain" },
+    ]);
   });
 
   test("backfill is NOT triggered when the parent is already persisted and no upper-bound gap is known", async () => {
@@ -552,15 +646,26 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       excludeChannelTs: "1234.6",
     });
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
-    expect(backfillThreadMock.mock.calls[0][2]?.before).toBe("1234.5");
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.6");
+    expect(backfillThreadMock).toHaveBeenCalledTimes(4);
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.5");
+    expect(backfillThreadMock.mock.calls[2][2]?.before).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[3][2]?.before).toBe("1234.6");
   });
 
   test("rapid consecutive replies can fetch a newer gap even when the prior inbound reply was only excluded", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async (_channel, _thread, opts) => {
+      if (opts?.limit === 25) {
+        return [
+          makeBackfillMessage({
+            id: "1234.0",
+            text: "parent",
+            threadId: undefined,
+          }),
+        ];
+      }
       if (opts?.before === "1234.5") {
         return [
           makeBackfillMessage({
@@ -607,11 +712,13 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       excludeChannelTs: "1234.6",
     });
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
+    expect(backfillThreadMock).toHaveBeenCalledTimes(3);
     expect(backfillThreadMock.mock.calls[0][2]?.after).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[0][2]?.before).toBe("1234.5");
-    expect(backfillThreadMock.mock.calls[1][2]?.after).toBe("1234.4");
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.6");
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[1][2]?.after).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.5");
+    expect(backfillThreadMock.mock.calls[2][2]?.after).toBe("1234.4");
+    expect(backfillThreadMock.mock.calls[2][2]?.before).toBe("1234.6");
 
     const persisted = readPersistedSlackRows(conv.id);
     expect(persisted.map((p) => p.channelTs).sort()).toEqual([
@@ -837,6 +944,7 @@ function resetHttpState(): void {
   _backfillTriggerCache.clear();
   backfillThreadMock.mockReset();
   backfillThreadMock.mockImplementation(async () => []);
+  setAdapterProcessMessage(undefined);
 }
 
 function seedHttpActiveMember(): void {
@@ -914,9 +1022,17 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
       }),
     ]);
 
-    const processMessage = async (): Promise<{ messageId: string }> => {
+    let capturedHints: string[] | undefined;
+    const processMessage = async (
+      _conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: { transport?: { hints?: string[] } },
+    ): Promise<{ messageId: string }> => {
+      capturedHints = options?.transport?.hints;
       return { messageId: "agent-result-id" };
     };
+    setAdapterProcessMessage(processMessage);
 
     const req = buildThreadReplyRequest("1234.0", "1234.3");
     const resp = await handleChannelInbound(
@@ -933,7 +1049,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     // void-promise has time to write to the DB before we assert.
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(1);
+    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
     const [calledChannel, calledThread] = backfillThreadMock.mock.calls[0];
     expect(calledChannel).toBe(HTTP_SLACK_CHANNEL_ID);
     expect(calledThread).toBe("1234.0");
@@ -959,6 +1075,16 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
 
     expect(channelTimestamps.has("1234.0")).toBe(true);
     expect(channelTimestamps.has("1234.1")).toBe(true);
+
+    expect(
+      capturedHints?.some((hint) => hint.includes("joined an existing thread")),
+    ).toBe(true);
+    const contents = db.$client
+      .prepare("SELECT content FROM messages")
+      .all() as Array<{ content: string }>;
+    expect(
+      contents.some((row) => row.content.includes("Slack context note")),
+    ).toBe(false);
   });
 
   test("second thread reply within the TTL window can fetch a newer bounded gap", async () => {
@@ -986,9 +1112,10 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(r2.status).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
-    expect(backfillThreadMock.mock.calls[0][2]?.before).toBe("5678.1");
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("5678.2");
+    expect(backfillThreadMock).toHaveBeenCalledTimes(3);
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
+    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("5678.1");
+    expect(backfillThreadMock.mock.calls[2][2]?.before).toBe("5678.2");
   });
 
   test("backfill error from the HTTP path does not crash the request", async () => {

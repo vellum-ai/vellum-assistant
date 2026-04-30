@@ -199,6 +199,20 @@ function mapConversation(conv: SlackConversation): Conversation {
   };
 }
 
+function mapSlackFiles(
+  files: SlackMessage["files"],
+): Array<{ id?: string; name: string; mimetype?: string }> | undefined {
+  if (!files || files.length === 0) return undefined;
+  const mapped = files
+    .map((file) => ({
+      ...(file.id ? { id: file.id } : {}),
+      name: file.name,
+      ...(file.mimetype ? { mimetype: file.mimetype } : {}),
+    }))
+    .filter((file) => file.name.length > 0);
+  return mapped.length > 0 ? mapped : undefined;
+}
+
 function mapMessage(
   msg: SlackMessage,
   channelId: string,
@@ -209,6 +223,7 @@ function mapMessage(
   // avoid rehydrating assistant/bot replies as user turns.
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
+  const slackFiles = mapSlackFiles(msg.files);
   return {
     id: msg.ts,
     conversationId: channelId,
@@ -220,7 +235,14 @@ function mapMessage(
     platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
-    ...(isBot ? { metadata: { isBot: true } } : {}),
+    ...(isBot || slackFiles
+      ? {
+          metadata: {
+            ...(isBot ? { isBot: true } : {}),
+            ...(slackFiles ? { slackFiles } : {}),
+          },
+        }
+      : {}),
   };
 }
 
