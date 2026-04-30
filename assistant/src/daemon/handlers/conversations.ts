@@ -6,6 +6,7 @@ import {
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
@@ -149,7 +150,6 @@ export async function undoLastMessage(
  */
 export async function regenerateResponse(
   conversationId: string,
-  sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
   // The caller may pass a conversation key (e.g. the macOS client's local
   // conversation ID) instead of the daemon's internal conversation ID. Resolve
@@ -161,7 +161,8 @@ export async function regenerateResponse(
   conversationId = resolvedId;
   const conversation = await getOrCreateConversation(conversationId);
   touchConversation(conversationId);
-  conversation.updateClient(sendEvent, false);
+  const sendToHub = (msg: ServerMessage) => broadcastMessage(msg);
+  conversation.updateClient(sendToHub, false);
   const requestId = uuid();
   conversation.traceEmitter.emit("request_received", "Regenerate requested", {
     requestId,
@@ -169,7 +170,7 @@ export async function regenerateResponse(
     attributes: { source: "regenerate" },
   });
   try {
-    await conversation.regenerate(sendEvent, requestId);
+    await conversation.regenerate(requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId }, "Error regenerating message");
