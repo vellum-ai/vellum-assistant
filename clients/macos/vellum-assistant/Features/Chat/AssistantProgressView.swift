@@ -1154,13 +1154,18 @@ struct ToolCallStepDetailRow: View {
 
     @MainActor
     private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
-        // Fetch existing rule first so it can be passed as context to suggestRule.
+        // Fetch the matched rule first (fast HTTP list) so the modal opens in the
+        // correct create/edit mode. Suggestion fires in the background after open.
         let existingRule = try? await fetchMatchedRule(toolCall)
-        let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule)
-
-        ruleEditorSuggestion = suggestion
         ruleEditorExistingRule = existingRule
-        ruleEditorToolCall = toolCall
+        ruleEditorToolCall = toolCall  // Opens the modal immediately
+
+        // LLM suggestion fires while the modal is already visible. The modal
+        // reacts via .onChange(of: suggestion?.pattern) in applySuggestionOrDefaults.
+        Task { @MainActor in
+            let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule)
+            ruleEditorSuggestion = suggestion
+        }
     }
 
     private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {

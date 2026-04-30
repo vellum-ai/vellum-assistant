@@ -110,6 +110,10 @@ struct RuleEditorModal: View {
         .onAppear {
             applySuggestionOrDefaults()
         }
+        .onChange(of: suggestion?.pattern) { _, _ in
+            // Re-apply when LLM suggestion arrives after modal opened in loading state
+            applySuggestionOrDefaults()
+        }
     }
 
     // MARK: - Suggestion / Default Application
@@ -128,13 +132,21 @@ struct RuleEditorModal: View {
         if let existingRule {
             // Edit mode: pre-fill risk from existing rule, not from LLM suggestion
             selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
-            // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
-            if let suggestion,
-               !suggestion.pattern.isEmpty,
-               suggestion.pattern != existingRule.pattern,
-               let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
-               matchIndex > 0 || isSingleOption {
-                selectedPatternIndex = matchIndex
+            if let suggestion {
+                // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
+                if !suggestion.pattern.isEmpty,
+                   suggestion.pattern != existingRule.pattern,
+                   let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
+                   matchIndex > 0 || isSingleOption {
+                    selectedPatternIndex = matchIndex
+                }
+                // Directory scope: match suggestion scope to options
+                if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
+                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                    if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
+                        selectedDirectoryScopeIndex = matchIndex
+                    }
+                }
             }
         } else if let suggestion {
             // Create mode with suggestion
