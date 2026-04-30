@@ -120,6 +120,10 @@ function makeOpenSocket(): WebSocket {
   } as unknown as WebSocket;
 }
 
+function flushAsyncEventEmission(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 beforeEach(() => {
   clearUserInfoCache();
   fetchMock = mock(async () => makeSlackUserResponse());
@@ -262,4 +266,117 @@ describe("SlackSocketModeClient thread tracking", () => {
       rawDb.close();
     }
   });
+
+  test.each([
+    {
+      name: "reaction",
+      seedEventId: "Ev-reaction",
+      seedEvent: {
+        type: "reaction_added",
+        user: "U-reactor",
+        reaction: "eyes",
+        item: {
+          type: "message",
+          channel: "C-thread",
+          ts: "1700000000.000500",
+        },
+        item_user: "U-author",
+        event_ts: "1700000000.000501",
+      },
+      replyThreadTs: "1700000000.000500",
+    },
+    {
+      name: "message edit",
+      seedEventId: "Ev-edit",
+      seedEvent: {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C-thread",
+        channel_type: "channel",
+        message: {
+          user: "U-editor",
+          text: "edited message",
+          ts: "1700000000.000600",
+          thread_ts: "1700000000.000550",
+        },
+      },
+      replyThreadTs: "1700000000.000550",
+    },
+    {
+      name: "message delete",
+      seedEventId: "Ev-delete",
+      seedEvent: {
+        type: "message",
+        subtype: "message_deleted",
+        channel: "C-thread",
+        channel_type: "channel",
+        deleted_ts: "1700000000.000700",
+        previous_message: {
+          user: "U-author",
+          text: "deleted message",
+          ts: "1700000000.000700",
+          thread_ts: "1700000000.000650",
+        },
+      },
+      replyThreadTs: "1700000000.000650",
+    },
+  ])(
+    "does not arm active thread tracking for admitted $name events",
+    async ({ seedEventId, seedEvent, replyThreadTs }) => {
+      const { rawDb, store } = createSlackStore();
+      const emitted: NormalizedSlackEvent[] = [];
+      const client = createHarness(store, (event) => emitted.push(event));
+      const ws = makeOpenSocket();
+
+      try {
+        await Promise.all([
+          resolveSlackUser("U-reactor", "xoxb-test"),
+          resolveSlackUser("U-editor", "xoxb-test"),
+          resolveSlackUser("U-author", "xoxb-test"),
+          resolveSlackUser("U-reply", "xoxb-test"),
+        ]);
+
+        client.handleMessage(
+          JSON.stringify({
+            envelope_id: `env-${seedEventId}`,
+            type: "events_api",
+            payload: {
+              event_id: seedEventId,
+              event: seedEvent,
+            },
+          }),
+          ws,
+        );
+        await flushAsyncEventEmission();
+
+        expect(emitted).toHaveLength(1);
+        expect(emitted[0].event.source.updateId).toBe(seedEventId);
+        expect(emitted[0].threadTs).toBe(replyThreadTs);
+
+        client.handleMessage(
+          JSON.stringify({
+            envelope_id: `env-reply-${seedEventId}`,
+            type: "events_api",
+            payload: {
+              event_id: `Ev-reply-${seedEventId}`,
+              event: {
+                type: "message",
+                user: "U-reply",
+                text: "unmentioned reply should stay filtered",
+                ts: `${replyThreadTs}-reply`,
+                channel: "C-thread",
+                channel_type: "channel",
+                thread_ts: replyThreadTs,
+              },
+            },
+          }),
+          ws,
+        );
+
+        expect(emitted).toHaveLength(1);
+      } finally {
+        rawDb.close();
+      }
+    },
+  );
 });
