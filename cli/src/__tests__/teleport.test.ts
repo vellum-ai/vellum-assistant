@@ -310,7 +310,7 @@ let consoleErrorSpy: ReturnType<typeof spyOn>;
 let fetchCalls: Array<{ url: string; body: unknown }>;
 
 function defaultLocalRuntimePollImpl(
-  _runtimeUrl: string,
+  _entry: unknown,
   _token: string,
   jobId: string,
 ): Promise<{
@@ -855,9 +855,14 @@ describe("unified GCS flow — four directions", () => {
         "https://platform.vellum.ai",
       );
 
-      // Runtime export-to-gcs kicked off with the signed upload URL
+      // Runtime export-to-gcs kicked off with the signed upload URL.
+      // Helper takes an entry, not a bare URL — the entry's cloud drives
+      // URL construction (local → gateway loopback path).
       expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
-        "http://localhost:7821",
+        expect.objectContaining({
+          cloud: "local",
+          runtimeUrl: "http://localhost:7821",
+        }),
         "local-token",
         expect.objectContaining({
           uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
@@ -936,21 +941,33 @@ describe("unified GCS flow — four directions", () => {
         "platform-token",
         "https://platform.vellum.ai",
       );
-      // export-to-gcs targets the platform URL (the platform proxies
-      // runtime endpoints for managed assistants) and is authed with the
-      // guardian token resolved from loadGuardianToken / leaseGuardianToken.
+      // For platform sources, export-to-gcs is reached via the platform's
+      // wildcard runtime proxy. The helper builds the assistant-scoped URL
+      // from the entry (`/v1/assistants/<id>/migrations/export-to-gcs`) and
+      // sends platform-token auth — no guardian-token bootstrap.
       expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
-        "https://platform.vellum.ai",
-        "local-token",
+        expect.objectContaining({
+          cloud: "vellum",
+          runtimeUrl: "https://platform.vellum.ai",
+          assistantId: "my-platform",
+        }),
+        "platform-token",
         expect.objectContaining({
           uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
           description: "teleport export",
         }),
       );
-      expect(platformPollJobStatusMock).toHaveBeenCalledWith(
-        "local-export-job-1",
+      // Polling for platform sources also goes through the wildcard via
+      // localRuntimePollJobStatus(entry, ...) — the dedicated
+      // `/v1/migrations/jobs/{id}/` endpoint queries platform-side
+      // ImportJob records and would 404 on runtime-created job IDs.
+      expect(localRuntimePollJobStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloud: "vellum",
+          runtimeUrl: "https://platform.vellum.ai",
+        }),
         "platform-token",
-        "https://platform.vellum.ai",
+        "local-export-job-1",
       );
 
       // For the local target we request a download URL keyed by the
@@ -968,7 +985,10 @@ describe("unified GCS flow — four directions", () => {
 
       // Runtime import-from-gcs was kicked off with that URL.
       expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
-        "http://localhost:7821",
+        expect.objectContaining({
+          cloud: "local",
+          runtimeUrl: "http://localhost:7821",
+        }),
         "local-token",
         expect.objectContaining({
           bundleUrl: "https://storage.googleapis.com/bucket/signed-download",
@@ -1028,7 +1048,10 @@ describe("unified GCS flow — four directions", () => {
         "https://platform.vellum.ai",
       );
       expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
-        "http://localhost:7822",
+        expect.objectContaining({
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7822",
+        }),
         "local-token",
         expect.objectContaining({
           bundleUrl: "https://storage.googleapis.com/bucket/signed-download",
@@ -1081,7 +1104,10 @@ describe("unified GCS flow — four directions", () => {
         "https://platform.vellum.ai",
       );
       expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
-        "http://localhost:7822",
+        expect.objectContaining({
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7822",
+        }),
         "local-token",
         expect.objectContaining({
           uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
@@ -1090,7 +1116,10 @@ describe("unified GCS flow — four directions", () => {
 
       // Import leg: download-URL targets the new local runtime
       expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
-        "http://localhost:7823",
+        expect.objectContaining({
+          cloud: "local",
+          runtimeUrl: "http://localhost:7823",
+        }),
         "local-token",
         expect.anything(),
       );

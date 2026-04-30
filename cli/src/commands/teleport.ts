@@ -390,7 +390,7 @@ async function exportFromAssistant(
         entry.runtimeUrl,
         entry.assistantId,
         async (token) => {
-          const r = await localRuntimeExportToGcs(entry.runtimeUrl, token, {
+          const r = await localRuntimeExportToGcs(entry, token, {
             uploadUrl,
             description: "teleport export",
           });
@@ -417,8 +417,7 @@ async function exportFromAssistant(
 
     const terminal = await pollJobUntilDone({
       label: "local-runtime export",
-      poll: () =>
-        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      poll: () => localRuntimePollJobStatus(entry, accessToken, jobId),
       // Large exports can take longer than a guardian-token lease. If the
       // runtime returns 401 mid-poll, re-lease a fresh token and rebind the
       // closure variable so the next poll uses it.
@@ -442,8 +441,13 @@ async function exportFromAssistant(
 
   if (cloud === "vellum") {
     // Platform source — request a signed upload URL on the same platform
-    // instance the bundle will eventually be imported from, then have the
-    // runtime export directly to GCS. Mirrors the local/docker branch above.
+    // instance the bundle will eventually be imported from, then ask the
+    // managed runtime to export directly to GCS. The runtime endpoint is
+    // reached via the platform's wildcard runtime proxy at
+    // `/v1/assistants/<id>/migrations/export-to-gcs` — the
+    // `localRuntimeExportToGcs` helper uses `resolveRuntimeMigrationUrl` to
+    // pick that shape for `cloud === "vellum"` and `migrationRequestHeaders`
+    // to send platform-token auth (no guardian-token bootstrap).
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
       { operation: "upload" },
       platformToken,
@@ -451,16 +455,12 @@ async function exportFromAssistant(
     );
 
     let jobId: string;
+    let exportPlatformToken = platformToken;
     try {
-      ({ jobId } = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
-        (token) =>
-          localRuntimeExportToGcs(entry.runtimeUrl, token, {
-            uploadUrl,
-            description: "teleport export",
-          }),
-      ));
+      ({ jobId } = await localRuntimeExportToGcs(entry, exportPlatformToken, {
+        uploadUrl,
+        description: "teleport export",
+      }));
     } catch (err) {
       if (err instanceof MigrationInProgressError) {
         console.error(
@@ -473,11 +473,13 @@ async function exportFromAssistant(
 
     console.log(`Export started (job ${jobId})...`);
 
-    let exportPlatformToken = platformToken;
+    // Polling also goes through the wildcard proxy — `localRuntimePollJobStatus`
+    // builds `/v1/assistants/<id>/migrations/jobs/<jobId>` for `cloud === "vellum"`
+    // (the dedicated `/v1/migrations/jobs/{id}/` endpoint queries platform-side
+    // ImportJob records and 404s on runtime-created job IDs).
     const terminal = await pollJobUntilDone({
       label: "platform export",
-      poll: () =>
-        platformPollJobStatus(jobId, exportPlatformToken, entry.runtimeUrl),
+      poll: () => localRuntimePollJobStatus(entry, exportPlatformToken, jobId),
       // The platform token is normally static per-process, but re-reading the
       // on-disk credential covers the case where the user ran `vellum login`
       // in another terminal during a long migration. A persistent 401 after
@@ -672,7 +674,7 @@ async function importToAssistant(
         entry.runtimeUrl,
         entry.assistantId,
         async (token) => {
-          const r = await localRuntimeImportFromGcs(entry.runtimeUrl, token, {
+          const r = await localRuntimeImportFromGcs(entry, token, {
             bundleUrl,
           });
           return { jobId: r.jobId, token };
@@ -695,8 +697,7 @@ async function importToAssistant(
 
     const terminal = await pollJobUntilDone({
       label: "local-runtime import",
-      poll: () =>
-        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      poll: () => localRuntimePollJobStatus(entry, accessToken, jobId),
       refreshOn401: async () => {
         accessToken = await getAccessToken(
           entry.runtimeUrl,

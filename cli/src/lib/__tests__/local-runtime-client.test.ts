@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEntry } from "../assistant-config.js";
 import {
   MigrationInProgressError,
   localRuntimeExportToGcs,
@@ -9,6 +10,17 @@ import {
 
 const RUNTIME_URL = "http://127.0.0.1:8765";
 const TOKEN = "local-bearer-token";
+
+// All tests in this file exercise the local/docker code path (cloud="local"),
+// which builds `{runtimeUrl}/v1/migrations/<subpath>` URLs and uses
+// guardian-token bearer auth. The platform path (cloud="vellum") is covered
+// by `runtime-url.test.ts` (URL construction) and the teleport tests
+// (call-site wiring).
+const ENTRY: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId"> = {
+  cloud: "local",
+  runtimeUrl: RUNTIME_URL,
+  assistantId: "ast-test-1",
+};
 
 interface CapturedCall {
   url: string;
@@ -82,7 +94,7 @@ describe("localRuntimeExportToGcs", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const result = await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+    const result = await localRuntimeExportToGcs(ENTRY, TOKEN, {
       uploadUrl: "https://storage.example/signed/abc",
       description: "teleport export",
     });
@@ -108,7 +120,7 @@ describe("localRuntimeExportToGcs", () => {
     });
     globalThis.fetch = fetchMock;
 
-    await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+    await localRuntimeExportToGcs(ENTRY, TOKEN, {
       uploadUrl: "https://storage.example/signed/abc",
     });
 
@@ -132,7 +144,7 @@ describe("localRuntimeExportToGcs", () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+      await localRuntimeExportToGcs(ENTRY, TOKEN, {
         uploadUrl: "https://storage.example/signed/abc",
       });
       throw new Error("expected to throw");
@@ -156,7 +168,7 @@ describe("localRuntimeExportToGcs", () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+      await localRuntimeExportToGcs(ENTRY, TOKEN, {
         uploadUrl: "https://storage.example/signed/abc",
       });
       throw new Error("expected to throw");
@@ -182,7 +194,7 @@ describe("localRuntimeExportToGcs", () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+      await localRuntimeExportToGcs(ENTRY, TOKEN, {
         uploadUrl: "https://storage.example/signed/abc",
       });
       throw new Error("expected to throw");
@@ -201,7 +213,7 @@ describe("localRuntimeExportToGcs", () => {
     globalThis.fetch = fetchMock;
 
     await expect(
-      localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+      localRuntimeExportToGcs(ENTRY, TOKEN, {
         uploadUrl: "https://storage.example/signed/abc",
       }),
     ).rejects.toThrow(/500/);
@@ -222,7 +234,7 @@ describe("localRuntimeImportFromGcs", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const result = await localRuntimeImportFromGcs(RUNTIME_URL, TOKEN, {
+    const result = await localRuntimeImportFromGcs(ENTRY, TOKEN, {
       bundleUrl: "https://storage.example/signed/dl-xyz",
     });
 
@@ -250,7 +262,7 @@ describe("localRuntimeImportFromGcs", () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await localRuntimeImportFromGcs(RUNTIME_URL, TOKEN, {
+      await localRuntimeImportFromGcs(ENTRY, TOKEN, {
         bundleUrl: "https://storage.example/signed/dl-xyz",
       });
       throw new Error("expected to throw");
@@ -275,7 +287,7 @@ describe("localRuntimeImportFromGcs", () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await localRuntimeImportFromGcs(RUNTIME_URL, TOKEN, {
+      await localRuntimeImportFromGcs(ENTRY, TOKEN, {
         bundleUrl: "https://storage.example/signed/dl-xyz",
       });
       throw new Error("expected to throw");
@@ -302,11 +314,7 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(
-      RUNTIME_URL,
-      TOKEN,
-      "poll-1",
-    );
+    const status = await localRuntimePollJobStatus(ENTRY, TOKEN, "poll-1");
 
     expect(status).toEqual({
       jobId: "poll-1",
@@ -332,11 +340,7 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(
-      RUNTIME_URL,
-      TOKEN,
-      "poll-2",
-    );
+    const status = await localRuntimePollJobStatus(ENTRY, TOKEN, "poll-2");
 
     expect(status.status).toBe("complete");
     if (status.status === "complete") {
@@ -358,11 +362,7 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(
-      RUNTIME_URL,
-      TOKEN,
-      "poll-3",
-    );
+    const status = await localRuntimePollJobStatus(ENTRY, TOKEN, "poll-3");
 
     expect(status.status).toBe("failed");
     if (status.status === "failed") {
@@ -377,7 +377,104 @@ describe("localRuntimePollJobStatus", () => {
     globalThis.fetch = fetchMock;
 
     await expect(
-      localRuntimePollJobStatus(RUNTIME_URL, TOKEN, "missing"),
+      localRuntimePollJobStatus(ENTRY, TOKEN, "missing"),
     ).rejects.toThrow(/Migration job not found/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform-managed assistants (cloud="vellum") route through the platform's
+// wildcard runtime proxy at `/v1/assistants/<id>/migrations/...` with
+// platform-token auth (NOT guardian-token bearer). This block asserts the
+// actual URL and headers built by the helpers — not mocked, not abstracted.
+// Regression guard for the routing bug fixed in this PR.
+// ---------------------------------------------------------------------------
+const VELLUM_ENTRY: Pick<
+  AssistantEntry,
+  "cloud" | "runtimeUrl" | "assistantId"
+> = {
+  cloud: "vellum",
+  runtimeUrl: "https://platform.vellum.ai",
+  assistantId: "11111111-2222-3333-4444-555555555555",
+};
+// `vak_` prefix bypasses `fetchOrganizationId` (org-scoped API keys); the
+// auth header collapses to a single `Authorization: Bearer vak_...` so this
+// test stays free of network mocks.
+const VAK_TOKEN = "vak_platform-token";
+
+describe("vellum-cloud routing through wildcard proxy", () => {
+  test("export-to-gcs URL has /v1/assistants/<id>/migrations/ prefix and uses platform-token bearer (no guardian)", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({ job_id: "wp-export-1", status: "pending" }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await localRuntimeExportToGcs(VELLUM_ENTRY, VAK_TOKEN, {
+      uploadUrl: "https://storage.example/signed/x",
+      description: "teleport export",
+    });
+
+    expect(result.jobId).toBe("wp-export-1");
+    expect(calls[0]!.url).toBe(
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/migrations/export-to-gcs`,
+    );
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
+    expect(calls[0]!.body).toEqual({
+      upload_url: "https://storage.example/signed/x",
+      description: "teleport export",
+    });
+  });
+
+  test("import-from-gcs URL has /v1/assistants/<id>/migrations/ prefix", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({ job_id: "wp-import-1", status: "pending" }),
+        { status: 202 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    await localRuntimeImportFromGcs(VELLUM_ENTRY, VAK_TOKEN, {
+      bundleUrl: "https://storage.example/download/y",
+    });
+
+    expect(calls[0]!.url).toBe(
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/migrations/import-from-gcs`,
+    );
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
+  });
+
+  test("jobs/<id> URL has /v1/assistants/<id>/migrations/ prefix (NOT the dedicated platform endpoint)", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          job_id: "wp-export-1",
+          status: "complete",
+          type: "export",
+          bundle_key: "exports/org-1/x.vbundle",
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const status = await localRuntimePollJobStatus(
+      VELLUM_ENTRY,
+      VAK_TOKEN,
+      "wp-export-1",
+    );
+
+    expect(calls[0]!.url).toBe(
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/migrations/jobs/wp-export-1`,
+    );
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
+    expect(status.status).toBe("complete");
+    if (status.status === "complete") {
+      expect(status.bundleKey).toBe("exports/org-1/x.vbundle");
+    }
   });
 });
