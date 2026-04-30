@@ -151,13 +151,7 @@ struct NameExchangeView: View {
         let isHovered = hoveredGroup == group.id
         return Button {
             withAnimation(VAnimation.fast) {
-                if isActive {
-                    selectedGroupID = nil
-                    assistantName = ""
-                } else {
-                    selectedGroupID = group.id
-                    assistantName = group.names.first ?? ""
-                }
+                selectedGroupID = isActive ? nil : group.id
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
