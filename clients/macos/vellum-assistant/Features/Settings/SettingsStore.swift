@@ -71,15 +71,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Per-Call-Site LLM Overrides
 
-    /// Catalog of every LLM call site, merged with whatever overrides the
-    /// user has configured under `llm.callSites.<id>` in the workspace
-    /// config. Order matches `CallSiteCatalog.all` so the UI renders a
-    /// stable list grouped by `CallSiteDomain`.
-    ///
-    /// Seeded from the static catalog so the picker has every row available
-    /// before the first daemon fetch completes. Replaced by
-    /// `loadCallSiteOverrides(config:)` once the daemon reports the
-    /// authoritative config.
+    /// Catalog of every LLM call site from the runtime API, merged with
+    /// whatever overrides the user has configured under `llm.callSites.<id>`
+    /// in the workspace config. Order matches `CallSiteCatalog.all` so the
+    /// UI renders a stable list grouped by `CallSiteDomain`.
     @Published var callSiteOverrides: [CallSiteOverride] = CallSiteCatalog.all
 
     // MARK: - Inference Profiles
@@ -447,6 +442,7 @@ public final class SettingsStore: ObservableObject {
     deinit {
         trustRulesObservationTask?.cancel()
         modelInfoObservationTask?.cancel()
+        callSiteCatalogRefreshTask?.cancel()
     }
 
     init(
@@ -790,6 +786,7 @@ public final class SettingsStore: ObservableObject {
         // mutations, so without this the store would stay at init
         // defaults until the user edits config.json.
         refreshDaemonConfig()
+        refreshCallSiteCatalog()
 
         // Refresh config on daemon (re)connect so config-dependent state
         // recovers after the daemon restarts or after a network blip.
@@ -797,6 +794,7 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshDaemonConfig()
+                self?.refreshCallSiteCatalog(force: true)
             }
             .store(in: &cancellables)
 
@@ -3180,6 +3178,7 @@ public final class SettingsStore: ObservableObject {
     func loadCallSiteOverrides(config: [String: Any]) {
         let llm = config["llm"] as? [String: Any]
         let callSitesRaw = (llm?["callSites"] as? [String: Any]) ?? [:]
+        latestCallSitesRaw = callSitesRaw
         var byId: [String: (provider: String?, model: String?, profile: String?)] = [:]
         for (id, raw) in callSitesRaw {
             guard CallSiteCatalog.validIds.contains(id),
@@ -3422,11 +3421,12 @@ public final class SettingsStore: ObservableObject {
     /// Deletes a profile under `llm.profiles.<name>` after verifying no
     /// references remain. References checked: the global
     /// `llm.activeProfile` pointer and every per-row entry in
-    /// `callSiteOverrides`. When references exist, returns the
-    /// corresponding `.blockedBy*` variant so the caller can guide the
-    /// user through clearing them. Otherwise issues a PATCH with
-    /// `NSNull()` at the profile key, which the daemon's deep-merge
-    /// treats as deletion.
+    /// `callSiteOverrides`, with a raw-config fallback for call sites the
+    /// runtime catalog has not loaded yet. When references exist, returns
+    /// the corresponding `.blockedBy*` variant so the caller can guide the
+    /// user through clearing them. Otherwise issues a PATCH with `NSNull()`
+    /// at the profile key, which the daemon's deep-merge treats as
+    /// deletion.
     @discardableResult
     func deleteProfile(name: String) async -> DeleteProfileResult {
         if profiles.first(where: { $0.name == name })?.isManaged == true {
@@ -3435,9 +3435,7 @@ public final class SettingsStore: ObservableObject {
         if activeProfile == name {
             return .blockedByActive(activeProfile)
         }
-        let conflictingCallSites = callSiteOverrides
-            .filter { $0.profile == name }
-            .map(\.id)
+        let conflictingCallSites = callSiteIdsReferencingProfile(name)
         if !conflictingCallSites.isEmpty {
             return .blockedByCallSites(conflictingCallSites)
         }
@@ -4475,12 +4473,41 @@ public final class SettingsStore: ObservableObject {
     /// applied state when startup, reconnect, and configChanged triggers
     /// fire in quick succession.
     private var configRefreshTask: Task<Void, Never>?
+    private var callSiteCatalogRefreshTask: Task<Void, Never>?
+    private var latestDaemonConfig: [String: Any]?
+    private var latestCallSitesRaw: [String: Any] = [:]
 
     /// Cancels any in-flight config refresh and spawns a fresh one.
     private func refreshDaemonConfig() {
         configRefreshTask?.cancel()
         configRefreshTask = Task { @MainActor [weak self] in
             await self?.loadConfigFromDaemon()
+        }
+    }
+
+    private func refreshCallSiteCatalog(force: Bool = false) {
+        callSiteCatalogRefreshTask?.cancel()
+        callSiteCatalogRefreshTask = Task { @MainActor [weak self] in
+            await self?.ensureCallSiteCatalogLoaded(force: force)
+        }
+    }
+
+    /// Loads the runtime-owned call-site metadata catalog and reapplies the
+    /// latest daemon config so persisted overrides are merged into the newly
+    /// fetched display metadata.
+    func ensureCallSiteCatalogLoaded(force: Bool = false) async {
+        let loaded: Bool
+        if force {
+            loaded = await CallSiteCatalog.shared.reload(using: settingsClient)
+        } else {
+            loaded = await CallSiteCatalog.shared.ensureLoaded(using: settingsClient)
+        }
+        guard loaded else { return }
+
+        if let latestDaemonConfig {
+            loadCallSiteOverrides(config: latestDaemonConfig)
+        } else if callSiteOverrides.isEmpty {
+            callSiteOverrides = CallSiteCatalog.all
         }
     }
 
@@ -4496,6 +4523,8 @@ public final class SettingsStore: ObservableObject {
     /// Applies a daemon-fetched workspace config to all config-dependent
     /// published properties.
     private func applyDaemonConfig(_ config: [String: Any]) {
+        latestDaemonConfig = config
+
         let mediaSettings = Self.loadMediaEmbedSettings(config: config)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
@@ -4553,6 +4582,32 @@ public final class SettingsStore: ObservableObject {
         if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
+    }
+
+    private func callSiteIdsReferencingProfile(_ profileName: String) -> [String] {
+        var ids: [String] = []
+        var seen = Set<String>()
+
+        func append(_ id: String) {
+            guard seen.insert(id).inserted else { return }
+            ids.append(id)
+        }
+
+        for override in callSiteOverrides where override.profile == profileName {
+            append(override.id)
+        }
+
+        let renderedCallSiteIds = Set(callSiteOverrides.map(\.id))
+        for id in latestCallSitesRaw.keys.sorted() {
+            guard !renderedCallSiteIds.contains(id) else { continue }
+            guard let entry = latestCallSitesRaw[id] as? [String: Any],
+                  let profile = entry["profile"] as? String,
+                  !profile.isEmpty,
+                  profile == profileName else { continue }
+            append(id)
+        }
+
+        return ids
     }
 
     private static func loadUserTimezone(config: [String: Any]) -> String? {

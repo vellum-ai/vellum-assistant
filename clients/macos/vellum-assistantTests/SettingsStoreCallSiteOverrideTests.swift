@@ -59,14 +59,15 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
     // MARK: - Catalog
 
-    func testCatalogCoversEveryCallSite() {
-        // The catalog enumerates every backend LLM call site grouped across 8 domains
-        // (agent loop, memory, workspace, UI, notifications, voice,
-        // utility, skills). If this count drifts, the catalog and the
-        // backend `LLMCallSiteEnum` have diverged.
-        XCTAssertEqual(CallSiteCatalog.all.count, 35)
-        XCTAssertEqual(CallSiteCatalog.byId.count, 35)
-        XCTAssertEqual(CallSiteCatalog.validIds.count, 35)
+    func testCatalogUsesRuntimeLoadedEntries() {
+        // Production call-site coverage is owned by the assistant runtime
+        // catalog API; these tests seed only the entries they exercise.
+        XCTAssertEqual(
+            CallSiteCatalog.all.map(\.id),
+            ["mainAgent", "memoryRetrieval", "commitMessage", "trustRuleSuggestion", "inference"]
+        )
+        XCTAssertEqual(CallSiteCatalog.byId.count, CallSiteCatalog.all.count)
+        XCTAssertEqual(CallSiteCatalog.validIds.count, CallSiteCatalog.all.count)
     }
 
     func testCatalogHasUniqueIdsAndNonEmptyDisplayNames() {
@@ -307,13 +308,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             ),
             CallSiteOverride(
                 id: "mainAgent",
-                displayName: "Main agent",
+                displayName: "Main Agent",
                 domain: "agentLoop",
                 profile: "fast"
             ),
             CallSiteOverride(
                 id: "trustRuleSuggestion",
-                displayName: "Trust rule suggestion",
+                displayName: "Trust Rule Suggestion",
                 domain: "ui"
             ), // no overrides — should emit explicit nulls to clear
         ]
@@ -402,7 +403,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         let updates: [CallSiteOverride] = [
             CallSiteOverride(
                 id: "trustRuleSuggestion",
-                displayName: "Trust rule suggestion",
+                displayName: "Trust Rule Suggestion",
                 domain: "ui",
                 provider: "openai"
             ),
@@ -447,13 +448,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         let updates: [CallSiteOverride] = [
             CallSiteOverride(
                 id: "trustRuleSuggestion",
-                displayName: "Trust rule suggestion",
+                displayName: "Trust Rule Suggestion",
                 domain: "ui",
                 provider: "openai"
             ),
             CallSiteOverride(
                 id: "mainAgent",
-                displayName: "Main agent",
+                displayName: "Main Agent",
                 domain: "agentLoop",
                 provider: "anthropic"
             ),

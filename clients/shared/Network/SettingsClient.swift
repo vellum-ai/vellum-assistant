@@ -656,19 +656,36 @@ public struct EmbeddingConfigMessage: Codable {
 }
 // MARK: - Call Site Catalog Types
 
-public struct CallSiteCatalogDomain: Decodable {
+public struct CallSiteCatalogDomain: Codable {
     public let id: String
     public let displayName: String
+
+    public init(id: String, displayName: String) {
+        self.id = id
+        self.displayName = displayName
+    }
 }
 
-public struct CallSiteCatalogEntry: Decodable {
+public struct CallSiteCatalogEntry: Codable {
     public let id: String
     public let displayName: String
     public let description: String
     public let domain: String
+
+    public init(id: String, displayName: String, description: String, domain: String) {
+        self.id = id
+        self.displayName = displayName
+        self.description = description
+        self.domain = domain
+    }
 }
 
-public struct CallSiteCatalogResponse: Decodable {
+public struct CallSiteCatalogResponse: Codable {
     public let domains: [CallSiteCatalogDomain]
     public let callSites: [CallSiteCatalogEntry]
+
+    public init(domains: [CallSiteCatalogDomain], callSites: [CallSiteCatalogEntry]) {
+        self.domains = domains
+        self.callSites = callSites
+    }
 }
