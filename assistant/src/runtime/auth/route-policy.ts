@@ -697,7 +697,7 @@ registerPolicy("conversations/wipe", {
 
 registerPolicy("trust-rules/suggest", {
   requiredScopes: ["settings.write"],
-  allowedPrincipalTypes: ["local"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
 
 // Notification pipeline: local-only (CLI / IPC callers)
