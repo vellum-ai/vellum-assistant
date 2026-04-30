@@ -145,10 +145,10 @@ struct CallSiteOverridesSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Model Profile Overrides")
+            Text("Action Overrides")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
-            Text("Customize which model profile specific tasks should use. Uses your default profile if no override is set.")
+            Text("Customize which model profile specific actions should use. Uses your default profile if no override is set.")
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -178,7 +178,7 @@ struct CallSiteOverridesSheet: View {
 
     private var searchBar: some View {
         VTextField(
-            placeholder: "Search tasks\u{2026}",
+            placeholder: "Search actions\u{2026}",
             text: $searchQuery,
             leadingIcon: VIcon.search.rawValue,
             size: .small

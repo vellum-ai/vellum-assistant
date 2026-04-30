@@ -108,10 +108,10 @@ struct InferenceProfilesSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Inference Profiles")
+                Text("Model Profiles")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Bundle a provider, model, and tuning into a named profile. Assign profiles to call sites or pick one for a single chat.")
+                Text("Bundle a provider and model into a named profile. Assign profiles to specific actions or swap between them when chatting.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

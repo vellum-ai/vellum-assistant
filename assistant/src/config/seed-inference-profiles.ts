@@ -9,6 +9,16 @@ import type { ProfileEntry } from "./schemas/llm.js";
  * different names) are never touched.
  */
 export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
+  balanced: {
+    source: "managed",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+  },
   "quality-optimized": {
     source: "managed",
     label: "Quality",
@@ -17,16 +27,6 @@ export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
     model: "claude-opus-4-7",
     maxTokens: 32000,
     effort: "max",
-    thinking: { enabled: true, streamThinking: true },
-  },
-  balanced: {
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality and speed",
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
-    maxTokens: 16000,
-    effort: "high",
     thinking: { enabled: true, streamThinking: true },
   },
   "cost-optimized": {
