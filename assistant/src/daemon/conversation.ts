@@ -1320,15 +1320,8 @@ export class Conversation {
     return undoImpl(this as HistoryConversationContext);
   }
 
-  async regenerate(
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-  ): Promise<void> {
-    return regenerateImpl(
-      this as HistoryConversationContext,
-      onEvent ?? this.sendToClient,
-      requestId,
-    );
+  async regenerate(requestId?: string): Promise<void> {
+    return regenerateImpl(this as HistoryConversationContext, requestId);
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────
