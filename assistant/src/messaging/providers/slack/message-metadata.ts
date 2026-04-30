@@ -11,8 +11,10 @@ import { z } from "zod";
  * Slack-only blob for fresh writes; `mergeSlackMetadata` patches Slack fields
  * while preserving unrelated keys on the existing JSON.
  *
- * This file is a pure library addition — no consumers wire into it yet; that
- * happens in later PRs of the slack-thread-aware-context plan.
+ * Slack transcript rendering and backfill paths persist and read this metadata
+ * to reconstruct thread order, reactions, edits, deletes, and lightweight
+ * Slack file markers. Transient late-join notices are current-turn runtime
+ * context only and do not become durable message metadata.
  */
 
 export type SlackEventKind = "message" | "reaction";

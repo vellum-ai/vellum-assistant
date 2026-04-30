@@ -545,10 +545,10 @@ export async function handleChannelInbound({
   //      guardian approval reactions have no transcript representation.
   //   2. All other reactions (non-guardian, no pending approval, stale,
   //      and any `reaction_removed:` event regardless of actor) fall
-  //      through to `persistSlackReactionAsMessage` so the chronological
-  //      renderer (PR 18) can surface them inline. Reactions never
-  //      trigger an agent response, so we short-circuit before
-  //      escalation and agent-loop dispatch in both cases.
+  //      through to `persistSlackReactionAsMessage` so Slack transcript
+  //      rendering can surface them inline. Reactions never trigger an
+  //      agent response, so we short-circuit before escalation and
+  //      agent-loop dispatch in both cases.
   if (isSlackReactionEvent(body)) {
     // Approval interception runs only for reactions (added) — `reaction_removed`
     // never expresses an approval intent, so un-reacting is left as a pure
@@ -1037,17 +1037,17 @@ export async function handleChannelInbound({
         });
       }
 
-      // ── Thread-ancestor backfill ──
-      // When a Slack reply arrives for a thread the daemon never saw the
-      // parent of, fetch the thread's recent history from Slack and persist
-      // the missing messages so the chronological renderer (PR 18) has the
-      // full conversation. Awaited (mirrors the DM cold-start path above)
-      // so the agent loop dispatched immediately afterwards observes the
-      // backfilled parent — without this, Slack context assembly
-      // can race the persist and miss thread context. Backfill is bounded
-      // (parent + ~50 messages) and the agent latency is dominated by the
-      // LLM call, so the added latency is negligible. Failures are
-      // swallowed inside the helper so they never block dispatch.
+      // ── Thread gap/delta backfill ──
+      // When a Slack thread reply arrives, compare the stored thread state
+      // with the inbound message's ts and fetch only the bounded unseen
+      // window. Initial late-join turns hydrate the earliest thread messages
+      // plus a recent window adjacent to the inbound reply; later turns use
+      // a delta window after the latest stored thread ts and before the
+      // inbound ts. Awaited (mirrors the DM cold-start path above) so the
+      // agent loop dispatched immediately afterwards observes hydrated
+      // context. A late-join notice is added only to the current turn's
+      // runtime context, not persisted as durable Slack metadata. Failures
+      // are swallowed inside the helper so they never block dispatch.
       if (slackThreadTs) {
         const backfillResult = await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,
@@ -1201,8 +1201,8 @@ async function persistSlackReactionAsMessage(params: {
     },
   };
 
-  // Sentinel content — renderers (PR 18) read `slackMeta` to format the
-  // reaction line; the literal text is never displayed to the model.
+  // Sentinel content — Slack transcript renderers read `slackMeta` to format
+  // the reaction line; the literal text is never displayed to the model.
   const persisted = await addMessage(
     params.conversationId,
     "user",
@@ -1313,7 +1313,7 @@ function readSlackMetadataFromMessageMetadata(
 
 /**
  * Build the set of `slackMeta.channelTs` values already stored on a
- * conversation. Used by both DM cold-start backfill and thread-ancestor
+ * conversation. Used by both DM cold-start backfill and thread gap/delta
  * backfill to dedupe rows so a partial prior backfill (or a single message
  * that was already persisted via the live ingress path) does not double-write.
  */
@@ -1395,7 +1395,7 @@ function readStoredSlackThreadState(
  * `slackMeta` envelope.
  *
  * Shared insertion point for any path that hydrates Slack history lazily
- * (DM cold-start backfill, thread-ancestor backfill, etc.). Role is derived
+ * (DM cold-start backfill, thread gap/delta backfill, etc.). Role is derived
  * from `message.metadata.isBot` — bot-authored rows map to `"assistant"` so
  * our own prior replies (and any other bot traffic) are not rehydrated as
  * user turns, which would otherwise corrupt speaker attribution and make
@@ -1962,23 +1962,26 @@ function buildSlackLateJoinNotice(
 }
 
 /**
- * Lazily backfill missing Slack thread ancestors for an inbound thread reply.
+ * Lazily backfill Slack thread gaps for an inbound thread reply.
  *
- * When a reply arrives for a thread the daemon has never seen (e.g. the bot
- * was just added to the channel, or the parent message pre-dates the
- * conversation), the daemon fetches the thread's recent history via
- * {@link backfillThreadWindow}, persists each unseen message as a `messages` row
- * with a `slackMeta` envelope, and skips duplicates whose `ts` already
- * appears in the conversation.
+ * When a reply arrives for a thread with unseen Slack history, the assistant
+ * fetches bounded `conversations.replies` pages via
+ * {@link backfillThreadWindowPage}, persists each unseen message as a
+ * `messages` row with a `slackMeta` envelope, and skips duplicates whose `ts`
+ * already appears in the conversation.
  *
  * Behavior contracts:
  * - **Thread-state gap detection.** Looks up stored Slack message rows for
  *   the same thread, excluding reactions, then fetches only the unseen
  *   `(latestStoredThreadTs, excludeChannelTs)` window when the inbound Slack
  *   timestamp is newer than local state.
- * - **TTL idempotency cache.** A 10-minute in-memory cache prevents repeated
- *   fetches for the same exact bounded window, without suppressing later
- *   unseen windows in the same thread.
+ * - **Upper-bound windows.** Initial late-join backfill combines an early
+ *   thread page with a recent page adjacent to the inbound ts; delta backfill
+ *   fetches the page nearest the inbound upper bound so the current turn sees
+ *   the most relevant context while keeping latency bounded.
+ * - **Exact-window TTL cache.** A 10-minute in-memory cache prevents repeated
+ *   fetches for the same exact lower/upper bounded window, without
+ *   suppressing later unseen windows in the same thread.
  * - **Failure-tolerant.** Any error (Slack API failure, DB error, malformed
  *   payload) is logged at `warn` and swallowed — the inbound turn must
  *   never block on backfill.
@@ -1999,8 +2002,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
   /**
    * OAuth account identifier used to disambiguate which Slack workspace the
    * backfill should read from in multi-account setups. Passed through to
-   * `backfillThreadWindow` → `resolveConnection`. Best-effort: if omitted, the
-   * resolver falls back to the default-active connection.
+   * `backfillThreadWindowPage` page requests and then `resolveConnection`.
+   * Best-effort: if omitted, the resolver falls back to the default-active
+   * connection.
    */
   account?: string;
 }): Promise<SlackThreadBackfillResult> {
