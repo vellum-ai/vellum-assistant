@@ -838,6 +838,8 @@ struct ToolCallStepDetailRow: View {
     @State private var ruleEditorSuggestion: TrustRuleSuggestion?
     /// Existing trust rule that matched this tool call, or nil for create mode.
     @State private var ruleEditorExistingRule: TrustRule?
+    /// Tracks the in-flight suggestion task so it can be cancelled on re-open or dismiss.
+    @State private var suggestionTask: Task<Void, Never>?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -1003,6 +1005,8 @@ struct ToolCallStepDetailRow: View {
                     }
                 },
                 onDismiss: {
+                    suggestionTask?.cancel()
+                    suggestionTask = nil
                     ruleEditorToolCall = nil
                     ruleEditorSuggestion = nil
                     ruleEditorExistingRule = nil
@@ -1154,6 +1158,11 @@ struct ToolCallStepDetailRow: View {
 
     @MainActor
     private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
+        // Cancel any previous suggestion task and clear stale state before opening.
+        suggestionTask?.cancel()
+        suggestionTask = nil
+        ruleEditorSuggestion = nil
+
         // Fetch the matched rule first (fast HTTP list) so the modal opens in the
         // correct create/edit mode. Suggestion fires in the background after open.
         let existingRule = try? await fetchMatchedRule(toolCall)
@@ -1162,7 +1171,7 @@ struct ToolCallStepDetailRow: View {
 
         // LLM suggestion fires while the modal is already visible. The modal
         // reacts via .onChange(of: suggestion?.pattern) in applySuggestionOrDefaults.
-        Task { @MainActor in
+        suggestionTask = Task { @MainActor in
             let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule)
             ruleEditorSuggestion = suggestion
         }
