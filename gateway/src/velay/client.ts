@@ -77,6 +77,7 @@ export class VelayTunnelClient {
   private connecting = false;
   private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
+  private publishedTwilioPublicBaseUrl: string | undefined;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -116,6 +117,7 @@ export class VelayTunnelClient {
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
+    this.clearPublishedTwilioPublicBaseUrl();
     if (ws) {
       closeWebSocket(ws, 1000, "gateway shutdown");
     }
@@ -257,6 +259,7 @@ export class VelayTunnelClient {
     }
 
     await writeTwilioPublicBaseUrl(frame.public_url, this.options.configFile);
+    this.publishedTwilioPublicBaseUrl = frame.public_url;
     log.info({ publicUrl: frame.public_url }, "Velay tunnel registered");
   }
 
@@ -277,6 +280,7 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.webSocketBridge.closeAll();
+    this.clearPublishedTwilioPublicBaseUrl();
     log.info(
       { code: event.code, reason: event.reason },
       "Velay tunnel disconnected",
@@ -293,8 +297,20 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.webSocketBridge.closeAll();
+    this.clearPublishedTwilioPublicBaseUrl();
     closeWebSocket(ws, code, reason);
     this.scheduleReconnect();
+  }
+
+  private clearPublishedTwilioPublicBaseUrl(): void {
+    const publicUrl = this.publishedTwilioPublicBaseUrl;
+    if (!publicUrl) return;
+    this.publishedTwilioPublicBaseUrl = undefined;
+    void clearTwilioPublicBaseUrl(publicUrl, this.options.configFile).catch(
+      (err) => {
+        log.error({ err }, "Failed to clear Velay Twilio public URL");
+      },
+    );
   }
 
   private sendFrame(frame: VelayFrame): void {
@@ -383,6 +399,51 @@ async function writeTwilioPublicBaseUrl(
         }
 
         ingress.twilioPublicBaseUrl = publicUrl;
+        data.ingress = ingress;
+        writeConfigFileAtomic(data);
+        configFile.invalidate();
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+async function clearTwilioPublicBaseUrl(
+  publicUrl: string,
+  configFile: ConfigFileCache,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    enqueueConfigWrite(() => {
+      try {
+        const result = readConfigFile();
+        if (!result.ok) {
+          log.error(
+            { detail: result.detail },
+            "Cannot clear Velay public URL because config.json is malformed",
+          );
+          resolve();
+          return;
+        }
+
+        const data = result.data;
+        if (
+          !data.ingress ||
+          typeof data.ingress !== "object" ||
+          Array.isArray(data.ingress)
+        ) {
+          resolve();
+          return;
+        }
+
+        const ingress = { ...(data.ingress as Record<string, unknown>) };
+        if (ingress.twilioPublicBaseUrl !== publicUrl) {
+          resolve();
+          return;
+        }
+
+        delete ingress.twilioPublicBaseUrl;
         data.ingress = ingress;
         writeConfigFileAtomic(data);
         configFile.invalidate();

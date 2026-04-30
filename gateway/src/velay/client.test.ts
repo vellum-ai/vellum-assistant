@@ -342,6 +342,81 @@ describe("VelayTunnelClient", () => {
     });
   });
 
+  test("clears the published Twilio public URL when the tunnel disconnects", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile: makeConfigFileCache(invalidations),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(2);
+    expect(reconnectDelays).toEqual([10]);
+  });
+
+  test("does not clear a newer Twilio public URL on stale tunnel close", async () => {
+    const sockets: FakeWebSocket[] = [];
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    const client = makeClient({ sockets });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public-1.example.test",
+    });
+    await flushPromises();
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public-2.example.test",
+      },
+    });
+
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public-2.example.test",
+      },
+    });
+  });
+
   test("dispatches HTTP and WebSocket frames to the loopback bridges", async () => {
     const sockets: FakeWebSocket[] = [];
     const websocketFrames: VelayWebSocketInboundFrame[] = [];
