@@ -135,7 +135,7 @@ function unwrapInnermostProvider(provider: unknown): ProviderWithClientBaseUrl {
 function setUserKeysFor(...names: string[]): void {
   mockProviderKeys = {};
   for (const n of names) {
-    mockProviderKeys[n] = `user-key-${n}`;
+    mockProviderKeys[credentialKey(n, "api_key")] = `user-key-${n}`;
   }
 }
 
@@ -422,7 +422,7 @@ describe("managed proxy integration — ollama exclusion", () => {
 
   test("ollama registers with explicit API key", async () => {
     enableManagedProxy();
-    mockProviderKeys = { ollama: "ollama-key" };
+    mockProviderKeys = { [credentialKey("ollama", "api_key")]: "ollama-key" };
     await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
     expect(listProviders()).toContain("ollama");
   });

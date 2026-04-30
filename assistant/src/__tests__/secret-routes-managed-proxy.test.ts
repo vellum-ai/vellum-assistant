@@ -77,6 +77,10 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => secureKeyStore[key],
+  getSecureKeyResultAsync: async (key: string) => ({
+    value: secureKeyStore[key],
+    unreachable: false,
+  }),
   setSecureKeyAsync: async (key: string, value: string) => {
     secureKeyStore[key] = value;
     return true;
@@ -187,7 +191,7 @@ describe("secret routes managed proxy registry sync", () => {
   test("provider API key writes notify live-conversation refresh listeners", async () => {
     await addApiKey("fireworks", "fw-key");
 
-    expect(secureKeyStore.fireworks).toBe("fw-key");
+    expect(secureKeyStore[credentialKey("fireworks", "api_key")]).toBe("fw-key");
     expect(providerRefreshCalls).toBe(1);
 
     await deleteApiKey("fireworks");

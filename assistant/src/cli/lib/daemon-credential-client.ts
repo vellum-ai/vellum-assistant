@@ -42,6 +42,9 @@ export async function setSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct write.
+  if (type === "api_key") {
+    return setSecureKeyAsync(credentialKey(name, "api_key"), value);
+  }
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {
@@ -78,6 +81,17 @@ export async function deleteSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct delete.
+  if (type === "api_key") {
+    // Delete from both locations; during migration overlap both may exist.
+    // Ignore "not-found" on each — one location may already be empty.
+    const credResult = await deleteSecureKeyAsync(credentialKey(name, "api_key"));
+    if (credResult === "error") return "error";
+    const bareResult = await deleteSecureKeyAsync(name);
+    if (bareResult === "error") return "error";
+    return credResult === "deleted" || bareResult === "deleted"
+      ? "deleted"
+      : "not-found";
+  }
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {
