@@ -30,6 +30,7 @@ import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
+import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
 import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
@@ -312,6 +313,8 @@ async function main() {
   );
   const handleTwilioConnectActionWebhook =
     createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
+  const handleTwilioVoiceVerifyCallback =
+    createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
     configFile: configFileCache,
   });
@@ -451,6 +454,10 @@ async function main() {
     {
       path: "/webhooks/twilio/connect-action",
       handler: (req) => handleTwilioConnectActionWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/voice-verify",
+      handler: (req) => handleTwilioVoiceVerifyCallback(req),
     },
     {
       path: "/webhooks/whatsapp",

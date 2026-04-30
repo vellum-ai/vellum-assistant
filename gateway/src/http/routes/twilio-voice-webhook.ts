@@ -14,12 +14,18 @@ import {
   validateTwilioWebhookRequest,
   type TwilioValidationCaches,
 } from "../../twilio/validate-webhook.js";
+import {
+  findPendingPhoneSession,
+  gatherVerificationTwiml,
+} from "../../voice/verification.js";
 
 const log = getLogger("twilio-voice-webhook");
 
 /** TwiML that rejects the call — Twilio plays a busy signal and hangs up. */
 const REJECT_TWIML =
   '<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>';
+
+const TWIML_HEADERS = { "Content-Type": "text/xml" };
 
 export function createTwilioVoiceWebhookHandler(
   config: GatewayConfig,
@@ -71,7 +77,7 @@ export function createTwilioVoiceWebhookHandler(
           );
           return new Response(REJECT_TWIML, {
             status: 200,
-            headers: { "Content-Type": "text/xml" },
+            headers: TWIML_HEADERS,
           });
         }
 
@@ -83,6 +89,36 @@ export function createTwilioVoiceWebhookHandler(
             from: params.From,
           },
           "Resolved assistant via fallback routing for inbound call",
+        );
+      }
+
+      // ── Gateway-owned voice verification ────────────────────────────
+      // For inbound calls, check if there's a pending phone verification
+      // session. If so, intercept the call with a <Gather> TwiML flow
+      // instead of forwarding to the assistant. The assistant never
+      // touches verification — it only receives verified calls.
+      try {
+        const pendingSession = await findPendingPhoneSession();
+        if (pendingSession) {
+          log.info(
+            {
+              callSid: params.CallSid,
+              fromNumber: params.From,
+              sessionId: pendingSession.id,
+            },
+            "Pending phone verification session found — intercepting with gateway verification",
+          );
+          const verifyCallbackPath = `/webhooks/twilio/voice-verify?attempt=0`;
+          const codeDigits = pendingSession.codeDigits ?? 6;
+          return new Response(
+            gatherVerificationTwiml(verifyCallbackPath, 0, codeDigits),
+            { status: 200, headers: TWIML_HEADERS },
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, callSid: params.CallSid },
+          "Failed to check pending verification session — falling through to assistant",
         );
       }
     }
