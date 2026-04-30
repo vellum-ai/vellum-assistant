@@ -21,9 +21,12 @@
 
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
+import {
+  CES_PROTOCOL_VERSION,
+  CesRpcMethod,
+} from "@vellumai/service-contracts/credential-rpc";
 import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
 
 import { AuditStore } from "./audit/store.js";
@@ -58,7 +61,10 @@ import {
   type RpcHandlerRegistry,
   type SessionIdRef,
 } from "./server.js";
-import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
+import {
+  deleteBundleFromToolstore,
+  publishBundle,
+} from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
@@ -81,12 +87,36 @@ function ensureDataDirs(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Vellum root resolution (mirrors assistant/src/util/platform.ts)
+// Path resolution
 // ---------------------------------------------------------------------------
 
-function getVellumRootDir(): string {
-  const baseDataDir = process.env["BASE_DATA_DIR"]?.trim();
-  return join(baseDataDir || homedir(), ".vellum");
+/**
+ * Resolve the workspace directory.
+ *
+ * Priority:
+ * 1. `VELLUM_WORKSPACE_DIR` env var (set by the platform template)
+ * 2. Default: `~/.vellum/workspace`
+ */
+function getWorkspaceDir(): string {
+  return (
+    process.env["VELLUM_WORKSPACE_DIR"]?.trim() ||
+    join(homedir(), ".vellum", "workspace")
+  );
+}
+
+/**
+ * Resolve the CES security directory (contains key stores, encryption data).
+ *
+ * Priority:
+ * 1. `CREDENTIAL_SECURITY_DIR` env var (set by the platform template for
+ *    the CES container — `/ces-security` in managed mode)
+ * 2. Default: `~/.vellum/protected` (local mode)
+ */
+function getSecurityDir(): string {
+  return (
+    process.env["CREDENTIAL_SECURITY_DIR"]?.trim() ||
+    join(homedir(), ".vellum", "protected")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -112,10 +142,9 @@ function buildHandlers(
   // -- Credential backend (local) --------------------------------------------
   // In local mode CES shares the filesystem with the assistant and can access
   // the same credential metadata and secure-key stores.
-  const vellumRoot = getVellumRootDir();
+  const workspaceDir = getWorkspaceDir();
   const credentialMetadataPath = join(
-    vellumRoot,
-    "workspace",
+    workspaceDir,
     "data",
     "credentials",
     "metadata.json",
@@ -126,29 +155,27 @@ function buildHandlers(
 
   // Read-only OAuth connection lookup backed by the assistant's SQLite
   // database. CES opens the database in read-only mode.
-  const oauthConnections = createLocalOAuthLookup(vellumRoot);
+  const oauthConnections = createLocalOAuthLookup(workspaceDir);
 
   const localMaterialiser = new LocalMaterialiser({
     secureKeyBackend,
-    tokenRefreshFn: createLocalTokenRefreshFn(vellumRoot, secureKeyBackend),
+    tokenRefreshFn: createLocalTokenRefreshFn(workspaceDir, secureKeyBackend),
   });
 
   // -- Build handler registry ------------------------------------------------
 
   // Start with the HTTP handler (make_authenticated_request)
-  const handlers = buildHandlersWithHttp(
-    {
-      persistentGrantStore,
-      temporaryGrantStore,
-      localMaterialiser,
-      localSubjectDeps: {
-        metadataStore,
-        oauthConnections,
-      },
-      auditStore,
-      sessionId: sessionIdRef,
+  const handlers = buildHandlersWithHttp({
+    persistentGrantStore,
+    temporaryGrantStore,
+    localMaterialiser,
+    localSubjectDeps: {
+      metadataStore,
+      oauthConnections,
     },
-  );
+    auditStore,
+    sessionId: sessionIdRef,
+  });
 
   // Register run_authenticated_command handler
   registerCommandExecutionHandler(handlers, {
@@ -176,7 +203,9 @@ function buildHandlers(
           }
         }
 
-        const matResult = await localMaterialiser.materialise(subjectResult.subject);
+        const matResult = await localMaterialiser.materialise(
+          subjectResult.subject,
+        );
         if (!matResult.ok) {
           return { ok: false as const, error: matResult.error };
         }
@@ -191,11 +220,19 @@ function buildHandlers(
       cesMode: "local",
       egressHooks: buildCesEgressHooks(),
     },
-    defaultWorkspaceDir: join(vellumRoot, "workspace"),
+    defaultWorkspaceDir: workspaceDir,
   });
 
   // Register manage_secure_command_tool handler
-  const toolRegistry = new Map<string, { toolName: string; credentialHandle: string; description: string; bundleDigest: string }>();
+  const toolRegistry = new Map<
+    string,
+    {
+      toolName: string;
+      credentialHandle: string;
+      description: string;
+      bundleDigest: string;
+    }
+  >();
 
   registerManageSecureCommandToolHandler(handlers, {
     downloadBundle: async (sourceUrl: string) => {
@@ -204,13 +241,17 @@ function buildHandlers(
         throw new Error(urlError);
       }
       const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
-      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(60_000) });
+      const resp = await fetch(sourceUrl, {
+        signal: AbortSignal.timeout(60_000),
+      });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
       const contentLength = resp.headers.get("content-length");
       if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
-        throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
+        throw new Error(
+          `Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`,
+        );
       }
       // Stream the body and enforce the size limit on actual bytes received,
       // since Content-Length can be absent (chunked encoding) or lie.
@@ -223,7 +264,9 @@ function buildHandlers(
       for await (const chunk of body) {
         totalBytes += chunk.byteLength;
         if (totalBytes > MAX_BUNDLE_SIZE) {
-          throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
+          throw new Error(
+            `Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`,
+          );
         }
         chunks.push(chunk);
       }
@@ -234,7 +277,9 @@ function buildHandlers(
       const entry = toolRegistry.get(toolName);
       const removed = toolRegistry.delete(toolName);
       if (removed && entry?.bundleDigest) {
-        const stillInUse = Array.from(toolRegistry.values()).some(t => t.bundleDigest === entry.bundleDigest);
+        const stillInUse = Array.from(toolRegistry.values()).some(
+          (t) => t.bundleDigest === entry.bundleDigest,
+        );
         if (!stillInUse) {
           deleteBundleFromToolstore(entry.bundleDigest, "local");
         }
@@ -250,50 +295,57 @@ function buildHandlers(
   handlers[CesRpcMethod.RecordGrant] = createRecordGrantHandler({
     persistentGrantStore,
     temporaryGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
     persistentGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   // Register audit record handler
   handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
     auditStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   // Register credential CRUD handlers
   handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
     const value = await secureKeyBackend.get(req.account);
     return { found: value !== undefined, value };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+  handlers[CesRpcMethod.SetCredential] = (async (req: {
+    account: string;
+    value: string;
+  }) => {
     const ok = await secureKeyBackend.set(req.account, req.value);
     return { ok };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: {
+    account: string;
+  }) => {
     const result = await secureKeyBackend.delete(req.account);
     return { result };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.ListCredentials] = (async () => {
     const accounts = await secureKeyBackend.list();
     return { accounts };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.BulkSetCredentials] = (async (req: { credentials: Array<{ account: string; value: string }> }) => {
+  handlers[CesRpcMethod.BulkSetCredentials] = (async (req: {
+    credentials: Array<{ account: string; value: string }>;
+  }) => {
     const results = [];
     for (const { account, value } of req.credentials) {
       const ok = await secureKeyBackend.set(account, value);
       results.push({ account, ok });
     }
     return { results };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   return handlers;
 }
@@ -308,7 +360,9 @@ async function main(): Promise<void> {
   initLogger({ dir: getCesLogDir(), retentionDays: 30 });
   const log = getLogger("main");
 
-  log.info(`Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`);
+  log.info(
+    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`,
+  );
 
   const controller = new AbortController();
 
@@ -324,8 +378,14 @@ async function main(): Promise<void> {
   // the RPC server. Migrations complete synchronously before any connection
   // is accepted — the backend is then passed to buildHandlers so it is not
   // re-instantiated.
-  const secureKeyBackend = createLocalSecureKeyBackend(getVellumRootDir());
-  await runCesMigrations(getCesDataRoot("local"), secureKeyBackend, CES_MIGRATIONS);
+  const secureKeyBackend = createLocalSecureKeyBackend(
+    dirname(getSecurityDir()),
+  );
+  await runCesMigrations(
+    getCesDataRoot("local"),
+    secureKeyBackend,
+    CES_MIGRATIONS,
+  );
   log.info("CES local startup: migrations complete");
 
   // Build the handler registry with all available RPC implementations.

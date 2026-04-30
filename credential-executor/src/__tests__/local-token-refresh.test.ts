@@ -128,7 +128,9 @@ function setupTestDb(opts: {
   `);
 
   db.close();
-  return tmpRoot;
+  // Return the workspace directory — callers pass this to
+  // createLocalTokenRefreshFn(workspaceDir, ...).
+  return join(tmpRoot, "workspace");
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +141,12 @@ const originalFetch = globalThis.fetch;
 
 function mockFetch(capturedUrls: string[]): void {
   globalThis.fetch = mock(async (input: string | URL | Request) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
     capturedUrls.push(url);
     return new Response(
       JSON.stringify({
@@ -237,21 +244,28 @@ describe("createLocalTokenRefreshFn – refresh_url support", () => {
 
     // Capture the fetch call to verify Authorization header
     const capturedHeaders: Record<string, string>[] = [];
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      capturedUrls.push(url);
-      if (init?.headers) {
-        capturedHeaders.push(init.headers as Record<string, string>);
-      }
-      return new Response(
-        JSON.stringify({
-          access_token: "new-access-token",
-          refresh_token: "new-refresh-token",
-          expires_in: 3600,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        capturedUrls.push(url);
+        if (init?.headers) {
+          capturedHeaders.push(init.headers as Record<string, string>);
+        }
+        return new Response(
+          JSON.stringify({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    ) as unknown as typeof globalThis.fetch;
 
     const refreshFn = createLocalTokenRefreshFn(root, backend);
     const result = await refreshFn("conn-1", "old-refresh-token");
@@ -262,8 +276,12 @@ describe("createLocalTokenRefreshFn – refresh_url support", () => {
 
     // Verify Basic auth header was sent
     expect(capturedHeaders).toHaveLength(1);
-    const expectedCredentials = Buffer.from("test-client-id:test-secret").toString("base64");
-    expect(capturedHeaders[0]["Authorization"]).toBe(`Basic ${expectedCredentials}`);
+    const expectedCredentials = Buffer.from(
+      "test-client-id:test-secret",
+    ).toString("base64");
+    expect(capturedHeaders[0]["Authorization"]).toBe(
+      `Basic ${expectedCredentials}`,
+    );
   });
 
   test("preserves token_exchange_body_format=json behaviour", async () => {
@@ -278,25 +296,34 @@ describe("createLocalTokenRefreshFn – refresh_url support", () => {
 
     const capturedContentTypes: string[] = [];
     const capturedBodies: string[] = [];
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      capturedUrls.push(url);
-      if (init?.headers) {
-        const headers = init.headers as Record<string, string>;
-        capturedContentTypes.push(headers["Content-Type"] ?? "");
-      }
-      if (init?.body) {
-        capturedBodies.push(typeof init.body === "string" ? init.body : String(init.body));
-      }
-      return new Response(
-        JSON.stringify({
-          access_token: "new-access-token",
-          refresh_token: "new-refresh-token",
-          expires_in: 3600,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        capturedUrls.push(url);
+        if (init?.headers) {
+          const headers = init.headers as Record<string, string>;
+          capturedContentTypes.push(headers["Content-Type"] ?? "");
+        }
+        if (init?.body) {
+          capturedBodies.push(
+            typeof init.body === "string" ? init.body : String(init.body),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    ) as unknown as typeof globalThis.fetch;
 
     const refreshFn = createLocalTokenRefreshFn(root, backend);
     const result = await refreshFn("conn-1", "old-refresh-token");

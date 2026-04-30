@@ -43,12 +43,19 @@ export function getCesMode(): CesMode {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the Vellum root directory, respecting `BASE_DATA_DIR` for
- * multi-instance deployments. Mirrors the logic in `assistant/src/util/platform.ts`.
+ * Resolve the CES security directory.
+ *
+ * Priority:
+ * 1. `CREDENTIAL_SECURITY_DIR` env var (set by the platform template for the
+ *    CES container — `/ces-security` in managed mode)
+ * 2. Default: `~/.vellum/protected` (local mode shares the filesystem with
+ *    the gateway)
  */
-function getVellumRootDir(): string {
-  const baseDataDir = process.env["BASE_DATA_DIR"]?.trim();
-  return join(baseDataDir || homedir(), ".vellum");
+export function getSecurityDir(): string {
+  return (
+    process.env["CREDENTIAL_SECURITY_DIR"]?.trim() ||
+    join(homedir(), ".vellum", "protected")
+  );
 }
 
 /**
@@ -62,18 +69,15 @@ const DEFAULT_MANAGED_CES_DATA_ROOT = "/ces-data";
 /**
  * Return the CES-private data root.
  *
- * - Local: `<vellumRoot>/protected/credential-executor/`
+ * - Local: `<securityDir>/credential-executor/`
  * - Managed: `CES_DATA_DIR` env var, or `/ces-data` by default
  */
 export function getCesDataRoot(mode?: CesMode): string {
   const resolvedMode = mode ?? getCesMode();
   if (resolvedMode === "managed") {
-    return (
-      process.env["CES_DATA_DIR"] ??
-      DEFAULT_MANAGED_CES_DATA_ROOT
-    );
+    return process.env["CES_DATA_DIR"] ?? DEFAULT_MANAGED_CES_DATA_ROOT;
   }
-  return join(getVellumRootDir(), "protected", "credential-executor");
+  return join(getSecurityDir(), "credential-executor");
 }
 
 // ---------------------------------------------------------------------------

