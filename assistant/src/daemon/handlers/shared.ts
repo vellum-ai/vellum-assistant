@@ -8,10 +8,7 @@ import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import type {
-  ConversationTransportMetadata,
-  ServerMessage,
-} from "../message-protocol.js";
+import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
 
 const log = getLogger("handlers");
@@ -126,8 +123,7 @@ export interface ConversationCreateOptions {
   memoryScopeId?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
-  onEvent?: (msg: ServerMessage) => void;
+
   /**
    * Optional explicit model override (provider/model string) for this
    * conversation's agent loop. Used by the auto-analyze loop to pin the

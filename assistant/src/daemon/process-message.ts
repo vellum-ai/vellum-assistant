@@ -87,7 +87,6 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   return "web";
 }
 
-
 // ---------------------------------------------------------------------------
 // prepareConversationForMessage
 // ---------------------------------------------------------------------------
@@ -423,25 +422,29 @@ export async function processMessage(
     persistMetadata,
   );
 
-  const onEvent = options?.onEvent ?? broadcastMessage;
   if (options?.isInteractive === true) {
-    conversation.updateClient(onEvent, false);
+    conversation.updateClient(broadcastMessage, false);
   }
 
   try {
     conversation.setSlackRuntimeContextNotice(
       options?.slackRuntimeContextNotice,
     );
-    await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
-      isInteractive: options?.isInteractive ?? false,
-      isUserMessage: true,
-      ...(options?.callSite ? { callSite: options.callSite } : {}),
-    });
+    await conversation.runAgentLoop(
+      resolvedContent,
+      messageId,
+      broadcastMessage,
+      {
+        isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
+      },
+    );
   } finally {
     conversation.setSlackRuntimeContextNotice(undefined);
     if (
       options?.isInteractive === true &&
-      conversation.getCurrentSender() === onEvent
+      conversation.getCurrentSender() === broadcastMessage
     ) {
       conversation.updateClient(() => {}, true);
     }
@@ -486,14 +489,13 @@ export async function processMessageInBackground(
     persistMetadata,
   );
 
-  const onEvent = options?.onEvent ?? broadcastMessage;
   if (options?.isInteractive === true) {
-    conversation.updateClient(onEvent, false);
+    conversation.updateClient(broadcastMessage, false);
   }
 
   conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
   conversation
-    .runAgentLoop(content, messageId, onEvent, {
+    .runAgentLoop(content, messageId, broadcastMessage, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
@@ -502,7 +504,7 @@ export async function processMessageInBackground(
       conversation.setSlackRuntimeContextNotice(undefined);
       if (
         options?.isInteractive === true &&
-        conversation.getCurrentSender() === onEvent
+        conversation.getCurrentSender() === broadcastMessage
       ) {
         conversation.updateClient(() => {}, true);
       }

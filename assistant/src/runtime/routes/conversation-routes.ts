@@ -1152,8 +1152,7 @@ function makeHubPublisher(
         );
       }
     } else if (msg.type === "secret_request") {
-      // SecretPrompter.prompt() registers in pendingInteractions directly;
-      // no duplicate registration needed here.
+      // Registration handled by broadcastMessage.
     } else {
       registerHostProxyPendingInteraction(msg, conversationId);
     }
