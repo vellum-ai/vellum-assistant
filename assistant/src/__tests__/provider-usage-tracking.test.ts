@@ -18,6 +18,7 @@ import { LLMSchema } from "../config/schemas/llm.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 
@@ -167,5 +168,41 @@ describe("UsageTrackingProvider", () => {
     ]);
 
     expect(listUsageEvents()).toHaveLength(0);
+  });
+
+  test("records calls from providers resolved for a call site even when send options omit it", async () => {
+    const provider = new CallSiteConfiguredProvider(
+      new UsageTrackingProvider(
+        makeProvider({
+          content: [{ type: "text", text: "ok" }],
+          model: "gpt-5.4-mini",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 50,
+          },
+          stopReason: "end_turn",
+        }),
+      ),
+      "mainAgent",
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      undefined,
+      undefined,
+      {
+        config: {
+          model: "gpt-5.4-mini",
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      callSite: "mainAgent",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+    });
   });
 });

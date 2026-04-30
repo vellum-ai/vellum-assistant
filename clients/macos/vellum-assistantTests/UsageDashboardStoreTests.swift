@@ -10,6 +10,7 @@ private final class MockUsageClient: UsageClientProtocol {
     var stubbedDaily: UsageDailyResponse?
     var stubbedSeries: UsageSeriesResponse?
     var stubbedBreakdown: UsageBreakdownResponse?
+    var stubbedBreakdownResultsByGroupBy: [String: UsageFetchResult<UsageBreakdownResponse>] = [:]
     var simulateMissingSeriesEndpoint = false
 
     var lastTotalsFrom: Int?
@@ -26,6 +27,7 @@ private final class MockUsageClient: UsageClientProtocol {
     var lastBreakdownFrom: Int?
     var lastBreakdownTo: Int?
     var lastBreakdownGroupBy: String?
+    var breakdownGroupByRequests: [String] = []
 
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         lastTotalsFrom = from
@@ -72,11 +74,18 @@ private final class MockUsageClient: UsageClientProtocol {
         )
     }
 
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageFetchResult<UsageBreakdownResponse> {
         lastBreakdownFrom = from
         lastBreakdownTo = to
         lastBreakdownGroupBy = groupBy
-        return stubbedBreakdown
+        breakdownGroupByRequests.append(groupBy)
+        if let result = stubbedBreakdownResultsByGroupBy[groupBy] {
+            return result
+        }
+        if let stubbedBreakdown {
+            return .success(stubbedBreakdown)
+        }
+        return .failure()
     }
 }
 
@@ -535,6 +544,48 @@ struct UsageDashboardStoreGroupTests {
             Issue.record("Expected failed breakdown state when call-site breakdown fails")
         }
     }
+
+    @Test @MainActor
+    func taskDefaultFallsBackToModelWhenCallSiteBreakdownUnsupported() async {
+        let client = MockUsageClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedSeries = UsageSeriesResponse(buckets: [])
+        client.stubbedBreakdownResultsByGroupBy = [
+            "call_site": .failure(statusCode: 400),
+            "model": .success(UsageBreakdownResponse(breakdown: [
+                UsageGroupBreakdownEntry(
+                    group: "gpt-5.4-mini",
+                    groupId: nil,
+                    groupKey: nil,
+                    totalInputTokens: 10,
+                    totalOutputTokens: 5,
+                    totalCacheCreationTokens: 0,
+                    totalCacheReadTokens: 0,
+                    totalEstimatedCostUsd: 0.001,
+                    eventCount: 1
+                ),
+            ])),
+        ]
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.refresh()
+
+        #expect(store.selectedGroupBy == .model)
+        #expect(client.breakdownGroupByRequests == ["call_site", "model"])
+        #expect(client.lastSeriesGroupBy == "model")
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown.first?.group == "gpt-5.4-mini")
+        } else {
+            Issue.record("Expected model fallback breakdown for unsupported call_site grouping")
+        }
+    }
 }
 
 // MARK: - Delayed Mock Client (for race-condition tests)
@@ -548,7 +599,7 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
     var totalsContinuations: [CheckedContinuation<UsageTotalsResponse?, Never>] = []
     var dailyContinuations: [CheckedContinuation<UsageDailyResponse?, Never>] = []
     var seriesContinuations: [CheckedContinuation<UsageSeriesResponse?, Never>] = []
-    var breakdownContinuations: [CheckedContinuation<UsageBreakdownResponse?, Never>] = []
+    var breakdownContinuations: [CheckedContinuation<UsageFetchResult<UsageBreakdownResponse>, Never>] = []
 
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         await withCheckedContinuation { continuation in
@@ -568,7 +619,7 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
         }
     }
 
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageFetchResult<UsageBreakdownResponse> {
         await withCheckedContinuation { continuation in
             breakdownContinuations.append(continuation)
         }
@@ -666,7 +717,7 @@ struct UsageDashboardStoreRaceTests {
         client.totalsContinuations[1].resume(returning: Self.makeTotals(inputTokens: 999))
         client.dailyContinuations[1].resume(returning: Self.makeDaily())
         client.seriesContinuations[1].resume(returning: Self.makeSeries())
-        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "latest"))
+        client.breakdownContinuations[1].resume(returning: .success(Self.makeBreakdown(group: "latest")))
         await secondRefresh.value
 
         // Store should now show the second request's data
@@ -680,7 +731,7 @@ struct UsageDashboardStoreRaceTests {
         client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 111))
         client.dailyContinuations[0].resume(returning: Self.makeDaily())
         client.seriesContinuations[0].resume(returning: Self.makeSeries())
-        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "stale"))
+        client.breakdownContinuations[0].resume(returning: .success(Self.makeBreakdown(group: "stale")))
         await firstRefresh.value
 
         // Verify the store still holds the second request's data, not the stale first
@@ -721,7 +772,7 @@ struct UsageDashboardStoreRaceTests {
 
         // Complete selectGroupBy's breakdown first (the newer request)
         client.seriesContinuations[1].resume(returning: Self.makeSeries(group: "provider-fresh"))
-        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-fresh"))
+        client.breakdownContinuations[1].resume(returning: .success(Self.makeBreakdown(group: "provider-fresh")))
         await groupByTask.value
 
         if case .loaded(let series) = store.seriesState {
@@ -741,7 +792,7 @@ struct UsageDashboardStoreRaceTests {
         client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 42))
         client.dailyContinuations[0].resume(returning: Self.makeDaily())
         client.seriesContinuations[0].resume(returning: Self.makeSeries(group: "model-stale"))
-        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
+        client.breakdownContinuations[0].resume(returning: .success(Self.makeBreakdown(group: "model-stale")))
         await refreshTask.value
 
         // Totals and daily from refresh() should still land (no newer refresh invalidated them)
@@ -790,7 +841,7 @@ struct UsageDashboardStoreRaceTests {
         // Complete the second (latest) request first
         #expect(client.breakdownContinuations.count == 2)
         client.seriesContinuations[1].resume(returning: Self.makeSeries())
-        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-result"))
+        client.breakdownContinuations[1].resume(returning: .success(Self.makeBreakdown(group: "provider-result")))
         await second.value
 
         if case .loaded(let breakdown) = store.breakdownState {
@@ -801,7 +852,7 @@ struct UsageDashboardStoreRaceTests {
 
         // Complete the first (stale) request — should be discarded
         client.seriesContinuations[0].resume(returning: Self.makeSeries())
-        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
+        client.breakdownContinuations[0].resume(returning: .success(Self.makeBreakdown(group: "model-stale")))
         await first.value
 
         if case .loaded(let breakdown) = store.breakdownState {
