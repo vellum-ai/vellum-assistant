@@ -57,7 +57,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleOverride,
     summary: "Override disk lock",
     description:
-      "Manually override the disk-space lock so the assistant can resume unrestricted operation despite high disk usage. Requires a confirmation phrase in the request body. The override persists until disk usage drops below the threshold or the daemon restarts.",
+      "Manually override the disk-space lock so the assistant can resume unrestricted operation despite high disk usage. Requires a confirmation phrase in the request body. The override persists until disk usage drops below the threshold or the assistant restarts.",
     tags: ["system"],
     requestBody: z.object({
       confirmation: z
