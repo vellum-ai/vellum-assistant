@@ -9,7 +9,7 @@
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
- * - conversation-history.ts      — undo, regenerate, consolidateAssistantMessages
+ * - conversation-history.ts      — undo, consolidateAssistantMessages
  * - conversation-surfaces.ts     — handleSurfaceAction, handleSurfaceUndo
  * - conversation-workspace.ts    — refreshWorkspaceTopLevelContext
  * - conversation-usage.ts        — recordUsage
@@ -72,10 +72,7 @@ import {
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import {
-  regenerate as regenerateImpl,
-  undo as undoImpl,
-} from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -1327,10 +1324,6 @@ export class Conversation {
 
   undo(): number {
     return undoImpl(this as HistoryConversationContext);
-  }
-
-  async regenerate(requestId?: string): Promise<void> {
-    return regenerateImpl(this as HistoryConversationContext, requestId);
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────

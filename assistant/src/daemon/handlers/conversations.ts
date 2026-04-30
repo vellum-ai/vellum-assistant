@@ -11,6 +11,7 @@ import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
+import { regenerate } from "../conversation-history.js";
 import {
   clearAllActiveConversations,
   conversationEntries,
@@ -18,10 +19,7 @@ import {
   getOrCreateConversation,
   touchConversation,
 } from "../conversation-store.js";
-import type {
-  ConfirmationResponse,
-  ServerMessage,
-} from "../message-protocol.js";
+import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
 import { log } from "./shared.js";
 
@@ -161,8 +159,7 @@ export async function regenerateResponse(
   conversationId = resolvedId;
   const conversation = await getOrCreateConversation(conversationId);
   touchConversation(conversationId);
-  const sendToHub = (msg: ServerMessage) => broadcastMessage(msg);
-  conversation.updateClient(sendToHub, false);
+  conversation.updateClient(broadcastMessage, false);
   const requestId = uuid();
   conversation.traceEmitter.emit("request_received", "Regenerate requested", {
     requestId,
@@ -170,7 +167,7 @@ export async function regenerateResponse(
     attributes: { source: "regenerate" },
   });
   try {
-    await conversation.regenerate(requestId);
+    await regenerate(conversation, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId }, "Error regenerating message");

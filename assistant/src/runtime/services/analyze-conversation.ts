@@ -21,7 +21,6 @@
  * when no override is set).
  */
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,
@@ -36,8 +35,10 @@ import {
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../assistant-event-hub.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
@@ -245,11 +246,8 @@ export async function analyzeConversation(
     conversationId: analysisConversationId,
   });
 
-  // j. Build onEvent using inline hub publisher
-  const onEvent = (msg: ServerMessage) => {
-    assistantEventHub.publish(buildAssistantEvent(msg, analysisConversationId));
-  };
-  analysisConversation.updateClient(onEvent, !hasLiveSubscriber);
+  // j. Wire broadcastMessage as the event publisher
+  analysisConversation.updateClient(broadcastMessage, !hasLiveSubscriber);
 
   // k. Set up processing state (required by runAgentLoop guard)
   analysisConversation.processing = true;
@@ -260,7 +258,7 @@ export async function analyzeConversation(
   // routes the per-call provider config through `resolveCallSiteConfig`
   // against `llm.callSites.analyzeConversation`.
   analysisConversation
-    .runAgentLoop(prompt, messageId, onEvent, {
+    .runAgentLoop(prompt, messageId, undefined, {
       isInteractive: false,
       isUserMessage: true,
       callSite: "analyzeConversation",
