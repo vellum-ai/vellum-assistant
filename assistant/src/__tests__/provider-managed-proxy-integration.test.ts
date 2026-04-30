@@ -117,12 +117,16 @@ function disableManagedProxy() {
   mockAssistantApiKey = null;
 }
 
-function unwrapInnermostProvider(provider: unknown): Record<string, unknown> {
+type ProviderWithClientBaseUrl = Record<string, unknown> & {
+  client: { baseURL: string };
+};
+
+function unwrapInnermostProvider(provider: unknown): ProviderWithClientBaseUrl {
   let current = provider as Record<string, unknown>;
   while (current.inner) {
     current = current.inner as Record<string, unknown>;
   }
-  return current;
+  return current as ProviderWithClientBaseUrl;
 }
 
 /**
