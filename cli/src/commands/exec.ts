@@ -1,9 +1,6 @@
 import { spawn } from "child_process";
 
-import {
-  resolveAssistant,
-  resolveCloud,
-} from "../lib/assistant-config";
+import { resolveAssistant, resolveCloud } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
 import { execAppleContainer } from "../lib/exec-apple-container";
@@ -210,14 +207,20 @@ export async function exec(): Promise<void> {
       platformUrl: getPlatformUrl(),
     };
 
+    const serviceParam = service === "assistant" ? undefined : service;
+
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command));
+      await interactiveSession(assistant, shellEscapeArgs(command), serviceParam);
       return;
     }
 
     // Non-interactive: sentinel-based output capture with exit code
-    await nonInteractiveExec(assistant, command, { verbose, timeoutMs });
+    await nonInteractiveExec(assistant, command, {
+      verbose,
+      timeoutMs,
+      service: serviceParam,
+    });
     return;
   }
 
