@@ -292,7 +292,7 @@ extension ChatBubble {
     }
 
     @ViewBuilder
-    private func inlineToolProgress(toolIndices: [Int], isLatestGroup: Bool, hasTrailingText: Bool) -> some View {
+    private func inlineToolProgress(toolIndices: [Int], isLatestGroup: Bool, hasTrailingText: Bool, thinkingContent: String? = nil, thinkingIsStreaming: Bool = false) -> some View {
         let groupedToolCalls: [ToolCallData] = toolIndices.compactMap { idx -> ToolCallData? in
             guard idx < message.toolCalls.count else { return nil }
             return message.toolCalls[idx]
@@ -337,6 +337,8 @@ extension ChatBubble {
                     streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
                     streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
                     decidedConfirmations: groupConfirmations,
+                    thinkingContent: thinkingContent,
+                    thinkingIsStreaming: thinkingIsStreaming,
                     onRehydrate: onRehydrate,
                     onConfirmationAllow: onConfirmationAllow,
                     onConfirmationDeny: onConfirmationDeny,
@@ -395,6 +397,72 @@ extension ChatBubble {
             return false
         })?.stableId
 
+        // Pre-compute which thinking groups are adjacent to tool call groups
+        // so their content can be folded into the progress card instead of
+        // rendering as standalone ThinkingBlockView.
+        let foldedThinkingGroupIds: Set<String> = {
+            var ids = Set<String>()
+            for i in 0..<groups.count {
+                guard case .toolCalls = groups[i] else { continue }
+                // Check preceding group
+                if i > 0, case .thinking = groups[i - 1] {
+                    ids.insert(groups[i - 1].stableId)
+                }
+                // Check following group
+                if i + 1 < groups.count, case .thinking = groups[i + 1] {
+                    ids.insert(groups[i + 1].stableId)
+                }
+            }
+            return ids
+        }()
+
+        // Map each tool call group's stableId to the joined thinking text
+        // from its adjacent thinking group(s).
+        let toolGroupThinkingContent: [String: String] = {
+            var map: [String: String] = [:]
+            for i in 0..<groups.count {
+                guard case .toolCalls = groups[i] else { continue }
+                var parts: [String] = []
+                // Preceding thinking group
+                if i > 0, case .thinking(let thinkIndices) = groups[i - 1] {
+                    let joined = thinkIndices
+                        .compactMap { idx in
+                            idx < message.thinkingSegments.count
+                                ? message.thinkingSegments[idx]
+                                : nil
+                        }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                    if !joined.isEmpty { parts.append(joined) }
+                }
+                // Following thinking group
+                if i + 1 < groups.count, case .thinking(let thinkIndices) = groups[i + 1] {
+                    let joined = thinkIndices
+                        .compactMap { idx in
+                            idx < message.thinkingSegments.count
+                                ? message.thinkingSegments[idx]
+                                : nil
+                        }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                    if !joined.isEmpty { parts.append(joined) }
+                }
+                if !parts.isEmpty {
+                    map[groups[i].stableId] = parts.joined(separator: "\n")
+                }
+            }
+            return map
+        }()
+
+        // Determine whether thinking is currently streaming: true only when
+        // the message is streaming and the last content block is a thinking block.
+        let thinkingIsCurrentlyStreaming: Bool = {
+            guard message.isStreaming else { return false }
+            if let lastRef = message.contentOrder.last, case .thinking = lastRef {
+                return true
+            }
+            return false
+        }()
 
         // Render all content groups in order: text, tool calls, and surfaces.
         // Uses \.stableId (based on the first index in each group) so SwiftUI
@@ -432,10 +500,13 @@ extension ChatBubble {
                 }
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
+                    let isLatest = indices == latestToolGroup
                     inlineToolProgress(
                         toolIndices: indices,
-                        isLatestGroup: indices == latestToolGroup,
-                        hasTrailingText: cachedToolGroupsWithTrailingText.contains(group.stableId)
+                        isLatestGroup: isLatest,
+                        hasTrailingText: cachedToolGroupsWithTrailingText.contains(group.stableId),
+                        thinkingContent: toolGroupThinkingContent[group.stableId],
+                        thinkingIsStreaming: isLatest && thinkingIsCurrentlyStreaming
                     )
                     // Show images immediately when no text follows;
                     // otherwise they are deferred to render after the next text group.
@@ -456,7 +527,10 @@ extension ChatBubble {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                 }
             case .thinking(let indices):
-                if MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                if foldedThinkingGroupIds.contains(group.stableId) {
+                    // Thinking content is folded into the adjacent progress card
+                    EmptyView()
+                } else if MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
                     let joined = indices
                         .compactMap { i in
                             i < message.thinkingSegments.count
