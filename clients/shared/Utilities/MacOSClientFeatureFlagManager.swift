@@ -77,7 +77,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         return false
     }
 
-    /// Return the resolved state of all macOS-scope flag definitions for UI display.
+    /// Return the resolved state of all client-scope flag definitions for UI display.
     public func allFlagStates() -> [MacOSFeatureFlagState] {
         lock.lock()
         defer { lock.unlock() }
