@@ -2574,11 +2574,6 @@ describe("session-agent-loop", () => {
             "1700000030.000000",
           ][index]!,
         })),
-        sourceChannelTsByMessage: [
-          "1700000010.000000",
-          "1700000020.000000",
-          "1700000030.000000",
-        ],
         compactableStartIndex: 0,
       };
 
