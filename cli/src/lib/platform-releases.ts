@@ -8,6 +8,29 @@ export interface ResolvedImageRefs {
 }
 
 /**
+ * Fetch the latest stable release version from the platform API.
+ * Returns the version string (e.g. "0.7.0") or null if unavailable.
+ * The releases endpoint returns entries ordered newest-first.
+ */
+export async function fetchLatestStableVersion(): Promise<string | null> {
+  try {
+    const platformUrl = getPlatformUrl();
+    const response = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return null;
+
+    const releases = (await response.json()) as Array<{
+      version?: string;
+    }>;
+    const first = releases[0];
+    return first?.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve image references for a given version.
  *
  * Tries the platform API first (returns GCR digest-based refs when available),
