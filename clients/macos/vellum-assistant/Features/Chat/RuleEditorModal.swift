@@ -124,8 +124,11 @@ struct RuleEditorModal: View {
     /// Whether the Save As New button should be visible.
     private var showSaveAsNew: Bool {
         guard onSaveAsNew != nil, existingRule != nil else { return false }
+        // Hide while suggestion is loading — avoids flickering when the suggestion
+        // arrives and turns out to match the existing rule pattern.
+        guard let suggestion else { return false }
         // Suppress if LLM found nothing narrower than the existing rule's pattern
-        if let suggestion, let existing = existingRule, suggestion.pattern == existing.pattern {
+        if let existing = existingRule, suggestion.pattern == existing.pattern {
             return false
         }
         return !generalizedOptions.isEmpty

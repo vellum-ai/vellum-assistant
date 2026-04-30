@@ -1171,7 +1171,9 @@ struct ToolCallStepDetailRow: View {
         // Fetch the matched rule first (fast HTTP list) so the modal opens in the
         // correct create/edit mode. Suggestion fires in the background after open.
         let existingRule = try? await fetchMatchedRule(toolCall)
+        guard !Task.isCancelled else { return }
         ruleEditorExistingRule = existingRule
+        guard !Task.isCancelled else { return }
         ruleEditorToolCall = toolCall  // Opens the modal immediately
 
         // LLM suggestion fires while the modal is already visible. The modal
