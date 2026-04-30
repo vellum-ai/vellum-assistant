@@ -404,7 +404,9 @@ export class PermissionChecker {
             content: denialMessage,
             matchedTrustRuleId,
             riskMeta,
-            ...mapApprovalProvenance(decision, {}),
+            ...mapApprovalProvenance(decision, {
+              wasTimeout: response.wasTimeout,
+            }),
             riskThreshold,
           };
         }

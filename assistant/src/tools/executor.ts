@@ -217,6 +217,11 @@ export class ToolExecutor {
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
         }
+      } else {
+        // Grant consumed — permission check was skipped. Set provenance explicitly
+        // so the record shows how this execution was authorized.
+        permApprovalMode = "auto";
+        permApprovalReason = "grant_scoped_consumed";
       }
 
       // Execute the tool - proxy tools delegate to an external resolver.

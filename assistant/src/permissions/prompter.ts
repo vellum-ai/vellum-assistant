@@ -16,6 +16,7 @@ interface PendingPrompt {
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
+    wasTimeout?: boolean;
   }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -71,6 +72,7 @@ export class PermissionPrompter {
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
+    wasTimeout?: boolean;
   }> {
     if (signal?.aborted) return { decision: "deny" };
 
@@ -87,6 +89,7 @@ export class PermissionPrompter {
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
         resolve({
           decision: "deny",
+          wasTimeout: true,
           decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
         });
       }, timeoutMs);

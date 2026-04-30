@@ -18,6 +18,7 @@ export function mapApprovalProvenance(
     hasSandboxAutoApprove?: boolean;
     matchedTrustRuleId?: string;
     wasPrompted?: boolean;
+    wasTimeout?: boolean;
   },
 ): { approvalMode: ApprovalMode; approvalReason: ApprovalReason } {
   if (decision === "platform_auto_approve") {
@@ -41,8 +42,11 @@ export function mapApprovalProvenance(
     return { approvalMode: "auto", approvalReason: "within_threshold" };
   }
 
-  // "deny" — user pressed deny in the interactive prompt
+  // "deny" — interactive prompt denied, either by user or timeout
   if (decision === "deny") {
+    if (opts.wasTimeout) {
+      return { approvalMode: "prompted", approvalReason: "timed_out" };
+    }
     return { approvalMode: "prompted", approvalReason: "user_denied" };
   }
 

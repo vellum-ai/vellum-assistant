@@ -16,6 +16,7 @@ export type ApprovalReason =
   | "sandbox_auto_approve"
   | "platform_auto_approve"
   | "no_interactive_client"
+  | "grant_scoped_consumed"
   | "unknown";
 
 export type RiskThreshold = "none" | "low" | "medium" | "high";
