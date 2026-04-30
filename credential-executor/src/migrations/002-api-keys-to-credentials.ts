@@ -34,8 +34,10 @@ export const apiKeyToCredentialsMigration: CesMigration = {
       const credKey = `credential/${provider}/api_key`;
       const existingCred = await backend.get(credKey);
       if (existingCred === undefined) {
-        // Write new key first — safe to re-run if we crash after this
-        await backend.set(credKey, bareValue);
+        // Write new key first — safe to re-run if we crash after this.
+        // Skip delete if the write fails so the bare key is preserved for retry.
+        const ok = await backend.set(credKey, bareValue);
+        if (!ok) continue;
       }
       // Always delete old bare key (idempotent: harmless if already absent)
       await backend.delete(provider);

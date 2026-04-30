@@ -123,6 +123,19 @@ describe("apiKeyToCredentialsMigration (002)", () => {
       }
     });
 
+    test("set() failure — bare key preserved, credential key absent", async () => {
+      const backend = makeMapBackend({ anthropic: "sk-ant-123" });
+      // Simulate a write failure
+      backend.set = (_key: string, _value: string) => Promise.resolve(false);
+
+      await apiKeyToCredentialsMigration.run(backend);
+
+      // Bare key must survive — it was not deleted because set() failed
+      expect(backend.store.get("anthropic")).toBe("sk-ant-123");
+      // Credential key must not exist
+      expect(backend.store.has("credential/anthropic/api_key")).toBe(false);
+    });
+
     test("run() is idempotent — running twice leaves store in same state as once", async () => {
       const backend = makeMapBackend({
         anthropic: "sk-ant-idem",
