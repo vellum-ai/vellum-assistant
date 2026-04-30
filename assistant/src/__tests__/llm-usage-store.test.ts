@@ -12,6 +12,7 @@ import { initializeDb } from "../memory/db-init.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
+  getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
   listUsageEvents,
@@ -891,6 +892,63 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[1].totalEstimatedCostUsd).toBe(0);
   });
 
+  test("groups by call site with display labels and raw group keys", () => {
+    insertEventAt(
+      1000,
+      { callSite: "mainAgent", inputTokens: 100 },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { callSite: "conversationTitle", inputTokens: 200 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      3000,
+      { callSite: null, inputTokens: 300 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "call_site");
+    expect(groups.map((group) => group.group)).toEqual([
+      "Main agent",
+      "Unknown Task",
+      "Conversation title",
+    ]);
+    expect(groups.map((group) => group.groupKey)).toEqual([
+      "mainAgent",
+      null,
+      "conversationTitle",
+    ]);
+    expect(
+      groups.find((group) => group.groupKey === null)?.totalInputTokens,
+    ).toBe(300);
+  });
+
+  test("groups by inference profile with unset historical rows preserved", () => {
+    insertEventAt(
+      1000,
+      { inferenceProfile: "fast", inputTokens: 100 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { inferenceProfile: null, inputTokens: 200 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "inference_profile",
+    );
+    expect(groups.map((group) => group.group)).toEqual([
+      "Default / Unset",
+      "fast",
+    ]);
+    expect(groups.map((group) => group.groupKey)).toEqual([null, "fast"]);
+    expect(groups[0].totalInputTokens).toBe(200);
+  });
+
   test("groups by model", () => {
     insertEventAt(
       1000,
@@ -1031,6 +1089,93 @@ describe("getUsageGroupBreakdown", () => {
     for (const row of groups) {
       expect(row.groupId).toBeNull();
     }
+  });
+});
+
+describe("getUsageGroupedSeries", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("returns grouped daily buckets keyed by call-site ids", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 10), {
+      callSite: "mainAgent",
+      inputTokens: 100,
+      outputTokens: 10,
+    });
+    insertEventAt(Date.UTC(2026, 3, 10, 12), {
+      callSite: "conversationTitle",
+      inputTokens: 200,
+      outputTokens: 20,
+    });
+    insertEventAt(Date.UTC(2026, 3, 11, 10), {
+      callSite: null,
+      inputTokens: 300,
+      outputTokens: 30,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 10, 0),
+        to: Date.UTC(2026, 3, 11, 23),
+      },
+      "call_site",
+      "daily",
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    expect(buckets).toHaveLength(2);
+    expect(buckets[0].groups.mainAgent).toMatchObject({
+      group: "Main agent",
+      groupKey: "mainAgent",
+      totalInputTokens: 100,
+    });
+    expect(buckets[0].groups.conversationTitle).toMatchObject({
+      group: "Conversation title",
+      groupKey: "conversationTitle",
+      totalInputTokens: 200,
+    });
+    expect(buckets[1].groups.__unknown_task__).toMatchObject({
+      group: "Unknown Task",
+      groupKey: null,
+      totalInputTokens: 300,
+    });
+  });
+
+  test("returns grouped hourly buckets by inference profile including unset rows", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 10, 15), {
+      inferenceProfile: "fast",
+      inputTokens: 100,
+    });
+    insertEventAt(Date.UTC(2026, 3, 10, 10, 45), {
+      inferenceProfile: null,
+      inputTokens: 200,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 10, 10),
+        to: Date.UTC(2026, 3, 10, 11),
+      },
+      "inference_profile",
+      "hourly",
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    const bucket = buckets.find((entry) => entry.date === "2026-04-10 10:00");
+    expect(bucket?.groups.fast).toMatchObject({
+      group: "fast",
+      groupKey: "fast",
+      totalInputTokens: 100,
+    });
+    expect(bucket?.groups.__default_unset__).toMatchObject({
+      group: "Default / Unset",
+      groupKey: null,
+      totalInputTokens: 200,
+    });
   });
 });
 
