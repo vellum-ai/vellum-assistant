@@ -15,6 +15,35 @@ extension ChatBubble {
             || message.toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
+    /// Extracted thinking content for the progress card when the message has
+    /// both inline thinking tags and tool calls. Returns nil when thinking
+    /// should not render inside the progress card (no tags, no tool calls,
+    /// or feature flag disabled).
+    var thinkingContentForProgressCard: String? {
+        guard containsInlineThinkingTag(message.text),
+              !message.toolCalls.isEmpty,
+              MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") else {
+            return nil
+        }
+        let chunks = parseInlineThinkingTags(message.text)
+        let bodies = chunks.compactMap { chunk -> String? in
+            if case .thinking(let body) = chunk { return body }
+            return nil
+        }
+        let joined = bodies.joined(separator: "\n")
+        return joined.isEmpty ? nil : joined
+    }
+
+    /// Whether thinking content is currently streaming into the progress card.
+    /// True when the message is streaming, thinking content exists, and the
+    /// last parsed chunk is a `.thinking` case (i.e. we are mid-thought).
+    var thinkingIsStreamingForProgressCard: Bool {
+        guard message.isStreaming, thinkingContentForProgressCard != nil else { return false }
+        let chunks = parseInlineThinkingTags(message.text)
+        if case .thinking = chunks.last { return true }
+        return false
+    }
+
     @ViewBuilder
     var trailingStatus: some View {
         let inlineToolProgressRenderedInContent = shouldRenderToolProgressInline
@@ -46,6 +75,8 @@ extension ChatBubble {
                     streamingCodePreview: message.streamingCodePreview,
                     streamingCodeToolName: message.streamingCodeToolName,
                     decidedConfirmations: effectiveConfirmations,
+                    thinkingContent: thinkingContentForProgressCard,
+                    thinkingIsStreaming: thinkingIsStreamingForProgressCard,
                     onRehydrate: onRehydrate,
                     onConfirmationAllow: onConfirmationAllow,
                     onConfirmationDeny: onConfirmationDeny,

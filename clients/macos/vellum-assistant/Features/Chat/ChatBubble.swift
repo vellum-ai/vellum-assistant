@@ -812,13 +812,13 @@ struct ChatBubble: View, Equatable {
     /// rendered alongside a bubble that contains the remaining content.
     /// This keeps the transformation at the presentation layer — the
     /// streaming pipeline and `ChatMessage` data model are unchanged.
+    ///
+    /// When tool calls are present, thinking content renders inside the
+    /// progress card (via `thinkingContentForProgressCard`) instead of
+    /// as standalone blocks — so we skip the ThinkingBlockView ForEach.
     @ViewBuilder
     private var bubbleContentWithInlineThinking: some View {
         let chunks = parseInlineThinkingTags(message.text)
-        let thinkingChunks: [String] = chunks.compactMap { chunk in
-            if case .thinking(let body) = chunk { return body }
-            return nil
-        }
         let textChunks: [String] = chunks.compactMap { chunk in
             if case .text(let body) = chunk { return body }
             return nil
@@ -829,17 +829,29 @@ struct ChatBubble: View, Equatable {
         let hasRenderedText = !joinedText.isEmpty
         let hasAttachments = !message.attachments.isEmpty
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
-                ThinkingBlockView(
-                    content: content,
-                    isStreaming: message.isStreaming,
-                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
-                    typographyGeneration: typographyGeneration
-                )
-            }
+        if !message.toolCalls.isEmpty {
+            // Thinking content renders inside the progress card via
+            // thinkingContentForProgressCard — only show the text bubble.
             if hasRenderedText || hasAttachments {
                 bubbleContent(renderingText: joinedText)
+            }
+        } else {
+            let thinkingChunks: [String] = chunks.compactMap { chunk in
+                if case .thinking(let body) = chunk { return body }
+                return nil
+            }
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
+                    ThinkingBlockView(
+                        content: content,
+                        isStreaming: message.isStreaming,
+                        expansionKey: "\(message.id.uuidString)-inline-\(offset)",
+                        typographyGeneration: typographyGeneration
+                    )
+                }
+                if hasRenderedText || hasAttachments {
+                    bubbleContent(renderingText: joinedText)
+                }
             }
         }
     }
