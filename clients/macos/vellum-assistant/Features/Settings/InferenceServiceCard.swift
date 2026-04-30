@@ -146,27 +146,22 @@ struct InferenceServiceCard: View {
     var body: some View {
         ServiceModeCard(
             title: "Inference",
-            subtitle: draftMode == "managed"
-                ? "Configure which model to use to power your assistant"
-                : "Configure which LLM provider and model to use to power your assistant",
+            subtitle: "Configure which model to power your assistant",
             draftMode: $draftMode,
             managedContent: {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         if profilesEnabled {
                             activeProfilePicker
-                            HStack(spacing: VSpacing.md) {
-                                manageProfilesButton
-                                overridesBadge
-                            }
+                            secondaryActionsRow
                         } else {
                             managedProviderPicker
+                            ServiceCardActions(
+                                hasChanges: hasChanges,
+                                isSaving: store.apiKeySaving,
+                                onSave: { save() }
+                            )
                         }
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: store.apiKeySaving,
-                            onSave: { save() }
-                        )
                     }
                 } else {
                     managedLoginPrompt
@@ -175,41 +170,14 @@ struct InferenceServiceCard: View {
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if profilesEnabled && hasAnyProviderKey {
-                        // Multi-provider API key summary + full profile UI
                         apiKeysSection
-
                         activeProfilePicker
-                        HStack(spacing: VSpacing.md) {
-                            manageProfilesButton
-                            overridesBadge
-                        }
-
-                        // Save button — only needed for mode changes when
-                        // profiles are enabled (API keys are managed in the
-                        // sheet, not inline on this card).
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: false,
-                            onSave: { save() }
-                        )
+                        secondaryActionsRow
                     } else if profilesEnabled {
-                        // No API keys configured — show a friendly empty
-                        // state instead of profiles/overrides (which can't
-                        // do anything without provider credentials).
                         apiKeysEmptyState
-
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: false,
-                            onSave: { save() }
-                        )
                     } else {
                         providerPicker
-
-                        // Single-provider API key field (legacy path)
                         apiKeyField
-
-                        // Action buttons
                         ServiceCardActions(
                             hasChanges: hasChanges,
                             isSaving: store.apiKeySaving,
@@ -411,28 +379,29 @@ struct InferenceServiceCard: View {
         }
     }
 
-    // MARK: - Per-Call-Site Overrides Badge
+    // MARK: - Secondary Actions Row
 
-    /// Compact link-styled label that opens the model profile overrides
-    /// sheet. Shows the override count when overrides exist, or a plain
-    /// "Model profile overrides" link otherwise.
-    private var overridesBadge: some View {
-        Button {
-            showOverridesSheet = true
-        } label: {
-            Text(
-                store.overridesCount > 0
-                    ? "\(store.overridesCount) model profile override"
-                        + (store.overridesCount == 1 ? "" : "s")
-                    : "Model profile overrides"
-            )
-            .font(VFont.bodySmallDefault)
-            .foregroundStyle(.secondary)
-            .underline()
+    /// Consolidated row of ghost-styled buttons for managing API keys,
+    /// profiles, and per-task overrides. Shown in both Managed and Your Own
+    /// modes when inference-profiles is enabled.
+    private var secondaryActionsRow: some View {
+        let overridesLabel = store.overridesCount > 0
+            ? "\(store.overridesCount) Override\(store.overridesCount == 1 ? "" : "s")"
+            : "Overrides"
+
+        return HStack(spacing: VSpacing.sm) {
+            if draftMode == "your-own" {
+                VButton(label: "API Keys", style: .ghost, size: .compact) {
+                    showAPIKeysSheet = true
+                }
+            }
+            VButton(label: "Profiles", style: .ghost, size: .compact) {
+                showProfilesSheet = true
+            }
+            VButton(label: overridesLabel, style: .ghost, size: .compact) {
+                showOverridesSheet = true
+            }
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityLabel("View model profile overrides")
     }
 
     // MARK: - Managed Login Prompt
@@ -510,51 +479,23 @@ struct InferenceServiceCard: View {
     // MARK: - Multi-Provider API Keys Section
 
     /// Compact summary of configured provider API keys, shown in "Your Own"
-    /// mode when the inference-profiles feature flag is enabled.
+    /// mode when the inference-profiles feature flag is enabled and at least
+    /// one key exists. Shows provider chips only — the "API Keys" action
+    /// button lives in the consolidated `secondaryActionsRow`.
     private var apiKeysSection: some View {
         let configuredProviders = store.providerCatalog
             .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == true }
 
-        return VStack(alignment: .leading, spacing: VSpacing.xs) {
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Keys")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
-            if configuredProviders.isEmpty {
-                Text("No API keys configured.")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else {
-                // Flow of chips for each configured provider
-                HStack(spacing: VSpacing.sm) {
-                    ForEach(configuredProviders, id: \.id) { provider in
-                        HStack(spacing: VSpacing.xs) {
-                            Image(VIcon.check.rawValue)
-                                .resizable()
-                                .frame(width: 10, height: 10)
-                                .foregroundStyle(VColor.systemPositiveStrong)
-                            Text(provider.displayName)
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentDefault)
-                        }
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(VColor.surfaceBase.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.chip))
-                    }
+            HStack(spacing: VSpacing.sm) {
+                ForEach(configuredProviders, id: \.id) { provider in
+                    VTag(provider.displayName, color: VColor.systemPositiveStrong, icon: .check)
                 }
             }
-
-            Button {
-                showAPIKeysSheet = true
-            } label: {
-                Text(configuredProviders.isEmpty ? "Add API Keys\u{2026}" : "Manage API Keys\u{2026}")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(.secondary)
-                    .underline()
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
     }
 
@@ -562,18 +503,29 @@ struct InferenceServiceCard: View {
     /// API keys have been configured yet. Replaces the profile picker and
     /// overrides controls since they can't do anything without credentials.
     private var apiKeysEmptyState: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Add an API key to get started")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentDefault)
-            Text("Configure at least one provider API key so your inference profiles have credentials to use.")
-                .font(VFont.bodySmallDefault)
+        VStack(spacing: VSpacing.md) {
+            Image(VIcon.keyRound.rawValue)
+                .resizable()
+                .frame(width: 28, height: 28)
                 .foregroundStyle(VColor.contentTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            VButton(label: "Add API Keys\u{2026}", style: .outlined) {
+
+            VStack(spacing: VSpacing.xs) {
+                Text("Add an API key to get started")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("Connect a provider so your assistant can generate responses using your own credentials.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VButton(label: "Add API Keys\u{2026}", style: .primary) {
                 showAPIKeysSheet = true
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.lg)
     }
 
     /// Fetches the key-exists status for every key-required provider.
@@ -610,7 +562,7 @@ struct InferenceServiceCard: View {
 
     private var activeProfilePicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Active Profile")
+            Text("Default Profile")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
             VDropdown(
@@ -618,12 +570,6 @@ struct InferenceServiceCard: View {
                 selection: activeProfileBinding,
                 options: store.profiles.map { (label: $0.displayName, value: $0.name) }
             )
-        }
-    }
-
-    private var manageProfilesButton: some View {
-        VButton(label: "Manage Profiles\u{2026}", style: .ghost) {
-            showProfilesSheet = true
         }
     }
 
