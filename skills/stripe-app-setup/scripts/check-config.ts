@@ -36,22 +36,12 @@ async function checkVellum(): Promise<void> {
     const hasApiKey = credentials.some(
       (c) => c.service === "stripe" && c.field === "api_key",
     );
-    const hasWebhookSecret = credentials.some(
-      (c) => c.service === "stripe" && c.field === "webhook_secret",
-    );
-    const parts: string[] = [];
-    if (hasApiKey) parts.push("api_key");
-    if (hasWebhookSecret) parts.push("webhook_secret");
-
     console.log(
       JSON.stringify({
         configured: hasApiKey,
-        details:
-          parts.length > 0
-            ? `Found credentials: ${parts.join(", ")}`
-            : "No stripe credentials found",
-        hasApiKey,
-        hasWebhookSecret,
+        details: hasApiKey
+          ? "Stripe api_key found in credential store"
+          : "No stripe api_key found",
       }),
     );
   } catch {

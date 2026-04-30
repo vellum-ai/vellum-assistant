@@ -32,7 +32,7 @@ Before starting, check whether Stripe is already configured by running the check
 bun skills/stripe-app-setup/scripts/check-config.ts
 ```
 
-The script outputs JSON: `{ "configured": boolean, "hasApiKey": boolean, "hasWebhookSecret": boolean, "details": string }`.
+The script outputs JSON: `{ "configured": boolean, "details": string }`.
 
 - If `configured` is `true` — Stripe is already set up. Offer to verify the connection or reconfigure.
 - If `configured` is `false` — continue to Step 1.
@@ -47,19 +47,18 @@ When Stripe asks "How will you use this API key?", select **Providing this key t
 
 Guide them through the permissions. A good default for managing payments, customers, and subscriptions:
 
-| Resource              | Access Level |
-| --------------------- | ------------ |
-| **Customers**         | Read & Write |
-| **Charges**           | Read & Write |
-| **Invoices**          | Read & Write |
-| **Payment Intents**   | Read & Write |
-| **Subscriptions**     | Read & Write |
-| **Products**          | Read         |
-| **Prices**            | Read         |
-| **Balance**           | Read         |
-| **Disputes**          | Read         |
-| **Payouts**           | Read         |
-| **Webhook Endpoints** | Read & Write |
+| Resource            | Access Level |
+| ------------------- | ------------ |
+| **Customers**       | Read & Write |
+| **Charges**         | Read & Write |
+| **Invoices**        | Read & Write |
+| **Payment Intents** | Read & Write |
+| **Subscriptions**   | Read & Write |
+| **Products**        | Read         |
+| **Prices**          | Read         |
+| **Balance**         | Read         |
+| **Disputes**        | Read         |
+| **Payouts**         | Read         |
 
 Adjust permissions up or down based on the user's needs. The principle of least privilege applies — only request what the assistant will actually use. For read-only monitoring, set everything to Read.
 
@@ -89,49 +88,17 @@ Run with `network_mode: "proxied"` and the stripe credential. A successful respo
 
 If the response returns a 401, the key is invalid or revoked. If 403, the key doesn't have the required permissions for the endpoint.
 
-### Step 4: Webhook Setup (Optional)
-
-If the user wants the assistant to **receive real-time events** from Stripe (payment succeeded, subscription canceled, invoice paid, etc.), set up a webhook endpoint.
-
-Run the automated webhook setup script:
-
-```bash
-bun skills/stripe-app-setup/scripts/setup-webhook.ts
-```
-
-This script handles all three steps automatically:
-
-1. Gets a callback URL via `assistant webhooks register stripe`
-2. Creates the webhook endpoint via the Stripe API (using proxied credentials)
-3. Stores the returned `whsec_` signing secret in the credential vault
-
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
-
-**Custom events:** By default, the script subscribes to common payment/subscription/invoice events. To specify custom events:
-
-```bash
-bun skills/stripe-app-setup/scripts/setup-webhook.ts --events "payment_intent.succeeded,customer.created"
-```
-
-The script outputs JSON on success: `{ "ok": true, "webhookId": "...", "callbackUrl": "...", "secretStored": true, "events": [...] }`.
-
-### Step 5: Report Success
+### Step 4: Report Success
 
 Summarize with the completed checklist:
 
 "Setup complete!
 ✅ Restricted API key configured
 ✅ Connection verified — balance accessible
-{webhook_line}
 
 Key type: Restricted API key (`rk_...`)
 Permissions: {list the configured permission levels}
 Key management: https://dashboard.stripe.com/apikeys"
-
-For `{webhook_line}`:
-
-- If webhook was set up: `✅ Webhook endpoint registered — listening for {N} event types`
-- If skipped: `⬜ Webhooks — set up anytime for real-time event notifications`
 
 ## API Usage
 
@@ -196,10 +163,9 @@ Stripe has separate sandbox and live modes with separate API keys. Keys starting
 
 All credentials are stored under `service: stripe`:
 
-| Field            | Description                                   | When Set |
-| ---------------- | --------------------------------------------- | -------- |
-| `api_key`        | Restricted API key (`rk_live_` or `rk_test_`) | Step 2   |
-| `webhook_secret` | Webhook signing secret (`whsec_...`)          | Step 4   |
+| Field     | Description                                   | When Set |
+| --------- | --------------------------------------------- | -------- |
+| `api_key` | Restricted API key (`rk_live_` or `rk_test_`) | Step 2   |
 
 ## Troubleshooting
 
@@ -210,10 +176,6 @@ The API key is invalid or has been revoked. Create a new restricted key in the D
 ### 403 Forbidden / "Insufficient permissions"
 
 The restricted key doesn't have the required permission for the API endpoint being called. Edit the key's permissions in the Dashboard at https://dashboard.stripe.com/apikeys (click the overflow menu → Edit key).
-
-### Webhook signature verification fails
-
-Ensure the correct signing secret is stored — each webhook endpoint has its own unique `whsec_` secret. Dashboard-created and CLI-created endpoints have different secrets. Roll the secret in the Dashboard if needed (Developers → Webhooks → select endpoint → overflow menu → Roll secret).
 
 ### "No such customer" / "No such subscription"
 
