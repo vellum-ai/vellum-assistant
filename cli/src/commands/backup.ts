@@ -12,7 +12,6 @@ import {
   localRuntimePollJobStatus,
 } from "../lib/local-runtime-client.js";
 import {
-  getPlatformUrl,
   platformRequestSignedUrl,
   readPlatformToken,
 } from "../lib/platform-client.js";
@@ -221,12 +220,22 @@ async function backupPlatform(
     );
     process.exit(1);
   }
-  const platformUrl = getPlatformUrl();
+  // Pin upload, download, and runtime requests to the same platform instance
+  // the assistant lives on. Using `getPlatformUrl()` instead would target
+  // whatever the lockfile / env-var resolves to, which may differ from
+  // `entry.runtimeUrl` for staging/dev assistants and end up signing URLs
+  // for the wrong GCS bucket. Mirrors the teleport bundlePlatformUrl
+  // threading at `cli/src/commands/teleport.ts:1311-1312`.
+  const platformUrl = entry.runtimeUrl;
+  // Track the working platform token across kickoff/poll/download so a
+  // 401-driven refresh during polling stays consistent through the final
+  // signed-download request.
+  let exportPlatformToken = platformToken;
 
   // Step 1 — Request a signed upload URL.
   const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
     { operation: "upload" },
-    platformToken,
+    exportPlatformToken,
     platformUrl,
   );
 
@@ -235,7 +244,6 @@ async function backupPlatform(
   // `/v1/assistants/<id>/migrations/export-to-gcs` URL for cloud="vellum"
   // and uses platform-token auth (no guardian-token bootstrap).
   let jobId: string;
-  let exportPlatformToken = platformToken;
   try {
     ({ jobId } = await localRuntimeExportToGcs(entry, exportPlatformToken, {
       uploadUrl,
@@ -277,9 +285,13 @@ async function backupPlatform(
 
   // Step 4 — Request a signed download URL for the same bundle and fetch
   // it from GCS directly. No auth on signed URLs.
+  // Use `exportPlatformToken` (not the original `platformToken`) so a
+  // poll-loop 401 refresh doesn't get clobbered here — otherwise a long
+  // export that recovered mid-poll via re-auth would still 401 on the
+  // download-URL request and abort an otherwise successful run.
   const { url: bundleUrl } = await platformRequestSignedUrl(
     { operation: "download", bundleKey },
-    platformToken,
+    exportPlatformToken,
     platformUrl,
   );
 
