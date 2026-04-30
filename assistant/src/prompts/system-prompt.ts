@@ -299,8 +299,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 
   if (identity && (!identityIsTemplate || includeBootstrap)) {
     if (identityIsTemplate) {
-      // During bootstrap the model needs the exact template content to
-      // construct a valid old_string for file_edit.
+      // During bootstrap the model needs to see the template structure
+      // so it can produce a valid file_write with the right fields.
       dynamicParts.push(identity);
     } else {
       // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
