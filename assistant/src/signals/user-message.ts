@@ -26,7 +26,6 @@ import {
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
@@ -66,9 +65,7 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  const { conversationId } = getOrCreateConversationKey(
-    params.conversationKey,
-  );
+  const { conversationId } = getOrCreateConversationKey(params.conversationKey);
   const conversation = await getOrCreateConversation(conversationId);
 
   const attachmentIds: string[] = [];
@@ -100,10 +97,7 @@ async function dispatchUserMessage(params: {
           filePath: a.path,
         });
       } catch (err) {
-        log.warn(
-          { err, path: a.path },
-          "Failed to register signal attachment",
-        );
+        log.warn({ err, path: a.path }, "Failed to register signal attachment");
       }
     }
   }
@@ -129,7 +123,7 @@ async function dispatchUserMessage(params: {
     const result = conversation.enqueueMessage(
       params.content,
       resolvedAttachments,
-      broadcastMessage,
+      undefined,
       requestId,
       undefined,
       undefined,
@@ -147,7 +141,7 @@ async function dispatchUserMessage(params: {
     conversationId,
     params.content,
     attachmentIds.length > 0 ? attachmentIds : undefined,
-    { onEvent: broadcastMessage },
+    undefined,
     params.sourceChannel,
     params.sourceInterface,
   );

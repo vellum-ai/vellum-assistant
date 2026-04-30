@@ -48,7 +48,6 @@ mock.module("../daemon/process-message.js", () => ({
   // Only processMessage is imported by inbound-message-handler; stub the rest.
   resolveTurnChannel: () => "telegram",
   resolveTurnInterface: () => "telegram",
-  makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
     if (_testProcessMessage) return _testProcessMessage(...args);

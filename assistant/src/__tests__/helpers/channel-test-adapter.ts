@@ -47,7 +47,7 @@ export function setAdapterProcessMessage(
 mock.module("../../daemon/process-message.js", () => ({
   resolveTurnChannel: () => "telegram",
   resolveTurnInterface: () => "telegram",
-  makePendingInteractionRegistrar: () => () => {},
+
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
     if (_adapterProcessMessage) return _adapterProcessMessage(...args);

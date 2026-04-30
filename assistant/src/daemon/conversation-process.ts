@@ -75,8 +75,10 @@ export function formatCompactResult(result: ContextWindowResult): string {
 }
 
 /** Build a model_info event with fresh config data. */
-export async function buildModelInfoEvent(): Promise<ServerMessage> {
-  return { type: "model_info", ...(await getModelInfo()) };
+export async function buildModelInfoEvent(
+  conversationId?: string,
+): Promise<ServerMessage> {
+  return { type: "model_info", conversationId, ...(await getModelInfo()) };
 }
 
 /** True when the trimmed content is the /models slash command. */
@@ -530,7 +532,7 @@ async function drainSingleMessage(
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
       if (isModelSlashCommand(next.content)) {
-        next.onEvent(await buildModelInfoEvent());
+        next.onEvent(await buildModelInfoEvent(conversation.conversationId));
       }
       next.onEvent({
         type: "assistant_text_delta",
@@ -568,7 +570,11 @@ async function drainSingleMessage(
           attributes: { reason: "persist_failure" },
         },
       );
-      next.onEvent({ type: "error", conversationId: conversation.conversationId, message });
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
     }
     // Continue draining regardless of success/failure
     await drainQueue(conversation);
@@ -649,7 +655,11 @@ async function drainSingleMessage(
         },
         "Failed to execute /compact",
       );
-      next.onEvent({ type: "error", conversationId: conversation.conversationId, message });
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
     }
     await drainQueue(conversation);
     return;
@@ -709,7 +719,11 @@ async function drainSingleMessage(
         attributes: { reason: "persist_failure" },
       },
     );
-    next.onEvent({ type: "error", conversationId: conversation.conversationId, message });
+    next.onEvent({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message,
+    });
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
@@ -944,7 +958,11 @@ async function drainBatch(
         status: "error",
         attributes: { reason: "batch_invariant_violation" },
       });
-      qm.onEvent({ type: "error", conversationId: conversation.conversationId, message: invariantMessage });
+      qm.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message: invariantMessage,
+      });
       if (i === 0) {
         // Head invariant fired — no in-flight turn yet (the check runs
         // before persistUserMessage, so the head was never persisted).
@@ -1011,7 +1029,11 @@ async function drainBatch(
           attributes: { reason: "persist_failure" },
         },
       );
-      qm.onEvent({ type: "error", conversationId: conversation.conversationId, message });
+      qm.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
 
       if (i === 0) {
         // Head persist failed — processing is not set yet, no in-flight turn
@@ -1385,7 +1407,7 @@ export async function processMessage(
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
     if (isModelSlashCommand(content)) {
-      onEvent(await buildModelInfoEvent());
+      onEvent(await buildModelInfoEvent(conversation.conversationId));
     }
     onEvent({
       type: "assistant_text_delta",
@@ -1515,7 +1537,11 @@ export async function processMessage(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    onEvent({ type: "error", conversationId: conversation.conversationId, message });
+    onEvent({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message,
+    });
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     return "";

@@ -314,6 +314,7 @@ export interface GenerationHandoff {
 
 export interface ModelInfo {
   type: "model_info";
+  conversationId?: string;
   model: string;
   provider: string;
   configuredProviders?: string[];

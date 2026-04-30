@@ -23,10 +23,6 @@ import {
   getSourcePathsForAttachments,
 } from "../memory/attachments-store.js";
 import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-} from "../memory/canonical-guardian-store.js";
-import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
@@ -34,11 +30,9 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { redactSecrets } from "../security/secret-scanner.js";
-import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
@@ -54,7 +48,6 @@ import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import { HostTransferProxy } from "./host-transfer-proxy.js";
-import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("process-message");
 
@@ -94,118 +87,6 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   return "web";
 }
 
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string | undefined,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") return "voice";
-  if (sourceChannel === "vellum") return "desktop";
-  return "channel";
-}
-
-// ---------------------------------------------------------------------------
-// Pending-interaction registrar
-// ---------------------------------------------------------------------------
-
-function makePendingInteractionRegistrar(
-  conversation: Conversation,
-  conversationId: string,
-): (msg: ServerMessage) => void {
-  return (msg: ServerMessage) => {
-    if (msg.type === "confirmation_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: msg.toolName,
-          input: msg.input,
-          riskLevel: msg.riskLevel,
-          executionTarget: msg.executionTarget,
-          allowlistOptions: msg.allowlistOptions,
-          scopeOptions: msg.scopeOptions,
-          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-        },
-      });
-
-      try {
-        const trustContext = conversation.trustContext;
-        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-        const inputRecord = msg.input as Record<string, unknown>;
-        const activityRaw =
-          (typeof inputRecord.activity === "string"
-            ? inputRecord.activity
-            : undefined) ??
-          (typeof inputRecord.reason === "string"
-            ? inputRecord.reason
-            : undefined);
-        const canonicalRequest = createCanonicalGuardianRequest({
-          id: msg.requestId,
-          kind: "tool_approval",
-          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-          sourceChannel,
-          conversationId,
-          requesterExternalUserId: trustContext?.requesterExternalUserId,
-          requesterChatId: trustContext?.requesterChatId,
-          guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: msg.toolName,
-          commandPreview:
-            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-            undefined,
-          riskLevel: msg.riskLevel,
-          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-          executionTarget: msg.executionTarget,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
-
-        if (trustContext) {
-          bridgeConfirmationRequestToGuardian({
-            canonicalRequest,
-            trustContext,
-            conversationId,
-            toolName: msg.toolName,
-            assistantId:
-              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          });
-        }
-      } catch (err) {
-        log.debug(
-          { err, requestId: msg.requestId, conversationId },
-          "Failed to create canonical request from pending interaction registrar",
-        );
-      }
-    } else if (msg.type === "secret_request") {
-      // SecretPrompter.prompt() registers in pendingInteractions directly;
-      // no duplicate registration needed here.
-    } else if (msg.type === "host_bash_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (msg.type === "host_browser_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (msg.type === "host_file_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (msg.type === "host_cu_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "host_cu",
-      });
-    } else if (msg.type === "host_transfer_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversationId,
-        kind: "host_transfer",
-      });
-    }
-  };
-}
 
 // ---------------------------------------------------------------------------
 // prepareConversationForMessage
@@ -542,23 +423,7 @@ export async function processMessage(
     persistMetadata,
   );
 
-  const registrar = makePendingInteractionRegistrar(
-    conversation,
-    conversationId,
-  );
-  const onEvent = options?.onEvent
-    ? (msg: ServerMessage) => {
-        registrar(msg);
-        try {
-          options.onEvent!(msg);
-        } catch (err) {
-          log.error(
-            { err, conversationId },
-            "onEvent callback failed; continuing agent loop",
-          );
-        }
-      }
-    : registrar;
+  const onEvent = options?.onEvent ?? broadcastMessage;
   if (options?.isInteractive === true) {
     conversation.updateClient(onEvent, false);
   }
@@ -621,23 +486,7 @@ export async function processMessageInBackground(
     persistMetadata,
   );
 
-  const registrar = makePendingInteractionRegistrar(
-    conversation,
-    conversationId,
-  );
-  const onEvent = options?.onEvent
-    ? (msg: ServerMessage) => {
-        registrar(msg);
-        try {
-          options.onEvent!(msg);
-        } catch (err) {
-          log.error(
-            { err, conversationId },
-            "onEvent callback failed; continuing agent loop",
-          );
-        }
-      }
-    : registrar;
+  const onEvent = options?.onEvent ?? broadcastMessage;
   if (options?.isInteractive === true) {
     conversation.updateClient(onEvent, false);
   }

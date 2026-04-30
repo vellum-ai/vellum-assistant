@@ -49,8 +49,8 @@ export class SecretPrompter {
    * {@link broadcastMessage} so any connected client (desktop, web) can
    * display the secure prompt dialog.
    *
-   * Also registers the interaction in the global {@link pendingInteractions}
-   * map so that POST /v1/secret can find the conversation by requestId.
+   * Pending interaction registration is handled by {@link broadcastMessage}
+   * when the secret_request event is published to the hub.
    *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
@@ -81,10 +81,8 @@ export class SecretPrompter {
 
       this.pending.set(requestId, { resolve, reject, timer });
 
-      pendingInteractions.register(requestId, {
-        conversationId: effectiveConversationId,
-        kind: "secret",
-      });
+      // pendingInteractions.register is now handled by broadcastMessage
+      // when the secret_request event is published to the hub.
 
       const config = getConfig();
       const msg: SecretRequestMessage = {

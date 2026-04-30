@@ -18,6 +18,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import * as pendingInteractions from "./pending-interactions.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -366,6 +367,13 @@ export function broadcastMessage(
   conversationId?: string,
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
+
+  // Register pending interactions so approval/host prompts are tracked
+  // regardless of which path triggered the broadcast.
+  if (resolvedConversationId) {
+    registerPendingInteraction(msg, resolvedConversationId);
+  }
+
   const event = buildAssistantEvent(msg, resolvedConversationId);
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event))
@@ -380,4 +388,152 @@ function extractConversationId(msg: ServerMessage): string | undefined {
     return record.conversationId as string;
   }
   return undefined;
+}
+
+// ── Pending interaction registration ──────────────────────────────────────────
+
+function resolveCanonicalRequestSourceType(
+  sourceChannel: string,
+): "desktop" | "channel" | "voice" {
+  if (sourceChannel === "phone") return "voice";
+  if (sourceChannel === "vellum") return "desktop";
+  return "channel";
+}
+
+/**
+ * Register pending interactions for request-type messages so approval and
+ * host prompts are tracked regardless of which code path broadcasts them.
+ *
+ * Heavy dependencies (conversation-store, canonical-guardian-store, etc.) are
+ * imported lazily so that loading this module during tests doesn't trigger
+ * config/data-dir side effects.
+ */
+function registerPendingInteraction(
+  msg: ServerMessage,
+  conversationId: string,
+): void {
+  if (msg.type === "confirmation_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "confirmation",
+      confirmationDetails: {
+        toolName: msg.toolName,
+        input: msg.input,
+        riskLevel: msg.riskLevel,
+        executionTarget: msg.executionTarget,
+        allowlistOptions: msg.allowlistOptions,
+        scopeOptions: msg.scopeOptions,
+        persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+      },
+    });
+
+    // Create canonical guardian request asynchronously — heavy deps are
+    // imported lazily to avoid pulling in conversation-store (and
+    // transitively config/loader → ensureDataDir) at module-load time.
+    void createCanonicalRequestForConfirmation(msg, conversationId);
+  } else if (msg.type === "secret_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "secret",
+    });
+  } else if (msg.type === "host_bash_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_bash",
+    });
+  } else if (msg.type === "host_browser_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_browser",
+    });
+  } else if (msg.type === "host_file_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_file",
+    });
+  } else if (msg.type === "host_cu_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_cu",
+    });
+  } else if (msg.type === "host_transfer_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_transfer",
+    });
+  }
+}
+
+/**
+ * Lazily load heavy dependencies and create a canonical guardian request +
+ * bridge for a confirmation_request message. Runs fire-and-forget from
+ * registerPendingInteraction.
+ */
+async function createCanonicalRequestForConfirmation(
+  msg: ServerMessage & { type: "confirmation_request" },
+  conversationId: string,
+): Promise<void> {
+  try {
+    const [
+      { findConversation },
+      { createCanonicalGuardianRequest, generateCanonicalRequestCode },
+      { redactSecrets },
+      { summarizeToolInput },
+      { DAEMON_INTERNAL_ASSISTANT_ID },
+      { bridgeConfirmationRequestToGuardian },
+    ] = await Promise.all([
+      import("../daemon/conversation-store.js"),
+      import("../memory/canonical-guardian-store.js"),
+      import("../security/secret-scanner.js"),
+      import("../tools/tool-input-summary.js"),
+      import("./assistant-scope.js"),
+      import("./confirmation-request-guardian-bridge.js"),
+    ]);
+
+    const conversation = findConversation(conversationId);
+    const trustContext = conversation?.trustContext;
+    const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+    const inputRecord = msg.input as Record<string, unknown>;
+    const activityRaw =
+      (typeof inputRecord.activity === "string"
+        ? inputRecord.activity
+        : undefined) ??
+      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
+    const canonicalRequest = createCanonicalGuardianRequest({
+      id: msg.requestId,
+      kind: "tool_approval",
+      sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+      sourceChannel,
+      conversationId,
+      requesterExternalUserId: trustContext?.requesterExternalUserId,
+      requesterChatId: trustContext?.requesterChatId,
+      guardianExternalUserId: trustContext?.guardianExternalUserId,
+      guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
+      toolName: msg.toolName,
+      commandPreview:
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined,
+      riskLevel: msg.riskLevel,
+      activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
+      executionTarget: msg.executionTarget,
+      status: "pending",
+      requestCode: generateCanonicalRequestCode(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    if (trustContext && conversation) {
+      bridgeConfirmationRequestToGuardian({
+        canonicalRequest,
+        trustContext,
+        conversationId,
+        toolName: msg.toolName,
+        assistantId: conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      });
+    }
+  } catch (err) {
+    log.debug(
+      { err, conversationId },
+      "Failed to create canonical request from broadcast",
+    );
+  }
 }

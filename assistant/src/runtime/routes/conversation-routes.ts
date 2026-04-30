@@ -2079,7 +2079,7 @@ export async function handleSendMessage(
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
       const modelInfoEvent = isModelSlashCommand(rawContent)
-        ? await buildModelInfoEvent()
+        ? await buildModelInfoEvent(mapping.conversationId)
         : null;
 
       const response = {
