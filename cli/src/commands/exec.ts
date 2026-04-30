@@ -1,9 +1,6 @@
 import { spawn } from "child_process";
 
-import {
-  resolveAssistant,
-  resolveCloud,
-} from "../lib/assistant-config";
+import { resolveAssistant, resolveCloud } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
 import { execAppleContainer } from "../lib/exec-apple-container";
@@ -49,6 +46,12 @@ function resolveDockerContainer(
       return res.cesContainer;
   }
 }
+
+const K8S_CONTAINER_NAMES: Record<ServiceName, string> = {
+  assistant: "assistant-container",
+  gateway: "gateway-sidecar",
+  "credential-executor": "credential-executor-sidecar",
+};
 
 export async function exec(): Promise<void> {
   const rawArgs = process.argv.slice(3);
@@ -210,14 +213,20 @@ export async function exec(): Promise<void> {
       platformUrl: getPlatformUrl(),
     };
 
+    const container = K8S_CONTAINER_NAMES[service];
+
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command));
+      await interactiveSession(assistant, shellEscapeArgs(command), container);
       return;
     }
 
     // Non-interactive: sentinel-based output capture with exit code
-    await nonInteractiveExec(assistant, command, { verbose, timeoutMs });
+    await nonInteractiveExec(assistant, command, {
+      verbose,
+      timeoutMs,
+      container,
+    });
     return;
   }
 
