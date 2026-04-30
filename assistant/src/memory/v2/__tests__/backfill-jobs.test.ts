@@ -5,11 +5,9 @@
  * embedding backend, Qdrant client, activation pipeline) mocked at the
  * module level so the suite never starts a real Qdrant/embedding backend.
  *
- * Coverage matrix (PR 21 acceptance criteria):
+ * Coverage matrix:
  *   - migrate: wraps `runMemoryV2Migration`; force flag propagates;
  *     `MigrationAlreadyAppliedError` is swallowed (no rethrow).
- *   - rebuild-edges: every page's `edges:` frontmatter matches `edges.json`;
- *     `ref_files` is preserved; pages without edges get `edges: []`.
  *   - reembed: enqueues `N + 4` jobs (concept-page slugs plus four reserved
  *     meta-file slugs).
  *   - activation-recompute: walks conversations with rows, runs the pipeline
@@ -206,15 +204,13 @@ const { getDb, resetDb } = await import("../../db-connection.js");
 const { initializeDb } = await import("../../db-init.js");
 const { rawExec } = await import("../../raw-query.js");
 const { conversations, memoryJobs, messages } = await import("../../schema.js");
-const { readPage, writePage } = await import("../page-store.js");
-const { writeEdges } = await import("../edges.js");
+const { writePage } = await import("../page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");
 const {
   META_FILE_SLUGS,
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
-  memoryV2RebuildEdgesJob,
   memoryV2ReembedJob,
 } = await import("../backfill-jobs.js");
 
@@ -230,7 +226,6 @@ const TEST_CONFIG = STUB_RUNTIME_CONFIG as Parameters<
 function makeJob(
   type:
     | "memory_v2_migrate"
-    | "memory_v2_rebuild_edges"
     | "memory_v2_reembed"
     | "memory_v2_activation_recompute",
   payload: Record<string, unknown> = {},
@@ -271,9 +266,6 @@ beforeEach(() => {
     force: true,
   });
   mkdirSync(join(tmpWorkspace, "memory", "concepts"), { recursive: true });
-  if (existsSync(join(tmpWorkspace, "memory", "edges.json"))) {
-    rmSync(join(tmpWorkspace, "memory", "edges.json"));
-  }
   for (const filename of [
     "essentials.md",
     "threads.md",
@@ -322,152 +314,6 @@ describe("memoryV2MigrateJob", () => {
     await expect(
       memoryV2MigrateJob(makeJob("memory_v2_migrate"), TEST_CONFIG),
     ).rejects.toThrow("boom");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// memoryV2RebuildEdgesJob
-// ---------------------------------------------------------------------------
-
-describe("memoryV2RebuildEdgesJob", () => {
-  test("rewrites every page's edges: frontmatter from edges.json", async () => {
-    // Two pages with stale frontmatter — neither matches `edges.json`.
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: ["stale"], ref_files: ["alice.png"] },
-      body: "Alice prefers VS Code.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "bob",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Bob uses zsh.\n",
-    });
-    await writeEdges(tmpWorkspace, {
-      version: 1,
-      edges: [["alice", "bob"]],
-    });
-
-    await memoryV2RebuildEdgesJob(
-      makeJob("memory_v2_rebuild_edges"),
-      TEST_CONFIG,
-    );
-
-    const alice = await readPage(tmpWorkspace, "alice");
-    const bob = await readPage(tmpWorkspace, "bob");
-    expect(alice?.frontmatter.edges).toEqual(["bob"]);
-    expect(bob?.frontmatter.edges).toEqual(["alice"]);
-
-    // ref_files is preserved as-is — page is the source of truth there.
-    expect(alice?.frontmatter.ref_files).toEqual(["alice.png"]);
-    // Body is preserved.
-    expect(alice?.body).toBe("Alice prefers VS Code.\n");
-  });
-
-  test("sets edges: [] for pages without any edges in edges.json", async () => {
-    await writePage(tmpWorkspace, {
-      slug: "orphan",
-      frontmatter: { edges: ["should-be-removed"], ref_files: [] },
-      body: "Orphan content.\n",
-    });
-    await writeEdges(tmpWorkspace, { version: 1, edges: [] });
-
-    await memoryV2RebuildEdgesJob(
-      makeJob("memory_v2_rebuild_edges"),
-      TEST_CONFIG,
-    );
-
-    const orphan = await readPage(tmpWorkspace, "orphan");
-    expect(orphan?.frontmatter.edges).toEqual([]);
-  });
-
-  test("emits sorted neighbor lists (deterministic across reruns)", async () => {
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Body.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "bob",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Body.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "carol",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Body.\n",
-    });
-    await writeEdges(tmpWorkspace, {
-      version: 1,
-      edges: [
-        ["alice", "carol"],
-        ["alice", "bob"],
-      ],
-    });
-
-    await memoryV2RebuildEdgesJob(
-      makeJob("memory_v2_rebuild_edges"),
-      TEST_CONFIG,
-    );
-
-    const alice = await readPage(tmpWorkspace, "alice");
-    expect(alice?.frontmatter.edges).toEqual(["bob", "carol"]);
-  });
-
-  test("walks nested concept pages and rewrites their edges: frontmatter", async () => {
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Atomic concept.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "people/bob",
-      frontmatter: { edges: [], ref_files: [] },
-      body: "Person page.\n",
-    });
-    await writeEdges(tmpWorkspace, {
-      version: 1,
-      edges: [["alice", "people/bob"]],
-    });
-
-    await memoryV2RebuildEdgesJob(
-      makeJob("memory_v2_rebuild_edges"),
-      TEST_CONFIG,
-    );
-
-    const alice = await readPage(tmpWorkspace, "alice");
-    const bob = await readPage(tmpWorkspace, "people/bob");
-    expect(alice?.frontmatter.edges).toEqual(["people/bob"]);
-    expect(bob?.frontmatter.edges).toEqual(["alice"]);
-  });
-
-  test("is a no-op for pages whose frontmatter is already correct", async () => {
-    // Pre-write the page with the correct edges so the handler should leave
-    // it untouched. We can't easily observe "no rewrite happened" from the
-    // outside without instrumenting writePage, but the handler returning
-    // without error is enough to cover the early-exit branch.
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: ["bob"], ref_files: [] },
-      body: "Alice.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "bob",
-      frontmatter: { edges: ["alice"], ref_files: [] },
-      body: "Bob.\n",
-    });
-    await writeEdges(tmpWorkspace, {
-      version: 1,
-      edges: [["alice", "bob"]],
-    });
-
-    await memoryV2RebuildEdgesJob(
-      makeJob("memory_v2_rebuild_edges"),
-      TEST_CONFIG,
-    );
-
-    expect((await readPage(tmpWorkspace, "alice"))?.frontmatter.edges).toEqual([
-      "bob",
-    ]);
   });
 });
 

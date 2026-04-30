@@ -63,7 +63,6 @@ import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
-  memoryV2RebuildEdgesJob,
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
 import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
@@ -87,6 +86,7 @@ const LEGACY_JOB_TYPES = new Set([
   "journal_carry_forward",
   "generate_capability_cards",
   "generate_thread_starters",
+  "memory_v2_rebuild_edges",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -471,9 +471,6 @@ async function processJob(
       return;
     case "memory_v2_migrate":
       await memoryV2MigrateJob(job, config);
-      return;
-    case "memory_v2_rebuild_edges":
-      await memoryV2RebuildEdgesJob(job, config);
       return;
     case "memory_v2_reembed":
       await memoryV2ReembedJob(job, config);

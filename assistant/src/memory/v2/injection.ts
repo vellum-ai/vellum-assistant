@@ -6,10 +6,10 @@
 // Implements §5 of the design doc:
 //
 //   1. Hydrate prior activation state for the conversation.
-//   2. Read edges.json (the topology source of truth).
+//   2. Build the in-memory edge index from concept-page frontmatter.
 //   3. Select the per-turn candidate set (prior-state survivors ∪ ANN top-K).
 //   4. Compute own activation A_o over the candidates.
-//   5. Apply 2-hop spreading activation with neighborhood normalization → A.
+//   5. Apply 2-hop spreading activation along directed edges (incoming) → A.
 //   6. Pick top-K by activation; subtract everInjected to get the injection delta.
 //   7. If no new slugs, render nothing — caller leaves the prior cached
 //      attachments on prior user messages exactly as Anthropic prompt caching
@@ -42,7 +42,7 @@ import {
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import { readEdges } from "./edges.js";
+import { getEdgeIndex } from "./edge-index.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
@@ -135,9 +135,9 @@ export async function injectMemoryV2Block(
   // with an effective empty prior state so the first turn can still inject.
   const priorState = await hydrate(database, conversationId);
 
-  // (2) Topology. `readEdges` returns the canonical empty index when the
-  // file is missing (fresh workspace pre-consolidation).
-  const edgesIdx = await readEdges(workspaceDir);
+  // (2) Topology. `getEdgeIndex` walks concept-page frontmatter and caches
+  // the result module-locally; an empty workspace yields an empty index.
+  const edgeIndex = await getEdgeIndex(workspaceDir);
 
   // (3) Candidate set: prior-state survivors above epsilon ∪ ANN top-50.
   // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets so
@@ -164,7 +164,7 @@ export async function injectMemoryV2Block(
   // (5) Spreading activation across the edge graph (k, hops from config).
   const { k, hops, top_k, epsilon } = config.memory.v2;
   const { final: finalActivation, contribution: spreadContribution } =
-    spreadActivation(ownActivation, edgesIdx, k, hops);
+    spreadActivation(ownActivation, edgeIndex, k, hops);
 
   // (6) Pick top-K by activation. Per-turn turns subtract everInjected for the
   // injection delta (cache-stable append-only); context-load renders the

@@ -137,7 +137,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers v2 under memory with all six subcommands", () => {
+  test("registers v2 under memory with the expected subcommands", () => {
     const program = buildProgramWithStubParent();
     const memory = program.commands.find((c) => c.name() === "memory");
     expect(memory).toBeDefined();
@@ -147,7 +147,6 @@ describe("subcommand registration", () => {
     expect(subcommandNames).toEqual([
       "activation",
       "migrate",
-      "rebuild-edges",
       "reembed",
       "reembed-skills",
       "validate",
@@ -161,18 +160,19 @@ describe("subcommand registration", () => {
     );
   });
 
-  test("--help lists all six subcommands", () => {
+  test("--help lists every registered subcommand", () => {
     const program = buildProgramWithStubParent();
     const memory = program.commands.find((c) => c.name() === "memory")!;
     const v2 = memory.commands.find((c) => c.name() === "v2")!;
     const help = v2.helpInformation();
     // Commander renders each subcommand on its own line under "Commands:".
     expect(help).toContain("migrate");
-    expect(help).toContain("rebuild-edges");
     expect(help).toContain("reembed");
     expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
+    // rebuild-edges was retired alongside the directed-edges work.
+    expect(help).not.toContain("rebuild-edges");
   });
 });
 
@@ -218,34 +218,20 @@ describe("memory v2 migrate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// rebuild-edges
+// rebuild-edges (removed — directed edges live in page frontmatter, no rebuild
+// step is needed). The CLI subcommand was retired alongside the job handler.
 // ---------------------------------------------------------------------------
 
 describe("memory v2 rebuild-edges", () => {
-  test("sends memory_v2/backfill with op=rebuild-edges", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "rebuild-1" } };
+  test("subcommand is no longer registered", async () => {
+    mockIpcResult = { ok: true, result: { jobId: "should-not-fire" } };
 
     const { exitCode } = await runCommand(["memory", "v2", "rebuild-edges"]);
 
-    expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
-    expect(lastIpcCall!.params.body).toEqual({ op: "rebuild-edges" });
-  });
-
-  test("logs the returned jobId", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "rebuild-abc" } };
-
-    await runCommand(["memory", "v2", "rebuild-edges"]);
-
-    expect(logOutput.some((line) => line.includes("rebuild-abc"))).toBe(true);
-  });
-
-  test("exits with code 1 on IPC failure", async () => {
-    mockIpcResult = { ok: false, error: "Daemon not running" };
-
-    const { exitCode } = await runCommand(["memory", "v2", "rebuild-edges"]);
-
-    expect(exitCode).toBe(1);
+    // commander emits a non-zero exit for unknown subcommands; we just need
+    // to verify the IPC call never happened.
+    expect(exitCode).not.toBe(0);
+    expect(lastIpcCall).toBeNull();
   });
 });
 
@@ -356,7 +342,7 @@ describe("memory v2 validate", () => {
     const joined = logOutput.join("\n");
     expect(joined).toContain("Pages: 12");
     expect(joined).toContain("Edges: 30");
-    expect(joined).toContain("Missing edge endpoints: none");
+    expect(joined).toContain("Missing outgoing edge targets: none");
     expect(joined).toContain("Oversized pages: none");
     expect(joined).toContain("Parse failures: none");
   });
@@ -376,7 +362,7 @@ describe("memory v2 validate", () => {
     await runCommand(["memory", "v2", "validate"]);
 
     const joined = logOutput.join("\n");
-    expect(joined).toContain("Missing edge endpoints: 1");
+    expect(joined).toContain("Missing outgoing edge targets: 1");
     expect(joined).toContain("alice");
     expect(joined).toContain("bob");
     expect(joined).toContain("Oversized pages: 1");

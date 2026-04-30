@@ -7,8 +7,8 @@
  *   - Lexical file-search fallback over `<workspace>/memory/concepts/*.md`.
  *
  * The activation path is exercised by mocking `hybridQueryConceptPages`,
- * `readEdges`, and `readPage`. The lexical fallback is exercised against a
- * real temp workspace so its directory walk and term scoring run end-to-end.
+ * `getEdgeIndex`, and `readPage`. The lexical fallback is exercised against
+ * a real temp workspace so its directory walk and term scoring run end-to-end.
  *
  * Generic placeholders (`alice`, `bob`, etc.) per the cross-cutting safety
  * rules. Tests are hermetic — no live Qdrant, no embedding backend round-trip.
@@ -26,7 +26,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
-import type { ConceptPage, EdgesIndex } from "../memory/v2/types.js";
+import type { EdgeIndex } from "../memory/v2/edge-index.js";
+import type { ConceptPage } from "../memory/v2/types.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
@@ -65,10 +66,17 @@ mock.module("../memory/v2/qdrant.js", () => ({
   },
 }));
 
-let edgesIdx: EdgesIndex = { version: 1, edges: [] };
+let edgeIndex: EdgeIndex = {
+  outgoing: new Map<string, Set<string>>(),
+  incoming: new Map<string, Set<string>>(),
+};
 
-mock.module("../memory/v2/edges.js", () => ({
-  readEdges: async (): Promise<EdgesIndex> => edgesIdx,
+mock.module("../memory/v2/edge-index.js", () => ({
+  getEdgeIndex: async (): Promise<EdgeIndex> => edgeIndex,
+  invalidateEdgeIndex: () => {},
+  getReachable: () => new Set<string>(),
+  validateEdgeTargets: () => ({ ok: true, missing: [] }),
+  totalEdgeCount: () => 0,
 }));
 
 const pageStore = new Map<string, ConceptPage>();
@@ -76,16 +84,20 @@ const pageStore = new Map<string, ConceptPage>();
 mock.module("../memory/v2/page-store.js", () => ({
   getConceptsDir: (workspaceDir: string): string =>
     join(workspaceDir, "memory", "concepts"),
+  listPages: async (): Promise<string[]> => [...pageStore.keys()],
   readPage: async (
     _workspaceDir: string,
     slug: string,
   ): Promise<ConceptPage | null> => pageStore.get(slug) ?? null,
+  writePage: async () => {},
+  deletePage: async () => {},
   slugFromConceptPath: (conceptsRoot: string, filePath: string): string => {
     const rel = filePath.startsWith(conceptsRoot)
       ? filePath.slice(conceptsRoot.length).replace(/^\/+/, "")
       : filePath;
     return rel.endsWith(".md") ? rel.slice(0, -3) : rel;
   },
+  validateSlug: () => {},
 }));
 
 const { searchMemoryV2Source } =
@@ -155,7 +167,10 @@ beforeEach(() => {
   qdrantHits = [];
   qdrantThrows = null;
   qdrantCalls.length = 0;
-  edgesIdx = { version: 1, edges: [] };
+  edgeIndex = {
+    outgoing: new Map<string, Set<string>>(),
+    incoming: new Map<string, Set<string>>(),
+  };
   pageStore.clear();
   denseEmbedReturn = [0.1, 0.2, 0.3];
 });

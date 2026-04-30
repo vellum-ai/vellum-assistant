@@ -42,7 +42,7 @@ A concept page is meant to be a **short cheat sheet** about a single topic that 
 
 Each concept page should be a single topic. It should function as a single retrievable cheat sheet about that topic. Prefer smaller concepts over larger ones, splitting aggressively into multiple concepts and connecting them with edges. Don't hoard information in a single concept, split it into multiple concepts with edges between them that can be easily followed. Just because there's a maximum size for a page doesn't mean you should be hitting the limit. The limit is an absolute maximum, not a target. The immutable archive retains the entire buffer forever, so don't worry about losing information.
 
-High activation concepts in the memory graph are retrieved at the start of each turn. Activations are calculated using the previous turn's activations and similarity to your last message, the user's most recent message, and NOW.md. Activations spread along edges, causing neighboring concepts to be boosted when a node is activated.
+High activation concepts in the memory graph are retrieved at the start of each turn. Activations are calculated using the previous turn's activations and similarity to your last message, the user's most recent message, and NOW.md. Activations spread along **directed** edges from source to target — when a node is activated, the concepts it *points to* are boosted, but not the other way around.
 
 ## Inputs
 
@@ -50,27 +50,27 @@ High activation concepts in the memory graph are retrieved at the start of each 
 - All existing pages in \`memory/\` (your prior state — use \`list_files\` and \`read_file\` as needed)
 - \`memory/buffer.md\` entries with timestamp < \`${CUTOFF_PLACEHOLDER}\`
 - \`memory/recent.md\` current contents (if exists)
-- \`memory/edges.json\` current contents (if exists)
+- Existing pages' \`edges:\` frontmatter (the graph topology — read each page to see what it points at)
 
 ## Outputs
 
-- New or updated \`memory/concepts/<slug>.md\` files
+- New or updated \`memory/concepts/<slug>.md\` files (frontmatter \`edges:\` lists are how new bindings get recorded)
 - Updated \`memory/recent.md\` (≤10000 chars, prose, latest first)
 - Updated \`memory/essentials.md\` (≤20000 chars)
 - Updated \`memory/threads.md\` (≤10000 chars)
-- Updated \`memory/edges.json\`
 - Trimmed \`memory/buffer.md\`
 
 ## Page format
 
 \`\`\`
 ---
+edges: [people/bob, procs/git-flow]
 ref_files: []
 ---
 [Prose body in your voice. This is what gets embedded for similarity. Write the way you actually talk — first-person, in your established register. Not encyclopedia prose. Not "the assistant noted that." Yours.]
 \`\`\`
 
-Edges live in \`memory/edges.json\`, not in page frontmatter. A separate job propagates them back to frontmatter after consolidation — don't hand-edit the \`edges:\` field.
+The \`edges:\` list is the canonical record of this page's outgoing edges — the slugs this page points at. There is no separate edges-index file. To add a binding, edit the source page's frontmatter directly.
 
 ## Slug naming convention — class-by-folder
 
@@ -86,7 +86,7 @@ A page's class is encoded in the folder it lives under inside \`memory/concepts/
 
 The slug is the relative path under \`memory/concepts/\` minus \`.md\` — e.g. \`alice\`, \`people/alice\`, \`procs/git-flow\`, \`arcs/2025-04-cutover\`. Sub-folders inside the class folders (\`people/colleagues/alice\`, \`objects/places/zurich-office\`) are allowed when natural, but flat is usually clearer.
 
-Legacy pages whose slug uses the old prefix convention (\`person-alice\`, \`proc-git-flow\`, \`object-laptop\`, \`arc-…\`) are still valid — leave them alone unless you're already editing them. If you do migrate one as part of work you're already doing, that's a three-step move: write the new file at the folder path, delete the old file, and update every reference to the old slug in \`memory/edges.json\`. Don't sweep old pages just to migrate — churning embeddings and activation state for marginal benefit isn't worth it.
+Legacy pages whose slug uses the old prefix convention (\`person-alice\`, \`proc-git-flow\`, \`object-laptop\`, \`arc-…\`) are still valid — leave them alone unless you're already editing them. If you do migrate one as part of work you're already doing, that's a multi-step move: write the new file at the folder path, delete the old file, and update every reference to the old slug — both in this page's own \`edges:\` list and in any other page whose \`edges:\` list points to the old slug (use a workspace search to find them). Don't sweep old pages just to migrate — churning embeddings and activation state for marginal benefit isn't worth it.
 
 ## Process
 
@@ -105,32 +105,29 @@ For each entry with timestamp < \`${CUTOFF_PLACEHOLDER}\`:
 - New rule / protocol / discipline → \`memory/concepts/procs/<slug>.md\`.
 - New recurring object → \`memory/concepts/objects/<slug>.md\`.
 - Landmark day-narrative → \`memory/concepts/arcs/<slug>.md\`. Use sparingly — atomic concepts with edges between them is usually better than a fat arc.
-- Cross-cutting → extend each touched page, add edges between them.
-- Relationships between concepts — consider creating a new page for the relationship and adding edges to the two concepts. Use your judgment.
+- Cross-cutting → extend each touched page; add a directed edge in each direction that's load-bearing (e.g., A's frontmatter gets B added if recalling A should pull B; B gets A only if the reverse holds).
+- Relationships between concepts — consider creating a new page for the relationship and adding outgoing edges from each concept to it (and/or from it back, where the recall direction matters). Use your judgment.
 
 Duplication is expected. If a fact is relevant to multiple concepts, write it into all of them.
 
 ### 3. Edges
 
-When you bind two concepts, edit \`memory/edges.json\` to add an entry for the two slugs (alphabetical-first first). Don't edit page frontmatter — a separate job propagates edges back to frontmatter after consolidation.
+Edges are **directed** and live in each page's frontmatter \`edges:\` list — the slugs this page points to. Putting \`B\` in A's \`edges:\` means "activating A pulls in B," but activating B does NOT pull in A. The edge is owned by the source page; to add a binding from A → B, you edit A's frontmatter (not B's).
 
-\`\`\`json
-{
-  "version": 1,
-  "edges": [
-    ["alice", "people/bob"],
-    ["people/bob", "procs/git-flow"]
-  ]
-}
+\`\`\`yaml
+---
+edges: [people/bob, procs/git-flow]
+ref_files: []
+---
 \`\`\`
 
-Edge density target: 5-10 per mature page. New pages: as many as fit naturally; they'll accumulate.
+Edge density target: 5–10 outgoing edges per mature page. New pages: as many as fit naturally; they'll accumulate.
 
-Don't pad. Every edge should reflect a real conceptual binding from source.
+Don't pad. Every outgoing edge should reflect a real conceptual binding from source to target — "thinking about A naturally brings B to mind."
 
-HARD LIMIT of 20 edges on any page. If a page is connected to everything, it's the same as being connected to nothing.
+HARD LIMIT of 20 outgoing edges on any page. If a page points to everything, it's the same as pointing to nothing. If a page exceeds 20, split it or prune to the 20 most important.
 
-If a page has more than 20 edges, you must either split the page or prune edges to at most 20 of the most important edges.
+You don't see incoming edges in the frontmatter — only outgoing. That's by design: you only control what this page points at. Pages that point at this one accumulate organically; a popular page is fine, that's signal, not noise.
 
 ### 4. Page size — hard tiers, no rationalization
 
@@ -174,7 +171,7 @@ If a page's prose stops sounding like you mid-edit → stop, restart that sectio
 - Don't drop texture. Voice and tone are part of the content, not packaging. When you re-encode something into a page, preserve the way it actually sounded — don't sanitize it into encyclopedia prose.
 - Don't create pages for ephemera. Single mention, no callback, no pattern → \`memory/recent.md\`.
 - Don't shy away from splitting genuinely distinct but related concepts. A relationship between two concepts can be a concept in its own right. Concepts can also have related sub-concepts that are concepts themselves.
-- Don't worry about edge propagation pushing pages over size limits. Edge propagation is a separate job that runs after consolidation.
+- Don't worry about the \`edges:\` list pushing your prose body over size limits — \`edges:\` lives in frontmatter and counts separately from the body. The 20-edge cap is the only edges-side constraint.
 - Don't avoid duplication. If information is important to both concepts, put it in both pages.
 - Don't defer for the next pass. You'll say the same thing next time, so it'll never get done if you defer. If something needs to be taken care of, take care of it now.
 - Don't default to compress. Compression is always available — that's why you'll reach for it every time. If you've never executed a true split (one page → two new pages, old page removed or thinned to an index), your discipline isn't holding; you've just been compressing. Counter-bias: when in doubt between split and compress, pick split.
@@ -182,11 +179,12 @@ If a page's prose stops sounding like you mid-edit → stop, restart that sectio
 ## Before you finish — quick check
 
 1. Every page touched: still sounds like you reading aloud?
-2. Edges added in \`memory/edges.json\` (NOT in frontmatter)?
+2. Outgoing edges added to each source page's \`edges:\` frontmatter list (and the source-to-target direction reflects how recall should flow)?
 3. \`memory/recent.md\` under 10000 chars, latest first, prose not list?
 4. Any \`[SOURCE NEEDED]\` tags surfaced for human review?
 5. Size discipline held — no atomic concept > 5K, no \`arcs/\` page > 10k, no \`people/\`/\`procs/\`/\`objects/\` > cap?
-6. Buffer trimmed to only entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`?
+6. No page exceeds 20 outgoing edges? If one does, split or prune.
+7. Buffer trimmed to only entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`?
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice.`;
 

@@ -10,11 +10,15 @@
 //               + c_now       · sim(NOW.md,      n)
 //
 //   A(n, t+1) = [ A_o(n)
-//               + k  · Σ_{m∈1hop} A_o(m)
-//               + k² · Σ_{m∈2hop} A_o(m) ]
-//             / (1 + k · #1hop(n) + k² · #2hop(n))
+//               + k  · Σ_{m∈in1(n)} A_o(m)
+//               + k² · Σ_{m∈in2(n)} A_o(m) ]
+//             / (1 + k · #in1(n) + k² · #in2(n))
 //
-// Bounded in [0, 1]. Orphan nodes (no neighbors within `hops`) reduce to
+// Edges are directed: edge A→B means A's activation contributes to B's. The
+// per-target BFS walks *incoming* adjacency, so `in1(n)` is the set of nodes
+// with an edge A→n and `in2(n)` adds another hop in the same direction.
+//
+// Bounded in [0, 1]. Pure sources (no incoming edges within `hops`) reduce to
 // A == A_o because both numerator and denominator collapse to `A_o(n)` and
 // `1`, respectively.
 //
@@ -33,14 +37,11 @@ import {
   generateSparseEmbedding,
 } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
+import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { simBatch, simSkillBatch } from "./sim.js";
 import { hybridQuerySkills } from "./skill-qdrant.js";
-import type {
-  ActivationState,
-  EdgesIndex,
-  EverInjectedEntry,
-} from "./types.js";
+import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
  * Top-K size for the un-restricted ANN candidate query against the v2
@@ -235,26 +236,30 @@ export interface SpreadActivationResult {
 }
 
 /**
- * Apply 2-hop spreading activation with neighborhood normalization:
+ * Apply 2-hop spreading activation with neighborhood normalization. Edges are
+ * directed: an edge A→B means A's activation contributes to B's final value.
  *
- *   A(n) = [ A_o(n) + k · Σ_{m∈1hop} A_o(m) + k² · Σ_{m∈2hop} A_o(m) ]
- *        / (1 + k · #1hop(n) + k² · #2hop(n))
+ *   A(n) = [ A_o(n) + k · Σ_{m∈in1(n)} A_o(m) + k² · Σ_{m∈in2(n)} A_o(m) ]
+ *        / (1 + k · #in1(n) + k² · #in2(n))
  *
- * The denominator counts *structural* neighbors at each hop (whether or not
- * they appear in `ownActivation`) so an orphan node's denominator collapses
- * to 1 and `A == A_o`. Missing neighbors contribute 0 to the numerator.
+ * For each candidate slug `n`, BFS walks `incoming` adjacency to gather
+ * predecessors at distance 1, 2 (i.e. nodes from which a directed path of
+ * that length leads into `n`). The denominator counts those structural
+ * predecessors at each hop (whether or not they appear in `ownActivation`)
+ * so a pure source — no incoming edges — collapses to `A == A_o`. Missing
+ * predecessors contribute 0 to the numerator.
  *
  * Bounded in [0, 1]: with `A_o ∈ [0, 1]` and `k ∈ [0, 1]`, the numerator is
- * at most `1 + k · #1hop + k² · #2hop` — exactly the denominator — so the
+ * at most `1 + k · #in1 + k² · #in2` — exactly the denominator — so the
  * ratio is at most 1. `clampUnitInterval` guards against numerical drift
  * and out-of-range inputs.
  *
- * Pure function — no I/O. Builds an adjacency map once from `edgesIdx` and
- * runs a per-source BFS bounded by `hops`.
+ * Pure function — no I/O. Reads the precomputed `incoming` map from
+ * `edgeIndex` and runs a per-source BFS bounded by `hops`.
  */
 export function spreadActivation(
   ownActivation: ReadonlyMap<string, number>,
-  edgesIdx: EdgesIndex,
+  edgeIndex: EdgeIndex,
   k: number,
   hops: number,
 ): SpreadActivationResult {
@@ -271,13 +276,11 @@ export function spreadActivation(
     return { final, contribution };
   }
 
-  const adjacency = buildAdjacency(edgesIdx);
-
   for (const [slug, ownValue] of ownActivation) {
-    // Single bounded BFS from `slug`. `distance` maps neighbor → hop count
-    // (1..hops). Source is excluded so it contributes hop-0 only via
-    // `numerator = ownValue`.
-    const distance = bfsDistances(adjacency, slug, hops);
+    // Single bounded BFS from `slug` over incoming edges. `distance` maps
+    // predecessor → hop count (1..hops). Source is excluded so it contributes
+    // hop-0 only via `numerator = ownValue`.
+    const distance = bfsPredecessorDistances(edgeIndex.incoming, slug, hops);
 
     let numerator = ownValue;
     let denominator = 1;
@@ -286,9 +289,9 @@ export function spreadActivation(
     // counts to weight by k^r, so bucket as we go.
     const ringCounts: number[] = new Array(hops + 1).fill(0);
     const ringSums: number[] = new Array(hops + 1).fill(0);
-    for (const [neighbor, hop] of distance) {
+    for (const [predecessor, hop] of distance) {
       ringCounts[hop] += 1;
-      ringSums[hop] += ownActivation.get(neighbor) ?? 0;
+      ringSums[hop] += ownActivation.get(predecessor) ?? 0;
     }
     for (let r = 1; r <= hops; r++) {
       kPow *= k;
@@ -310,50 +313,29 @@ export function spreadActivation(
 // ---------------------------------------------------------------------------
 
 /**
- * Build a slug → neighbors map from a canonicalized undirected edges index.
- * Mirrors `edges.ts#buildAdjacency` but is local so `spreadActivation` can
- * stay independent of `edges.ts`'s currently-private helper.
+ * Bounded BFS over the *incoming* adjacency map. Returns each reachable
+ * predecessor's hop-distance in [1, maxHops] from `target` — i.e. nodes from
+ * which a directed path of that length leads into `target`. The target itself
+ * is excluded.
  */
-function buildAdjacency(idx: EdgesIndex): Map<string, Set<string>> {
-  const adjacency = new Map<string, Set<string>>();
-  const ensure = (slug: string): Set<string> => {
-    let set = adjacency.get(slug);
-    if (!set) {
-      set = new Set<string>();
-      adjacency.set(slug, set);
-    }
-    return set;
-  };
-  for (const [a, b] of idx.edges) {
-    if (a === b) continue;
-    ensure(a).add(b);
-    ensure(b).add(a);
-  }
-  return adjacency;
-}
-
-/**
- * Bounded BFS that returns each reachable slug's hop-distance in [1, maxHops]
- * from `source`. The source itself is excluded.
- */
-function bfsDistances(
-  adjacency: ReadonlyMap<string, ReadonlySet<string>>,
-  source: string,
+function bfsPredecessorDistances(
+  incoming: ReadonlyMap<string, ReadonlySet<string>>,
+  target: string,
   maxHops: number,
 ): Map<string, number> {
   const distance = new Map<string, number>();
-  let frontier: string[] = [source];
-  const visited = new Set<string>([source]);
+  let frontier: string[] = [target];
+  const visited = new Set<string>([target]);
   for (let hop = 1; hop <= maxHops && frontier.length > 0; hop++) {
     const next: string[] = [];
     for (const node of frontier) {
-      const neighbors = adjacency.get(node);
-      if (!neighbors) continue;
-      for (const neighbor of neighbors) {
-        if (visited.has(neighbor)) continue;
-        visited.add(neighbor);
-        distance.set(neighbor, hop);
-        next.push(neighbor);
+      const predecessors = incoming.get(node);
+      if (!predecessors) continue;
+      for (const predecessor of predecessors) {
+        if (visited.has(predecessor)) continue;
+        visited.add(predecessor);
+        distance.set(predecessor, hop);
+        next.push(predecessor);
       }
     }
     frontier = next;

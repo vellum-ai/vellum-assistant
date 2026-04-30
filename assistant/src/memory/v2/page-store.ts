@@ -32,6 +32,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { FRONTMATTER_REGEX } from "../../skills/frontmatter.js";
+import { invalidateEdgeIndex } from "./edge-index.js";
 import { type ConceptPage, ConceptPageFrontmatterSchema } from "./types.js";
 
 /** Filename suffix for concept pages. */
@@ -285,6 +286,7 @@ export async function writePage(
     await rm(tmpPath, { force: true }).catch(() => {});
     throw err;
   }
+  invalidateEdgeIndex(workspaceDir);
 }
 
 /**
@@ -355,6 +357,7 @@ export async function deletePage(
     }
     throw err;
   }
+  invalidateEdgeIndex(workspaceDir);
 }
 
 /**

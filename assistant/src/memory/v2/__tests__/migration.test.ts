@@ -546,7 +546,7 @@ describe("derivePromotions", () => {
 // ---------------------------------------------------------------------------
 
 describe("collapseEdges", () => {
-  test("maps v1 ids to v2 slugs and emits canonical tuples after writeEdges", () => {
+  test("maps v1 ids to v2 slugs and preserves direction (source → target)", () => {
     const v1: V1Edge[] = [
       { sourceNodeId: "node-a", targetNodeId: "node-b" },
       { sourceNodeId: "node-b", targetNodeId: "node-c" },
@@ -556,9 +556,13 @@ describe("collapseEdges", () => {
       ["node-b", "bob"],
       ["node-c", "carol"],
     ]);
-    const idx = collapseEdges(v1, slugMap);
-    expect(idx.version).toBe(1);
-    expect(idx.edges.length).toBe(2);
+    const outgoing = collapseEdges(v1, slugMap);
+    // Two distinct sources, each pointing at one target.
+    expect(outgoing.size).toBe(2);
+    expect([...(outgoing.get("alice") ?? new Set<string>())]).toEqual(["bob"]);
+    expect([...(outgoing.get("bob") ?? new Set<string>())]).toEqual(["carol"]);
+    // Direction is preserved — carol's outgoing list is empty (it's a sink).
+    expect(outgoing.has("carol")).toBe(false);
   });
 
   test("drops edges whose endpoints aren't in the slug map", () => {
@@ -570,21 +574,48 @@ describe("collapseEdges", () => {
       ["node-a", "alice"],
       ["node-b", "bob"],
     ]);
-    const idx = collapseEdges(v1, slugMap);
-    expect(idx.edges).toEqual([]);
+    const outgoing = collapseEdges(v1, slugMap);
+    expect(outgoing.size).toBe(0);
   });
 
   test("drops self-loops introduced by the slug mapping", () => {
     // Two distinct v1 nodes mapped to the same v2 slug (e.g. clustered
-    // together) cannot produce an edge — `addEdge`/writeEdges reject self
-    // loops, so we must filter at collapse time.
+    // together) cannot produce a self-edge — concept-page graphs are simple,
+    // so we filter at collapse time.
     const v1: V1Edge[] = [{ sourceNodeId: "node-a", targetNodeId: "node-b" }];
     const slugMap = new Map([
       ["node-a", "merged"],
       ["node-b", "merged"],
     ]);
-    const idx = collapseEdges(v1, slugMap);
-    expect(idx.edges).toEqual([]);
+    const outgoing = collapseEdges(v1, slugMap);
+    expect(outgoing.size).toBe(0);
+  });
+
+  test("collapses duplicate (source, target) pairs into a single entry", () => {
+    const v1: V1Edge[] = [
+      { sourceNodeId: "node-a", targetNodeId: "node-b" },
+      { sourceNodeId: "node-a", targetNodeId: "node-b" },
+    ];
+    const slugMap = new Map([
+      ["node-a", "alice"],
+      ["node-b", "bob"],
+    ]);
+    const outgoing = collapseEdges(v1, slugMap);
+    expect([...(outgoing.get("alice") ?? new Set<string>())]).toEqual(["bob"]);
+  });
+
+  test("keeps A→B and B→A as separate directed edges", () => {
+    const v1: V1Edge[] = [
+      { sourceNodeId: "node-a", targetNodeId: "node-b" },
+      { sourceNodeId: "node-b", targetNodeId: "node-a" },
+    ];
+    const slugMap = new Map([
+      ["node-a", "alice"],
+      ["node-b", "bob"],
+    ]);
+    const outgoing = collapseEdges(v1, slugMap);
+    expect([...(outgoing.get("alice") ?? new Set<string>())]).toEqual(["bob"]);
+    expect([...(outgoing.get("bob") ?? new Set<string>())]).toEqual(["alice"]);
   });
 });
 
@@ -648,13 +679,22 @@ describe("runMemoryV2Migration", () => {
     expect(pages.length).toBe(3);
     expect(result.pagesCreated).toBe(3);
 
-    // -- edges.json reflects the v1 edge collapse. --
-    const edgesRaw = readFileSync(
-      join(workspaceDir, "memory", "edges.json"),
-      "utf-8",
-    );
-    const edges = JSON.parse(edgesRaw) as { edges: [string, string][] };
-    expect(edges.edges.length).toBe(1);
+    // -- Outgoing edges live in source-page frontmatter (no edges.json). --
+    expect(existsSync(join(workspaceDir, "memory", "edges.json"))).toBe(false);
+    expect(result.edgesWritten).toBe(1);
+    // Find the page whose frontmatter has the outgoing edge — that's the
+    // source slug. Exactly one page should carry the surviving v1 edge.
+    let pagesWithEdges = 0;
+    for (const file of pages) {
+      const body = readFileSync(join(conceptDir, file), "utf-8");
+      if (
+        /\nedges:\s*\n?\s*-\s*/.test(body) ||
+        /edges:\s*\[[^\]]+\]/.test(body)
+      ) {
+        pagesWithEdges += 1;
+      }
+    }
+    expect(pagesWithEdges).toBe(1);
 
     // -- Promotions appended to the right files. --
     const essentials = readFileSync(
@@ -664,23 +704,13 @@ describe("runMemoryV2Migration", () => {
     expect(essentials).toContain("User is Alice and works at Vellum");
     expect(result.essentialsLines).toBe(1);
 
-    // -- Embed jobs enqueued (one per page) plus a single trailing
-    //    rebuild-edges enqueue so page frontmatter picks up edges.json. --
-    expect(enqueuedJobs.length).toBe(4);
+    // -- Embed jobs enqueued (one per page). No rebuild-edges follow-up:
+    //    the migration writes outgoing edges directly into page frontmatter. --
+    expect(enqueuedJobs.length).toBe(3);
     const embedJobs = enqueuedJobs.filter(
       (j) => j.type === "embed_concept_page",
     );
     expect(embedJobs.length).toBe(3);
-    const rebuildJobs = enqueuedJobs.filter(
-      (j) => j.type === "memory_v2_rebuild_edges",
-    );
-    expect(rebuildJobs.length).toBe(1);
-    // Rebuild-edges must come last — the embeds depend only on pages on disk,
-    // but rebuild-edges should observe the final edges.json from this run.
-    expect(enqueuedJobs[enqueuedJobs.length - 1].type).toBe(
-      "memory_v2_rebuild_edges",
-    );
-    expect(result.rebuildEdgesJobId).toBe(`job-${enqueuedJobs.length}`);
 
     // -- Sentinel written. --
     expect(existsSync(join(workspaceDir, MIGRATION_SENTINEL_RELATIVE))).toBe(
@@ -785,13 +815,11 @@ describe("runMemoryV2Migration", () => {
     });
     expect(result.pagesCreated).toBe(0);
     expect(result.embedsEnqueued).toBe(0);
+    expect(result.edgesWritten).toBe(0);
     expect(result.sentinelWritten).toBe(true);
-    // Rebuild-edges still runs even with zero pages — the job is idempotent
-    // and ensures any pre-seeded frontmatter aligns with edges.json.
-    expect(result.rebuildEdgesJobId).toBeTruthy();
-    expect(
-      enqueuedJobs.filter((j) => j.type === "memory_v2_rebuild_edges").length,
-    ).toBe(1);
+    // No rebuild-edges follow-up — outgoing edges live directly in page
+    // frontmatter, so a workspace with no pages has nothing to rebuild.
+    expect(enqueuedJobs).toEqual([]);
   });
 });
 

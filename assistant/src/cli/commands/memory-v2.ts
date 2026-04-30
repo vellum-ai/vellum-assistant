@@ -4,21 +4,19 @@
  * Operator-facing subcommands for the v2 memory subsystem (concept-page
  * activation model). All commands are thin wrappers over two IPC routes:
  *
- *   - `memory_v2/backfill` — enqueues one of four mutating jobs against the
- *     memory job queue (`migrate`, `rebuild-edges`, `reembed`,
- *     `activation-recompute`). Returns a `jobId` so the operator can poll
- *     status from the regular memory subsystem.
+ *   - `memory_v2/backfill` — enqueues one of three mutating jobs against the
+ *     memory job queue (`migrate`, `reembed`, `activation-recompute`).
+ *     Returns a `jobId` so the operator can poll status from the regular
+ *     memory subsystem.
  *   - `memory_v2/validate` — read-only structural validation of the v2
- *     workspace state (concept pages + `memory/edges.json`). Returns an
- *     aggregate report of orphan edges, oversized pages, and parse failures.
+ *     workspace state. Returns an aggregate report of orphan outgoing-edge
+ *     targets, oversized pages, and parse failures.
  *
  * Subcommands:
  *
  *   - `migrate [--force]` — one-shot v1->v2 synthesis. Refuses to run a
  *     second time unless `--force` is passed (the migration handler writes a
  *     sentinel after a successful first run).
- *   - `rebuild-edges` — recompute every concept page's `edges:` frontmatter
- *     from the canonical `memory/edges.json` index.
  *   - `reembed` — fan out an `embed_concept_page` job per page slug to
  *     refresh dense + sparse vectors in Qdrant.
  *   - `activation` — refresh persisted activation state for every
@@ -101,17 +99,16 @@ export function registerMemoryV2Command(program: Command): void {
     "after",
     `
 The v2 subsystem replaces the v1 graph + PKB with prose concept pages,
-bidirectional edges in memory/edges.json, and activation-based retrieval.
-v2 stays gated behind the memory-v2-enabled feature flag — these subcommands
-remain useful operator tools regardless of whether the flag is on.
+directed edges stored in each page's frontmatter, and activation-based
+retrieval. v2 stays gated behind the memory-v2-enabled feature flag —
+these subcommands remain useful operator tools regardless of whether
+the flag is on.
 
 Subcommands fall into three groups:
 
   Mutating (return a jobId enqueued on the memory job queue):
     migrate          One-shot v1->v2 synthesis. Refuses to overwrite an
                      existing v2 state without --force.
-    rebuild-edges    Regenerate every concept page's edges: frontmatter from
-                     memory/edges.json.
     reembed          Refresh dense + sparse vectors for every concept page.
     activation       Refresh persisted activation state for every conversation.
 
@@ -119,14 +116,13 @@ Subcommands fall into three groups:
     reembed-skills   Re-seed v2 skill entries from the current skill catalog.
 
   Read-only:
-    validate         Print a diagnostic report of orphan edges, oversized
-                     pages, and parse failures.
+    validate         Print a diagnostic report of orphan outgoing-edge
+                     targets, oversized pages, and parse failures.
 
 Examples:
   $ assistant memory v2 validate
   $ assistant memory v2 migrate
   $ assistant memory v2 migrate --force
-  $ assistant memory v2 rebuild-edges
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation`,
@@ -143,10 +139,10 @@ Examples:
     .addHelpText(
       "after",
       `
-Synthesises v2 concept pages from the v1 graph + PKB and writes
-memory/edges.json. The migration handler stores a sentinel at
-memory/.v2-state/.migration-complete-v1-to-v2 after a successful run and
-refuses to run again unless --force is passed.
+Synthesises v2 concept pages from the v1 graph + PKB, writing each page's
+outgoing directed edges directly into its frontmatter. The migration handler
+stores a sentinel at memory/.v2-state/.migration-complete-v1-to-v2 after a
+successful run and refuses to run again unless --force is passed.
 
 The job runs on the background memory worker — this command returns once
 the job is enqueued. Track progress via 'assistant memory status' or the
@@ -158,30 +154,6 @@ Examples:
     )
     .action(async (opts: { force?: boolean }) => {
       await runBackfillOp("migrate", { force: opts.force });
-    });
-
-  // ── rebuild-edges ─────────────────────────────────────────────────────
-
-  v2.command("rebuild-edges")
-    .description(
-      "Regenerate every concept page's edges: frontmatter from memory/edges.json",
-    )
-    .addHelpText(
-      "after",
-      `
-Walks every concept page and rewrites the edges: frontmatter list to match
-the canonical memory/edges.json index. Useful after a manual edit to
-edges.json or to recover from a partially-written page that drifted from
-the index.
-
-The job runs on the background memory worker — this command returns once
-the job is enqueued.
-
-Examples:
-  $ assistant memory v2 rebuild-edges`,
-    )
-    .action(async () => {
-      await runBackfillOp("rebuild-edges");
     });
 
   // ── reembed ───────────────────────────────────────────────────────────
@@ -276,13 +248,13 @@ Examples:
     .addHelpText(
       "after",
       `
-Walks every concept page and the memory/edges.json index, returning an
-aggregate report of:
+Walks every concept page and aggregates outgoing edges from each page's
+frontmatter, returning a diagnostic report of:
 
   pageCount             Number of concept pages successfully parsed.
-  edgeCount             Number of edges in memory/edges.json.
-  missingEdgeEndpoints  Edges whose endpoints reference a slug that no
-                        concept page exists for (orphan endpoints).
+  edgeCount             Total number of directed outgoing edges across pages.
+  missingEdgeEndpoints  Outgoing edges whose target slug has no
+                        corresponding concept page (orphan targets).
   oversizedPages        Pages whose body exceeds memory.v2.max_page_chars
                         (a soft cap; consolidation will eventually split).
   parseFailures         Pages whose YAML frontmatter or schema validation
@@ -312,13 +284,13 @@ Examples:
       log.info(`Edges: ${report.edgeCount}`);
 
       if (report.missingEdgeEndpoints.length === 0) {
-        log.info("Missing edge endpoints: none");
+        log.info("Missing outgoing edge targets: none");
       } else {
         log.info(
-          `Missing edge endpoints: ${report.missingEdgeEndpoints.length}`,
+          `Missing outgoing edge targets: ${report.missingEdgeEndpoints.length}`,
         );
         for (const { from, to } of report.missingEdgeEndpoints) {
-          log.info(`  ${from} <-> ${to}`);
+          log.info(`  ${from} -> ${to}`);
         }
       }
 

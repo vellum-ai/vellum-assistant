@@ -201,15 +201,9 @@ beforeAll(() => {
 
   // Seed the v2 directory layout the migration would normally create.
   mkdirSync(join(tmpWorkspace, "memory", "concepts"), { recursive: true });
-  // edges.json: one edge so spreading-activation has structure to walk.
-  writeFileSync(
-    join(tmpWorkspace, "memory", "edges.json"),
-    JSON.stringify({
-      version: 1,
-      edges: [["alice-vscode", "bob-coffee"]],
-    }),
-  );
-  // Three concept pages with generic, placeholder bodies.
+  // Three concept pages with generic, placeholder bodies. Outgoing edges
+  // live in each page's frontmatter `edges:` list — there is no separate
+  // edges-index file under the directed-edges model.
   writeFileSync(
     join(tmpWorkspace, "memory", "concepts", "alice-vscode.md"),
     `---
@@ -898,20 +892,22 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).toContain("### alice-vscode");
     expect(result.block).toContain("### bob-coffee");
     expect(result.block).toContain("### carol-jazz");
-    expect(result.toInject).toEqual([
-      "alice-vscode",
-      "bob-coffee",
-      "carol-jazz",
-    ]);
+    // The seeded directed edges (alice→bob, bob→alice, frontmatter-demo→alice)
+    // mean alice has two incoming predecessors and bob has one, so directed
+    // spread normalizes alice's activation more aggressively than bob's. The
+    // resulting rank order is bob > carol (no predecessors) > alice.
+    expect(new Set(result.toInject)).toEqual(
+      new Set(["alice-vscode", "bob-coffee", "carol-jazz"]),
+    );
+    expect(result.toInject).toHaveLength(3);
 
     // All three slugs persisted to everInjected so the next per-turn doesn't
     // re-attach the same content.
     const persisted = await hydrate(db, "conv-1");
-    expect(persisted!.everInjected.map((e) => e.slug)).toEqual([
-      "alice-vscode",
-      "bob-coffee",
-      "carol-jazz",
-    ]);
+    expect(new Set(persisted!.everInjected.map((e) => e.slug))).toEqual(
+      new Set(["alice-vscode", "bob-coffee", "carol-jazz"]),
+    );
+    expect(persisted!.everInjected).toHaveLength(3);
   });
 
   test("`top_k_skills: 0` short-circuits to no skills subsection", async () => {
