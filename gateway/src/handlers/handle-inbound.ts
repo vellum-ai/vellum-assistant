@@ -8,6 +8,24 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
+// Text verification infrastructure — wired in PR B (tryTextVerificationIntercept)
+import { findContactChannelByExternalUserId, upsertVerifiedContactChannel } from "../verification/contact-helpers.js";
+import { revokeExistingChannelGuardian, getExistingGuardianBinding, resolveCanonicalPrincipal } from "../verification/binding-helpers.js";
+import { isRateLimited, recordInvalidAttempt, resetRateLimit } from "../verification/rate-limit-helpers.js";
+import { deliverVerificationReply, composeVerificationSuccessReply, composeVerificationFailureReply } from "../verification/reply-delivery.js";
+
+// Suppress unused-import lint until PR B wires these into the intercept path.
+void findContactChannelByExternalUserId;
+void upsertVerifiedContactChannel;
+void revokeExistingChannelGuardian;
+void getExistingGuardianBinding;
+void resolveCanonicalPrincipal;
+void isRateLimited;
+void recordInvalidAttempt;
+void resetRateLimit;
+void deliverVerificationReply;
+void composeVerificationSuccessReply;
+void composeVerificationFailureReply;
 
 const log = getLogger("handle-inbound");
 
