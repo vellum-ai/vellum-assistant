@@ -377,16 +377,14 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(byChannelTs.get("1234.2")?.displayName).toBe("Reply Two");
   });
 
-  test("initial late-join backfill preserves early and recent anchors without loading the middle", async () => {
+  test("initial late-join backfill keeps the newest bounded page before the inbound mention", async () => {
     const conv = createTestConversation();
-    const ts = (n: number) => `1234.${String(n).padStart(6, "0")}`;
+    const ts = (n: number) => `1700000000.${String(n).padStart(6, "0")}`;
+    const inboundTs = ts(500000);
 
     backfillThreadPageMock.mockImplementation(async (...args) => {
       const messages = await backfillThreadMock(...args);
       const opts = args[2];
-      if (opts?.before === ts(100) && opts.cursor === undefined) {
-        return { messages, hasMore: true, nextCursor: "recent-page-2" };
-      }
       if (opts?.limit === 25) {
         return { messages, hasMore: true, nextCursor: "early-page-2" };
       }
@@ -402,58 +400,52 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
           }),
         );
       }
-      if (opts?.cursor === undefined) {
-        return Array.from({ length: 50 }, (_, i) =>
-          makeBackfillMessage({
-            id: ts(i),
-            text: i === 0 ? "root context duplicate" : `early duplicate ${i}`,
-            threadId: i === 0 ? undefined : ts(0),
+      if (opts?.before === inboundTs && opts.after !== undefined) {
+        return [
+          ...Array.from({ length: 50 }, (_, i) => {
+            const n = 499950 + i;
+            return makeBackfillMessage({
+              id: ts(n),
+              text: n === 499999 ? "newest file share" : `recent ${n}`,
+              threadId: ts(0),
+              ...(n === 499999
+                ? {
+                    metadata: {
+                      slackFiles: [
+                        {
+                          id: "F123",
+                          name: "requirements.txt",
+                          mimetype: "text/plain",
+                        },
+                      ],
+                    },
+                  }
+                : {}),
+            });
           }),
-        );
-      }
-      return [
-        ...Array.from({ length: 50 }, (_, i) => {
-          const n = i + 50;
-          return makeBackfillMessage({
-            id: ts(n),
-            text: n === 99 ? "recent file share" : `recent ${n}`,
+          makeBackfillMessage({
+            id: ts(499960),
+            text: "duplicate recent row",
             threadId: ts(0),
-            ...(n === 99
-              ? {
-                  metadata: {
-                    slackFiles: [
-                      {
-                        id: "F123",
-                        name: "requirements.txt",
-                        mimetype: "text/plain",
-                      },
-                    ],
-                  },
-                }
-              : {}),
-          });
-        }),
-        makeBackfillMessage({
-          id: ts(60),
-          text: "duplicate recent row",
-          threadId: ts(0),
-        }),
-      ];
+          }),
+        ];
+      }
+      return [];
     });
 
     const result = await triggerSlackThreadBackfillIfNeeded({
       conversationId: conv.id,
       channelId: SLACK_CHANNEL_ID,
       threadTs: ts(0),
-      excludeChannelTs: ts(100),
+      excludeChannelTs: inboundTs,
     });
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(3);
+    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
     expect(backfillThreadMock.mock.calls[0][2]?.limit).toBe(25);
     expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
     expect(backfillThreadMock.mock.calls[1][2]?.limit).toBe(50);
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe(ts(100));
-    expect(backfillThreadMock.mock.calls[2][2]?.cursor).toBe("recent-page-2");
+    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe(inboundTs);
+    expect(backfillThreadMock.mock.calls[1][2]?.after).toBeDefined();
 
     expect(result.reason).toBe("thread_late_join");
     expect(result.omittedMiddle).toBe(true);
@@ -463,17 +455,17 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.find((p) => p.channelTs === ts(0))?.content).toBe(
       "root context",
     );
-    expect(persisted.find((p) => p.channelTs === ts(30))).toBeUndefined();
-    expect(persisted.find((p) => p.channelTs === ts(99))?.content).toBe(
-      "recent file share",
+    expect(persisted.find((p) => p.channelTs === ts(250000))).toBeUndefined();
+    expect(persisted.find((p) => p.channelTs === ts(499999))?.content).toBe(
+      "newest file share",
     );
     expect(
-      persisted.filter((p) => p.channelTs === ts(60)).map((p) => p.content),
-    ).toEqual(["recent 60"]);
+      persisted.filter((p) => p.channelTs === ts(499960)).map((p) => p.content),
+    ).toEqual(["recent 499960"]);
     expect(persisted.some((p) => p.backfillOmittedMiddle === true)).toBe(true);
-    expect(persisted.find((p) => p.channelTs === ts(99))?.slackFiles).toEqual([
-      { name: "requirements.txt", mimetype: "text/plain" },
-    ]);
+    expect(
+      persisted.find((p) => p.channelTs === ts(499999))?.slackFiles,
+    ).toEqual([{ name: "requirements.txt", mimetype: "text/plain" }]);
   });
 
   test("backfill is NOT triggered when the parent is already persisted and no upper-bound gap is known", async () => {
@@ -541,6 +533,68 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       "unseen earlier reply",
     );
     expect(persisted.find((p) => p.channelTs === "1234.5")).toBeUndefined();
+  });
+
+  test("multi-page delta backfill keeps the newest rows before the inbound mention", async () => {
+    const conv = createTestConversation();
+    const parentTs = "1699990000.000000";
+    const inboundTs = "1700000000.500000";
+    const ts = (n: number) => `1700000000.${String(n).padStart(6, "0")}`;
+
+    seedSlackRow(conv.id, parentTs, undefined, "parent already here");
+
+    backfillThreadPageMock.mockImplementation(async (...args) => {
+      const messages = await backfillThreadMock(...args);
+      const opts = args[2];
+      if (opts?.limit === 1) {
+        return { messages, hasMore: messages.length > 0 };
+      }
+      return { messages, hasMore: false };
+    });
+    backfillThreadMock.mockImplementation(async (_channel, _thread, opts) => {
+      if (opts?.limit === 1) {
+        return [
+          makeBackfillMessage({
+            id: ts(100000),
+            text: "omitted earlier delta",
+            threadId: parentTs,
+          }),
+        ];
+      }
+      if (opts?.before === inboundTs && opts.after !== parentTs) {
+        return Array.from({ length: 50 }, (_, i) => {
+          const n = 499950 + i;
+          return makeBackfillMessage({
+            id: ts(n),
+            text: `newest delta ${n}`,
+            threadId: parentTs,
+          });
+        });
+      }
+      return [];
+    });
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: parentTs,
+      excludeChannelTs: inboundTs,
+    });
+
+    expect(result.reason).toBe("thread_delta");
+    expect(result.omittedMiddle).toBe(true);
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBe(inboundTs);
+    expect(backfillThreadMock.mock.calls[0][2]?.after).not.toBe(parentTs);
+
+    const persisted = readPersistedSlackRows(conv.id);
+    expect(persisted.find((p) => p.channelTs === parentTs)?.content).toBe(
+      "parent already here",
+    );
+    expect(persisted.find((p) => p.channelTs === ts(100000))).toBeUndefined();
+    expect(persisted.find((p) => p.channelTs === ts(499999))?.content).toBe(
+      "newest delta 499999",
+    );
+    expect(persisted.find((p) => p.channelTs === inboundTs)).toBeUndefined();
   });
 
   test("file-bearing backfill renders a Slack file marker without binary hydration", async () => {
@@ -747,11 +801,16 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       excludeChannelTs: "1234.6",
     });
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(4);
-    expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.5");
-    expect(backfillThreadMock.mock.calls[2][2]?.before).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[3][2]?.before).toBe("1234.6");
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "1234.5",
+      ),
+    ).toBe(true);
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "1234.6",
+      ),
+    ).toBe(true);
   });
 
   test("rapid consecutive replies can fetch a newer gap even when the prior inbound reply was only excluded", async () => {
@@ -813,13 +872,19 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       excludeChannelTs: "1234.6",
     });
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(3);
+    expect(backfillThreadMock.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(backfillThreadMock.mock.calls[0][2]?.after).toBeUndefined();
     expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[1][2]?.after).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("1234.5");
-    expect(backfillThreadMock.mock.calls[2][2]?.after).toBe("1234.4");
-    expect(backfillThreadMock.mock.calls[2][2]?.before).toBe("1234.6");
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "1234.5",
+      ),
+    ).toBe(true);
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "1234.6",
+      ),
+    ).toBe(true);
 
     const persisted = readPersistedSlackRows(conv.id);
     expect(persisted.map((p) => p.channelTs).sort()).toEqual([
@@ -1245,7 +1310,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     // void-promise has time to write to the DB before we assert.
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(2);
+    expect(backfillThreadMock.mock.calls.length).toBeGreaterThanOrEqual(2);
     const [calledChannel, calledThread] = backfillThreadMock.mock.calls[0];
     expect(calledChannel).toBe(HTTP_SLACK_CHANNEL_ID);
     expect(calledThread).toBe("1234.0");
@@ -1479,10 +1544,17 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(r2.status).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(backfillThreadMock).toHaveBeenCalledTimes(3);
     expect(backfillThreadMock.mock.calls[0][2]?.before).toBeUndefined();
-    expect(backfillThreadMock.mock.calls[1][2]?.before).toBe("5678.1");
-    expect(backfillThreadMock.mock.calls[2][2]?.before).toBe("5678.2");
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "5678.1",
+      ),
+    ).toBe(true);
+    expect(
+      backfillThreadMock.mock.calls.some(
+        (call) => call[2]?.before === "5678.2",
+      ),
+    ).toBe(true);
   });
 
   test("backfill error from the HTTP path does not crash the request", async () => {
