@@ -112,6 +112,7 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
+import { isDiskSpacePressure } from "./disk-space-guard.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -458,22 +459,40 @@ export class Conversation {
     const resolveSystemPromptCallback = (
       _history: Message[],
     ): ResolvedSystemPrompt => {
+      let prompt = this.hasSystemPromptOverride
+        ? systemPrompt
+        : (() => {
+            const persona = resolvePersonaContext(
+              this.currentTurnTrustContext,
+              this.currentTurnChannelCapabilities,
+            );
+            return buildSystemPrompt({
+              hasNoClient: this.hasNoClient,
+              userPersona: persona.userPersona,
+              channelPersona: persona.channelPersona,
+              userSlug: persona.userSlug,
+              onboardingContext: this.getOnboardingContext(),
+            });
+          })();
+
+      if (isDiskSpacePressure()) {
+        prompt +=
+          "\n\n<disk_pressure_mode>\n" +
+          "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
+          "IMMEDIATELY inform the user that disk space is critically low and the assistant is restricted to disk cleanup tasks only.\n" +
+          "You MUST:\n" +
+          "- Start your response by telling the user that disk space is critically low (95%+ used)\n" +
+          "- Help the user identify what is consuming disk space (run `du -sh ~/* | sort -rh | head -20` or similar)\n" +
+          "- Suggest specific files or directories that can be safely deleted\n" +
+          "- Help clear caches, logs, temporary files, and other non-essential data\n" +
+          "- Explain that all other assistant tasks are suspended until disk space is freed\n" +
+          "- Let the user know they can issue a full override via the disk lock override endpoint if needed\n" +
+          "You MUST NOT perform any other tasks until disk space is freed or the user issues an override.\n" +
+          "</disk_pressure_mode>";
+      }
+
       const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : (() => {
-              const persona = resolvePersonaContext(
-                this.currentTurnTrustContext,
-                this.currentTurnChannelCapabilities,
-              );
-              return buildSystemPrompt({
-                hasNoClient: this.hasNoClient,
-                userPersona: persona.userPersona,
-                channelPersona: persona.channelPersona,
-                userSlug: persona.userSlug,
-                onboardingContext: this.getOnboardingContext(),
-              });
-            })(),
+        systemPrompt: prompt,
         maxTokens: configuredMaxTokens,
       };
       if (resolvedModel !== undefined) {

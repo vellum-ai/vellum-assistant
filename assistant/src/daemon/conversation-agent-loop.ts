@@ -172,7 +172,6 @@ import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { isDiskSpacePressure } from "./disk-space-guard.js";
 import { deepRepairHistory } from "./history-repair.js";
-import { getAssistantName } from "./identity-helpers.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -577,14 +576,10 @@ export interface AgentLoopConversationContext {
 const DISK_PRESSURE_CONTEXT =
   "\n\n<disk_pressure_mode>\n" +
   "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
+  "IMMEDIATELY inform the user that disk space is critically low.\n" +
   "You MUST only help the user diagnose and resolve the disk usage problem.\n" +
-  "Focus on:\n" +
-  "- Identifying large files and directories consuming disk space\n" +
-  "- Suggesting specific files or directories that can be safely deleted\n" +
-  "- Running commands like `du -sh` to analyze disk usage\n" +
-  "- Clearing caches, logs, temporary files, and other non-essential data\n" +
-  "Do NOT perform any other tasks until disk space is freed.\n" +
-  "The user can override this restriction via the disk lock override endpoint.\n" +
+  "All background tasks are suspended until disk space is freed.\n" +
+  "The user can issue a full override via POST /v1/disk-lock/override if needed.\n" +
   "</disk_pressure_mode>";
 
 /**
@@ -751,22 +746,14 @@ export async function runAgentLoopImpl(
   });
 
   try {
-    // Disk pressure gate — selectively blocks based on caller type.
-    // Background tasks and non-guardian messages are rejected entirely.
-    // Guardian messages are allowed through with injected context that
-    // restricts the assistant to disk-cleanup guidance only.
+    // Disk pressure gate — blocks background tasks when disk usage is critical.
+    // User-initiated messages (mainAgent) are allowed through; the system
+    // prompt and user message context injection restrict the assistant to
+    // disk-cleanup guidance only. Background tasks are blocked entirely to
+    // prevent further disk consumption.
     let diskPressureActive = false;
     if (isDiskSpacePressure()) {
-      const isBackgroundTask = turnCallSite !== "mainAgent";
-      // Desktop/macOS conversations have no channel trust resolution so
-      // ctx.trustContext is undefined. Those messages originate from the
-      // local owner, so treat absent trust context as guardian access.
-      const trustClass = ctx.trustContext
-        ? resolveTrustClass(ctx.trustContext)
-        : "guardian";
-      const isGuardianCaller = trustClass === "guardian";
-
-      if (isBackgroundTask) {
+      if (turnCallSite !== "mainAgent") {
         rlog.info(
           { callSite: turnCallSite },
           "Blocking background task due to disk pressure",
@@ -775,24 +762,16 @@ export async function runAgentLoopImpl(
           type: "error",
           code: "DISK_SPACE_CRITICAL",
           message:
-            "Disk usage has reached 95%. Background tasks are suspended until disk space is freed or an override is issued.",
+            "Disk usage has reached 95%. All background tasks are suspended. " +
+            "Please free up disk space or issue a manual override at POST /v1/disk-lock/override " +
+            'with { "confirmation": "I understand the risks" } to resume normal operation.',
           category: "disk_space_locked",
         });
         return;
       }
 
-      if (!isGuardianCaller) {
-        const name = getAssistantName() ?? "The assistant";
-        onEvent({
-          type: "error",
-          code: "DISK_SPACE_CRITICAL",
-          message: `Disk usage has reached 95%. ${name} is locked to prevent data loss. Only the owner can interact until disk space is freed or an override is issued.`,
-          category: "disk_space_locked",
-        });
-        return;
-      }
-
-      // Guardian message — allow through with restricted context.
+      // User message — allow through with restricted context so the
+      // assistant can help diagnose and resolve the disk space issue.
       diskPressureActive = true;
     }
 
