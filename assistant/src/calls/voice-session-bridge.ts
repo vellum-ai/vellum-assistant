@@ -440,7 +440,7 @@ export async function startVoiceTurn(
             acpOptions: msg.acpOptions,
           },
         });
-        broadcastMessage(msg, opts.conversationId);
+        broadcastMessage(msg);
         return;
       }
       if (autoDeny) {
@@ -488,7 +488,7 @@ export async function startVoiceTurn(
               undefined,
               `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
             );
-            broadcastMessage(msg, opts.conversationId);
+            broadcastMessage(msg);
             return;
           }
         } catch (err) {
@@ -509,7 +509,7 @@ export async function startVoiceTurn(
           undefined,
           `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
         );
-        broadcastMessage(msg, opts.conversationId);
+        broadcastMessage(msg);
         return;
       }
       if (autoAllow) {
@@ -524,7 +524,7 @@ export async function startVoiceTurn(
           undefined,
           `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
         );
-        broadcastMessage(msg, opts.conversationId);
+        broadcastMessage(msg);
         return;
       }
     } else if (msg.type === "secret_request") {
@@ -536,7 +536,7 @@ export async function startVoiceTurn(
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
       return;
     }
-    broadcastMessage(msg, opts.conversationId);
+    broadcastMessage(msg);
   });
 
   // Fire-and-forget the agent loop
@@ -565,7 +565,7 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
-          broadcastMessage(msg, opts.conversationId);
+          broadcastMessage(msg);
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {
