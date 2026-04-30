@@ -573,19 +573,18 @@ export interface AgentLoopConversationContext {
 
 // ── Disk pressure context injection ──────────────────────────────────
 
-const DISK_PRESSURE_CONTEXT =
-  "\n\n<disk_pressure_mode>\n" +
-  "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
-  "IMMEDIATELY inform the user that disk space is critically low.\n" +
-  "You MUST only help the user diagnose and resolve the disk usage problem.\n" +
-  "All background tasks are suspended until disk space is freed.\n" +
-  "The user can issue a full override via POST /v1/disk-lock/override if needed.\n" +
-  "</disk_pressure_mode>";
+const DISK_PRESSURE_PREFIX =
+  "<disk_pressure_warning>\n" +
+  "DISK SPACE CRITICAL (95%+ used). " +
+  "You MUST start your response with a warning about disk space and offer to help fix it. " +
+  "Do NOT skip the warning. The user's message follows:\n" +
+  "</disk_pressure_warning>\n\n";
 
 /**
- * Appends the disk-pressure context block to the last user message in the
- * run-messages array. Called after every `applyRuntimeInjections` site so
- * the constraint survives overflow-recovery re-injections.
+ * Prepends a disk-pressure warning to the last user message so the LLM
+ * sees it before the user's actual content. Called after every
+ * `applyRuntimeInjections` site so the constraint survives overflow-recovery
+ * re-injections.
  */
 function applyDiskPressureContext(messages: Message[]): Message[] {
   const tail = messages[messages.length - 1];
@@ -595,8 +594,8 @@ function applyDiskPressureContext(messages: Message[]): Message[] {
     {
       ...tail,
       content: [
+        { type: "text" as const, text: DISK_PRESSURE_PREFIX },
         ...tail.content,
-        { type: "text" as const, text: DISK_PRESSURE_CONTEXT },
       ],
     },
   ];

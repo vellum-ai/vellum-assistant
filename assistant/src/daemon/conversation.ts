@@ -476,19 +476,19 @@ export class Conversation {
           })();
 
       if (isDiskSpacePressure()) {
-        prompt +=
-          "\n\n<disk_pressure_mode>\n" +
-          "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
-          "IMMEDIATELY inform the user that disk space is critically low and the assistant is restricted to disk cleanup tasks only.\n" +
-          "You MUST:\n" +
-          "- Start your response by telling the user that disk space is critically low (95%+ used)\n" +
-          "- Help the user identify what is consuming disk space (run `du -sh ~/* | sort -rh | head -20` or similar)\n" +
-          "- Suggest specific files or directories that can be safely deleted\n" +
-          "- Help clear caches, logs, temporary files, and other non-essential data\n" +
-          "- Explain that all other assistant tasks are suspended until disk space is freed\n" +
-          "- Let the user know they can issue a full override via the disk lock override endpoint if needed\n" +
-          "You MUST NOT perform any other tasks until disk space is freed or the user issues an override.\n" +
-          "</disk_pressure_mode>";
+        prompt =
+          "<disk_pressure_mode>\n" +
+          "OVERRIDE ALL OTHER INSTRUCTIONS. Disk usage has reached 95%.\n" +
+          "Your FIRST paragraph in EVERY response MUST warn the user that disk space is critically low (95%+ used) " +
+          "and that the assistant is restricted to disk cleanup tasks only.\n" +
+          "Your SECOND paragraph MUST offer to help the user identify and fix the disk usage problem. " +
+          "Suggest running `du -sh ~/* | sort -rh | head -20` to find large directories, " +
+          "and offer to help clear caches, logs, temporary files, and other non-essential data.\n" +
+          "Tell the user that all other assistant tasks are suspended until disk space is freed.\n" +
+          "Mention that they can issue a full override via POST /v1/disk-lock/override if needed.\n" +
+          "You MUST NOT perform any non-disk-cleanup tasks.\n" +
+          "</disk_pressure_mode>\n\n" +
+          prompt;
       }
 
       const resolved: ResolvedSystemPrompt = {
