@@ -307,12 +307,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: gateway/chrome-extension-allowlist.json
+          sparse-checkout: clients/chrome-extension/extension-environments.json
           sparse-checkout-cone-mode: false
 
-      - name: Read CWS extension ID from allowlist
+      - name: Read CWS extension ID
         id: read-extension-id
-        run: echo "id=$(jq -r '.allowedExtensionIds[0]' gateway/chrome-extension-allowlist.json)" >> "$GITHUB_OUTPUT"
+        run: echo "id=$(jq -r '.production.extensionId' clients/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
 
       - name: Download extension CRX
         id: download-crx
