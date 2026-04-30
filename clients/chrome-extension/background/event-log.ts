@@ -107,10 +107,12 @@ function persistOperations(): void {
 
 /**
  * Hydrate in-memory state from session storage. Called once at module
- * load time. Until this resolves, `getOperations()` returns whatever
- * is already in memory (empty on fresh start). The popup fetches via
- * `get-operations` message which is processed after the service worker
- * is fully awake, so the race window is negligible.
+ * load time.
+ *
+ * Uses a **merge** strategy rather than destructive replacement so that
+ * any operations recorded between module load and hydration completion
+ * are preserved. Persisted entries whose `requestId` already exists in
+ * the live map are skipped — in-memory state is always more recent.
  */
 export async function hydrateFromStorage(): Promise<void> {
   if (!canPersist()) return;
@@ -122,11 +124,22 @@ export async function hydrateFromStorage(): Promise<void> {
     const storedOps = stored[STORAGE_KEY_OPS];
     const storedNextId = stored[STORAGE_KEY_NEXT_OP_ID];
     if (Array.isArray(storedOps) && storedOps.length > 0) {
-      operations.length = 0;
-      operationsByRequestId.clear();
+      // Merge: prepend persisted entries that aren't already in-memory.
+      const toRestore: OperationEntry[] = [];
       for (const op of storedOps as OperationEntry[]) {
-        operations.push(op);
-        operationsByRequestId.set(op.requestId, op);
+        if (!operationsByRequestId.has(op.requestId)) {
+          toRestore.push(op);
+          operationsByRequestId.set(op.requestId, op);
+        }
+      }
+      if (toRestore.length > 0) {
+        // Prepend older persisted entries before any fresh in-flight ones.
+        operations.unshift(...toRestore);
+        // Trim to cap if the combined list exceeds MAX_OPERATIONS.
+        while (operations.length > MAX_OPERATIONS) {
+          const evicted = operations.shift()!;
+          operationsByRequestId.delete(evicted.requestId);
+        }
       }
     }
     if (typeof storedNextId === "number" && storedNextId > nextOpId) {

@@ -271,4 +271,67 @@ describe("session storage persistence", () => {
     const persisted = sessionStore["eventLog:operations"] as unknown[];
     expect(persisted.length).toBe(0);
   });
+
+  test("hydration merges with in-flight operations instead of replacing", async () => {
+    // Record a fresh operation BEFORE hydration runs — simulates a
+    // request arriving while the async storage read is in-flight.
+    recordRequest("in-flight-req", "Runtime.evaluate");
+
+    // Now seed storage with an older operation (as if persisted by a
+    // previous worker). Must happen AFTER recordRequest so it isn't
+    // overwritten by the write-through.
+    sessionStore["eventLog:operations"] = [
+      {
+        id: 1,
+        requestId: "old-persisted",
+        operationName: "Page.navigate",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    sessionStore["eventLog:nextOpId"] = 2;
+
+    // Now hydrate — should merge, not replace.
+    await hydrateFromStorage();
+
+    const ops = getOperations();
+    const requestIds = ops.map((o) => o.requestId);
+
+    // Both the persisted and in-flight operations should be present.
+    expect(requestIds).toContain("old-persisted");
+    expect(requestIds).toContain("in-flight-req");
+
+    // In-flight operation should still be correlatable.
+    recordResponse("in-flight-req", {
+      isError: false,
+      responseContent: "ok",
+    });
+    const updated = getOperations().find(
+      (o) => o.requestId === "in-flight-req",
+    );
+    expect(updated?.respondedAt).toBeDefined();
+  });
+
+  test("hydration skips entries whose requestId already exists in-memory", async () => {
+    // Record the same requestId in-memory before hydration.
+    recordRequest("dup-req", "Runtime.evaluate");
+
+    // Seed storage with a stale version of the same requestId.
+    sessionStore["eventLog:operations"] = [
+      {
+        id: 1,
+        requestId: "dup-req",
+        operationName: "Page.navigate",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    sessionStore["eventLog:nextOpId"] = 2;
+
+    await hydrateFromStorage();
+
+    const ops = getOperations();
+    const dups = ops.filter((o) => o.requestId === "dup-req");
+    // Should NOT have two entries — in-memory wins.
+    expect(dups.length).toBe(1);
+    expect(dups[0]!.operationName).toBe("Runtime.evaluate");
+  });
 });
