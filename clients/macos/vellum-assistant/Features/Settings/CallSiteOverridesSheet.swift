@@ -162,9 +162,17 @@ struct CallSiteOverridesSheet: View {
     // MARK: - Overrides List
 
     private var overridesList: some View {
-        List {
-            ForEach(entriesByDomain, id: \.domain.id) { group in
-                Section {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(entriesByDomain, id: \.domain.id) { group in
+                    Text(group.domain.displayName)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.top, VSpacing.md)
+                        .padding(.bottom, VSpacing.xs)
+
                     ForEach(group.entries) { entry in
                         CallSiteOverrideRow(
                             draft: draftBinding(for: entry.id),
@@ -182,13 +190,16 @@ struct CallSiteOverridesSheet: View {
                             onClear: { clear(id: entry.id) },
                             onSelectProfile: { name in selectProfile(id: entry.id, name: name) }
                         )
+                        .padding(.horizontal, VSpacing.lg)
+
+                        if entry.id != group.entries.last?.id {
+                            SettingsDivider()
+                                .padding(.horizontal, VSpacing.lg)
+                        }
                     }
-                } header: {
-                    Text(group.domain.displayName)
                 }
             }
         }
-        .listStyle(.inset)
         .frame(maxHeight: .infinity)
     }
 
