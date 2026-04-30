@@ -29,10 +29,10 @@ async function checkVellum(): Promise<void> {
   }
 
   try {
-    const credentials = JSON.parse(stdout) as Array<{
-      service?: string;
-      field?: string;
-    }>;
+    const parsed = JSON.parse(stdout) as {
+      credentials?: Array<{ service?: string; field?: string }>;
+    };
+    const credentials = parsed.credentials ?? [];
     const hasApiKey = credentials.some(
       (c) => c.service === "resend" && c.field === "api_key",
     );

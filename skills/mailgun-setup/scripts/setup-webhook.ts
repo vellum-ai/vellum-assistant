@@ -71,7 +71,7 @@ async function setupVellum(): Promise<void> {
   let callbackUrl: string;
   try {
     const data = JSON.parse(reg.stdout);
-    callbackUrl = data.url || data.callback_url;
+    callbackUrl = data.callbackUrl || data.url || data.callback_url;
   } catch {
     callbackUrl = reg.stdout;
   }
