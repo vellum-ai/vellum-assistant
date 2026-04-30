@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-/// Unifies assistant-scoped and macOS-scoped flags so the developer tab can
+/// Unifies assistant-scoped and client-scoped flags so the developer tab can
 /// render them in a single list.
 private struct UnifiedFeatureFlag: Identifiable, Equatable {
     let id: String
@@ -119,8 +119,8 @@ struct FeatureFlagsCard: View {
         )
     }
 
-    /// Merge assistant-scoped and macOS-scoped flags into a single sorted list.
-    /// If a flag key exists in both scopes, the macOS entry wins and the
+    /// Merge assistant-scoped and client-scoped flags into a single sorted list.
+    /// If a flag key exists in both scopes, the client entry wins and the
     /// assistant duplicate is dropped.
     private static func buildUnifiedFlags(
         assistantFlags: [AssistantFeatureFlag],
