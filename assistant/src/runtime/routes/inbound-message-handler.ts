@@ -73,7 +73,6 @@ import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-act
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
-import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -265,7 +264,7 @@ export async function handleChannelInbound({
     externalMessageId,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
-  const { resolvedMember, guardianVerifyCode } = aclResult;
+  const { resolvedMember } = aclResult;
 
   // ── Slack delete propagation ──
   // Slack message_deleted events are forwarded by the gateway with the
@@ -738,24 +737,6 @@ export async function handleChannelInbound({
     eventId: result.eventId,
   });
   if (bootstrapResponse) return bootstrapResponse;
-
-  // ── Guardian verification code intercept (deterministic) ──
-  const verificationResponse = await handleVerificationIntercept({
-    isDuplicate: result.duplicate,
-    guardianVerifyCode,
-    rawSenderId,
-    canonicalSenderId,
-    canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    replyCallbackUrl,
-    assistantId,
-    actorDisplayName: body.actorDisplayName,
-    actorUsername: body.actorUsername,
-  });
-  if (verificationResponse) return verificationResponse;
 
   // Legacy voice guardian action interception removed — all guardian reply
   // routing now flows through the canonical router below (routeGuardianReply),
