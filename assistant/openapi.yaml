@@ -2502,7 +2502,9 @@ paths:
     get:
       operationId: config_llm_callsites_get
       summary: List LLM call sites
-      description: Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by clients to render the per-call-site override settings UI.
+      description:
+        Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by
+        clients to render the per-call-site override settings UI.
       tags:
         - config
       responses:
