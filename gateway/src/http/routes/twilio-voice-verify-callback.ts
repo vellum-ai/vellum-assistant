@@ -203,7 +203,6 @@ export function createTwilioVoiceVerifyCallbackHandler(
 async function revokeExistingPhoneGuardian(): Promise<void> {
   const now = Date.now();
 
-  // Fetch the IDs being revoked so we can dual-write to gateway DB
   const revokedRows = await assistantDbQuery<{ id: string }>(
     `SELECT cc.id
      FROM contacts c
@@ -214,24 +213,23 @@ async function revokeExistingPhoneGuardian(): Promise<void> {
 
   if (revokedRows.length === 0) return;
 
+  const ids = revokedRows.map((r) => r.id);
+  const placeholders = ids.map(() => "?").join(", ");
+
   await assistantDbRun(
     `UPDATE contact_channels
      SET status = 'revoked', policy = 'deny', updated_at = ?
-     WHERE id IN (
-       SELECT cc.id FROM contacts c
-       JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'
-     )`,
-    [now],
+     WHERE id IN (${placeholders})`,
+    [now, ...ids],
   );
 
   // Gateway DB dual-write (best-effort)
   try {
     const gwDb = getGatewayDb();
-    for (const row of revokedRows) {
+    for (const id of ids) {
       gwDb.update(gwContactChannels)
-        .set({ status: "revoked", policy: "deny" })
-        .where(eq(gwContactChannels.id, row.id))
+        .set({ status: "revoked", policy: "deny", updatedAt: now })
+        .where(eq(gwContactChannels.id, id))
         .run();
     }
   } catch (gwErr) {

@@ -196,6 +196,33 @@ export const trustRules = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Guardian verification rate limits
+// ---------------------------------------------------------------------------
+
+export const channelGuardianRateLimits = sqliteTable(
+  "channel_guardian_rate_limits",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    actorExternalUserId: text("actor_external_user_id").notNull(),
+    actorChatId: text("actor_chat_id").notNull(),
+    attemptTimestampsJson: text("attempt_timestamps_json")
+      .notNull()
+      .default("[]"),
+    lockedUntil: integer("locked_until"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_gw_channel_guardian_rate_limits_actor").on(
+      table.channel,
+      table.actorExternalUserId,
+      table.actorChatId,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Channel denial reply log (rate-limiting outbound denial replies)
 // ---------------------------------------------------------------------------
 
