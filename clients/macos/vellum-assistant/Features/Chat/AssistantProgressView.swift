@@ -15,6 +15,8 @@ struct AssistantProgressView: View {
     let streamingCodePreview: String?
     let streamingCodeToolName: String?
     let decidedConfirmations: [ToolConfirmationData]
+    let thinkingContent: String?
+    let thinkingIsStreaming: Bool
     var onRehydrate: (() -> Void)?
 
     // Confirmation action callbacks (threaded from MessageListView)
@@ -60,6 +62,8 @@ struct AssistantProgressView: View {
         streamingCodePreview: String? = nil,
         streamingCodeToolName: String? = nil,
         decidedConfirmations: [ToolConfirmationData],
+        thinkingContent: String? = nil,
+        thinkingIsStreaming: Bool = false,
         onRehydrate: (() -> Void)? = nil,
         onConfirmationAllow: ((String) -> Void)? = nil,
         onConfirmationDeny: ((String) -> Void)? = nil,
@@ -78,6 +82,8 @@ struct AssistantProgressView: View {
         self.streamingCodePreview = streamingCodePreview
         self.streamingCodeToolName = streamingCodeToolName
         self.decidedConfirmations = decidedConfirmations
+        self.thinkingContent = thinkingContent
+        self.thinkingIsStreaming = thinkingIsStreaming
         self.onRehydrate = onRehydrate
         self.onConfirmationAllow = onConfirmationAllow
         self.onConfirmationDeny = onConfirmationDeny
@@ -698,9 +704,34 @@ struct AssistantProgressView: View {
         )
     }
 
+    /// Derives a `Binding<Bool>` for the thinking content row's expansion state
+    /// from the shared `ProgressCardUIState`, scoped to this card's key.
+    private var isThinkingContentExpanded: Binding<Bool> {
+        Binding(
+            get: {
+                guard let key = cardKey else { return false }
+                return progressUIState.isThinkingExpanded(for: key)
+            },
+            set: { newValue in
+                guard let key = cardKey else { return }
+                progressUIState.setThinkingExpanded(for: key, expanded: newValue)
+            }
+        )
+    }
+
     @ViewBuilder
     private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Thinking content row — rendered before tool calls since thinking
+            // happens before tool execution. Only shown when content is provided.
+            if let content = thinkingContent, !content.isEmpty {
+                ThinkingContentRow(
+                    content: content,
+                    isStreaming: thinkingIsStreaming,
+                    isExpanded: isThinkingContentExpanded
+                )
+            }
+
             ForEach(toolCalls) { toolCall in
                 ToolCallStepDetailRow(
                     toolCall: toolCall,
@@ -1548,6 +1579,75 @@ private struct ThinkingStepRow: View {
                 }
             }
             .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
+        }
+    }
+}
+
+// MARK: - Thinking Content Row
+
+/// Collapsible row that renders LLM thinking/reasoning content inside a progress
+/// card's expanded content. Follows the same visual pattern as `ToolCallStepDetailRow`
+/// by wrapping `VCollapsibleStepRow`. Renders markdown content styled to match
+/// `ThinkingBlockView` (secondary text, base code background).
+private struct ThinkingContentRow: View {
+    let content: String
+    let isStreaming: Bool
+    @Binding var isExpanded: Bool
+
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
+
+    /// Cached parsed markdown segments — parsed lazily only when the row is
+    /// expanded, avoiding synchronous O(n) work while collapsed.
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
+
+    private var rowState: VCollapsibleStepRowState {
+        isStreaming ? .running : .succeeded
+    }
+
+    private var title: String {
+        isStreaming ? "Thinking..." : "Thought process"
+    }
+
+    private func syncCacheIfExpanded() {
+        guard isExpanded, cachedContent != content else { return }
+        cachedContent = content
+        cachedSegments = parseMarkdownSegments(content)
+    }
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: title,
+            state: rowState,
+            hasDetails: true,
+            isExpanded: $isExpanded,
+            leadingAccessory: { EmptyView() },
+            trailingAccessory: { EmptyView() },
+            detailContent: { detailBody }
+        )
+        .onAppear { syncCacheIfExpanded() }
+        .onChange(of: content) { _, _ in syncCacheIfExpanded() }
+        .onChange(of: isExpanded) { _, _ in syncCacheIfExpanded() }
+    }
+
+    @ViewBuilder
+    private var detailBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .padding(.horizontal, VSpacing.lg)
+
+            MarkdownSegmentView(
+                segments: cachedSegments,
+                isStreaming: isStreaming,
+                maxContentWidth: max(bubbleMaxWidth - 2 * VSpacing.sm, 0),
+                textColor: VColor.contentSecondary,
+                secondaryTextColor: VColor.contentTertiary,
+                mutedTextColor: VColor.contentTertiary,
+                tintColor: VColor.primaryBase,
+                codeTextColor: VColor.contentDefault,
+                codeBackgroundColor: VColor.surfaceBase
+            )
+            .padding(VSpacing.sm)
         }
     }
 }

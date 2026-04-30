@@ -43,6 +43,12 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// exact regression the anchor is meant to prevent.
     var cardCompletedDates: [UUID: Date] = [:]
 
+    // MARK: - Thinking Content Expansion
+
+    /// Set of card keys (first tool call UUID) whose inline thinking content
+    /// row is currently expanded. Keyed the same way as `cardExpansionOverrides`.
+    var thinkingExpandedIds: Set<UUID> = []
+
     // MARK: - Rehydration Tracking
 
     /// Set of group IDs (first tool call UUID) for which rehydration has already
@@ -83,6 +89,11 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// Returns the persisted completion timestamp for the given card, or nil if none.
     func cardCompletedAt(for cardKey: UUID) -> Date? {
         cardCompletedDates[cardKey]
+    }
+
+    /// Returns whether the thinking content row for the given card is expanded.
+    func isThinkingExpanded(for cardKey: UUID) -> Bool {
+        thinkingExpandedIds.contains(cardKey)
     }
 
     /// Whether rehydration has already been performed for the given group.
@@ -140,6 +151,15 @@ struct ProgressCardUIState: Equatable, Sendable {
         thinkingDurations.removeValue(forKey: cardKey)
     }
 
+    /// Sets the thinking content expansion state for a card.
+    mutating func setThinkingExpanded(for cardKey: UUID, expanded: Bool) {
+        if expanded {
+            thinkingExpandedIds.insert(cardKey)
+        } else {
+            thinkingExpandedIds.remove(cardKey)
+        }
+    }
+
     /// Marks a group as having been rehydrated.
     mutating func markRehydrated(groupId: UUID) {
         rehydratedGroupIds.insert(groupId)
@@ -151,6 +171,7 @@ struct ProgressCardUIState: Equatable, Sendable {
         cardExpansionOverrides.removeAll()
         thinkingDurations.removeAll()
         cardCompletedDates.removeAll()
+        thinkingExpandedIds.removeAll()
         rehydratedGroupIds.removeAll()
     }
 }
