@@ -464,7 +464,9 @@ async function drainSingleMessage(
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
     next.content,
-    buildSlashContext(conversation),
+    classifySlash(next.content) === "passthrough"
+      ? undefined
+      : buildSlashContext(conversation),
   );
 
   // Unknown slash — persist the exchange and continue draining.
@@ -949,7 +951,9 @@ async function drainBatch(
 
     const qmSlash = await resolveSlash(
       qm.content,
-      buildSlashContext(conversation),
+      classifySlash(qm.content) === "passthrough"
+        ? undefined
+        : buildSlashContext(conversation),
     );
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
@@ -1348,7 +1352,9 @@ export async function processMessage(
   // Resolve slash commands before persistence
   const slashResult = await resolveSlash(
     content,
-    buildSlashContext(conversation),
+    classifySlash(content) === "passthrough"
+      ? undefined
+      : buildSlashContext(conversation),
   );
 
   // Unknown slash command — persist the exchange (user + assistant) so the

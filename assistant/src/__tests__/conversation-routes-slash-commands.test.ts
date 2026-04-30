@@ -438,14 +438,14 @@ describe("handleSendMessage slash command interception", () => {
 
   test("passes SlashContext with resolved profile context budget", async () => {
     resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "test",
+      kind: "unknown",
+      message: "Conversation Status\n\nContext: 50%",
     });
 
     const { conversation } = makeConversation();
     await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
-      makeRequest("test"),
+      makeRequest("/context"),
       undefined,
       202,
     );
