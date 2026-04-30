@@ -18,12 +18,14 @@ import {
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
+import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversationOverrideProfile,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -61,15 +63,23 @@ const log = getLogger("conversation-process");
 
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
-  const fmt = (n: number) => n.toLocaleString("en-US");
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   if (!result.compacted) {
-    return `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`;
+    return [
+      `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`,
+      `Context: ${fmt(result.estimatedInputTokens)} / ${fmt(
+        result.maxInputTokens,
+      )} tokens`,
+    ].join("\n");
   }
   const saved =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
     "Context Compacted\n",
     `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(saved)} saved)`,
+    `Context:  ${fmt(result.estimatedInputTokens)} / ${fmt(
+      result.maxInputTokens,
+    )} tokens`,
     `Messages: ${fmt(result.compactedMessages)} compacted`,
   ].join("\n");
 }
@@ -236,14 +246,21 @@ function buildSlashContext(
   conversation: ProcessConversationContext,
 ): SlashContext {
   const config = getConfig();
+  const contextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: "mainAgent",
+    overrideProfile: getConversationOverrideProfile(
+      conversation.conversationId,
+    ),
+  });
   const turnInterface = conversation.getTurnInterfaceContext();
   return {
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: contextWindow.maxInputTokens,
+    model: contextWindow.model,
+    provider: contextWindow.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
   };

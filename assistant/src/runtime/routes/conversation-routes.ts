@@ -26,6 +26,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { resolveEffectiveContextWindow } from "../../config/llm-context-resolution.js";
 import { getConfig } from "../../config/loader.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
@@ -72,6 +73,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversationOverrideProfile,
   getLastAssistantTimestampBefore,
   getMessages,
   getMessagesPaginated,
@@ -1742,13 +1744,18 @@ export async function handleSendMessage(
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
   const config = getConfig();
+  const contextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: "mainAgent",
+    overrideProfile: getConversationOverrideProfile(mapping.conversationId),
+  });
   const slashContext: SlashContext = {
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: contextWindow.maxInputTokens,
+    model: contextWindow.model,
+    provider: contextWindow.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: sourceInterface,
   };

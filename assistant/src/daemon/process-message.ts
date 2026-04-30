@@ -17,6 +17,7 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
+import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import {
   getAttachmentsByIds,
@@ -25,6 +26,7 @@ import {
 import {
   addMessage,
   getConversation,
+  getConversationOverrideProfile,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -246,14 +248,19 @@ export async function processMessage(
   );
 
   const config = getConfig();
+  const contextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: "mainAgent",
+    overrideProfile: getConversationOverrideProfile(conversationId),
+  });
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
   const slashContext: SlashContext = {
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: contextWindow.maxInputTokens,
+    model: contextWindow.model,
+    provider: contextWindow.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: serverInterfaceCtx?.userMessageInterface,
   };

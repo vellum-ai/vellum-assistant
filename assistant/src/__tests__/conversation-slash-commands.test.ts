@@ -36,6 +36,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/context — Show conversation context usage",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -51,6 +52,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/context — Show conversation context usage",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -65,6 +67,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/context — Show conversation context usage",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -77,6 +80,7 @@ describe("resolveSlash /commands interface-aware help", () => {
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
       "/models — List all available models",
+      "/context — Show conversation context usage",
       "/status — Show conversation status and context usage",
     ]);
   });
@@ -92,9 +96,23 @@ describe("resolveSlash /commands interface-aware help", () => {
 });
 
 describe("resolveSlash command contract", () => {
+  test("/context reports the resolved context budget", async () => {
+    const result = await resolveSlash(
+      "/context",
+      makeSlashContext({ inputTokens: 75_000, maxInputTokens: 150_000 }),
+    );
+    expect(result.kind).toBe("unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("Expected /context to resolve to kind=unknown");
+    }
+    expect(result.message).toContain("50%");
+    expect(result.message).toContain("75,000 / 150,000 tokens");
+  });
+
   test("keeps unsupported slash forms as passthrough", async () => {
     const slashForms = [
       "/commands foo",
+      "/context foo",
       "/models foo",
       "/status foo",
       "/pair foo",
@@ -110,17 +128,19 @@ describe("resolveSlash command contract", () => {
       expect(result).toEqual({ kind: "passthrough", content: input });
     }
   });
-
-
 });
 
 describe("classifySlash is a pure classifier matching resolveSlash kinds", () => {
   // Lookahead in `buildPassthroughBatch` must not run `resolveSlash`'s side
   // effects. The pure classifier is synchronous, takes no side-effecting
   // dependencies, and must agree with resolveSlash's `kind`.
-  const cases: Array<{ input: string; kind: "passthrough" | "compact" | "unknown" }> = [
+  const cases: Array<{
+    input: string;
+    kind: "passthrough" | "compact" | "unknown";
+  }> = [
     { input: "/pair", kind: "passthrough" },
     { input: "/models", kind: "unknown" },
+    { input: "/context", kind: "unknown" },
     { input: "/status", kind: "unknown" },
     { input: "/commands", kind: "unknown" },
     { input: "/compact", kind: "compact" },
