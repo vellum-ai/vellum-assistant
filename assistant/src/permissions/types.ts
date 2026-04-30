@@ -17,6 +17,7 @@ export type ApprovalReason =
   | "platform_auto_approve"
   | "no_interactive_client"
   | "grant_scoped_consumed"
+  | "system_cancelled"
   | "unknown";
 
 export type RiskThreshold = "none" | "low" | "medium" | "high";

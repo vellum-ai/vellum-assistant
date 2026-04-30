@@ -17,6 +17,7 @@ interface PendingPrompt {
     selectedScope?: string;
     decisionContext?: string;
     wasTimeout?: boolean;
+    wasSystemCancel?: boolean;
   }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -73,6 +74,7 @@ export class PermissionPrompter {
     selectedScope?: string;
     decisionContext?: string;
     wasTimeout?: boolean;
+    wasSystemCancel?: boolean;
   }> {
     if (signal?.aborted) return { decision: "deny" };
 
@@ -190,6 +192,7 @@ export class PermissionPrompter {
       this.pending.delete(requestId);
       pending.resolve({
         decision: "deny",
+        wasSystemCancel: true,
         decisionContext:
           "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
       });

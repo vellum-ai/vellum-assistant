@@ -19,6 +19,7 @@ export function mapApprovalProvenance(
     matchedTrustRuleId?: string;
     wasPrompted?: boolean;
     wasTimeout?: boolean;
+    wasSystemCancel?: boolean;
   },
 ): { approvalMode: ApprovalMode; approvalReason: ApprovalReason } {
   if (decision === "platform_auto_approve") {
@@ -42,8 +43,11 @@ export function mapApprovalProvenance(
     return { approvalMode: "auto", approvalReason: "within_threshold" };
   }
 
-  // "deny" — interactive prompt denied, either by user or timeout
+  // "deny" — interactive prompt denied, timed out, or system-cancelled
   if (decision === "deny") {
+    if (opts.wasSystemCancel) {
+      return { approvalMode: "prompted", approvalReason: "system_cancelled" };
+    }
     if (opts.wasTimeout) {
       return { approvalMode: "prompted", approvalReason: "timed_out" };
     }

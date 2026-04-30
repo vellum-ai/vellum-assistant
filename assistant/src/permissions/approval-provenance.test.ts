@@ -55,6 +55,17 @@ describe("mapApprovalProvenance", () => {
     expect(r.approvalReason).toBe("timed_out");
   });
 
+  test("deny + wasSystemCancel → prompted / system_cancelled", () => {
+    const r = mapApprovalProvenance("deny", { wasSystemCancel: true });
+    expect(r.approvalMode).toBe("prompted");
+    expect(r.approvalReason).toBe("system_cancelled");
+  });
+
+  test("wasSystemCancel takes priority over wasTimeout", () => {
+    const r = mapApprovalProvenance("deny", { wasSystemCancel: true, wasTimeout: true });
+    expect(r.approvalReason).toBe("system_cancelled");
+  });
+
   test("denied + matchedTrustRuleId → blocked / trust_rule_denied", () => {
     const r = mapApprovalProvenance("denied", { matchedTrustRuleId: "rule-abc" });
     expect(r.approvalMode).toBe("blocked");
