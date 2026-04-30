@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -9,8 +11,44 @@ export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
 let db: DrizzleDb | null = null;
 
+function assertTestDbIsIsolated(): void {
+  if (
+    process.env.NODE_ENV !== "test" ||
+    process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS === "1"
+  ) {
+    return;
+  }
+
+  const workspaceDir = process.env.VELLUM_WORKSPACE_DIR?.trim();
+  if (!workspaceDir) {
+    throw new Error(
+      [
+        "Refusing to open the assistant DB during tests without VELLUM_WORKSPACE_DIR.",
+        "Run assistant tests from the assistant package so the test preload can isolate state:",
+        "  cd assistant && bun test src/path/to/file.test.ts",
+      ].join("\n"),
+    );
+  }
+
+  const resolvedWorkspaceDir = resolve(workspaceDir);
+  const realWorkspaceDir = resolve(join(homedir(), ".vellum", "workspace"));
+  if (
+    resolvedWorkspaceDir === realWorkspaceDir ||
+    resolvedWorkspaceDir.startsWith(realWorkspaceDir + sep)
+  ) {
+    throw new Error(
+      [
+        "Refusing to open the real assistant workspace DB during tests.",
+        `VELLUM_WORKSPACE_DIR resolved to ${resolvedWorkspaceDir}.`,
+        "Use a temp workspace for tests instead.",
+      ].join("\n"),
+    );
+  }
+}
+
 export function getDb(): DrizzleDb {
   if (!db) {
+    assertTestDbIsIsolated();
     ensureDataDir();
     const sqlite = new Database(getDbPath());
     sqlite.exec("PRAGMA journal_mode=WAL");
