@@ -2991,6 +2991,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(renderedText).not.toContain("legacy row before watermark");
     expect(renderedText).not.toContain("at watermark");
     expect(result!.sourceChannelTsByMessage).toEqual([null, T2]);
+    expect(result!.renderedMessages.map((entry) => entry.message)).toEqual(
+      result!.messages,
+    );
+    expect(
+      result!.renderedMessages.map((entry) => entry.sourceChannelTs),
+    ).toEqual([null, T2]);
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
   });
 

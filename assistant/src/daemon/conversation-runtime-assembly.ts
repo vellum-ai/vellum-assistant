@@ -27,6 +27,7 @@ import {
   isReactionTagLine,
   isSlackTsAfter,
   type RenderableSlackMessage,
+  type RenderedSlackTranscriptMessage,
   renderSlackTranscript,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
@@ -1065,7 +1066,10 @@ export interface SlackTranscriptInputRow {
 }
 
 export interface SlackChronologicalContext {
+  readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
+  /** Convenience projection of `renderedMessages[].message`. */
   readonly messages: Message[];
+  /** Convenience projection of `renderedMessages[].sourceChannelTs`. */
   readonly sourceChannelTsByMessage: readonly (string | null)[];
   readonly compactableStartIndex: number;
 }
@@ -1305,11 +1309,15 @@ export function getSlackCompactionWatermarkForPrefix(
   if (!context || compactedRenderedMessages <= 0) return null;
   const start = context.compactableStartIndex;
   const end = Math.min(
-    context.sourceChannelTsByMessage.length,
+    context.renderedMessages.length,
     start + compactedRenderedMessages,
   );
   if (end <= start) return null;
-  return maxSlackTs(context.sourceChannelTsByMessage.slice(start, end));
+  return maxSlackTs(
+    context.renderedMessages
+      .slice(start, end)
+      .map((entry) => entry.sourceChannelTs),
+  );
 }
 
 export function assembleSlackChronologicalContext(
@@ -1325,19 +1333,30 @@ export function assembleSlackChronologicalContext(
   const renderable = rows.map(rowToRenderable);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
   const contextSummary = options.contextSummary?.trim();
+  const renderedMessages = rendered.renderedMessages;
   if (contextSummary) {
+    const withSummary: RenderedSlackTranscriptMessage[] = [
+      {
+        message: createContextSummaryMessage(contextSummary),
+        sourceChannelTs: null,
+      },
+      ...renderedMessages,
+    ];
     return {
-      messages: [
-        createContextSummaryMessage(contextSummary),
-        ...rendered.messages,
-      ],
-      sourceChannelTsByMessage: [null, ...rendered.sourceChannelTsByMessage],
+      renderedMessages: withSummary,
+      messages: withSummary.map((entry) => entry.message),
+      sourceChannelTsByMessage: withSummary.map(
+        (entry) => entry.sourceChannelTs,
+      ),
       compactableStartIndex: 1,
     };
   }
   return {
-    messages: rendered.messages,
-    sourceChannelTsByMessage: rendered.sourceChannelTsByMessage,
+    renderedMessages,
+    messages: renderedMessages.map((entry) => entry.message),
+    sourceChannelTsByMessage: renderedMessages.map(
+      (entry) => entry.sourceChannelTs,
+    ),
     compactableStartIndex: 0,
   };
 }

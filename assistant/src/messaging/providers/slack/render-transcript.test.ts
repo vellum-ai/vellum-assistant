@@ -285,6 +285,13 @@ describe("renderSlackTranscript — basics", () => {
       "[11/14/23 14:25 @alice]: kept",
       "[11/14/23 14:28 @bob]: also kept",
     ]);
+    expect(out.renderedMessages.map((entry) => entry.message)).toEqual(
+      out.messages,
+    );
+    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
+      TS_14_25,
+      TS_14_28,
+    ]);
     expect(out.sourceChannelTsByMessage).toEqual([TS_14_25, TS_14_28]);
   });
 
