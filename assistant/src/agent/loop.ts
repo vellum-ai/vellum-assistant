@@ -462,6 +462,7 @@ export class AgentLoop {
         // analyze, etc.) pass their own `callSite`.
         if (callSite) {
           providerConfig.callSite = callSite;
+          providerConfig.usageTracking = "manual";
         }
 
         // Per-call inference-profile override. The resolver layers

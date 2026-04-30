@@ -557,7 +557,11 @@ export class Conversation {
 
     provider
       .sendMessage([warmMessage], tools, systemPrompt, {
-        config: { max_tokens: 1, callSite: "mainAgent" },
+        config: {
+          max_tokens: 1,
+          callSite: "mainAgent",
+          usageTracking: "manual",
+        },
         signal: abort.signal,
       })
       .then(() => {

@@ -140,6 +140,7 @@ function normalizeSendMessageOptions(
   // Internal metadata must be derived here, not accepted from callers, and it
   // must never leak into provider JSON request bodies.
   delete nextConfig.usageAttributionHeaders;
+  delete nextConfig.usageTracking;
 
   // `overrideProfile` is a routing/resolution-time concern (consumed by the
   // resolver below and `CallSiteRoutingProvider`'s provider selection); it is

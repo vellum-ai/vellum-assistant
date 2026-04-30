@@ -1041,6 +1041,7 @@ export class ContextWindowManager {
     try {
       const providerConfig: Record<string, unknown> = {
         callSite: CONVERSATION_SUMMARY_CALL_SITE,
+        usageTracking: "manual",
         max_tokens: this.summaryMaxTokens,
       };
       if (overrideProfile) {

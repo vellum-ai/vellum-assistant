@@ -117,6 +117,18 @@ function disableManagedProxy() {
   mockAssistantApiKey = null;
 }
 
+type ProviderWithClientBaseUrl = Record<string, unknown> & {
+  client: { baseURL: string };
+};
+
+function unwrapInnermostProvider(provider: unknown): ProviderWithClientBaseUrl {
+  let current = provider as Record<string, unknown>;
+  while (current.inner) {
+    current = current.inner as Record<string, unknown>;
+  }
+  return current as ProviderWithClientBaseUrl;
+}
+
 /**
  * Set mock secure keys with a user key for every provider in `names`.
  */
@@ -214,12 +226,7 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("anthropic");
 
-      // Unwrap RetryProvider → AnthropicProvider to inspect the Anthropic
-      // SDK client's baseURL. RetryProvider stores the inner provider as
-      // private `inner` and AnthropicProvider stores the SDK client as
-      // private `client`.
-      const retryInner = (provider as any).inner;
-      const anthropicClient = (retryInner as any).client;
+      const anthropicClient = unwrapInnermostProvider(provider).client;
 
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;
@@ -233,10 +240,7 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("openai");
 
-      // Unwrap RetryProvider → OpenAIResponsesProvider to inspect the OpenAI
-      // SDK client's baseURL.
-      const retryInner = (provider as any).inner;
-      const openaiClient = (retryInner as any).client;
+      const openaiClient = unwrapInnermostProvider(provider).client;
 
       expect(openaiClient).toBeDefined();
       const baseURL: string = openaiClient.baseURL;
@@ -271,7 +275,9 @@ describe("managed proxy integration — credential precedence", () => {
           mainAgent: {},
         },
       }) as Record<string, unknown>;
-      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+      await initializeProviders(
+        makeProvidersConfig("gemini", "gemini-3.1-pro"),
+      );
 
       const provider = getProvider("gemini");
       const response = await provider.sendMessage(
@@ -318,7 +324,9 @@ describe("managed proxy integration — credential precedence", () => {
       mockLlmConfig = LLMSchema.parse({
         default: { provider: "gemini", model: "gemini-3.1-pro" },
       }) as Record<string, unknown>;
-      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+      await initializeProviders(
+        makeProvidersConfig("gemini", "gemini-3.1-pro"),
+      );
 
       const provider = getProvider("gemini");
       await provider.sendMessage(
