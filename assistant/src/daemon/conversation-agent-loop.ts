@@ -575,7 +575,7 @@ export interface AgentLoopConversationContext {
 
 // ── Disk pressure context injection ──────────────────────────────────
 
-const DISK_PRESSURE_PREFIX =
+export const DISK_PRESSURE_PREFIX =
   "<disk_pressure_warning>\n" +
   "DISK SPACE CRITICAL (95%+ used). " +
   "You MUST start your response with a warning about disk space and offer to help fix it. " +
@@ -588,7 +588,7 @@ const DISK_PRESSURE_PREFIX =
  * `applyRuntimeInjections` site so the constraint survives overflow-recovery
  * re-injections.
  */
-function applyDiskPressureContext(messages: Message[]): Message[] {
+export function applyDiskPressureContext(messages: Message[]): Message[] {
   const tail = messages[messages.length - 1];
   if (!tail || tail.role !== "user") return messages;
   return [
