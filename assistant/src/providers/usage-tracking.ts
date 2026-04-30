@@ -56,8 +56,7 @@ export class UsageTrackingProvider implements Provider {
         callSite: config.callSite,
         overrideProfile: config.overrideProfile,
       });
-      const providerName =
-        response.actualProvider ?? attribution.resolvedProvider;
+      const providerName = response.actualProvider ?? this.inner.name;
       const pricingUsage = buildPricingUsageFromResponse(
         providerName,
         response,

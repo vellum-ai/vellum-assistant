@@ -505,7 +505,7 @@ struct UsageDashboardStoreGroupTests {
     }
 
     @Test @MainActor
-    func taskDefaultFallsBackToModelForOlderAssistants() async {
+    func taskDefaultPreservesSelectionWhenCallSiteRequestsFail() async {
         let client = MockUsageClient()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
@@ -521,9 +521,19 @@ struct UsageDashboardStoreGroupTests {
         store.updateClient(client)
         await store.refresh()
 
-        #expect(store.selectedGroupBy == .model)
-        #expect(client.lastSeriesGroupBy == "model")
-        #expect(client.lastBreakdownGroupBy == "model")
+        #expect(store.selectedGroupBy == .callSite)
+        #expect(client.lastSeriesGroupBy == "call_site")
+        #expect(client.lastBreakdownGroupBy == "call_site")
+        if case .loaded = store.seriesState {
+            // OK: chart can still render unstacked totals from daily buckets.
+        } else {
+            Issue.record("Expected daily fallback series when grouped series fails")
+        }
+        if case .failed = store.breakdownState {
+            // OK: do not mask the failed call-site breakdown by showing model data.
+        } else {
+            Issue.record("Expected failed breakdown state when call-site breakdown fails")
+        }
     }
 }
 

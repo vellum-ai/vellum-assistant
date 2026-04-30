@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
 let mockLlmConfig: Record<string, unknown> = {};
 
 mock.module("../config/loader.js", () => ({
@@ -9,10 +11,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => makeMockLogger(),
 }));
 
 import { LLMSchema } from "../config/schemas/llm.js";
@@ -100,6 +99,54 @@ describe("UsageTrackingProvider", () => {
       pricingStatus: "priced",
     });
     expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.0065, 10);
+  });
+
+  test("uses the transport provider when resolved attribution points elsewhere", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-5.4-mini",
+      },
+      callSites: {
+        conversationTitle: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/deepseek-v3",
+        },
+      },
+      pricingOverrides: [],
+    });
+
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "Title" }],
+        model: "gpt-5.4-mini",
+        usage: {
+          inputTokens: 1_000,
+          outputTokens: 2_000,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
+      undefined,
+      undefined,
+      {
+        config: {
+          callSite: "conversationTitle",
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      callSite: "conversationTitle",
+      pricingStatus: "priced",
+    });
   });
 
   test("does not record calls without a call site", async () => {

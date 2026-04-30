@@ -294,20 +294,7 @@ public final class UsageDashboardStore {
         let totals = await totalsResult
         let daily = await dailyResult
         var series = await seriesResult
-        var breakdown = await breakdownResult
-        var didFallbackToModel = false
-
-        if groupBy == .callSite && (series == nil || breakdown == nil) {
-            didFallbackToModel = true
-            async let modelSeriesResult = client.fetchUsageSeries(
-                from: range.from, to: range.to, granularity: granularity, groupBy: UsageGroupByDimension.model.rawValue, tz: tzIdentifier
-            )
-            async let modelBreakdownResult = client.fetchUsageBreakdown(
-                from: range.from, to: range.to, groupBy: UsageGroupByDimension.model.rawValue
-            )
-            series = await modelSeriesResult
-            breakdown = await modelBreakdownResult
-        }
+        let breakdown = await breakdownResult
 
         if series == nil, let daily {
             series = UsageSeriesResponse(daily: daily)
@@ -329,10 +316,6 @@ public final class UsageDashboardStore {
         }
 
         if capturedBreakdownGen == breakdownGeneration {
-            if didFallbackToModel && selectedGroupBy == groupBy {
-                selectedGroupBy = .model
-            }
-
             if let series {
                 seriesState = .loaded(series)
             } else {
@@ -376,36 +359,13 @@ public final class UsageDashboardStore {
         )
 
         var series = await seriesResult
-        var result = await breakdownResult
-        var didFallbackToModel = false
-
-        if dimension == .callSite && (series == nil || result == nil) {
-            didFallbackToModel = true
-            async let modelSeriesResult = client.fetchUsageSeries(
-                from: range.from,
-                to: range.to,
-                granularity: granularity,
-                groupBy: UsageGroupByDimension.model.rawValue,
-                tz: resolvedTimezoneIdentifier
-            )
-            async let modelBreakdownResult = client.fetchUsageBreakdown(
-                from: range.from,
-                to: range.to,
-                groupBy: UsageGroupByDimension.model.rawValue
-            )
-            series = await modelSeriesResult
-            result = await modelBreakdownResult
-        }
+        let result = await breakdownResult
 
         if series == nil, case .loaded(let daily) = dailyState {
             series = UsageSeriesResponse(daily: daily)
         }
 
         guard capturedGeneration == breakdownGeneration else { return }
-
-        if didFallbackToModel && selectedGroupBy == dimension {
-            selectedGroupBy = .model
-        }
 
         if let series {
             seriesState = .loaded(series)
