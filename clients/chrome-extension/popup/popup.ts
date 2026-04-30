@@ -633,7 +633,7 @@ function renderAssistantList(
     row.className = 'assistant-row';
     row.innerHTML = `
       <div class="assistant-row-icon">
-        <img src="../icons/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
+        <img src="../icons/production/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
       </div>
       <span class="assistant-row-name">${escapeHtml(a.name)}</span>
       <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
