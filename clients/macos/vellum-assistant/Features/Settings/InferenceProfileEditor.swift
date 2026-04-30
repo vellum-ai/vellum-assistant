@@ -132,7 +132,6 @@ struct InferenceProfileEditor: View {
             SettingsDivider()
             editorFooter
         }
-        .frame(minWidth: 480, minHeight: 600)
         .background(VColor.surfaceLift)
         .onAppear { syncMaxTokensFromBinding() }
         .onChange(of: profile.maxTokens) { _, _ in syncMaxTokensFromBinding() }
