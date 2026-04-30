@@ -40,11 +40,6 @@ export const slackMessageMetadataSchema = z.object({
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),
   deletedAt: z.number().optional(),
-  isBackfill: z.boolean().optional(),
-  backfillReason: z
-    .enum(["thread_late_join", "thread_delta", "dm_cold_start"])
-    .optional(),
-  backfillOmittedMiddle: z.boolean().optional(),
   slackFiles: z.array(slackFileMetadataSchema).optional(),
 });
 
