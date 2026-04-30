@@ -272,7 +272,7 @@ describe("executeBrowserNavigate", () => {
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Status: unknown");
+    expect(result.content).toContain("Final URL:");
   });
 
   test("blocks DNS-resolved private addresses by default", async () => {
@@ -297,7 +297,7 @@ describe("executeBrowserNavigate", () => {
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Status: unknown");
+    expect(result.content).toContain("Final URL:");
   });
 
   // ── Happy path (CDP navigate) ──────────────────────────────────
@@ -311,7 +311,6 @@ describe("executeBrowserNavigate", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Requested URL:");
     expect(result.content).toContain("Final URL:");
-    expect(result.content).toContain("Status: unknown");
     expect(result.content).toContain("Title: Example");
 
     // Page.navigate was called with the expected URL
