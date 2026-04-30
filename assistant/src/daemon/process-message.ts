@@ -610,10 +610,14 @@ export async function processMessageInBackground(
   );
 
   const requestId = crypto.randomUUID();
+  const persistMetadata = options?.slackInbound
+    ? { slackInbound: options.slackInbound }
+    : undefined;
   const messageId = await conversation.persistUserMessage(
     content,
     attachments,
     requestId,
+    persistMetadata,
   );
 
   const registrar = makePendingInteractionRegistrar(
@@ -637,6 +641,7 @@ export async function processMessageInBackground(
     conversation.updateClient(onEvent, false);
   }
 
+  conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
   conversation
     .runAgentLoop(content, messageId, onEvent, {
       isInteractive: options?.isInteractive ?? false,
@@ -644,6 +649,7 @@ export async function processMessageInBackground(
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     })
     .finally(() => {
+      conversation.setSlackRuntimeContextNotice(undefined);
       if (
         options?.isInteractive === true &&
         conversation.getCurrentSender() === onEvent
