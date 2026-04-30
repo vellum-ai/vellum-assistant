@@ -2446,6 +2446,40 @@ paths:
           schema:
             type: string
           description: Filter clients by a specific capability.
+  /v1/clients/disconnect:
+    post:
+      operationId: clients_disconnect_post
+      summary: Force-disconnect a client
+      description: Dispose all hub subscribers for the given clientId, forcibly closing their SSE streams.
+      tags:
+        - clients
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: number
+                    description: Number of disposed subscribers.
+                required:
+                  - disconnected
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clientId:
+                  type: string
+                  description: The client UUID to disconnect.
+              required:
+                - clientId
+              additionalProperties: false
   /v1/config:
     get:
       operationId: config_get

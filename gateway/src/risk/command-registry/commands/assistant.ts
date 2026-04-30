@@ -73,6 +73,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channel-verification-sessions cancel",
   "channel-verification-sessions revoke",
   "clients",
+  "clients disconnect",
   "clients list",
   "completions",
   "config",

@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { datesToISO } from "../../util/json.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 export const ROUTES: RouteDefinition[] = [
@@ -52,6 +53,29 @@ export const ROUTES: RouteDefinition[] = [
           }),
         ),
       };
+    },
+  },
+  {
+    operationId: "disconnect_client",
+    endpoint: "clients/disconnect",
+    method: "POST",
+    summary: "Force-disconnect a client",
+    description:
+      "Dispose all hub subscribers for the given clientId, forcibly closing their SSE streams.",
+    tags: ["clients"],
+    requestBody: z.object({
+      clientId: z.string().describe("The client UUID to disconnect."),
+    }),
+    responseBody: z.object({
+      disconnected: z.number().describe("Number of disposed subscribers."),
+    }),
+    handler: ({ body }) => {
+      const { clientId } = body as { clientId: string };
+      const count = assistantEventHub.disposeClient(clientId);
+      if (count === 0) {
+        throw new NotFoundError(`No connected client with id "${clientId}"`);
+      }
+      return { disconnected: count };
     },
   },
 ];

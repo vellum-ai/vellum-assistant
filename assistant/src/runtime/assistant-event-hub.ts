@@ -104,11 +104,45 @@ export class AssistantEventHub {
   /**
    * Register a subscriber that will be called for each matching event.
    *
+   * **Client deduplication:** When a client subscriber is registered with a
+   * `clientId` that already exists, all stale entries for that clientId are
+   * disposed first. This prevents subscriber stacking when clients reconnect
+   * (e.g. Chrome extension reload, SSE token refresh) before the old
+   * connection's abort signal fires.
+   *
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
    * it can close its SSE stream) and its entry is removed from the hub.
    */
   subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
+    // Deduplicate: dispose stale subscribers for the same clientId.
+    if (subscriber.type === "client") {
+      const stale: SubscriberEntry[] = [];
+      for (const existing of this.subscribers) {
+        if (
+          existing.type === "client" &&
+          existing.clientId === subscriber.clientId
+        ) {
+          stale.push(existing);
+        }
+      }
+      for (const entry of stale) {
+        entry.active = false;
+        this.subscribers.delete(entry);
+        try {
+          entry.onEvict();
+        } catch {
+          /* ignore eviction callback errors */
+        }
+      }
+      if (stale.length > 0) {
+        log.info(
+          { clientId: subscriber.clientId, count: stale.length },
+          "disposed stale subscribers for reconnecting client",
+        );
+      }
+    }
+
     if (this.subscribers.size >= this.maxSubscribers) {
       const [oldest] = this.subscribers;
       if (!oldest) {
@@ -312,16 +346,51 @@ export class AssistantEventHub {
    * Touch a client subscriber — update `lastActiveAt`. Used by heartbeat.
    */
   touchClient(clientId: string): void {
+    const now = new Date();
     for (const entry of this.subscribers) {
       if (
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
       ) {
-        entry.lastActiveAt = new Date();
-        return;
+        entry.lastActiveAt = now;
       }
     }
+  }
+
+  /**
+   * Force-disconnect a client by disposing all subscribers for the given
+   * `clientId`. Returns the number of disposed entries.
+   *
+   * Used by `assistant clients disconnect <clientId>` to forcibly remove
+   * stale or unwanted client connections.
+   */
+  disposeClient(clientId: string): number {
+    const targets: SubscriberEntry[] = [];
+    for (const entry of this.subscribers) {
+      if (
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        targets.push(entry);
+      }
+    }
+    for (const entry of targets) {
+      entry.active = false;
+      this.subscribers.delete(entry);
+      try {
+        entry.onEvict();
+      } catch {
+        /* ignore eviction callback errors */
+      }
+    }
+    if (targets.length > 0) {
+      log.info(
+        { clientId, count: targets.length },
+        "force-disposed client subscribers",
+      );
+    }
+    return targets.length;
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */
