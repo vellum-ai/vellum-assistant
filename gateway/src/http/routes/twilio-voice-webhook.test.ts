@@ -54,6 +54,11 @@ mock.module("../../logger.js", () => ({
     }),
 }));
 
+mock.module("../../voice/verification.js", () => ({
+  findPendingPhoneSession: async () => null,
+  gatherVerificationTwiml: () => "<Response/>",
+}));
+
 import { createTwilioVoiceWebhookHandler } from "./twilio-voice-webhook.js";
 import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
