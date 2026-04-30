@@ -2806,6 +2806,7 @@ export async function runAgentLoopImpl(
       });
       onEvent({
         type: "error",
+        conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
       });

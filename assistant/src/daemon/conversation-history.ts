@@ -418,7 +418,7 @@ export async function regenerate(
   requestId?: string,
 ): Promise<void> {
   if (conversation.processing) {
-    onEvent({ type: "error", message: "Cannot regenerate while processing" });
+    onEvent({ type: "error", conversationId: conversation.conversationId, message: "Cannot regenerate while processing" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -437,7 +437,7 @@ export async function regenerate(
   // assistant's exchange that we want to regenerate.
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) {
-    onEvent({ type: "error", message: "No messages to regenerate" });
+    onEvent({ type: "error", conversationId: conversation.conversationId, message: "No messages to regenerate" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -454,7 +454,7 @@ export async function regenerate(
 
   // There must be at least one message after the user message (the assistant reply).
   if (lastUserIdx >= conversation.messages.length - 1) {
-    onEvent({ type: "error", message: "No assistant response to regenerate" });
+    onEvent({ type: "error", conversationId: conversation.conversationId, message: "No assistant response to regenerate" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -497,7 +497,7 @@ export async function regenerate(
   }
 
   if (dbUserMsgIdx === -1) {
-    onEvent({ type: "error", message: "No user message found in DB" });
+    onEvent({ type: "error", conversationId: conversation.conversationId, message: "No user message found in DB" });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
