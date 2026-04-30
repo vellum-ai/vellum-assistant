@@ -1323,7 +1323,7 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     const meta = readSlackMetadataFromMessageMetadata(row.metadata);
     // Only message rows represent stored Slack messages. Reaction rows carry
     // `channelTs` equal to the target message's ts, so including them would
-    // make a reaction on a thread parent wrongly short-circuit ancestor
+    // make a reaction on a thread parent wrongly short-circuit thread
     // backfill (the parent itself may still be unseen).
     if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
   }
@@ -2114,7 +2114,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
         fetched: fetched.length,
         omittedMiddle,
       },
-      "Slack thread backfill persisted ancestor messages",
+      "Slack thread backfill persisted thread messages",
     );
     return {
       fetched: fetched.length,
@@ -2127,7 +2127,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     // pointing at the wrong Slack workspace (a real config bug), so log it
     // at ERROR to match backfill's rethrow contract. Other failures
     // (timeout, auth, ratelimited, …) stay at WARN — they're expected
-    // transient blips and dispatch proceeds without the ancestors.
+    // transient blips and dispatch proceeds without the backfilled thread rows.
     const channelNotFound =
       err instanceof Error && /channel_not_found/i.test(err.message);
     const payload = { err, conversationId, channelId, threadTs, account };
