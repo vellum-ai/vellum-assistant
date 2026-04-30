@@ -56,7 +56,7 @@ const SESSION_COLUMNS = `
  * Includes 'awaiting_response' — outbound text verification sessions are
  * created with this status (see assistant createOutboundSession).
  */
-const INTERCEPTABLE_STATUSES = `('pending', 'pending_bootstrap', 'active', 'awaiting_response')`;
+const INTERCEPTABLE_STATUSES = `('pending', 'pending_bootstrap', 'awaiting_response')`;
 
 // ---------------------------------------------------------------------------
 // Session lookup
@@ -109,24 +109,37 @@ export async function findSessionByHash(
 /**
  * Mark a verification session as consumed. Dual-writes to both assistant
  * and gateway DBs.
+ *
+ * The UPDATE includes a status predicate so only the first concurrent
+ * consumer wins — subsequent attempts see zero changes and return false,
+ * preserving one-time-code semantics under race conditions.
  */
 export async function consumeSession(
   sessionId: string,
   actorExternalUserId: string,
   actorChatId: string,
-): Promise<void> {
+): Promise<boolean> {
   const now = Date.now();
 
-  // Assistant DB (source of truth)
-  await assistantDbRun(
+  // Assistant DB (source of truth) — status guard ensures atomicity
+  const result = await assistantDbRun(
     `UPDATE channel_verification_sessions
      SET status = 'consumed',
          consumed_by_external_user_id = ?,
          consumed_by_chat_id = ?,
          updated_at = ?
-     WHERE id = ?`,
+     WHERE id = ?
+       AND status IN ${INTERCEPTABLE_STATUSES}`,
     [actorExternalUserId, actorChatId, now, sessionId],
   );
+
+  if (result.changes === 0) {
+    log.warn(
+      { sessionId },
+      "Session consume returned 0 changes — already consumed or status changed",
+    );
+    return false;
+  }
 
   // Gateway DB dual-write
   try {
@@ -146,4 +159,6 @@ export async function consumeSession(
       "Gateway DB session consume dual-write failed (best-effort)",
     );
   }
+
+  return true;
 }

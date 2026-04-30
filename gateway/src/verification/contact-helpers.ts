@@ -134,6 +134,8 @@ export async function upsertVerifiedContactChannel(params: {
           policy: "allow",
           externalUserId: canonicalUserId,
           externalChatId,
+          revokedReason: null,
+          blockedReason: null,
           updatedAt: now,
         })
         .where(eq(gwContactChannels.id, row.channelId))
@@ -145,18 +147,21 @@ export async function upsertVerifiedContactChannel(params: {
     return;
   }
 
-  // Create new contact + channel
+  // Create new contact + channel. Both use OR IGNORE for idempotency under
+  // retries. If the channel insert fails mid-flight, the orphan contact row
+  // is harmless (no channels → invisible in UI, cleaned up by next upsert
+  // for the same identity which will find-by-address and reuse it).
   const contactId = crypto.randomUUID();
   const channelId = crypto.randomUUID();
 
   await assistantDbRun(
-    `INSERT INTO contacts (id, display_name, role, created_at, updated_at)
+    `INSERT OR IGNORE INTO contacts (id, display_name, role, created_at, updated_at)
      VALUES (?, ?, 'contact', ?, ?)`,
     [contactId, contactDisplayName, now, now],
   );
 
   await assistantDbRun(
-    `INSERT INTO contact_channels
+    `INSERT OR IGNORE INTO contact_channels
        (id, contact_id, type, address, is_primary, external_user_id, external_chat_id,
         status, policy, interaction_count, created_at, updated_at)
      VALUES (?, ?, ?, ?, 0, ?, ?, 'active', 'allow', 0, ?, ?)`,

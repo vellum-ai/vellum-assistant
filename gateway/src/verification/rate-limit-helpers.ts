@@ -5,7 +5,7 @@
  * Uses atomic upserts (ON CONFLICT) to handle concurrent webhook deliveries.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
@@ -34,15 +34,6 @@ interface RateLimitRecord {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function parseTimestamps(json: string): number[] {
-  try {
-    const arr = JSON.parse(json);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Read
@@ -87,6 +78,15 @@ export function isRateLimited(
 // Write
 // ---------------------------------------------------------------------------
 
+/**
+ * Record an invalid verification attempt. Uses a single atomic SQL UPDATE
+ * with json_array + json_each to prune old timestamps and append the new
+ * one in one statement, avoiding the read-modify-write race where
+ * concurrent calls could overwrite each other's timestamps.
+ *
+ * For new records (no existing row), falls back to INSERT with a single
+ * timestamp.
+ */
 export async function recordInvalidAttempt(
   channel: string,
   actorExternalUserId: string,
@@ -95,40 +95,50 @@ export async function recordInvalidAttempt(
   const now = Date.now();
   const cutoff = now - RATE_LIMIT_WINDOW_MS;
 
-  const existing = getRateLimit(channel, actorExternalUserId, actorChatId);
-  const recentTimestamps = existing
-    ? parseTimestamps(existing.attemptTimestampsJson).filter((ts) => ts > cutoff)
-    : [];
-  recentTimestamps.push(now);
-
-  const timestampsJson = JSON.stringify(recentTimestamps);
-  const newLockedUntil =
-    recentTimestamps.length >= RATE_LIMIT_MAX_ATTEMPTS
-      ? now + RATE_LIMIT_LOCKOUT_MS
-      : existing?.lockedUntil ?? null;
-
-  // Gateway DB — atomic upsert
+  // Gateway DB — atomic upsert with in-SQL JSON manipulation.
+  // The ON CONFLICT UPDATE prunes expired timestamps and appends the new
+  // one in a single statement, so concurrent upserts serialize at the
+  // row level (SQLite's write lock) without stale reads.
   const gwDb = getGatewayDb();
-  gwDb.insert(gwRateLimits)
-    .values({
-      id: crypto.randomUUID(),
-      channel,
-      actorExternalUserId,
-      actorChatId,
-      attemptTimestampsJson: timestampsJson,
-      lockedUntil: newLockedUntil,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [gwRateLimits.channel, gwRateLimits.actorExternalUserId, gwRateLimits.actorChatId],
-      set: {
-        attemptTimestampsJson: timestampsJson,
-        lockedUntil: newLockedUntil,
-        updatedAt: now,
-      },
-    })
-    .run();
+  const newId = crypto.randomUUID();
+  const singleTimestampJson = JSON.stringify([now]);
+
+  gwDb.run(sql`
+    INSERT INTO ${gwRateLimits} (
+      id, channel, actor_external_user_id, actor_chat_id,
+      attempt_timestamps_json, locked_until, created_at, updated_at
+    ) VALUES (
+      ${newId}, ${channel}, ${actorExternalUserId}, ${actorChatId},
+      ${singleTimestampJson}, NULL, ${now}, ${now}
+    )
+    ON CONFLICT (channel, actor_external_user_id, actor_chat_id) DO UPDATE SET
+      attempt_timestamps_json = (
+        SELECT json_group_array(value) FROM (
+          SELECT value FROM json_each(${gwRateLimits.attemptTimestampsJson})
+          WHERE CAST(value AS INTEGER) > ${cutoff}
+          UNION ALL
+          SELECT ${now}
+        )
+      ),
+      locked_until = CASE
+        WHEN (
+          SELECT COUNT(*) FROM (
+            SELECT value FROM json_each(${gwRateLimits.attemptTimestampsJson})
+            WHERE CAST(value AS INTEGER) > ${cutoff}
+            UNION ALL
+            SELECT ${now}
+          )
+        ) >= ${RATE_LIMIT_MAX_ATTEMPTS}
+        THEN ${now + RATE_LIMIT_LOCKOUT_MS}
+        ELSE ${gwRateLimits.lockedUntil}
+      END,
+      updated_at = ${now}
+  `);
+
+  // Read back for assistant DB dual-write
+  const updated = getRateLimit(channel, actorExternalUserId, actorChatId);
+  const timestampsJson = updated?.attemptTimestampsJson ?? singleTimestampJson;
+  const lockedUntil = updated?.lockedUntil ?? null;
 
   // Assistant DB dual-write
   try {
@@ -147,7 +157,7 @@ export async function recordInvalidAttempt(
         actorExternalUserId,
         actorChatId,
         timestampsJson,
-        newLockedUntil,
+        lockedUntil,
         now,
         now,
       ],
