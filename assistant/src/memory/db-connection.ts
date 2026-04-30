@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -10,6 +11,14 @@ import * as schema from "./schema.js";
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
 let db: DrizzleDb | null = null;
+
+function canonicalizeExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
 
 function assertTestDbIsIsolated(): void {
   if (
@@ -30,8 +39,11 @@ function assertTestDbIsIsolated(): void {
     );
   }
 
-  const resolvedWorkspaceDir = resolve(workspaceDir);
-  const realWorkspaceDir = resolve(join(homedir(), ".vellum", "workspace"));
+  const resolvedWorkspaceDir = canonicalizeExistingPath(workspaceDir);
+  const realWorkspaceDir = canonicalizeExistingPath(
+    process.env.VELLUM_TEST_REAL_WORKSPACE_DIR?.trim() ||
+      join(homedir(), ".vellum", "workspace"),
+  );
   if (
     resolvedWorkspaceDir === realWorkspaceDir ||
     resolvedWorkspaceDir.startsWith(realWorkspaceDir + sep)

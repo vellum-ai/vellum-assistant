@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
@@ -72,6 +72,14 @@ async function pushSchemaNoPrompt(
 
 let db: GatewayDb | null = null;
 
+function canonicalizeExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 function assertTestDbIsIsolated(): void {
   if (
     process.env.NODE_ENV !== "test" ||
@@ -91,8 +99,11 @@ function assertTestDbIsIsolated(): void {
     );
   }
 
-  const resolvedSecurityDir = resolve(securityDir);
-  const realSecurityDir = resolve(join(homedir(), ".vellum", "protected"));
+  const resolvedSecurityDir = canonicalizeExistingPath(securityDir);
+  const realSecurityDir = canonicalizeExistingPath(
+    process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR?.trim() ||
+      join(homedir(), ".vellum", "protected"),
+  );
   if (
     resolvedSecurityDir === realSecurityDir ||
     resolvedSecurityDir.startsWith(realSecurityDir + sep)
@@ -142,7 +153,9 @@ function getDbPath(): string {
     mkdirSync(securityDir, { recursive: true });
   }
   const dbPath = join(securityDir, "gateway.sqlite");
-  migrateLegacyDb(dbPath);
+  if (process.env.NODE_ENV !== "test") {
+    migrateLegacyDb(dbPath);
+  }
   return dbPath;
 }
 

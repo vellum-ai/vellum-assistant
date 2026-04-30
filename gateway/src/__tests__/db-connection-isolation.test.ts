@@ -1,5 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { homedir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
@@ -7,6 +16,9 @@ import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 const originalSecurityDir = process.env.GATEWAY_SECURITY_DIR;
 const originalAllowRealSecurity =
   process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS;
+const originalTestRealSecurity =
+  process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR;
+const originalHome = process.env.HOME;
 
 afterEach(() => {
   resetGatewayDb();
@@ -21,6 +33,19 @@ afterEach(() => {
   } else {
     process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS =
       originalAllowRealSecurity;
+  }
+
+  if (originalTestRealSecurity === undefined) {
+    delete process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR;
+  } else {
+    process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR =
+      originalTestRealSecurity;
+  }
+
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
   }
 });
 
@@ -42,4 +67,61 @@ test("initGatewayDb refuses the real security dir during tests even when explici
   await expect(initGatewayDb()).rejects.toThrow(
     "Refusing to open the real gateway security DB during tests",
   );
+});
+
+test("initGatewayDb refuses symlink aliases to the real security dir during tests", async () => {
+  resetGatewayDb();
+  const testRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vellum-gateway-db-isolation-")),
+  );
+
+  try {
+    const fakeHome = join(testRoot, "home");
+    const realSecurityDir = join(fakeHome, ".vellum", "protected");
+    const aliasParent = join(testRoot, "aliases");
+    const securityAlias = join(aliasParent, "gateway-security-link");
+
+    mkdirSync(realSecurityDir, { recursive: true });
+    mkdirSync(aliasParent, { recursive: true });
+    symlinkSync(realSecurityDir, securityAlias, "dir");
+
+    process.env.HOME = fakeHome;
+    process.env.GATEWAY_SECURITY_DIR = securityAlias;
+    process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR = realSecurityDir;
+    delete process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS;
+
+    await expect(initGatewayDb()).rejects.toThrow(
+      "Refusing to open the real gateway security DB during tests",
+    );
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
+test("initGatewayDb does not migrate legacy gateway DBs during tests", async () => {
+  resetGatewayDb();
+  const testRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vellum-gateway-db-isolation-")),
+  );
+
+  try {
+    const fakeHome = join(testRoot, "home");
+    const legacyDir = join(fakeHome, ".vellum", "data");
+    const legacyDb = join(legacyDir, "gateway.sqlite");
+    const securityDir = join(testRoot, "gateway-security");
+
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyDb, "legacy gateway db");
+
+    process.env.HOME = fakeHome;
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    delete process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS;
+
+    await initGatewayDb();
+
+    expect(existsSync(legacyDb)).toBe(true);
+    expect(existsSync(join(securityDir, "gateway.sqlite"))).toBe(true);
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
 });
