@@ -65,7 +65,9 @@ function saveCheckpoints(
 /**
  * Run all pending CES migrations in registry order.
  *
- * - Skips migrations that already have a `"completed"` checkpoint.
+ * - Skips migrations that already have a checkpoint entry (`"completed"` or
+ *   `"failed"`). Only `"started"` and `"rolling_back"` entries are cleared
+ *   and re-run (crash recovery — migrations must be idempotent).
  * - Re-runs any migration whose checkpoint is `"started"` or
  *   `"rolling_back"` (crash recovery — migrations must be idempotent).
  * - Marks failed migrations as `"failed"` and continues startup; a failed
@@ -104,7 +106,7 @@ export async function runCesMigrations(
   }
 
   for (const migration of migrations) {
-    if (checkpoints.applied[migration.id]) {
+    if (checkpoints.applied[migration.id]?.status === "completed") {
       continue;
     }
 
