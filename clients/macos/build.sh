@@ -212,14 +212,7 @@ if [ -z "${DISPLAY_VERSION:-}" ]; then
         DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_ts}.${_local_sha}"
     fi
 fi
-# For local builds, auto-generate a monotonically increasing BUILD_VERSION
-# from the timestamp so Sparkle can determine "newer" via numeric comparison.
-# CI-driven builds set BUILD_VERSION explicitly; this only affects the default.
-if [ -z "${BUILD_VERSION:-}" ] && [ "$VELLUM_ENVIRONMENT" = "local" ]; then
-    BUILD_VERSION=$(date +%Y%m%d%H%M%S)
-else
-    BUILD_VERSION="${BUILD_VERSION:-1}"
-fi
+BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
@@ -648,6 +641,13 @@ fi
 export VELLUM_ENVIRONMENT
 echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
+# For local builds, auto-generate a monotonically increasing BUILD_VERSION
+# from the timestamp so Sparkle can determine "newer" via numeric comparison.
+# CI-driven builds set BUILD_VERSION explicitly; this only affects the default.
+if [ "$BUILD_VERSION" = "1" ] && [ "$VELLUM_ENVIRONMENT" = "local" ]; then
+    BUILD_VERSION=$(date +%Y%m%d%H%M%S)
+fi
+
 case "$CMD" in
     test)
         echo "Running tests..."
@@ -814,7 +814,7 @@ if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -z "${SU_FEED_URL:-}" ]; then
         _GEN_KEYS=$(command -v generate_keys 2>/dev/null || true)
         if [ -z "$_GEN_KEYS" ]; then
             _GEN_KEYS=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
-                -name generate_keys -type f 2>/dev/null | head -1)
+                -name generate_keys -type f 2>/dev/null | head -1 || true)
         fi
         if [ -n "$_GEN_KEYS" ]; then
             echo "Generating local Sparkle EdDSA keypair..."
@@ -2126,7 +2126,7 @@ if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -d "$APP_DIR" ]; then
         _SIGN_UPDATE=$(command -v sign_update 2>/dev/null || true)
         if [ -z "$_SIGN_UPDATE" ]; then
             _SIGN_UPDATE=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
-                -name sign_update -type f 2>/dev/null | head -1)
+                -name sign_update -type f 2>/dev/null | head -1 || true)
         fi
         if [ -n "$_SIGN_UPDATE" ]; then
             _SIGN_OUTPUT=$("$_SIGN_UPDATE" "$_BUILD_ZIP" --ed-key-file "$_SPARKLE_KEY_FILE" 2>&1 || true)
