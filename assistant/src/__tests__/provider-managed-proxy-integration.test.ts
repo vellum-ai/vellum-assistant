@@ -117,6 +117,14 @@ function disableManagedProxy() {
   mockAssistantApiKey = null;
 }
 
+function unwrapInnermostProvider(provider: unknown): Record<string, unknown> {
+  let current = provider as Record<string, unknown>;
+  while (current.inner) {
+    current = current.inner as Record<string, unknown>;
+  }
+  return current;
+}
+
 /**
  * Set mock secure keys with a user key for every provider in `names`.
  */
@@ -214,12 +222,7 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("anthropic");
 
-      // Unwrap UsageTrackingProvider → RetryProvider → AnthropicProvider to
-      // inspect the Anthropic SDK client's baseURL. The wrappers store their
-      // inner providers as private `inner` fields.
-      const retryProvider = (provider as any).inner;
-      const retryInner = (retryProvider as any).inner;
-      const anthropicClient = (retryInner as any).client;
+      const anthropicClient = unwrapInnermostProvider(provider).client;
 
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;
@@ -233,11 +236,7 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("openai");
 
-      // Unwrap UsageTrackingProvider → RetryProvider → OpenAIResponsesProvider
-      // to inspect the OpenAI SDK client's baseURL.
-      const retryProvider = (provider as any).inner;
-      const retryInner = (retryProvider as any).inner;
-      const openaiClient = (retryInner as any).client;
+      const openaiClient = unwrapInnermostProvider(provider).client;
 
       expect(openaiClient).toBeDefined();
       const baseURL: string = openaiClient.baseURL;
