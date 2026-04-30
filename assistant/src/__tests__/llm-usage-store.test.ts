@@ -910,9 +910,9 @@ describe("getUsageGroupBreakdown", () => {
 
     const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "call_site");
     expect(groups.map((group) => group.group)).toEqual([
-      "Main agent",
+      "Main Agent",
       "Unknown Task",
-      "Conversation title",
+      "Conversation Title",
     ]);
     expect(groups.map((group) => group.groupKey)).toEqual([
       "mainAgent",
@@ -1127,12 +1127,12 @@ describe("getUsageGroupedSeries", () => {
 
     expect(buckets).toHaveLength(2);
     expect(buckets[0].groups["value:mainAgent"]).toMatchObject({
-      group: "Main agent",
+      group: "Main Agent",
       groupKey: "mainAgent",
       totalInputTokens: 100,
     });
     expect(buckets[0].groups["value:conversationTitle"]).toMatchObject({
-      group: "Conversation title",
+      group: "Conversation Title",
       groupKey: "conversationTitle",
       totalInputTokens: 200,
     });
