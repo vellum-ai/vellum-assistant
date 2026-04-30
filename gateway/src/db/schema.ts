@@ -223,6 +223,41 @@ export const channelGuardianRateLimits = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Channel verification sessions (dual-write mirror of assistant table)
+// ---------------------------------------------------------------------------
+
+export const channelVerificationSessions = sqliteTable(
+  "channel_verification_sessions",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    challengeHash: text("challenge_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    status: text("status").notNull().default("pending"),
+    sourceConversationId: text("source_conversation_id"),
+    consumedByExternalUserId: text("consumed_by_external_user_id"),
+    consumedByChatId: text("consumed_by_chat_id"),
+    expectedExternalUserId: text("expected_external_user_id"),
+    expectedChatId: text("expected_chat_id"),
+    expectedPhoneE164: text("expected_phone_e164"),
+    identityBindingStatus: text("identity_binding_status").default("bound"),
+    destinationAddress: text("destination_address"),
+    lastSentAt: integer("last_sent_at"),
+    sendCount: integer("send_count").default(0),
+    nextResendAt: integer("next_resend_at"),
+    codeDigits: integer("code_digits").default(6),
+    maxAttempts: integer("max_attempts").default(3),
+    verificationPurpose: text("verification_purpose").default("guardian"),
+    bootstrapTokenHash: text("bootstrap_token_hash"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_gw_cvs_channel_status").on(table.channel, table.status),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Channel denial reply log (rate-limiting outbound denial replies)
 // ---------------------------------------------------------------------------
 
