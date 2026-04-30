@@ -28,6 +28,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
+import { credentialKey } from "./credential-key.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type {
@@ -540,7 +541,7 @@ export async function bulkSetSecureKeysAsync(
 export async function getProviderKeyAsync(
   provider: string,
 ): Promise<string | undefined> {
-  const stored = await getSecureKeyAsync(provider);
+  const stored = await getSecureKeyAsync(credentialKey(provider, "api_key"));
   if (stored) return stored;
   const envVar = getAnyProviderEnvVar(provider);
   return envVar ? process.env[envVar] : undefined;
