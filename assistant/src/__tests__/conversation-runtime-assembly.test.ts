@@ -2298,6 +2298,24 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
   }
 
+  test("normalized Slack mention labels stay in assembled model context", async () => {
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m-normalized-mention",
+        createdAt: 1700000000_000,
+        text: "@leo can you check this?",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+    ];
+
+    const result = await runSlackChannelAssembly(rows);
+    const renderedContext = texts(result).join("\n");
+
+    expect(renderedContext).toContain("@leo can you check this?");
+    expect(renderedContext).not.toContain("<@U_LEO>");
+    expect(renderedContext).not.toContain("U_LEO");
+  });
+
   // ── Scenario 1: reply in mid-thread ──────────────────────────────────
   // Alice posts to thread A, Bob replies in thread B (cross-thread). Then
   // Alice posts a follow-up reply in thread A. Cross-thread visibility:

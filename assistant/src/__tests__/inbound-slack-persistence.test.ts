@@ -194,6 +194,37 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
     expect(slackMeta!.displayName).toBe("Bob");
   });
 
+  test("Slack normalized content is persisted with raw channelTs in slackMeta", async () => {
+    const ctx = createTestContext({
+      userMessageChannel: "slack",
+      assistantMessageChannel: "slack",
+    });
+
+    await persistQueuedMessageBody(
+      ctx,
+      "@leo can you check this?",
+      [],
+      "req-normalized-content",
+      {
+        slackInbound: {
+          channelId: "C0123CHANNEL",
+          channelTs: "1700000015.123456",
+          displayName: "Alice",
+        },
+      },
+      undefined,
+    );
+
+    expect(JSON.parse(addMessageCalls.at(-1)!.content)).toEqual([
+      { type: "text", text: "@leo can you check this?" },
+    ]);
+
+    const slackMeta = readPersistedSlackMeta();
+    expect(slackMeta).not.toBeNull();
+    expect(slackMeta!.channelTs).toBe("1700000015.123456");
+    expect(slackMeta!.displayName).toBe("Alice");
+  });
+
   test("Slack message without displayName omits the field", async () => {
     const ctx = createTestContext({
       userMessageChannel: "slack",
