@@ -844,6 +844,9 @@ if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -z "${SU_FEED_URL:-}" ]; then
         export SU_PUBLIC_ED_KEY=$(cat "$_SPARKLE_PUB_FILE")
     fi
 
+    # Poll for updates every 60s locally (default is 3600s / 1 hour).
+    export SU_SCHEDULED_CHECK_INTERVAL=60
+
     echo "SU_FEED_URL=$SU_FEED_URL"
 fi
 
@@ -1427,6 +1430,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>SUAutomaticallyUpdate</key>
     <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>${SU_SCHEDULED_CHECK_INTERVAL:-3600}</integer>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIconFile</key>
