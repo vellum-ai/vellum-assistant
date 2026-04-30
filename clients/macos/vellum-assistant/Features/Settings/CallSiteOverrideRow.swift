@@ -124,6 +124,8 @@ struct CallSiteOverrideRow: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
+        .animation(VAnimation.fast, value: isExpanded)
+        .animation(VAnimation.fast, value: isOverrideOn)
         .onAppear {
             // Expand rows that are already configured so the user sees their
             // current settings without an extra click.
