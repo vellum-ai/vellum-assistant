@@ -22,8 +22,7 @@ import type { Conversation } from "../daemon/conversation.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -418,30 +417,6 @@ export async function startVoiceTurn(
     );
   }
 
-  // Serialized publish chain so hub subscribers observe events in order.
-  let hubChain: Promise<void> = Promise.resolve();
-  const publishToHub = (msg: ServerMessage): void => {
-    // ServerMessage is a large union; conversationId exists on most but not all variants.
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    const resolvedConversationId = msgConversationId ?? opts.conversationId;
-    const event = buildAssistantEvent(msg, resolvedConversationId);
-    hubChain = (async () => {
-      await hubChain;
-      try {
-        await assistantEventHub.publish(event);
-      } catch (err) {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during voice turn",
-        );
-      }
-    })();
-  };
-
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   const autoDeny = !isGuardian;
@@ -465,7 +440,7 @@ export async function startVoiceTurn(
             acpOptions: msg.acpOptions,
           },
         });
-        publishToHub(msg);
+        broadcastMessage(msg);
         return;
       }
       if (autoDeny) {
@@ -513,7 +488,7 @@ export async function startVoiceTurn(
               undefined,
               `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
             );
-            publishToHub(msg);
+            broadcastMessage(msg);
             return;
           }
         } catch (err) {
@@ -534,7 +509,7 @@ export async function startVoiceTurn(
           undefined,
           `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
         );
-        publishToHub(msg);
+        broadcastMessage(msg);
         return;
       }
       if (autoAllow) {
@@ -549,7 +524,7 @@ export async function startVoiceTurn(
           undefined,
           `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
         );
-        publishToHub(msg);
+        broadcastMessage(msg);
         return;
       }
     } else if (msg.type === "secret_request") {
@@ -561,7 +536,7 @@ export async function startVoiceTurn(
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
       return;
     }
-    publishToHub(msg);
+    broadcastMessage(msg);
   });
 
   // Fire-and-forget the agent loop
@@ -590,7 +565,7 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
-          publishToHub(msg);
+          broadcastMessage(msg);
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {
