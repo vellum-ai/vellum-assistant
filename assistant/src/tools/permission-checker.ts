@@ -1,4 +1,5 @@
 import { getIsContainerized } from "../config/env-registry.js";
+import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
 import {
   check,
   classifyRisk,
@@ -7,7 +8,6 @@ import {
   getCachedAssessment,
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
-import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ApprovalMode, ApprovalReason, RiskThreshold } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";

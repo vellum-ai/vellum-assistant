@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { mapApprovalProvenance } from "./approval-provenance.js";
-import { RISK_ORDINAL, THRESHOLD_ORDINAL } from "./types.js";
 import type { ApprovalMode, RiskThreshold } from "./types.js";
+import { RISK_ORDINAL, THRESHOLD_ORDINAL } from "./types.js";
 
 // ── mapApprovalProvenance — one test per row of the decision mapping table ────
 
