@@ -57,6 +57,13 @@ struct RuleEditorModal: View {
         scopeOptions.count == 1
     }
 
+    /// In edit mode, generalized options excluding the existing rule's own pattern.
+    /// Prevents offering a "Save As New" option that would duplicate the existing rule.
+    private var narrowerOptions: [ScopeOptionItem] {
+        guard let existing = existingRule else { return generalizedOptions }
+        return generalizedOptions.filter { $0.pattern != existing.pattern }
+    }
+
     /// Whether the options look like a pipeline decomposition (all "program *" patterns).
     /// Pipeline commands produce per-program wildcards that aren't useful as individual radio choices.
     private var isPipelineDecomposition: Bool {
@@ -124,12 +131,7 @@ struct RuleEditorModal: View {
     /// Whether the Save As New button should be visible.
     private var showSaveAsNew: Bool {
         guard onSaveAsNew != nil, existingRule != nil else { return false }
-        // If the LLM suggestion arrived and matches the existing pattern exactly,
-        // there's no narrower option to offer.
-        if let suggestion, let existing = existingRule, suggestion.pattern == existing.pattern {
-            return false
-        }
-        return !generalizedOptions.isEmpty
+        return !narrowerOptions.isEmpty
     }
 
     private func applySuggestionOrDefaults() {
@@ -250,14 +252,14 @@ struct RuleEditorModal: View {
                 )
 
                 // Narrower scope options for Save As New
-                if showSaveAsNew, !generalizedOptions.isEmpty {
+                if showSaveAsNew {
                     Text("Or narrow the scope:")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .accessibilityAddTraits(.isHeader)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(Array(generalizedOptions.enumerated()), id: \.element.id) { index, option in
+                        ForEach(Array(narrowerOptions.enumerated()), id: \.element.id) { index, option in
                             patternRow(option: option, index: index)
                         }
                     }
