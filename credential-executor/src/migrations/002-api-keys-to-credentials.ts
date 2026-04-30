@@ -35,9 +35,13 @@ export const apiKeyToCredentialsMigration: CesMigration = {
       const existingCred = await backend.get(credKey);
       if (existingCred === undefined) {
         // Write new key first — safe to re-run if we crash after this.
-        // Skip delete if the write fails so the bare key is preserved for retry.
+        // Throw on failure so the runner marks the migration failed and retries on next startup.
         const ok = await backend.set(credKey, bareValue);
-        if (!ok) continue;
+        if (!ok) {
+          throw new Error(
+            `Migration 002: failed to write ${credKey} — aborting to preserve bare key ${provider}`,
+          );
+        }
       }
       // Always delete old bare key (idempotent: harmless if already absent)
       await backend.delete(provider);
@@ -52,7 +56,12 @@ export const apiKeyToCredentialsMigration: CesMigration = {
 
       const existingBare = await backend.get(provider);
       if (existingBare === undefined) {
-        await backend.set(provider, credValue);
+        const ok = await backend.set(provider, credValue);
+        if (!ok) {
+          throw new Error(
+            `Migration 002 rollback: failed to restore bare key ${provider} — preserving ${credKey}`,
+          );
+        }
       }
       await backend.delete(credKey);
     }

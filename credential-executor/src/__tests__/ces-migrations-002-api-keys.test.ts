@@ -123,17 +123,16 @@ describe("apiKeyToCredentialsMigration (002)", () => {
       }
     });
 
-    test("set() failure — bare key preserved, credential key absent", async () => {
+    test("set() failure — throws so runner marks migration failed and retries", async () => {
       const backend = makeMapBackend({ anthropic: "sk-ant-123" });
-      // Simulate a write failure
       backend.set = (_key: string, _value: string) => Promise.resolve(false);
 
-      await apiKeyToCredentialsMigration.run(backend);
+      await expect(apiKeyToCredentialsMigration.run(backend)).rejects.toThrow(
+        "Migration 002: failed to write credential/anthropic/api_key",
+      );
 
-      // Bare key must survive — it was not deleted because set() failed
+      // Bare key must survive — delete was never reached
       expect(backend.store.get("anthropic")).toBe("sk-ant-123");
-      // Credential key must not exist
-      expect(backend.store.has("credential/anthropic/api_key")).toBe(false);
     });
 
     test("run() is idempotent — running twice leaves store in same state as once", async () => {
@@ -166,6 +165,22 @@ describe("apiKeyToCredentialsMigration (002)", () => {
 
       expect(backend.store.get("anthropic")).toBe("sk-ant-rev");
       expect(backend.store.has("credential/anthropic/api_key")).toBe(false);
+    });
+
+    test("set() failure — throws so runner marks rollback failed and preserves credential key", async () => {
+      const backend = makeMapBackend({
+        "credential/anthropic/api_key": "sk-ant-rev",
+      });
+      backend.set = (_key: string, _value: string) => Promise.resolve(false);
+
+      await expect(apiKeyToCredentialsMigration.down(backend)).rejects.toThrow(
+        "Migration 002 rollback: failed to restore bare key anthropic",
+      );
+
+      // Credential key must survive — delete was never reached
+      expect(backend.store.get("credential/anthropic/api_key")).toBe(
+        "sk-ant-rev",
+      );
     });
 
     test("idempotent — bare key already exists: credential key deleted, bare key value unchanged", async () => {
