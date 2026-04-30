@@ -568,7 +568,7 @@ export function buildExportVBundle(
     files.push(
       ...walkDirectory(workspaceDir, "workspace", {
         includeBinary: true,
-        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+        skipDirs: ["embedding-models", "data/qdrant", "signals"],
       }),
     );
   }
@@ -906,7 +906,7 @@ export async function streamExportVBundle(
     allFileMetadata.push(
       ...walkDirectoryForMetadata(workspaceDir, "workspace", {
         includeBinary: true,
-        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+        skipDirs: ["embedding-models", "data/qdrant", "signals"],
       }),
     );
   }
