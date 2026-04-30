@@ -398,7 +398,7 @@ describe("guardian service challenge validation", () => {
     }
 
     // validateAndConsumeVerification no longer creates bindings — that is
-    // now handled by the caller (verification-intercept / relay-server).
+    // now handled by the gateway's verification intercepts.
     const binding = getGuardianBinding("asst-1", "phone");
     expect(binding).toBeNull();
   });

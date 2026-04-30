@@ -104,40 +104,6 @@ export interface AclResult {
   resolvedMember: ResolvedMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
-  /**
-   * Parsed guardian verification code from the message content, if any.
-   * Surfaced here so downstream verification intercept logic can use it
-   * without re-parsing.
-   */
-  guardianVerifyCode: string | undefined;
-}
-
-/**
- * Strip Slack/Telegram mrkdwn formatting wrappers from a raw message.
- * When users copy-paste a verification code from the desktop app with
- * rich-text formatting (e.g. bold), Slack preserves it as `*code*` in
- * the message text, which would otherwise fail the strict bare-code regex.
- */
-function stripMrkdwnFormatting(text: string): string {
-  // Bold (*…*), italic (_…_), strikethrough (~…~), inline code (`…`)
-  return text.replace(/^[*_~`]+/, "").replace(/[*_~`]+$/, "");
-}
-
-/**
- * Parse a guardian verification code from message content.
- * Accepts a bare code as the entire message: 6-digit numeric OR 64-char hex
- * (hex is retained for compatibility with unbound inbound/bootstrap sessions
- * that intentionally use high-entropy secrets).
- *
- * Strips surrounding mrkdwn formatting characters first so that codes
- * pasted with bold/italic/code formatting are still recognized.
- */
-function parseGuardianVerifyCode(content: string): string | undefined {
-  const stripped = stripMrkdwnFormatting(content);
-  const bareMatch = stripped.match(/^([0-9a-fA-F]{64}|\d{6})$/);
-  if (bareMatch) return bareMatch[1];
-
-  return undefined;
 }
 
 /** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
@@ -173,11 +139,6 @@ export async function enforceIngressAcl(
   } = params;
 
   let resolvedMember: ResolvedMember | null = null;
-
-  // Verification codes must bypass the ACL membership check — users without a
-  // member record need to verify before they can be recognized as members.
-  const guardianVerifyCode = parseGuardianVerifyCode(trimmedContent);
-  const isGuardianVerifyCode = guardianVerifyCode !== undefined;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -228,27 +189,7 @@ export async function enforceIngressAcl(
     }
 
     if (!resolvedMember) {
-      // Determine whether a verification-code bypass is warranted: only allow
-      // when there is a pending (unconsumed, unexpired) challenge AND no
-      // active guardian binding for this (assistantId, channel).
       let denyNonMember = true;
-      if (isGuardianVerifyCode) {
-        // Allow bypass when there is any consumable challenge or active
-        // outbound session.  The !hasActiveBinding guard is intentionally
-        // omitted: rebind sessions create a consumable challenge while a
-        // binding already exists, and the identity check inside
-        // validateAndConsumeVerification prevents unauthorized takeovers.
-        const hasPendingChallenge = !!getPendingSession(sourceChannel);
-        const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
-        if (hasPendingChallenge || hasActiveOutboundSession) {
-          denyNonMember = false;
-        } else {
-          log.info(
-            { sourceChannel, hasPendingChallenge, hasActiveOutboundSession },
-            "Ingress ACL: guardian verification bypass denied",
-          );
-        }
-      }
 
       // Bootstrap deep-link commands bypass ACL only when the token
       // resolves to a real pending_bootstrap session. Without this check,
@@ -297,7 +238,6 @@ export async function enforceIngressAcl(
           return {
             resolvedMember: null,
             earlyResponse: inviteResult,
-            guardianVerifyCode,
           };
       }
 
@@ -322,7 +262,6 @@ export async function enforceIngressAcl(
           return {
             resolvedMember: null,
             earlyResponse: codeInterceptResult,
-            guardianVerifyCode,
           };
       }
 
@@ -400,7 +339,6 @@ export async function enforceIngressAcl(
                 reason: "verification_challenge_sent",
                 verificationSessionId: slackVerifyResult.sessionId,
               }),
-              guardianVerifyCode,
             };
           }
         }
@@ -466,7 +404,6 @@ export async function enforceIngressAcl(
             // callback delivery failed (e.g. signing-key mismatch → 401).
             ...(!replyDelivered && { replyText }),
           }),
-          guardianVerifyCode,
         };
       }
     }
@@ -474,27 +411,9 @@ export async function enforceIngressAcl(
     if (resolvedMember) {
       if (resolvedMember.channel.status !== "active") {
         const isBlockedMember = resolvedMember.channel.status === "blocked";
-        // Same bypass logic as the no-member branch: verification codes and
-        // bootstrap commands must pass through for re-verifiable states
+        // Bootstrap commands must pass through for re-verifiable states
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
-        if (!isBlockedMember && isGuardianVerifyCode) {
-          const hasPendingChallenge = !!getPendingSession(sourceChannel);
-          const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
-          if (hasPendingChallenge || hasActiveOutboundSession) {
-            denyInactiveMember = false;
-          } else {
-            log.info(
-              {
-                sourceChannel,
-                channelId: resolvedMember.channel.id,
-                hasPendingChallenge,
-                hasActiveOutboundSession,
-              },
-              "Ingress ACL: inactive member verification bypass denied",
-            );
-          }
-        }
         if (!isBlockedMember && isBootstrapCommand) {
           const bootstrapPayload = (
             rawCommandIntentForAcl as Record<string, unknown>
@@ -543,7 +462,6 @@ export async function enforceIngressAcl(
             return {
               resolvedMember: null,
               earlyResponse: inviteResult,
-              guardianVerifyCode,
             };
         }
 
@@ -573,7 +491,6 @@ export async function enforceIngressAcl(
             return {
               resolvedMember: null,
               earlyResponse: codeInterceptResult,
-              guardianVerifyCode,
             };
         }
 
@@ -657,7 +574,6 @@ export async function enforceIngressAcl(
                   reason: "verification_challenge_sent",
                   verificationSessionId: slackVerifyResult.sessionId,
                 }),
-                guardianVerifyCode,
               };
             }
           }
@@ -730,7 +646,6 @@ export async function enforceIngressAcl(
               reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
               ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
             }),
-            guardianVerifyCode,
           };
         }
       }
@@ -771,7 +686,6 @@ export async function enforceIngressAcl(
             reason: "policy_deny",
             ...(!denyReplyDelivered && { replyText: denyReplyText }),
           }),
-          guardianVerifyCode,
         };
       }
 
@@ -784,7 +698,7 @@ export async function enforceIngressAcl(
     }
   }
 
-  return { resolvedMember, guardianVerifyCode };
+  return { resolvedMember };
 }
 
 // ---------------------------------------------------------------------------
