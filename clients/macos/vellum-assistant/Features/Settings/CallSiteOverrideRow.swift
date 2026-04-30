@@ -11,11 +11,9 @@ import VellumAssistantShared
 ///
 /// State ownership:
 /// - The `draft` binding is the row's working copy. The parent sheet owns
-///   the list of drafts so it can compute "any unsaved changes" for the
-///   "Save All" header button.
+///   the list of drafts and persists them via the footer Save button.
 /// - `original` is the persisted value from the store. It drives the
-///   "unsaved changes" pill and toggle defaulting (when the user hasn't
-///   touched the row yet).
+///   "unsaved changes" indicator.
 @MainActor
 struct CallSiteOverrideRow: View {
     @Binding var draft: CallSiteOverride
@@ -32,14 +30,6 @@ struct CallSiteOverrideRow: View {
     /// Named inference profiles available for selection. Sourced from
     /// `store.profiles` by the parent sheet.
     let profiles: [InferenceProfile]
-    let onSave: () -> Void
-    let onClear: () -> Void
-    /// Invoked when the user picks a named profile from the picker. The
-    /// parent sheet routes this through
-    /// `store.replaceCallSiteOverride(id:profile:)` which clears any
-    /// stale fragment fields server-side, and refreshes the draft so the
-    /// row converges immediately.
-    let onSelectProfile: (String) -> Void
 
     /// Local expansion state. Defaults to "expanded when the row already has
     /// an override or when the user toggles it on" so a freshly-opened sheet
@@ -59,13 +49,13 @@ struct CallSiteOverrideRow: View {
 
     /// True when the toggle is in the "Override default" position. Mirrors
     /// "draft has any non-nil provider/model/profile". Toggling this off
-    /// clears the draft locally so Save will write a `null` to the daemon.
+    /// clears the draft locally.
     private var isOverrideOn: Bool {
         draft.hasOverride
     }
 
     /// True when the row's draft differs from what's persisted. Drives the
-    /// Save button enable state and the parent sheet's "Save All" badge.
+    /// parent sheet's Save button enabled state.
     private var hasUnsavedChanges: Bool {
         draft.provider != original.provider
             || draft.model != original.model
@@ -75,7 +65,7 @@ struct CallSiteOverrideRow: View {
     /// Validation: when the user has picked a provider but no model yet,
     /// Save is blocked. This catches the most common partial-edit state
     /// without forcing a model-first ordering.
-    private var validationError: String? {
+    var validationError: String? {
         let provider = draft.provider ?? ""
         let model = draft.model ?? ""
         if !provider.isEmpty && model.isEmpty {
@@ -85,16 +75,9 @@ struct CallSiteOverrideRow: View {
     }
 
     /// True when the user is editing a raw fragment (Custom) rather than
-    /// picking a profile. Drives the visibility of the provider+model form
-    /// and the per-row Save button (profile selection persists immediately
-    /// via `onSelectProfile` so no Save click is needed).
+    /// picking a profile. Drives the visibility of the provider+model form.
     private var isCustomMode: Bool {
         Self.profilePickerValue(for: draft) == Self.customSentinel
-    }
-
-    private var canSave: Bool {
-        guard hasUnsavedChanges else { return false }
-        return validationError == nil
     }
 
     /// Computes the profile picker's current value from the draft's state.
@@ -139,7 +122,7 @@ struct CallSiteOverrideRow: View {
 
     private var headerRow: some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
-            // Tap target for the title/summary expands the row when an
+            // Tap target for the title/description expands the row when an
             // override is active. Use a Button so VoiceOver treats it as an
             // activation surface.
             Button {
@@ -151,8 +134,8 @@ struct CallSiteOverrideRow: View {
                     Text(draft.displayName)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
-                    if !summary.isEmpty {
-                        Text(summary)
+                    if !draft.callSiteDescription.isEmpty {
+                        Text(draft.callSiteDescription)
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(.secondary)
                     }
@@ -163,6 +146,16 @@ struct CallSiteOverrideRow: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .accessibilityHint(isOverrideOn ? "Expands to edit override" : "")
+
+            if let chipLabel = overrideChipLabel {
+                Text(chipLabel)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(VColor.contentBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
 
             if isOverrideOn {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
@@ -183,21 +176,13 @@ struct CallSiteOverrideRow: View {
                             if !draft.hasOverride {
                                 if let firstProfile = profiles.first {
                                     draft.profile = firstProfile.name
-                                    // The per-row Save button is hidden in
-                                    // profile mode, so persist immediately
-                                    // — otherwise the auto-selection is
-                                    // lost when the sheet closes.
-                                    onSelectProfile(firstProfile.name)
                                 } else {
                                     seedCustomFragment()
                                 }
                             }
                             withAnimation(VAnimation.fast) { isExpanded = true }
                         } else {
-                            // Switching OFF: clear locally so Save will write
-                            // null to the daemon. Don't auto-save here — the
-                            // user still has to confirm via the row's Save
-                            // button or "Save All" in the sheet header.
+                            // Switching OFF: clear the draft locally.
                             draft.provider = nil
                             draft.model = nil
                             draft.profile = nil
@@ -227,27 +212,8 @@ struct CallSiteOverrideRow: View {
                         .foregroundStyle(VColor.systemNegativeStrong)
                 }
             }
-
-            HStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: "Reset to Default",
-                    style: .ghost
-                ) {
-                    onClear()
-                }
-                Spacer(minLength: 0)
-                if isCustomMode {
-                    VButton(
-                        label: "Save",
-                        style: .primary,
-                        isDisabled: !canSave
-                    ) {
-                        onSave()
-                    }
-                }
-            }
         }
-        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: 0, trailing: 0))
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.sm, trailing: 0))
     }
 
     private var profilePicker: some View {
@@ -272,14 +238,11 @@ struct CallSiteOverrideRow: View {
                             }
                         } else {
                             // Switch to a named profile: clear fragment
-                            // fields locally and persist via the parent's
-                            // `onSelectProfile` callback, which routes
-                            // through `replaceCallSiteOverride` to clear
-                            // stale fragment leaves server-side.
+                            // fields locally. The footer Save button
+                            // persists all changes.
                             draft.provider = nil
                             draft.model = nil
                             draft.profile = newValue
-                            onSelectProfile(newValue)
                         }
                     }
                 ),
@@ -358,28 +321,19 @@ struct CallSiteOverrideRow: View {
         }
     }
 
-    // MARK: - Summary
+    // MARK: - Override Chip
 
-    /// Inline subtitle describing the current draft (or "Follows default"
-    /// when nothing is overridden). Keeps the row scannable when collapsed.
-    private var summary: String {
-        if !draft.hasOverride {
-            return "Follows default"
-        }
-        var parts: [String] = []
+    /// Short label for the chip shown next to the toggle when an override
+    /// is active. Shows the profile display name or "Custom" for raw
+    /// provider/model overrides. Returns `nil` when no override is set.
+    private var overrideChipLabel: String? {
+        guard isOverrideOn else { return nil }
         if let profile = draft.profile {
-            let display = profiles.first(where: { $0.name == profile })?.displayName ?? profile
-            parts.append(display)
-        } else if let provider = draft.provider, let model = draft.model {
-            parts.append("\(providerDisplayName(provider)) \u{00B7} \(modelDisplayName(provider, model))")
-        } else if let model = draft.model {
-            parts.append(model)
-        } else if let provider = draft.provider {
-            parts.append("Provider: \(providerDisplayName(provider))")
+            return profiles.first(where: { $0.name == profile })?.displayName ?? profile
         }
-        if hasUnsavedChanges {
-            parts.append("Unsaved")
+        if draft.provider != nil || draft.model != nil {
+            return Self.customLabel
         }
-        return parts.joined(separator: " \u{00B7} ")
+        return nil
     }
 }

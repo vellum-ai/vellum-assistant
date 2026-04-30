@@ -3,16 +3,15 @@ import VellumAssistantShared
 
 /// Editable sheet listing every call site in the catalog, grouped by
 /// `CallSiteDomain`. Each row exposes an "Override default" toggle plus
-/// provider/model pickers. The sheet header provides batch actions —
-/// "Save All" (only visible when any rows have unsaved drafts) and
-/// "Reset All" (destructive, behind a confirmation dialog).
+/// provider/model pickers. Nothing persists until the user clicks Save
+/// in the footer. Cancel discards all unsaved changes.
 @MainActor
 struct CallSiteOverridesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
 
     /// Working copies keyed by call-site ID. Edits live here until the user
-    /// hits Save (per-row) or Save All (header). Drafts are seeded from
+    /// hits Save in the footer. Drafts are seeded from
     /// `store.callSiteOverrides` on appear and re-synced when the store
     /// changes externally.
     @State private var drafts: [String: CallSiteOverride] = [:]
@@ -23,11 +22,14 @@ struct CallSiteOverridesSheet: View {
     /// pick up the new value" (draft == lastSynced but lastSynced != new
     /// persisted). Without this, we would compare the draft to the *new*
     /// persisted value and incorrectly flag externally-updated rows as
-    /// touched, which would let Save All clobber newer daemon-side updates.
+    /// touched, which would let Save clobber newer daemon-side updates.
     @State private var lastSyncedFromStore: [String: CallSiteOverride] = [:]
 
-    /// Shows the destructive confirmation for Reset All.
-    @State private var showResetAllConfirmation = false
+    /// Shows the destructive confirmation for Reset to Defaults.
+    @State private var showResetConfirmation = false
+
+    /// Search query for filtering the task list.
+    @State private var searchQuery = ""
 
     /// Snapshot of provider IDs and per-provider model IDs at sheet open.
     /// Captured once so each row sees the same catalog without each row
@@ -42,10 +44,20 @@ struct CallSiteOverridesSheet: View {
         return byProvider
     }
 
-    /// Catalog entries grouped by domain in catalog order.
-    private var entriesByDomain: [(domain: CallSiteDomain, entries: [CallSiteOverride])] {
+    /// Catalog entries grouped by domain in catalog order, filtered by the
+    /// search query. Matches against the entry's display name and the
+    /// domain's display name. Empty groups are omitted.
+    private var filteredEntriesByDomain: [(domain: CallSiteDomain, entries: [CallSiteOverride])] {
+        let query = searchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         var grouped: [CallSiteDomain: [CallSiteOverride]] = [:]
         for entry in CallSiteCatalog.all {
+            if !query.isEmpty {
+                let matchesName = entry.displayName.lowercased().contains(query)
+                let matchesDescription = entry.callSiteDescription.lowercased().contains(query)
+                let matchesDomain = entry.domain.displayName.lowercased().contains(query)
+                let matchesId = entry.id.lowercased().contains(query)
+                guard matchesName || matchesDescription || matchesDomain || matchesId else { continue }
+            }
             grouped[entry.domain, default: []].append(entry)
         }
         return CallSiteDomain.allCases
@@ -57,7 +69,7 @@ struct CallSiteOverridesSheet: View {
     }
 
     /// True when at least one draft differs from the persisted value.
-    /// Drives the visibility of the "Save All" header button.
+    /// Drives the enabled state of the footer Save button.
     private var hasUnsavedDrafts: Bool {
         for (id, draft) in drafts {
             guard let original = persistedById[id] else { continue }
@@ -71,7 +83,7 @@ struct CallSiteOverridesSheet: View {
     }
 
     /// True when at least one persisted entry has any override set. Drives
-    /// the visibility of the "Reset All" header button.
+    /// the visibility of the footer "Reset to Defaults" button.
     private var hasAnyPersistedOverride: Bool {
         store.callSiteOverrides.contains { $0.hasOverride }
     }
@@ -84,6 +96,8 @@ struct CallSiteOverridesSheet: View {
         VStack(spacing: 0) {
             header
             SettingsDivider()
+
+            searchBar
 
             overridesList
 
@@ -98,65 +112,63 @@ struct CallSiteOverridesSheet: View {
             syncDraftsFromStore()
         }
         .confirmationDialog(
-            "Reset all per-task overrides?",
-            isPresented: $showResetAllConfirmation,
+            "Reset to Defaults",
+            isPresented: $showResetConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Reset All", role: .destructive) {
+            Button("Reset to Defaults", role: .destructive) {
                 resetAll()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every call site will follow your default provider and model. This cannot be undone.")
+            Text("Every task override will be reset and will follow your active profile. This cannot be undone.")
         }
     }
 
     // MARK: - Header / Footer
 
     private var header: some View {
-        HStack(alignment: .top, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Per-Task Model Overrides")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("Pick a specific provider or model for individual tasks. Anything left off uses your default.")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Model Profile Overrides")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+            Text("Customize which model profile specific tasks should use. Uses your default profile if no override is set.")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+    }
+
+    private var footer: some View {
+        HStack(spacing: VSpacing.sm) {
+            if hasAnyPersistedOverride {
+                VButton(label: "Reset to Defaults", style: .dangerOutline) {
+                    showResetConfirmation = true
+                }
             }
             Spacer(minLength: 0)
-            HStack(spacing: VSpacing.sm) {
-                if hasUnsavedDrafts {
-                    VButton(label: "Save All", style: .primary) {
-                        saveAll()
-                    }
-                }
-                if hasAnyPersistedOverride {
-                    VButton(label: "Reset All", style: .dangerOutline) {
-                        showResetAllConfirmation = true
-                    }
-                }
-                VButton(
-                    label: "Close",
-                    iconOnly: VIcon.x.rawValue,
-                    style: .ghost,
-                    tintColor: VColor.contentTertiary
-                ) {
-                    isPresented = false
-                }
+            VButton(label: "Cancel", style: .outlined) {
+                isPresented = false
+            }
+            VButton(label: "Save", style: .primary, isDisabled: !hasUnsavedDrafts) {
+                saveAll()
+                isPresented = false
             }
         }
         .padding(VSpacing.lg)
     }
 
-    private var footer: some View {
-        HStack {
-            Spacer()
-            VButton(label: "Done", style: .outlined) {
-                isPresented = false
-            }
-        }
-        .padding(VSpacing.lg)
+    private var searchBar: some View {
+        VTextField(
+            placeholder: "Search tasks\u{2026}",
+            text: $searchQuery,
+            leadingIcon: VIcon.search.rawValue,
+            size: .small
+        )
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Overrides List
@@ -164,7 +176,13 @@ struct CallSiteOverridesSheet: View {
     private var overridesList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(entriesByDomain, id: \.domain.id) { group in
+                let filtered = filteredEntriesByDomain
+                ForEach(Array(filtered.enumerated()), id: \.element.domain.id) { index, group in
+                    if index > 0 {
+                        SettingsDivider()
+                            .padding(.horizontal, VSpacing.lg)
+                    }
+
                     Text(group.domain.displayName)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
@@ -185,10 +203,7 @@ struct CallSiteOverridesSheet: View {
                                 let models = store.dynamicProviderModels(provider)
                                 return models.first { $0.id == modelId }?.displayName ?? modelId
                             },
-                            profiles: store.profiles,
-                            onSave: { save(id: entry.id) },
-                            onClear: { clear(id: entry.id) },
-                            onSelectProfile: { name in selectProfile(id: entry.id, name: name) }
+                            profiles: store.profiles
                         )
                         .padding(.horizontal, VSpacing.lg)
 
@@ -213,7 +228,7 @@ struct CallSiteOverridesSheet: View {
     /// "Untouched" is defined as `draft == lastSyncedFromStore[id]` — the
     /// draft still matches the value we last accepted from the store.
     /// Comparing against the *new* persisted value would mis-flag external
-    /// updates as user edits and let Save All overwrite newer daemon-side
+    /// updates as user edits and let Save overwrite newer daemon-side
     /// changes with stale drafts captured at sheet open.
     private func syncDraftsFromStore() {
         var nextDrafts: [String: CallSiteOverride] = drafts
@@ -260,56 +275,7 @@ struct CallSiteOverridesSheet: View {
         )
     }
 
-    // MARK: - Save / Clear / Reset
-
-    private func save(id: String) {
-        guard let draft = drafts[id] else { return }
-        if draft.hasOverride {
-            // Use replace (clear-then-set) so any stale daemon-side
-            // leaves (maxTokens, effort, profile set externally, etc.)
-            // are removed. The partial-update setCallSiteOverride
-            // would silently retain fields the draft has nil'd.
-            store.replaceCallSiteOverride(
-                id,
-                provider: draft.provider,
-                model: draft.model,
-                profile: draft.profile
-            )
-        } else {
-            store.clearCallSiteOverride(id)
-        }
-        // The draft is now the new persisted state — bump the baseline so
-        // any subsequent `onChange` from the store doesn't see a stale
-        // baseline and re-flag the row as touched.
-        lastSyncedFromStore[id] = drafts[id]
-    }
-
-    private func clear(id: String) {
-        // Clear the local draft so the row collapses immediately, then push
-        // the null-write to the daemon. The store updates its local cache
-        // optimistically too, so `syncDraftsFromStore` won't bounce the value.
-        drafts[id]?.provider = nil
-        drafts[id]?.model = nil
-        drafts[id]?.profile = nil
-        store.clearCallSiteOverride(id)
-        // Baseline now matches the cleared draft (no override).
-        lastSyncedFromStore[id] = drafts[id]
-    }
-
-    private func selectProfile(id: String, name: String) {
-        // Picking a profile name persists immediately — no Save click
-        // required. Update the local draft to match (provider/model
-        // cleared, profile set) so the row converges before the next
-        // config push, and route the write through `replaceCallSiteOverride`
-        // which also clears stale fragment leaves server-side per PR 11.
-        drafts[id]?.provider = nil
-        drafts[id]?.model = nil
-        drafts[id]?.profile = name
-        store.replaceCallSiteOverride(id, provider: nil, model: nil, profile: name)
-        // The draft now matches the new persisted state — bump the baseline
-        // so the next external `onChange` doesn't re-flag the row as touched.
-        lastSyncedFromStore[id] = drafts[id]
-    }
+    // MARK: - Save / Reset
 
     private func saveAll() {
         // Pass only entries with active overrides — entries the user

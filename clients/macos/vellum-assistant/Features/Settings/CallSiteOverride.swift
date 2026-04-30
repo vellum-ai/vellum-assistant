@@ -63,6 +63,9 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
     /// (e.g. `"Memory · Retrieval"`).
     public let displayName: String
 
+    /// Short one-line description of what this call site does.
+    public let callSiteDescription: String
+
     /// Logical grouping for sectioning in the picker.
     public let domain: CallSiteDomain
 
@@ -80,6 +83,7 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
     public init(
         id: String,
         displayName: String,
+        callSiteDescription: String = "",
         domain: CallSiteDomain,
         provider: String? = nil,
         model: String? = nil,
@@ -87,6 +91,7 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
     ) {
         self.id = id
         self.displayName = displayName
+        self.callSiteDescription = callSiteDescription
         self.domain = domain
         self.provider = provider
         self.model = model
@@ -111,41 +116,41 @@ public enum CallSiteCatalog {
     /// Order matches the backend enum so the UI is deterministic.
     public static let all: [CallSiteOverride] = [
         // Agent loop
-        CallSiteOverride(id: "mainAgent", displayName: "Main agent", domain: .agentLoop),
-        CallSiteOverride(id: "subagentSpawn", displayName: "Subagent spawn", domain: .agentLoop),
-        CallSiteOverride(id: "heartbeatAgent", displayName: "Heartbeat agent", domain: .agentLoop),
-        CallSiteOverride(id: "filingAgent", displayName: "Filing agent", domain: .agentLoop),
-        CallSiteOverride(id: "analyzeConversation", displayName: "Analyze conversation", domain: .agentLoop),
-        CallSiteOverride(id: "callAgent", displayName: "Call agent", domain: .agentLoop),
+        CallSiteOverride(id: "mainAgent", displayName: "Main agent", callSiteDescription: "Primary conversational reasoning", domain: .agentLoop),
+        CallSiteOverride(id: "subagentSpawn", displayName: "Subagent spawn", callSiteDescription: "Parallel task execution", domain: .agentLoop),
+        CallSiteOverride(id: "heartbeatAgent", displayName: "Heartbeat agent", callSiteDescription: "Background monitoring and check-ins", domain: .agentLoop),
+        CallSiteOverride(id: "filingAgent", displayName: "Filing agent", callSiteDescription: "Organizes and files conversation content", domain: .agentLoop),
+        CallSiteOverride(id: "analyzeConversation", displayName: "Analyze conversation", callSiteDescription: "Reviews conversation for insights", domain: .agentLoop),
+        CallSiteOverride(id: "callAgent", displayName: "Call agent", callSiteDescription: "Handles voice call interactions", domain: .agentLoop),
         // Memory
-        CallSiteOverride(id: "memoryExtraction", displayName: "Memory · Extraction", domain: .memory),
-        CallSiteOverride(id: "memoryConsolidation", displayName: "Memory · Consolidation", domain: .memory),
-        CallSiteOverride(id: "memoryRetrieval", displayName: "Memory · Retrieval", domain: .memory),
-        CallSiteOverride(id: "narrativeRefinement", displayName: "Narrative refinement", domain: .memory),
-        CallSiteOverride(id: "patternScan", displayName: "Pattern scan", domain: .memory),
-        CallSiteOverride(id: "conversationSummarization", displayName: "Conversation summarization", domain: .memory),
-        CallSiteOverride(id: "conversationStarters", displayName: "Conversation starters", domain: .memory),
+        CallSiteOverride(id: "memoryExtraction", displayName: "Memory · Extraction", callSiteDescription: "Extracts facts from conversations", domain: .memory),
+        CallSiteOverride(id: "memoryConsolidation", displayName: "Memory · Consolidation", callSiteDescription: "Merges and deduplicates memories", domain: .memory),
+        CallSiteOverride(id: "memoryRetrieval", displayName: "Memory · Retrieval", callSiteDescription: "Recalls relevant memories", domain: .memory),
+        CallSiteOverride(id: "narrativeRefinement", displayName: "Narrative refinement", callSiteDescription: "Refines personal narrative summaries", domain: .memory),
+        CallSiteOverride(id: "patternScan", displayName: "Pattern scan", callSiteDescription: "Detects recurring patterns and habits", domain: .memory),
+        CallSiteOverride(id: "conversationSummarization", displayName: "Conversation summarization", callSiteDescription: "Summarizes past conversations", domain: .memory),
+        CallSiteOverride(id: "conversationStarters", displayName: "Conversation starters", callSiteDescription: "Suggests topics to talk about", domain: .memory),
         // Workspace
-        CallSiteOverride(id: "conversationTitle", displayName: "Conversation title", domain: .workspace),
-        CallSiteOverride(id: "commitMessage", displayName: "Commit message generator", domain: .workspace),
+        CallSiteOverride(id: "conversationTitle", displayName: "Conversation title", callSiteDescription: "Generates conversation titles", domain: .workspace),
+        CallSiteOverride(id: "commitMessage", displayName: "Commit message generator", callSiteDescription: "Writes git commit messages", domain: .workspace),
         // UI
-        CallSiteOverride(id: "identityIntro", displayName: "Identity intro", domain: .ui),
-        CallSiteOverride(id: "emptyStateGreeting", displayName: "Empty-state greeting", domain: .ui),
+        CallSiteOverride(id: "identityIntro", displayName: "Identity intro", callSiteDescription: "Crafts the assistant's introduction", domain: .ui),
+        CallSiteOverride(id: "emptyStateGreeting", displayName: "Empty-state greeting", callSiteDescription: "Greeting shown on new conversations", domain: .ui),
         // Notifications
-        CallSiteOverride(id: "notificationDecision", displayName: "Notification decision", domain: .notifications),
-        CallSiteOverride(id: "preferenceExtraction", displayName: "Preference extraction", domain: .notifications),
+        CallSiteOverride(id: "notificationDecision", displayName: "Notification decision", callSiteDescription: "Decides whether to send a notification", domain: .notifications),
+        CallSiteOverride(id: "preferenceExtraction", displayName: "Preference extraction", callSiteDescription: "Learns notification preferences", domain: .notifications),
         // Voice
-        CallSiteOverride(id: "guardianQuestionCopy", displayName: "Guardian question copy", domain: .voice),
-        CallSiteOverride(id: "watchCommentary", displayName: "Watch commentary", domain: .voice),
-        CallSiteOverride(id: "watchSummary", displayName: "Watch summary", domain: .voice),
+        CallSiteOverride(id: "guardianQuestionCopy", displayName: "Guardian question copy", callSiteDescription: "Generates guardian verification prompts", domain: .voice),
+        CallSiteOverride(id: "watchCommentary", displayName: "Watch commentary", callSiteDescription: "Live commentary during screen watching", domain: .voice),
+        CallSiteOverride(id: "watchSummary", displayName: "Watch summary", callSiteDescription: "Summarizes screen watching sessions", domain: .voice),
         // Utility
-        CallSiteOverride(id: "interactionClassifier", displayName: "Interaction classifier", domain: .utility),
-        CallSiteOverride(id: "styleAnalyzer", displayName: "Style analyzer", domain: .utility),
-        CallSiteOverride(id: "inviteInstructionGenerator", displayName: "Invite instruction generator", domain: .utility),
-        CallSiteOverride(id: "skillCategoryInference", displayName: "Skill category inference", domain: .utility),
+        CallSiteOverride(id: "interactionClassifier", displayName: "Interaction classifier", callSiteDescription: "Classifies the type of interaction", domain: .utility),
+        CallSiteOverride(id: "styleAnalyzer", displayName: "Style analyzer", callSiteDescription: "Analyzes communication style", domain: .utility),
+        CallSiteOverride(id: "inviteInstructionGenerator", displayName: "Invite instruction generator", callSiteDescription: "Creates invite setup instructions", domain: .utility),
+        CallSiteOverride(id: "skillCategoryInference", displayName: "Skill category inference", callSiteDescription: "Categorizes installed skills", domain: .utility),
         // Skills
-        CallSiteOverride(id: "meetConsentMonitor", displayName: "Meet · Consent monitor", domain: .skills),
-        CallSiteOverride(id: "meetChatOpportunity", displayName: "Meet · Chat opportunity", domain: .skills),
+        CallSiteOverride(id: "meetConsentMonitor", displayName: "Meet · Consent monitor", callSiteDescription: "Monitors meeting consent status", domain: .skills),
+        CallSiteOverride(id: "meetChatOpportunity", displayName: "Meet · Chat opportunity", callSiteDescription: "Detects chances to contribute in meetings", domain: .skills),
     ]
 
     /// Lookup table from call-site ID to its catalog entry. Constructed

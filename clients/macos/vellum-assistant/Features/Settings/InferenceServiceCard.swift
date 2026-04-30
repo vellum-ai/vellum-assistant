@@ -179,8 +179,7 @@ struct InferenceServiceCard: View {
                 // Per-call-site overrides badge — only visible when the user has
                 // at least one override configured. Tapping opens the overrides
                 // sheet.
-                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true,
-                   store.overridesCount > 0 {
+                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                     overridesBadge
                 }
             }
@@ -359,16 +358,18 @@ struct InferenceServiceCard: View {
 
     // MARK: - Per-Call-Site Overrides Badge
 
-    /// Compact link-styled label that surfaces the count of explicit per-task
-    /// overrides and opens the read-only overrides sheet on tap. Hidden by
-    /// the parent when `store.overridesCount == 0`.
+    /// Compact link-styled label that opens the model profile overrides
+    /// sheet. Shows the override count when overrides exist, or a plain
+    /// "Model profile overrides" link otherwise.
     private var overridesBadge: some View {
         Button {
             showOverridesSheet = true
         } label: {
             Text(
-                "\(store.overridesCount) per-task override"
-                    + (store.overridesCount == 1 ? "" : "s")
+                store.overridesCount > 0
+                    ? "\(store.overridesCount) model profile override"
+                        + (store.overridesCount == 1 ? "" : "s")
+                    : "Model profile overrides"
             )
             .font(VFont.bodySmallDefault)
             .foregroundStyle(.secondary)
@@ -376,7 +377,7 @@ struct InferenceServiceCard: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .accessibilityLabel("View per-task model overrides")
+        .accessibilityLabel("View model profile overrides")
     }
 
     // MARK: - Managed Login Prompt
