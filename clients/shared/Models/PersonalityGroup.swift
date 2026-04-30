@@ -40,9 +40,4 @@ public struct PersonalityGroup: Sendable {
     public static var allNames: [String] {
         allGroups.flatMap(\.names)
     }
-
-    /// Returns the personality group that contains the given name, or `nil`.
-    public static func groupForName(_ name: String) -> PersonalityGroup? {
-        allGroups.first { $0.names.contains(name) }
-    }
 }
