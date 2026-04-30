@@ -38,6 +38,15 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         return nil
     }
 
+    private func callSitesPatch(at index: Int) -> [String: Any]? {
+        guard mockSettingsClient.patchConfigCalls.indices.contains(index),
+              let llm = mockSettingsClient.patchConfigCalls[index]["llm"] as? [String: Any],
+              let sites = llm["callSites"] as? [String: Any] else {
+            return nil
+        }
+        return sites
+    }
+
     /// Waits for the background `Task` started by a store helper to flush
     /// its patch into the mock client.
     private func waitForPatchCount(_ expected: Int, timeout: TimeInterval = 2.0) {
@@ -51,13 +60,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
     // MARK: - Catalog
 
     func testCatalogCoversEveryCallSite() {
-        // The catalog enumerates 28 sites grouped across 8 domains
+        // The catalog enumerates every backend LLM call site grouped across 8 domains
         // (agent loop, memory, workspace, UI, notifications, voice,
         // utility, skills). If this count drifts, the catalog and the
         // backend `LLMCallSiteEnum` have diverged.
-        XCTAssertEqual(CallSiteCatalog.all.count, 28)
-        XCTAssertEqual(CallSiteCatalog.byId.count, 28)
-        XCTAssertEqual(CallSiteCatalog.validIds.count, 28)
+        XCTAssertEqual(CallSiteCatalog.all.count, 35)
+        XCTAssertEqual(CallSiteCatalog.byId.count, 35)
+        XCTAssertEqual(CallSiteCatalog.validIds.count, 35)
     }
 
     func testCatalogHasUniqueIdsAndNonEmptyDisplayNames() {
@@ -113,7 +122,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
         // An entry that has no override in the config must surface as
         // "no override" with all fields nil.
-        let untouched = store.callSiteOverrides.first(where: { $0.id == "watchSummary" })
+        let untouched = store.callSiteOverrides.first(where: { $0.id == "trustRuleSuggestion" })
         XCTAssertNil(untouched?.provider)
         XCTAssertNil(untouched?.model)
         XCTAssertNil(untouched?.profile)
@@ -286,7 +295,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
     // MARK: - Batch update
 
-    func testSetCallSiteOverridesBatchEmitsAllEntriesInOnePatch() {
+    func testSetCallSiteOverridesBatchClearsThenSetsProvidedEntries() {
         let updates: [CallSiteOverride] = [
             CallSiteOverride(
                 id: "memoryRetrieval",
@@ -302,37 +311,35 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
                 profile: "fast"
             ),
             CallSiteOverride(
-                id: "watchSummary",
-                displayName: "Watch summary",
-                domain: .voice
+                id: "trustRuleSuggestion",
+                displayName: "Trust rule suggestion",
+                domain: .utility
             ), // no overrides — should emit explicit nulls to clear
         ]
 
         _ = store.setCallSiteOverrides(updates)
-        waitForPatchCount(1)
+        waitForPatchCount(2)
 
-        let sites = lastCallSitesPatch()
-        XCTAssertNotNil(sites)
-        // Batch PATCH must include every catalog entry: the three caller-
-        // provided entries plus null-clears for every other catalog ID, so
-        // the daemon's view stays aligned with the local cache (which
-        // resets all omitted entries to nil).
-        XCTAssertEqual(sites?.count, CallSiteCatalog.all.count)
+        let clearSites = callSitesPatch(at: 0)
+        XCTAssertEqual(clearSites?.count, CallSiteCatalog.all.count)
+        XCTAssertTrue(clearSites?["memoryRetrieval"] is NSNull)
+        XCTAssertTrue(clearSites?["mainAgent"] is NSNull)
+        XCTAssertTrue(clearSites?["trustRuleSuggestion"] is NSNull)
 
-        let memory = sites?["memoryRetrieval"] as? [String: Any]
+        let setSites = callSitesPatch(at: 1)
+        XCTAssertEqual(Set(setSites?.keys.map { String($0) } ?? []), ["memoryRetrieval", "mainAgent"])
+
+        let memory = setSites?["memoryRetrieval"] as? [String: Any]
         XCTAssertEqual(memory?["provider"] as? String, "openai")
         XCTAssertEqual(memory?["model"] as? String, "gpt-4.1")
-        XCTAssertTrue(memory?["profile"] is NSNull)
+        XCTAssertNil(memory?["profile"])
 
-        let main = sites?["mainAgent"] as? [String: Any]
-        XCTAssertTrue(main?["provider"] is NSNull)
-        XCTAssertTrue(main?["model"] is NSNull)
+        let main = setSites?["mainAgent"] as? [String: Any]
+        XCTAssertNil(main?["provider"])
+        XCTAssertNil(main?["model"])
         XCTAssertEqual(main?["profile"] as? String, "fast")
 
-        let watch = sites?["watchSummary"] as? [String: Any]
-        XCTAssertTrue(watch?["provider"] is NSNull)
-        XCTAssertTrue(watch?["model"] is NSNull)
-        XCTAssertTrue(watch?["profile"] is NSNull)
+        XCTAssertNil(setSites?["trustRuleSuggestion"])
     }
 
     /// Regression for Devin's review on PR #26128 (`SettingsStore.swift:3174`):
@@ -360,7 +367,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
         // Must not crash.
         _ = store.setCallSiteOverrides(duplicates)
-        waitForPatchCount(1)
+        waitForPatchCount(2)
 
         // Last-write-wins in the local cache.
         let memory = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
@@ -373,7 +380,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         let memoryEntry = sites?["memoryRetrieval"] as? [String: Any]
         XCTAssertEqual(memoryEntry?["provider"] as? String, "anthropic")
         XCTAssertEqual(memoryEntry?["model"] as? String, "claude-haiku-4")
-        XCTAssertTrue(memoryEntry?["profile"] is NSNull)
+        XCTAssertNil(memoryEntry?["profile"])
     }
 
     /// Regression for Codex P1 + Devin on PR #26128: prior to the fix,
@@ -393,41 +400,39 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         // Now batch-update a SINGLE entry that is neither of the above.
         let updates: [CallSiteOverride] = [
             CallSiteOverride(
-                id: "watchSummary",
-                displayName: "Watch summary",
-                domain: .voice,
+                id: "trustRuleSuggestion",
+                displayName: "Trust rule suggestion",
+                domain: .utility,
                 provider: "openai"
             ),
         ]
         _ = store.setCallSiteOverrides(updates)
-        waitForPatchCount(3)
+        waitForPatchCount(4)
 
-        let sites = lastCallSitesPatch()
-        XCTAssertNotNil(sites)
+        let clearSites = callSitesPatch(at: 2)
+        XCTAssertNotNil(clearSites)
+        XCTAssertEqual(
+            Set(clearSites?.keys.map { String($0) } ?? []),
+            CallSiteCatalog.validIds,
+            "Batch clear PATCH must cover every catalog entry to keep remote/local aligned"
+        )
 
         // The PATCH must include the new entry verbatim.
-        let watch = sites?["watchSummary"] as? [String: Any]
-        XCTAssertEqual(watch?["provider"] as? String, "openai")
-        XCTAssertTrue(watch?["model"] is NSNull)
-        XCTAssertTrue(watch?["profile"] is NSNull)
+        let setSites = callSitesPatch(at: 3)
+        let trustRule = setSites?["trustRuleSuggestion"] as? [String: Any]
+        XCTAssertEqual(trustRule?["provider"] as? String, "openai")
+        XCTAssertNil(trustRule?["model"])
+        XCTAssertNil(trustRule?["profile"])
 
         // And it must include null-clears for the two pre-populated entries
         // so the daemon's view matches the (now-cleared) local cache. The
         // whole entry is nulled (not just provider/model/profile leaves) per
         // PR #26128 cycle 2 fix — clears any other leaves the entry may have.
-        XCTAssertNotNil(sites?["memoryRetrieval"], "PATCH must include null-clear for memoryRetrieval")
-        XCTAssertTrue(sites?["memoryRetrieval"] is NSNull)
+        XCTAssertNotNil(clearSites?["memoryRetrieval"], "PATCH must include null-clear for memoryRetrieval")
+        XCTAssertTrue(clearSites?["memoryRetrieval"] is NSNull)
 
-        XCTAssertNotNil(sites?["commitMessage"], "PATCH must include null-clear for commitMessage")
-        XCTAssertTrue(sites?["commitMessage"] is NSNull)
-
-        // Stronger invariant: the set of IDs PATCHed must equal the full
-        // catalog. Anything less re-creates the divergence bug.
-        XCTAssertEqual(
-            Set(sites?.keys.map { String($0) } ?? []),
-            CallSiteCatalog.validIds,
-            "Batch PATCH must cover every catalog entry to keep remote/local aligned"
-        )
+        XCTAssertNotNil(clearSites?["commitMessage"], "PATCH must include null-clear for commitMessage")
+        XCTAssertTrue(clearSites?["commitMessage"] is NSNull)
 
         // Local cache also reflects the cleared state for the omitted entries.
         let cachedMemory = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
@@ -440,9 +445,9 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
     func testSetCallSiteOverridesUpdatesLocalCacheInCatalogOrder() {
         let updates: [CallSiteOverride] = [
             CallSiteOverride(
-                id: "watchSummary",
-                displayName: "Watch summary",
-                domain: .voice,
+                id: "trustRuleSuggestion",
+                displayName: "Trust rule suggestion",
+                domain: .utility,
                 provider: "openai"
             ),
             CallSiteOverride(
@@ -457,8 +462,8 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         // Local cache must follow CallSiteCatalog.all order, regardless
         // of the order the caller passed in.
         let mainIndex = store.callSiteOverrides.firstIndex(where: { $0.id == "mainAgent" }) ?? -1
-        let watchIndex = store.callSiteOverrides.firstIndex(where: { $0.id == "watchSummary" }) ?? -1
-        XCTAssertLessThan(mainIndex, watchIndex,
+        let trustRuleIndex = store.callSiteOverrides.firstIndex(where: { $0.id == "trustRuleSuggestion" }) ?? -1
+        XCTAssertLessThan(mainIndex, trustRuleIndex,
                           "callSiteOverrides must preserve CallSiteCatalog order")
         XCTAssertEqual(store.overridesCount, 2)
     }
@@ -480,12 +485,11 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         ]
 
         _ = store.setCallSiteOverrides(updates)
-        waitForPatchCount(1)
+        waitForPatchCount(2)
 
         let sites = lastCallSitesPatch()
-        // The PATCH covers every catalog entry (valid input + null-clears
-        // for everything else). Unknown IDs from the input must NOT appear.
-        XCTAssertEqual(sites?.count, CallSiteCatalog.all.count)
+        // The set PATCH includes only valid entries with non-empty overrides.
+        XCTAssertEqual(sites?.count, 1)
         XCTAssertNotNil(sites?["memoryRetrieval"])
         XCTAssertNil(sites?["totallyMadeUpId"], "Unknown call-site IDs must be filtered out of the patch")
 
