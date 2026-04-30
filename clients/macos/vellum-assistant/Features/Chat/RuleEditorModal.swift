@@ -124,11 +124,9 @@ struct RuleEditorModal: View {
     /// Whether the Save As New button should be visible.
     private var showSaveAsNew: Bool {
         guard onSaveAsNew != nil, existingRule != nil else { return false }
-        // Hide while suggestion is loading — avoids flickering when the suggestion
-        // arrives and turns out to match the existing rule pattern.
-        guard let suggestion else { return false }
-        // Suppress if LLM found nothing narrower than the existing rule's pattern
-        if let existing = existingRule, suggestion.pattern == existing.pattern {
+        // If the LLM suggestion arrived and matches the existing pattern exactly,
+        // there's no narrower option to offer.
+        if let suggestion, let existing = existingRule, suggestion.pattern == existing.pattern {
             return false
         }
         return !generalizedOptions.isEmpty
@@ -234,8 +232,7 @@ struct RuleEditorModal: View {
             if let existingRule {
                 // Edit mode: show existing rule pattern as read-only
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10))
+                    VIconView(.lock, size: 10)
                         .foregroundStyle(VColor.contentTertiary)
                     Text(existingRule.pattern)
                         .font(VFont.bodyMediumDefault.monospaced())
