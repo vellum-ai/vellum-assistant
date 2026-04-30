@@ -46,16 +46,20 @@ mock.module("node:fs", () => {
     proxy[key] = _realFs[key];
   }
   // Override only the five functions the migration runner uses.
+  // The proxy captures args as any[] and delegates to either our mocks or the
+  // real fs. We cast through Function.apply to satisfy overloaded signatures.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type AnyFn = (...args: any[]) => any;
   proxy.existsSync = (...a: unknown[]) =>
-    useMocks ? existsSyncFn(a[0] as string) : _realFs.existsSync(...a);
+    useMocks ? existsSyncFn(a[0] as string) : (_realFs.existsSync as AnyFn)(...a);
   proxy.mkdirSync = (...a: unknown[]) =>
-    useMocks ? mkdirSyncFn(...a) : _realFs.mkdirSync(...a);
+    useMocks ? (mkdirSyncFn as AnyFn)(...a) : (_realFs.mkdirSync as AnyFn)(...a);
   proxy.readFileSync = (...a: unknown[]) =>
-    useMocks ? readFileSyncFn(...a) : _realFs.readFileSync(...a);
+    useMocks ? (readFileSyncFn as AnyFn)(...a) : (_realFs.readFileSync as AnyFn)(...a);
   proxy.writeFileSync = (...a: unknown[]) =>
-    useMocks ? writeFileSyncFn(...a) : _realFs.writeFileSync(...a);
+    useMocks ? (writeFileSyncFn as AnyFn)(...a) : (_realFs.writeFileSync as AnyFn)(...a);
   proxy.renameSync = (...a: unknown[]) =>
-    useMocks ? renameSyncFn(...a) : _realFs.renameSync(...a);
+    useMocks ? (renameSyncFn as AnyFn)(...a) : (_realFs.renameSync as AnyFn)(...a);
   return proxy;
 });
 
