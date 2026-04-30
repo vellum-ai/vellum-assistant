@@ -740,6 +740,11 @@ export async function handleChannelInbound({
   if (bootstrapResponse) return bootstrapResponse;
 
   // ── Guardian verification code intercept (deterministic) ──
+  // When the gateway has pre-validated the code, sourceMetadata.gatewayVerification
+  // carries the verdict. The assistant trusts it and skips code validation + binding.
+  const gwVerification = sourceMetadata?.gatewayVerification as
+    | { outcome: "verified" | "failed"; verificationType?: "guardian" | "trusted_contact"; bindingConflict?: boolean; failureReason?: string }
+    | undefined;
   const verificationResponse = await handleVerificationIntercept({
     isDuplicate: result.duplicate,
     guardianVerifyCode,
@@ -754,6 +759,7 @@ export async function handleChannelInbound({
     assistantId,
     actorDisplayName: body.actorDisplayName,
     actorUsername: body.actorUsername,
+    gatewayVerification: gwVerification,
   });
   if (verificationResponse) return verificationResponse;
 

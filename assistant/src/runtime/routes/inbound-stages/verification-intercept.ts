@@ -47,6 +47,13 @@ const log = getLogger("runtime-http");
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface GatewayVerificationSignal {
+  outcome: "verified" | "failed";
+  verificationType?: "guardian" | "trusted_contact";
+  bindingConflict?: boolean;
+  failureReason?: string;
+}
+
 export interface VerificationInterceptParams {
   isDuplicate: boolean;
   guardianVerifyCode: string | undefined;
@@ -61,6 +68,7 @@ export interface VerificationInterceptParams {
   assistantId: string;
   actorDisplayName: string | undefined;
   actorUsername: string | undefined;
+  gatewayVerification?: GatewayVerificationSignal;
 }
 
 /**
@@ -92,9 +100,95 @@ export async function handleVerificationIntercept(
     assistantId,
     actorDisplayName,
     actorUsername,
+    gatewayVerification,
   } = params;
 
-  // Only intercept when there is a pending challenge or active outbound session
+  // ── Gateway pre-validated path ─────────────────────────────────────
+  // When the gateway has already validated the code, consumed the session,
+  // and created the binding, we trust its verdict. The assistant handles
+  // only contact upsert, notification signals, and reply delivery.
+  if (gatewayVerification) {
+    if (isDuplicate || !rawSenderId) return null;
+
+    const gwOutcome = gatewayVerification.outcome;
+    const gwVerificationType = gatewayVerification.verificationType;
+
+    if (gwOutcome === "verified") {
+      const existingContactResult =
+        (canonicalSenderId ?? rawSenderId)
+          ? findContactChannel({
+              channelType: sourceChannel,
+              externalUserId: canonicalSenderId ?? rawSenderId,
+              externalChatId: conversationExternalId,
+            })
+          : null;
+      const existingChannel = existingContactResult?.channel ?? null;
+      const existingContact = existingContactResult?.contact ?? null;
+      const memberMatchesSender = existingChannel?.externalUserId
+        ? canonicalizeInboundIdentity(
+            sourceChannel,
+            existingChannel.externalUserId,
+          ) === (canonicalSenderId ?? rawSenderId)
+        : false;
+      const preservedDisplayName =
+        memberMatchesSender && existingContact?.displayName?.trim().length
+          ? existingContact.displayName
+          : actorDisplayName;
+
+      upsertContactChannel({
+        sourceChannel,
+        externalUserId: canonicalSenderId ?? rawSenderId,
+        externalChatId: conversationExternalId,
+        status: "active",
+        policy: "allow",
+        displayName: preservedDisplayName,
+        username: actorUsername,
+      });
+
+      log.info(
+        { sourceChannel, verificationType: gwVerificationType },
+        "Gateway-verified: auto-upserted ingress member",
+      );
+
+      if (gwVerificationType === "trusted_contact") {
+        void emitNotificationSignal({
+          sourceEventName: "ingress.trusted_contact.activated",
+          sourceChannel: sourceChannel as NotificationSourceChannel,
+          sourceContextId: conversationId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: "low",
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            sourceChannel,
+            actorExternalId: canonicalSenderId ?? rawSenderId,
+            conversationExternalId,
+            actorDisplayName: actorDisplayName ?? null,
+            actorUsername: actorUsername ?? null,
+          },
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${
+            canonicalSenderId ?? rawSenderId
+          }`,
+        });
+      }
+    }
+
+    return deliverVerificationReply({
+      outcome: gwOutcome,
+      verificationType: gwVerificationType,
+      failureReason: gatewayVerification.failureReason,
+      replyCallbackUrl,
+      conversationExternalId,
+      assistantId,
+      eventId,
+    });
+  }
+
+  // ── Legacy path (no gateway signal) ────────────────────────────────
+  // Fallback for when the gateway hasn't intercepted (e.g. direct IPC
+  // inbound, older gateway versions). Full validation + binding here.
   const shouldIntercept =
     guardianVerifyCode !== undefined &&
     (!!getPendingSession(sourceChannel) || !!findActiveSession(sourceChannel));
@@ -149,16 +243,11 @@ export async function handleVerificationIntercept(
       externalChatId: conversationExternalId,
       status: "active",
       policy: "allow",
-      // Keep guardian-curated member name stable across re-verification.
       displayName: preservedDisplayName,
       username: actorUsername,
     });
 
-    // Guardian-specific side effect: create/update the guardian binding.
-    // This was previously inside validateAndConsumeVerification but is now
-    // handled here so both verification types have symmetric dispatch.
     if (verifyResult.verificationType === "guardian") {
-      // Reject if a different user already holds the guardian binding
       const existingBinding = getGuardianBinding(
         canonicalAssistantId,
         sourceChannel,
@@ -168,9 +257,6 @@ export async function handleVerificationIntercept(
         existingBinding.guardianExternalUserId !==
           (canonicalSenderId ?? rawSenderId)
       ) {
-        // Edge case: another user already bound. Log and skip binding creation.
-        // The upsertContactChannel above already succeeded, so the sender is a known contact,
-        // but they won't get guardian role.
         log.warn(
           {
             sourceChannel,
@@ -179,7 +265,6 @@ export async function handleVerificationIntercept(
           "Guardian binding conflict: another user already holds this channel binding",
         );
       } else {
-        // Revoke any existing active binding before creating a new one (same-user re-verification)
         revokeGuardianBinding(sourceChannel);
 
         const metadata: Record<string, string> = {};
@@ -190,7 +275,6 @@ export async function handleVerificationIntercept(
           metadata.displayName = actorDisplayName.trim();
         }
 
-        // Unify all channel bindings onto the canonical (vellum) principal
         const vellumBinding = getGuardianBinding(
           canonicalAssistantId,
           "vellum",
@@ -212,22 +296,15 @@ export async function handleVerificationIntercept(
       }
     }
 
-    const verifyLogLabel =
-      verifyResult.verificationType === "trusted_contact"
-        ? "Trusted contact verified"
-        : "Guardian verified";
     log.info(
       {
         sourceChannel,
         externalUserId: canonicalSenderId,
         verificationType: verifyResult.verificationType,
       },
-      `${verifyLogLabel}: auto-upserted ingress member`,
+      "Legacy path: verified and auto-upserted ingress member",
     );
 
-    // Emit activated signal when a trusted contact completes verification.
-    // Member record is persisted above before this event fires, satisfying
-    // the persistence-before-event ordering invariant.
     if (verifyResult.verificationType === "trusted_contact") {
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
@@ -253,19 +330,51 @@ export async function handleVerificationIntercept(
     }
   }
 
-  // Deliver a deterministic template-driven reply and short-circuit.
-  // Verification code messages must never produce agent-generated copy.
+  return deliverVerificationReply({
+    outcome: guardianVerifyOutcome,
+    verificationType: verifyResult.success ? verifyResult.verificationType : undefined,
+    failureReason: verifyResult.success ? undefined : stripVerificationFailurePrefix(verifyResult.reason),
+    replyCallbackUrl,
+    conversationExternalId,
+    assistantId,
+    eventId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reply delivery helper (shared by gateway-verified and legacy paths)
+// ---------------------------------------------------------------------------
+
+async function deliverVerificationReply(params: {
+  outcome: "verified" | "failed";
+  verificationType?: "guardian" | "trusted_contact";
+  failureReason?: string;
+  replyCallbackUrl: string | undefined;
+  conversationExternalId: string;
+  assistantId: string;
+  eventId: string;
+}): Promise<Record<string, unknown>> {
+  const {
+    outcome,
+    verificationType,
+    failureReason,
+    replyCallbackUrl,
+    conversationExternalId,
+    assistantId,
+    eventId,
+  } = params;
+
   if (replyCallbackUrl) {
     let replyText: string;
-    if (!verifyResult.success) {
+    if (outcome === "failed") {
       replyText = composeChannelVerifyReply(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED,
-        { failureReason: stripVerificationFailurePrefix(verifyResult.reason) },
+        { failureReason: failureReason ?? "The verification code is invalid or has expired." },
       );
     } else {
       replyText = composeChannelVerifyReply(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS,
-        { verificationType: verifyResult.verificationType },
+        { verificationType },
       );
     }
     try {
@@ -275,10 +384,6 @@ export async function handleVerificationIntercept(
         assistantId,
       });
     } catch (err) {
-      // The challenge is already consumed and side effects applied, so
-      // we cannot simply re-throw and let the gateway retry the full
-      // flow. Instead, persist the reply so that gateway retries
-      // (which arrive as duplicates) can re-attempt delivery.
       log.error(
         { err, conversationExternalId },
         "Failed to deliver deterministic verification reply; persisting for retry",
@@ -289,10 +394,6 @@ export async function handleVerificationIntercept(
         assistantId,
       });
 
-      // Self-retry after a short delay. The gateway deduplicates
-      // inbound webhooks after a successful forward, so duplicate
-      // retries may never arrive. This fire-and-forget retry ensures
-      // delivery is re-attempted even without a gateway duplicate.
       setTimeout(async () => {
         try {
           await deliverChannelReply(replyCallbackUrl, {
@@ -310,20 +411,20 @@ export async function handleVerificationIntercept(
         }
       }, 3000);
 
-      return ({
+      return {
         accepted: true,
         duplicate: false,
         eventId,
-        verificationOutcome: guardianVerifyOutcome,
+        verificationOutcome: outcome,
         deliveryPending: true,
-      });
+      };
     }
   }
 
-  return ({
+  return {
     accepted: true,
     duplicate: false,
     eventId,
-    verificationOutcome: guardianVerifyOutcome,
-  });
+    verificationOutcome: outcome,
+  };
 }
