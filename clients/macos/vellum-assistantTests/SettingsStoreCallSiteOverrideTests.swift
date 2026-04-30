@@ -81,7 +81,8 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
     func testCatalogCoversEveryDomain() {
         let representedDomains = Set(CallSiteCatalog.all.map(\.domain))
-        XCTAssertEqual(representedDomains, Set(CallSiteDomain.allCases))
+        let knownDomainIds = Set(CallSiteCatalog.shared.domains.map(\.id))
+        XCTAssertEqual(representedDomains, knownDomainIds)
     }
 
     func testStoreSeedsCallSiteOverridesFromCatalog() {
@@ -300,20 +301,20 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             CallSiteOverride(
                 id: "memoryRetrieval",
                 displayName: "Memory · Retrieval",
-                domain: .memory,
+                domain: "memory",
                 provider: "openai",
                 model: "gpt-4.1"
             ),
             CallSiteOverride(
                 id: "mainAgent",
                 displayName: "Main agent",
-                domain: .agentLoop,
+                domain: "agentLoop",
                 profile: "fast"
             ),
             CallSiteOverride(
                 id: "trustRuleSuggestion",
                 displayName: "Trust rule suggestion",
-                domain: .utility
+                domain: "ui"
             ), // no overrides — should emit explicit nulls to clear
         ]
 
@@ -352,14 +353,14 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             CallSiteOverride(
                 id: "memoryRetrieval",
                 displayName: "Memory · Retrieval (first)",
-                domain: .memory,
+                domain: "memory",
                 provider: "openai",
                 model: "gpt-4.1"
             ),
             CallSiteOverride(
                 id: "memoryRetrieval",
                 displayName: "Memory · Retrieval (second)",
-                domain: .memory,
+                domain: "memory",
                 provider: "anthropic",
                 model: "claude-haiku-4"
             ),
@@ -402,7 +403,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             CallSiteOverride(
                 id: "trustRuleSuggestion",
                 displayName: "Trust rule suggestion",
-                domain: .utility,
+                domain: "ui",
                 provider: "openai"
             ),
         ]
@@ -447,13 +448,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             CallSiteOverride(
                 id: "trustRuleSuggestion",
                 displayName: "Trust rule suggestion",
-                domain: .utility,
+                domain: "ui",
                 provider: "openai"
             ),
             CallSiteOverride(
                 id: "mainAgent",
                 displayName: "Main agent",
-                domain: .agentLoop,
+                domain: "agentLoop",
                 provider: "anthropic"
             ),
         ]
@@ -473,13 +474,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
             CallSiteOverride(
                 id: "totallyMadeUpId",
                 displayName: "ghost",
-                domain: .utility,
+                domain: "ui",
                 provider: "openai"
             ),
             CallSiteOverride(
                 id: "memoryRetrieval",
                 displayName: "Memory · Retrieval",
-                domain: .memory,
+                domain: "memory",
                 provider: "anthropic"
             ),
         ]

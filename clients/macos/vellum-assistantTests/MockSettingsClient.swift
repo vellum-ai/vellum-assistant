@@ -187,4 +187,6 @@ final class MockSettingsClient: SettingsClientProtocol {
         checkApiKeyExistsCalls.append(provider)
         return checkApiKeyExistsResponse
     }
+
+    func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? { nil }
 }

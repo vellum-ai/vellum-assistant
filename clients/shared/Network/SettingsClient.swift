@@ -43,6 +43,7 @@ public protocol SettingsClientProtocol {
     func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool
     func fetchConfig() async -> [String: Any]?
     func checkApiKeyExists(provider: String) async -> Bool
+    func fetchCallSiteCatalog() async -> CallSiteCatalogResponse?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -598,6 +599,24 @@ public struct SettingsClient: SettingsClientProtocol {
         }
     }
 
+    // MARK: - Call Site Catalog
+
+    public func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "config/llm/call-sites", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchCallSiteCatalog failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(CallSiteCatalogResponse.self, from: response.data)
+        } catch {
+            log.error("fetchCallSiteCatalog error: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     // MARK: - Helpers
 
     /// Injects the `"type"` discriminant required by `Codable` decoding of
@@ -634,4 +653,22 @@ public struct EmbeddingConfigMessage: Codable {
     public let activeModel: String?
     public let availableProviders: [EmbeddingProviderOption]?
     public let status: EmbeddingStatusInfo?
+}
+// MARK: - Call Site Catalog Types
+
+public struct CallSiteCatalogDomain: Decodable {
+    public let id: String
+    public let displayName: String
+}
+
+public struct CallSiteCatalogEntry: Decodable {
+    public let id: String
+    public let displayName: String
+    public let description: String
+    public let domain: String
+}
+
+public struct CallSiteCatalogResponse: Decodable {
+    public let domains: [CallSiteCatalogDomain]
+    public let callSites: [CallSiteCatalogEntry]
 }
