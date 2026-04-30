@@ -41,6 +41,9 @@ struct RuleEditorModal: View {
     @State private var selectedRiskLevel: String = "medium"
     @State private var isSaving: Bool = false
     @State private var selectedDirectoryScopeIndex: Int = -1  // -1 = "Everywhere" (default)
+    /// Set to true once the user manually changes the risk picker or pattern selection.
+    /// Prevents a late-arriving LLM suggestion from silently overwriting their choice.
+    @State private var hasUserInteracted: Bool = false
 
     /// Generalized pattern options.
     /// If scopeOptions has multiple elements, skip the exact match at index 0.
@@ -130,8 +133,12 @@ struct RuleEditorModal: View {
 
     private func applySuggestionOrDefaults() {
         if let existingRule {
-            // Edit mode: pre-fill risk from existing rule, not from LLM suggestion
-            selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
+            // Edit mode: pre-fill risk from existing rule, not from LLM suggestion.
+            // Skip if user has already made a choice — a late-arriving suggestion
+            // should not silently overwrite their selection.
+            if !hasUserInteracted {
+                selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
+            }
             if let suggestion {
                 // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
                 if !suggestion.pattern.isEmpty,
@@ -150,8 +157,9 @@ struct RuleEditorModal: View {
             }
         } else if let suggestion {
             // Create mode with suggestion
-            // Risk level from suggestion
-            selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
+            if !hasUserInteracted {
+                selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
+            }
 
             // Pattern: find the matching scope option index.
             // In multi-option mode the UI hides index 0 (exact match), so skip
@@ -172,7 +180,9 @@ struct RuleEditorModal: View {
             }
         } else {
             // Create mode without suggestion
-            selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
+            if !hasUserInteracted {
+                selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
+            }
             if isSingleOption {
                 selectedPatternIndex = 0
             }
@@ -286,6 +296,7 @@ struct RuleEditorModal: View {
         let targetIndex = isSingleOption ? index : index + 1
         Button {
             selectedPatternIndex = targetIndex
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(selectedPatternIndex == targetIndex ? .circleDot : .circle, size: 14)
@@ -332,6 +343,7 @@ struct RuleEditorModal: View {
     private func directoryScopeRow(label: String, index: Int) -> some View {
         Button {
             selectedDirectoryScopeIndex = index
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(selectedDirectoryScopeIndex == index ? .circleDot : .circle, size: 14)
@@ -394,6 +406,7 @@ struct RuleEditorModal: View {
     private func riskLevelButton(label: String, value: String, color: Color) -> some View {
         Button {
             selectedRiskLevel = value
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.xs) {
                 Circle()
