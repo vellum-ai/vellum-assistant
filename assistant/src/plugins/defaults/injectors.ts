@@ -428,7 +428,7 @@ const subagentStatusInjector: Injector = {
  * Swaps the conversation's `runMessages` array with a pre-rendered
  * chronological Slack transcript built from the persisted message rows.
  * Applied to every Slack conversation (channels and DMs alike). The
- * orchestrator builds the transcript via `loadSlackChronologicalMessages`
+ * orchestrator builds the transcript via `loadSlackChronologicalContext`
  * before the chain runs.
  *
  * Memory-block prepending is preserved across the replacement:
