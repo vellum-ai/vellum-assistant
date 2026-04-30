@@ -1127,17 +1127,17 @@ describe("getUsageGroupedSeries", () => {
     );
 
     expect(buckets).toHaveLength(2);
-    expect(buckets[0].groups.mainAgent).toMatchObject({
+    expect(buckets[0].groups["value:mainAgent"]).toMatchObject({
       group: "Main agent",
       groupKey: "mainAgent",
       totalInputTokens: 100,
     });
-    expect(buckets[0].groups.conversationTitle).toMatchObject({
+    expect(buckets[0].groups["value:conversationTitle"]).toMatchObject({
       group: "Conversation title",
       groupKey: "conversationTitle",
       totalInputTokens: 200,
     });
-    expect(buckets[1].groups.__unknown_task__).toMatchObject({
+    expect(buckets[1].groups["null:call_site"]).toMatchObject({
       group: "Unknown Task",
       groupKey: null,
       totalInputTokens: 300,
@@ -1166,12 +1166,12 @@ describe("getUsageGroupedSeries", () => {
     );
 
     const bucket = buckets.find((entry) => entry.date === "2026-04-10 10:00");
-    expect(bucket?.groups.fast).toMatchObject({
+    expect(bucket?.groups["value:fast"]).toMatchObject({
       group: "fast",
       groupKey: "fast",
       totalInputTokens: 100,
     });
-    expect(bucket?.groups.__default_unset__).toMatchObject({
+    expect(bucket?.groups["null:inference_profile"]).toMatchObject({
       group: "Default / Unset",
       groupKey: null,
       totalInputTokens: 200,

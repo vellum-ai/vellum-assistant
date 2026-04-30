@@ -431,17 +431,17 @@ describe("usage routes", () => {
       };
 
       expect(body.buckets).toHaveLength(2);
-      expect(body.buckets[0].groups.mainAgent).toMatchObject({
+      expect(body.buckets[0].groups["value:mainAgent"]).toMatchObject({
         group: "Main agent",
         groupKey: "mainAgent",
         totalInputTokens: 850,
       });
-      expect(body.buckets[0].groups.compactionAgent).toMatchObject({
+      expect(body.buckets[0].groups["value:compactionAgent"]).toMatchObject({
         group: "Context compactor",
         groupKey: "compactionAgent",
         totalInputTokens: 500,
       });
-      expect(body.buckets[1].groups.__unknown_task__).toMatchObject({
+      expect(body.buckets[1].groups["null:call_site"]).toMatchObject({
         group: "Unknown Task",
         groupKey: null,
         totalInputTokens: 2000,
@@ -465,17 +465,17 @@ describe("usage routes", () => {
         }>;
       };
 
-      expect(body.buckets[0].groups.balanced).toMatchObject({
+      expect(body.buckets[0].groups["value:balanced"]).toMatchObject({
         group: "balanced",
         groupKey: "balanced",
         totalInputTokens: 850,
       });
-      expect(body.buckets[0].groups.fast).toMatchObject({
+      expect(body.buckets[0].groups["value:fast"]).toMatchObject({
         group: "fast",
         groupKey: "fast",
         totalInputTokens: 500,
       });
-      expect(body.buckets[1].groups.__default_unset__).toMatchObject({
+      expect(body.buckets[1].groups["null:inference_profile"]).toMatchObject({
         group: "Default / Unset",
         groupKey: null,
         totalInputTokens: 2000,

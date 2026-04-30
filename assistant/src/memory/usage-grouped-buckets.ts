@@ -28,6 +28,9 @@ export interface UsageGroupedBucketRow extends UsageEventBucketRow {
   group_key: string | null;
 }
 
+const VALUE_GROUP_PREFIX = "value:";
+const NULL_GROUP_PREFIX = "null:";
+
 export function displayUsageGroup(
   groupBy: GroupByDimension,
   groupKey: string | null,
@@ -45,10 +48,23 @@ export function stableUsageSeriesGroupKey(
   groupBy: GroupByDimension,
   groupKey: string | null,
 ): string {
-  if (groupKey !== null) return groupKey;
-  if (groupBy === "call_site") return "__unknown_task__";
-  if (groupBy === "inference_profile") return "__default_unset__";
-  return "__other__";
+  if (groupKey !== null) return `${VALUE_GROUP_PREFIX}${groupKey}`;
+  return `${NULL_GROUP_PREFIX}${groupBy}`;
+}
+
+function createEmptyGroupedBucket(
+  bucket: UsageDayBucket,
+): UsageGroupedSeriesBucket {
+  return {
+    bucketId: bucket.bucketId,
+    date: bucket.date,
+    displayLabel: bucket.displayLabel,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCostUsd: 0,
+    eventCount: 0,
+    groups: {},
+  };
 }
 
 export function bucketGroupedUsageEvents(
@@ -68,7 +84,7 @@ export function bucketGroupedUsageEvents(
   const buckets = new Map<string, UsageGroupedSeriesBucket>();
 
   for (const bucket of baseBuckets) {
-    buckets.set(bucket.bucketId, { ...bucket, groups: {} });
+    buckets.set(bucket.bucketId, createEmptyGroupedBucket(bucket));
   }
 
   for (const row of rows) {
@@ -77,7 +93,7 @@ export function bucketGroupedUsageEvents(
 
     let groupedBucket = buckets.get(bucket.bucketId);
     if (!groupedBucket) {
-      groupedBucket = { ...bucket, groups: {} };
+      groupedBucket = createEmptyGroupedBucket(bucket);
       buckets.set(bucket.bucketId, groupedBucket);
     }
 
