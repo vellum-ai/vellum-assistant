@@ -998,22 +998,6 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 }
 
 /**
- * Build a conversation-scoped `onEvent` callback that delegates to
- * {@link broadcastMessage}. All heavy lifting (pending interaction
- * registration, canonical guardian requests, feed events, title fan-out)
- * is handled centrally by `broadcastMessage`.
- */
-function makeHubPublisher(
-  _deps: SendMessageDeps,
-  conversationId: string,
-  _conversation: Conversation,
-): (msg: ServerMessage) => void {
-  return (msg: ServerMessage) => {
-    broadcastMessage(msg, conversationId);
-  };
-}
-
-/**
  * Persist the pre-chat onboarding payload to disk.
  *
  * Runs only on the very first message of a fresh conversation. Three
@@ -1406,11 +1390,10 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
-  const onEvent = makeHubPublisher(
-    smDeps,
-    mapping.conversationId,
-    conversation,
-  );
+  // Bind conversationId so messages that don't carry it (e.g. confirmation_request)
+  // still get routed correctly.
+  const sendEvent = (msg: ServerMessage) =>
+    broadcastMessage(msg, mapping.conversationId);
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create each host proxy for interfaces that support the matching
   // capability. macOS supports all four; the chrome-extension interface only
@@ -1422,7 +1405,7 @@ export async function handleSendMessage(
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      const proxy = new HostBashProxy(onEvent, (requestId) => {
+      const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostBashProxy(proxy);
@@ -1432,13 +1415,13 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
+      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
     if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      const transferProxy = new HostTransferProxy(onEvent, (requestId) => {
+      const transferProxy = new HostTransferProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostTransferProxy(transferProxy);
@@ -1449,7 +1432,7 @@ export async function handleSendMessage(
   }
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostCuProxy(cuProxy);
@@ -1479,7 +1462,7 @@ export async function handleSendMessage(
   // is non-interactive (no SSE prompter UI) but still has a connected client
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(onEvent, !isInteractive, {
+  conversation.updateClient(sendEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -1543,19 +1526,19 @@ export async function handleSendMessage(
       };
 
       setTimeout(() => {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
           messageId: persisted.id,
           clientMessageId,
         });
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: cannedGreeting,
           conversationId,
         });
-        onEvent({ type: "message_complete", conversationId });
+        sendEvent({ type: "message_complete", conversationId });
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1608,7 +1591,7 @@ export async function handleSendMessage(
       content: content ?? "",
       attachments,
       conversation,
-      onEvent,
+      onEvent: sendEvent,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active. Mirrors conversation-process.ts behavior.
@@ -1641,7 +1624,7 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
-      onEvent,
+      sendEvent,
       requestId,
       undefined, // activeSurfaceId
       undefined, // currentPage
@@ -1846,7 +1829,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -1854,14 +1837,14 @@ export async function handleSendMessage(
           clientMessageId,
         });
         if (modelInfoEvent) {
-          onEvent(modelInfoEvent);
+          sendEvent(modelInfoEvent);
         }
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: message,
           conversationId,
         });
-        onEvent({
+        sendEvent({
           type: "message_complete",
           conversationId: conversationId,
         });
@@ -1907,7 +1890,7 @@ export async function handleSendMessage(
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
       try {
-        onEvent({
+        sendEvent({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -1931,15 +1914,15 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        onEvent({
+        sendEvent({
           type: "assistant_text_delta",
           text: responseText,
           conversationId,
         });
-        onEvent({ type: "message_complete", conversationId });
+        sendEvent({ type: "message_complete", conversationId });
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
-        onEvent({
+        sendEvent({
           type: "conversation_error",
           conversationId,
           code: "UNKNOWN",
@@ -1977,7 +1960,7 @@ export async function handleSendMessage(
     throw err;
   }
 
-  onEvent({
+  sendEvent({
     type: "user_message_echo",
     text: resolvedContent,
     conversationId: mapping.conversationId,
@@ -1986,9 +1969,9 @@ export async function handleSendMessage(
     clientMessageId,
   });
 
-  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+  // Fire-and-forget the agent loop; events flow to the hub via sendEvent.
   conversation
-    .runAgentLoop(resolvedContent, messageId, onEvent, {
+    .runAgentLoop(resolvedContent, messageId, sendEvent, {
       isInteractive,
       isUserMessage: true,
     })

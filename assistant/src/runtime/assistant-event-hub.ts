@@ -14,7 +14,11 @@
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
+import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { appendEventToStream } from "../signals/event-stream.js";
+import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -581,13 +585,6 @@ async function emitConfirmationFeedEvent(
   conversationId: string,
 ): Promise<void> {
   try {
-    const { redactSecrets } = await import("../security/secret-scanner.js");
-    const { summarizeToolInput } =
-      await import("../tools/tool-input-summary.js");
-    const { emitFeedEvent } = await import("../home/emit-feed-event.js");
-    const { rewriteCommandPreview } =
-      await import("../home/rewrite-command-preview.js");
-
     const inputRecord = msg.input as Record<string, unknown>;
     const commandPreview =
       redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) || undefined;
