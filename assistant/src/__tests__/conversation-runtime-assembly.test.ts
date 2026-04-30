@@ -2957,6 +2957,74 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
   });
 
+  test("long Slack thread stays compacted after a later reply", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const ts = (n: number) => `1700000${String(n).padStart(3, "0")}.000000`;
+    const watermark = ts(80);
+    const rows: MessageRow[] = [
+      ...Array.from({ length: 121 }, (_, index) =>
+        userRow({
+          id: `thread-${index}`,
+          createdAt: 1700000000_000 + index,
+          text: index === 0 ? "original root" : `pre-compaction ${index}`,
+          slackMeta: buildSlackMeta({
+            channelTs: ts(index),
+            threadTs: index === 0 ? undefined : ts(0),
+            displayName: index % 2 === 0 ? "alice" : "bob",
+          }),
+        }),
+      ),
+      userRow({
+        id: "subsequent-reply",
+        createdAt: 1700000000_500,
+        text: "reply after compaction",
+        slackMeta: buildSlackMeta({
+          channelTs: ts(121),
+          threadTs: ts(0),
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    const result = loadSlackChronologicalContext("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextSummary: "## Summary\n- compacted long Slack thread",
+      contextCompactedMessageCount: 81,
+      slackContextCompactionWatermarkTs: watermark,
+    });
+
+    expect(result).not.toBeNull();
+    const renderedText = result!.messages
+      .flatMap((message) => message.content)
+      .filter((block): block is { type: "text"; text: string } => {
+        return block.type === "text";
+      })
+      .map((block) => block.text)
+      .join("\n");
+
+    expect(renderedText).toContain("compacted long Slack thread");
+    expect(renderedText).toContain("reply after compaction");
+    expect(renderedText).not.toContain("original root");
+    expect(renderedText).not.toContain("pre-compaction 80");
+    expect(result!.sourceChannelTsByMessage[0]).toBeNull();
+    expect(
+      result!.sourceChannelTsByMessage
+        .slice(1)
+        .every(
+          (channelTs) =>
+            channelTs !== null &&
+            Number.parseFloat(channelTs) > Number.parseFloat(watermark),
+        ),
+    ).toBe(true);
+  });
+
   // ── loadSlackChronologicalMessages returns null for non-slack channels ─
   test("loadSlackChronologicalMessages returns null for non-slack channels", () => {
     const result = loadSlackChronologicalMessages(

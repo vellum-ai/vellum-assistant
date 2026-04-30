@@ -58,6 +58,11 @@ mock.module("../runtime/gateway-client.js", () => ({
 import { v4 as uuid } from "uuid";
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import {
+  type ChannelCapabilities,
+  loadSlackChronologicalContext,
+} from "../daemon/conversation-runtime-assembly.js";
+import type { MessageRow } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
@@ -66,6 +71,7 @@ import {
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import type { Message } from "../providers/types.js";
 import {
   _backfillTriggerCache,
   triggerSlackThreadBackfillIfNeeded,
@@ -82,9 +88,12 @@ initializeDb();
 // other tests (e.g. backfill.test.ts) keep seeing the real implementation.
 const backfillThreadMock = spyOn(slackBackfill, "backfillThreadWindow");
 backfillThreadMock.mockResolvedValue([]);
+const backfillDmMock = spyOn(slackBackfill, "backfillDm");
+backfillDmMock.mockResolvedValue([]);
 
 afterAll(() => {
   backfillThreadMock.mockRestore();
+  backfillDmMock.mockRestore();
 });
 
 // ---------------------------------------------------------------------------
@@ -108,6 +117,8 @@ function resetState(): void {
   _backfillTriggerCache.clear();
   backfillThreadMock.mockReset();
   backfillThreadMock.mockImplementation(async () => []);
+  backfillDmMock.mockReset();
+  backfillDmMock.mockImplementation(async () => []);
 }
 
 let convCounter = 0;
@@ -140,7 +151,7 @@ function insertMessage(
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
-): void {
+): string {
   const db = getDb();
   const id = uuid();
   // Use a strictly increasing timestamp so the ORDER BY in
@@ -155,6 +166,7 @@ function insertMessage(
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .run(id, conversationId, role, content, now, metadataStr);
+  return id;
 }
 
 interface RawMessageRow {
@@ -170,6 +182,19 @@ function readMessagesByConversation(conversationId: string): RawMessageRow[] {
       "SELECT role, content, metadata FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
     )
     .all(conversationId) as RawMessageRow[];
+}
+
+function readMessageRowsByConversation(conversationId: string): MessageRow[] {
+  const db = getDb();
+  return db.$client
+    .prepare(
+      `SELECT id, conversation_id AS conversationId, role, content,
+              created_at AS createdAt, metadata
+         FROM messages
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC`,
+    )
+    .all(conversationId) as MessageRow[];
 }
 
 function makeBackfillMessage(
@@ -484,6 +509,50 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       "unseen earlier reply",
     );
     expect(persisted.find((p) => p.channelTs === "1234.5")).toBeUndefined();
+  });
+
+  test("file-bearing backfill renders a Slack file marker without binary hydration", async () => {
+    const conv = createTestConversation();
+
+    seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "uploaded the draft",
+        threadId: "1234.0",
+        sender: { id: "U_FILE", name: "File Sharer" },
+        metadata: {
+          slackFiles: [
+            {
+              id: "F-DRAFT",
+              name: "project-plan.pdf",
+              mimetype: "application/pdf",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      excludeChannelTs: "1234.2",
+    });
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+
+    expect(context).not.toBeNull();
+    const rendered = flattenText(context!.messages);
+    expect(rendered).toContain("uploaded the draft");
+    expect(rendered).toContain(
+      "[attached file: project-plan.pdf, application/pdf]",
+    );
+    expect(rendered).not.toContain("F-DRAFT");
   });
 
   test("latest stored thread message at or after inbound ts skips backfill using parsed Slack timestamps", async () => {
@@ -944,14 +1013,16 @@ function resetHttpState(): void {
   _backfillTriggerCache.clear();
   backfillThreadMock.mockReset();
   backfillThreadMock.mockImplementation(async () => []);
+  backfillDmMock.mockReset();
+  backfillDmMock.mockImplementation(async () => []);
   setAdapterProcessMessage(undefined);
 }
 
-function seedHttpActiveMember(): void {
+function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
   upsertContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
-    externalChatId: HTTP_SLACK_CHANNEL_ID,
+    externalChatId: chatId,
     status: "active",
     policy: "allow",
     displayName: HTTP_SLACK_DISPLAY_NAME,
@@ -992,6 +1063,92 @@ function buildThreadReplyRequest(
     },
     body: JSON.stringify(body),
   });
+}
+
+function buildSlackDmRequest(
+  channelId: string,
+  messageId: string,
+  overrides: Record<string, unknown> = {},
+): Request {
+  httpMsgCounter++;
+  const body: Record<string, unknown> = {
+    sourceChannel: "slack",
+    interface: "slack",
+    conversationExternalId: channelId,
+    externalMessageId: `${channelId}:${messageId}:${httpMsgCounter}`,
+    content: "DM text",
+    actorExternalId: HTTP_SLACK_USER_ID,
+    actorDisplayName: HTTP_SLACK_DISPLAY_NAME,
+    actorUsername: "charlie",
+    replyCallbackUrl: "http://localhost:7830/deliver/slack",
+    sourceMetadata: {
+      messageId,
+      chatType: "im",
+    },
+    ...overrides,
+  };
+
+  return new Request("http://localhost:8080/channels/inbound", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Gateway-Origin": TEST_BEARER_TOKEN,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+interface SlackInboundProcessOptions {
+  slackInbound?: {
+    channelId: string;
+    channelTs: string;
+    threadTs?: string;
+    displayName?: string;
+  };
+}
+
+function persistSlackInboundFromProcessMessage(
+  conversationId: string,
+  content: string,
+  options?: SlackInboundProcessOptions,
+): string {
+  const slackInbound = options?.slackInbound;
+  return insertMessage(conversationId, "user", content, {
+    ...(slackInbound
+      ? {
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: slackInbound.channelId,
+            channelTs: slackInbound.channelTs,
+            ...(slackInbound.threadTs
+              ? { threadTs: slackInbound.threadTs }
+              : {}),
+            ...(slackInbound.displayName
+              ? { displayName: slackInbound.displayName }
+              : {}),
+            eventKind: "message",
+          }),
+        }
+      : {}),
+  });
+}
+
+const SLACK_CHANNEL_CAPS: ChannelCapabilities = {
+  channel: "slack",
+  dashboardCapable: false,
+  supportsDynamicUi: false,
+  supportsVoiceInput: false,
+  chatType: "channel",
+};
+
+function flattenText(messages: Message[]): string {
+  return messages
+    .flatMap((message) => message.content)
+    .filter((block): block is { type: "text"; text: string } => {
+      return block.type === "text";
+    })
+    .map((block) => block.text)
+    .join("\n");
 }
 
 describe("handleChannelInbound — Slack thread backfill wiring", () => {
@@ -1085,6 +1242,176 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(
       contents.some((row) => row.content.includes("Slack context note")),
     ).toBe(false);
+  });
+
+  test("late app mention sees unseen backfilled replies before the mention", async () => {
+    let capturedTranscript = "";
+    let parentTurnSeen = false;
+    let resolveParentTurn: (() => void) | undefined;
+    let secondTurnSeen = false;
+    const parentTurnProcessed = new Promise<void>((resolve) => {
+      resolveParentTurn = resolve;
+    });
+    let resolveSecondTurn: (() => void) | undefined;
+    const secondTurnProcessed = new Promise<void>((resolve) => {
+      resolveSecondTurn = resolve;
+    });
+
+    const processMessage = async (
+      conversationId: string,
+      content: string,
+      _attachmentIds?: string[],
+      options?: SlackInboundProcessOptions,
+    ): Promise<{ messageId: string }> => {
+      const messageId = persistSlackInboundFromProcessMessage(
+        conversationId,
+        content,
+        options,
+      );
+      if (options?.slackInbound?.channelTs === "1234.0") {
+        parentTurnSeen = true;
+        resolveParentTurn?.();
+      }
+      if (options?.slackInbound?.channelTs === "1234.5") {
+        const context = loadSlackChronologicalContext(
+          conversationId,
+          SLACK_CHANNEL_CAPS,
+          {
+            loader: readMessageRowsByConversation,
+            trustClass: "guardian",
+          },
+        );
+        capturedTranscript = context ? flattenText(context.messages) : "";
+        secondTurnSeen = true;
+        resolveSecondTurn?.();
+      }
+      return { messageId };
+    };
+    setAdapterProcessMessage(processMessage);
+
+    const parentResp = await handleChannelInbound(
+      buildThreadReplyRequest("1234.0", "1234.0", {
+        content: "parent already stored",
+        sourceMetadata: {
+          messageId: "1234.0",
+          chatType: "channel",
+        },
+      }),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+    expect(parentResp.status).toBe(200);
+    await Promise.race([
+      parentTurnProcessed,
+      new Promise((resolve) => setTimeout(resolve, 250)),
+    ]);
+    expect(parentTurnSeen).toBe(true);
+
+    backfillThreadMock.mockReset();
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "unseen first reply",
+        threadId: "1234.0",
+        sender: { id: "U_ONE", name: "Reply One" },
+      }),
+      makeBackfillMessage({
+        id: "1234.2",
+        text: "unseen second reply",
+        threadId: "1234.0",
+        sender: { id: "U_TWO", name: "Reply Two" },
+      }),
+      makeBackfillMessage({
+        id: "1234.5",
+        text: "live app mention should not be duplicated by backfill",
+        threadId: "1234.0",
+        sender: { id: HTTP_SLACK_USER_ID, name: HTTP_SLACK_DISPLAY_NAME },
+      }),
+    ]);
+
+    const mentionResp = await handleChannelInbound(
+      buildThreadReplyRequest("1234.0", "1234.5", {
+        content: "<@U_ASSISTANT> please answer with the missing context",
+        sourceMetadata: {
+          messageId: "1234.5",
+          threadId: "1234.0",
+          chatType: "channel",
+          eventType: "app_mention",
+        },
+      }),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+    expect(mentionResp.status).toBe(200);
+
+    await Promise.race([
+      secondTurnProcessed,
+      new Promise((resolve) => setTimeout(resolve, 250)),
+    ]);
+
+    expect(secondTurnSeen).toBe(true);
+    expect(backfillThreadMock).toHaveBeenCalledTimes(1);
+    expect(backfillThreadMock.mock.calls[0][2]?.after).toBe("1234.0");
+    expect(backfillThreadMock.mock.calls[0][2]?.before).toBe("1234.5");
+
+    const parentIndex = capturedTranscript.indexOf("parent already stored");
+    const firstReplyIndex = capturedTranscript.indexOf("unseen first reply");
+    const secondReplyIndex = capturedTranscript.indexOf("unseen second reply");
+    const mentionIndex = capturedTranscript.indexOf(
+      "please answer with the missing context",
+    );
+
+    expect(parentIndex).toBeGreaterThanOrEqual(0);
+    expect(firstReplyIndex).toBeGreaterThan(parentIndex);
+    expect(secondReplyIndex).toBeGreaterThan(firstReplyIndex);
+    expect(mentionIndex).toBeGreaterThan(secondReplyIndex);
+    expect(
+      capturedTranscript.match(/live app mention should not be duplicated/g),
+    ).toBeNull();
+  });
+
+  test("cold-start Slack DMs still use backfillDm without thread backfill", async () => {
+    const dmChannelId = "D0HTTPDM";
+    seedHttpActiveMember(dmChannelId);
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1700000000.000100",
+        conversationId: dmChannelId,
+        text: "earlier DM context",
+        sender: { id: HTTP_SLACK_USER_ID, name: HTTP_SLACK_DISPLAY_NAME },
+      }),
+    ]);
+
+    const processMessage = async (
+      conversationId: string,
+      content: string,
+      _attachmentIds?: string[],
+      options?: SlackInboundProcessOptions,
+    ): Promise<{ messageId: string }> => ({
+      messageId: persistSlackInboundFromProcessMessage(
+        conversationId,
+        content,
+        options,
+      ),
+    });
+    setAdapterProcessMessage(processMessage);
+
+    const resp = await handleChannelInbound(
+      buildSlackDmRequest(dmChannelId, "1700000000.000200"),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    expect(resp.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(backfillDmMock).toHaveBeenCalledTimes(1);
+    expect(backfillDmMock.mock.calls[0][0]).toBe(dmChannelId);
+    expect(backfillDmMock.mock.calls[0][1]).toMatchObject({
+      limit: 50,
+      before: "1700000000.000200",
+    });
+    expect(backfillThreadMock).not.toHaveBeenCalled();
   });
 
   test("second thread reply within the TTL window can fetch a newer bounded gap", async () => {

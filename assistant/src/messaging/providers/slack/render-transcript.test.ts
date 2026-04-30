@@ -44,7 +44,7 @@ function userMsg(
     deletedAt?: number;
     role?: "user" | "assistant";
     createdAt?: number;
-    slackFiles?: Array<{ name: string; mimetype?: string }>;
+    slackFiles?: Array<{ id?: string; name: string; mimetype?: string }>;
   } = {},
 ): RenderableSlackMessage {
   return {
@@ -247,7 +247,9 @@ describe("renderSlackTranscript — basics", () => {
   test("backfilled Slack file metadata renders as concise attachment markers", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "shared the draft", {
-        slackFiles: [{ name: "requirements.txt", mimetype: "text/plain" }],
+        slackFiles: [
+          { id: "F123", name: "requirements.txt", mimetype: "text/plain" },
+        ],
       }),
       userMsg(TS_14_26, "@bob", "", {
         slackFiles: [{ name: "diagram.png", mimetype: "image/png" }],

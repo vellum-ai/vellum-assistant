@@ -2411,6 +2411,89 @@ describe("session-agent-loop", () => {
       expect(rendered).not.toContain("before watermark");
     });
 
+    test("subsequent Slack turn keeps long-thread compaction summary and filtered tail", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        contextSummary: "## Summary\n- compacted long Slack thread",
+        contextCompactedMessageCount: 81,
+        slackContextCompactionWatermarkTs: "1700000080.000000",
+      };
+      mockSlackChronologicalContext = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context_summary>\n## Summary\n- compacted long Slack thread\n</context_summary>",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "[11/14/23 22:34 @carol → Mabc123]: reply after compaction",
+              },
+            ],
+          },
+        ],
+        sourceChannelTsByMessage: [null, "1700000121.000000"],
+        compactableStartIndex: 1,
+      };
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+      });
+
+      await runAgentLoopImpl(
+        ctx,
+        "reply after compaction",
+        "user-msg-2",
+        () => {},
+      );
+
+      expect(loadSlackChronologicalContextMock).toHaveBeenCalledWith(
+        "test-conv",
+        ctx.channelCapabilities,
+        expect.objectContaining({
+          contextSummary: "## Summary\n- compacted long Slack thread",
+          contextCompactedMessageCount: 81,
+          slackContextCompactionWatermarkTs: "1700000080.000000",
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      const rendered = firstInjectionOptions
+        .slackChronologicalMessages!.flatMap((message) => message.content)
+        .filter((block): block is { type: "text"; text: string } => {
+          return block.type === "text";
+        })
+        .map((block) => block.text)
+        .join("\n");
+      expect(rendered).toContain("compacted long Slack thread");
+      expect(rendered).toContain("reply after compaction");
+      expect(rendered).not.toContain("pre-compaction");
+      expect(rendered).not.toContain("original root");
+    });
+
     test("applyCompactionResult records Slack timestamp watermark when provided", () => {
       const ctx = makeCtx();
       const events: ServerMessage[] = [];
