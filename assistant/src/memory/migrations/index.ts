@@ -187,6 +187,10 @@ export {
   migrateMemoryV2ActivationLogs,
 } from "./234-memory-v2-activation-logs.js";
 export {
+  downSlackCompactionWatermark,
+  migrateSlackCompactionWatermark,
+} from "./235-slack-compaction-watermark.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

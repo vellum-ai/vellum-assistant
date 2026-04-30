@@ -45,6 +45,7 @@ import { downConversationHostAccess } from "./217-conversation-host-access.js";
 import { downNormalizeUserFileByPrincipal } from "./220-normalize-user-file-by-principal.js";
 import { downActivationState } from "./232-activation-state.js";
 import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
+import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -387,6 +388,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create memory_v2_activation_logs table for per-turn v2 activation telemetry consumed by the LLM Context Inspector",
     down: downMemoryV2ActivationLogs,
+  },
+  {
+    key: "migration_slack_compaction_watermark_v1",
+    version: 45,
+    description:
+      "Add Slack-specific compaction watermark columns to conversations",
+    down: downSlackCompactionWatermark,
   },
 ];
 
