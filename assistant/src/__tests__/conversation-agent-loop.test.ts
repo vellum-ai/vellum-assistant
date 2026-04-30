@@ -131,6 +131,19 @@ const updateMessageMetadataMock = mock(
 const clearStrippedInjectionMetadataForConversationMock = mock(
   (_conversationId: string) => {},
 );
+const updateConversationSlackContextWatermarkMock = mock(
+  (_conversationId: string, _watermarkTs: string, _compactedAt?: number) => {},
+);
+let mockConversationRow: Record<string, unknown> = {
+  id: "conv-1",
+  contextSummary: null,
+  contextCompactedMessageCount: 0,
+  slackContextCompactionWatermarkTs: null,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalEstimatedCost: 0,
+  title: null,
+};
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
@@ -138,15 +151,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   clearStrippedInjectionMetadataForConversation:
     clearStrippedInjectionMetadataForConversationMock,
   getMessages: () => [],
-  getConversation: () => ({
-    id: "conv-1",
-    contextSummary: null,
-    contextCompactedMessageCount: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalEstimatedCost: 0,
-    title: null,
-  }),
+  getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
     trustContext: undefined,
@@ -155,6 +160,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   deleteMessageById: () => {},
   updateConversationContextWindow: () => {},
+  updateConversationSlackContextWatermark:
+    updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
@@ -230,10 +237,41 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
-const applyRuntimeInjectionsMock = mock(async (msgs: Message[]) => ({
-  messages: msgs,
-  blocks: { ...mockInjectionBlocks },
-}));
+const applyRuntimeInjectionsMock = mock(
+  async (msgs: Message[], _options?: unknown) => ({
+    messages: msgs,
+    blocks: { ...mockInjectionBlocks },
+  }),
+);
+let mockSlackChronologicalContext: {
+  messages: Message[];
+  sourceChannelTsByMessage: Array<string | null>;
+  compactableStartIndex: number;
+} | null = null;
+const loadSlackChronologicalContextMock = mock(
+  (
+    _conversationId: string,
+    _capabilities: unknown,
+    _options?: Record<string, unknown>,
+  ) => mockSlackChronologicalContext,
+);
+const getSlackCompactionWatermarkForPrefixMock = mock(
+  (
+    context: typeof mockSlackChronologicalContext,
+    compactedRenderedMessages: number,
+  ) => {
+    if (!context || compactedRenderedMessages <= 0) return null;
+    const start = context.compactableStartIndex;
+    const end = Math.min(
+      context.sourceChannelTsByMessage.length,
+      start + compactedRenderedMessages,
+    );
+    const values = context.sourceChannelTsByMessage
+      .slice(start, end)
+      .filter((value): value is string => value !== null);
+    return values.length > 0 ? values[values.length - 1]! : null;
+  },
+);
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
@@ -247,6 +285,9 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     "buffer.md",
   ],
   isSlackChannelConversation: () => false,
+  getSlackCompactionWatermarkForPrefix:
+    getSlackCompactionWatermarkForPrefixMock,
+  loadSlackChronologicalContext: loadSlackChronologicalContextMock,
   loadSlackChronologicalMessages: () => null,
   loadSlackActiveThreadFocusBlock: () => null,
   assembleSlackChronologicalMessages: () => null,
@@ -375,6 +416,7 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 
 import {
   type AgentLoopConversationContext,
+  applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 
@@ -533,11 +575,26 @@ beforeEach(() => {
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
+  updateConversationSlackContextWatermarkMock.mockClear();
+  updateConversationSlackContextWatermarkMock.mockImplementation(() => {});
+  mockConversationRow = {
+    id: "conv-1",
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    slackContextCompactionWatermarkTs: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  };
   clearStrippedInjectionMetadataForConversationMock.mockClear();
   clearStrippedInjectionMetadataForConversationMock.mockImplementation(
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
+  mockSlackChronologicalContext = null;
+  loadSlackChronologicalContextMock.mockClear();
+  getSlackCompactionWatermarkForPrefixMock.mockClear();
   // Orchestrator pipelines (overflowReduce, persistence, …) run through the
   // plugin registry; reset and re-register every default so the pipelines
   // dispatch to middleware backed by the mocked collaborators these tests
@@ -2274,6 +2331,124 @@ describe("session-agent-loop", () => {
         turnContextBlock: turnContext,
         pkbSystemReminderBlock: reminder,
       });
+    });
+  });
+
+  describe("Slack compaction watermarks", () => {
+    test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        contextSummary: "## Summary\n- compacted Slack context",
+        contextCompactedMessageCount: 12,
+        slackContextCompactionWatermarkTs: "1700000010.000000",
+      };
+      mockSlackChronologicalContext = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context_summary>\n## Summary\n- compacted Slack context\n</context_summary>",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "after watermark reply" }],
+          },
+        ],
+        sourceChannelTsByMessage: [null, "1700000020.000000"],
+        compactableStartIndex: 1,
+      };
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-1", () => {});
+
+      expect(loadSlackChronologicalContextMock).toHaveBeenCalledWith(
+        "test-conv",
+        ctx.channelCapabilities,
+        expect.objectContaining({
+          contextSummary: "## Summary\n- compacted Slack context",
+          contextCompactedMessageCount: 12,
+          slackContextCompactionWatermarkTs: "1700000010.000000",
+          trustClass: "guardian",
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      expect(firstInjectionOptions.slackChronologicalMessages).toBe(
+        mockSlackChronologicalContext.messages,
+      );
+      const rendered = firstInjectionOptions
+        .slackChronologicalMessages!.flatMap((message) => message.content)
+        .filter((block): block is { type: "text"; text: string } => {
+          return block.type === "text";
+        })
+        .map((block) => block.text)
+        .join("\n");
+      expect(rendered).toContain("compacted Slack context");
+      expect(rendered).toContain("after watermark reply");
+      expect(rendered).not.toContain("before watermark");
+    });
+
+    test("applyCompactionResult records Slack timestamp watermark when provided", () => {
+      const ctx = makeCtx();
+      const events: ServerMessage[] = [];
+
+      applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "summary" }],
+            },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+        },
+        (event) => events.push(event),
+        "req-1",
+        { slackContextCompactionWatermarkTs: "1700000020.000000" },
+      );
+
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      expect(events.some((event) => event.type === "context_compacted")).toBe(
+        true,
+      );
     });
   });
 

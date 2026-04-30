@@ -28,11 +28,13 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
+  getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   isGroupChatType,
   isSlackChannelConversation,
   loadSlackActiveThreadFocusBlock,
+  loadSlackChronologicalContext,
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
@@ -1159,9 +1161,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).toContain("member_policy: allow");
     // Behavioral guidance: conversational confirmation (one-time decision pattern)
     expect(text).toContain("trusted contact (non-guardian)");
-    expect(text).toContain(
-      "confirming the guardian's intent conversationally",
-    );
+    expect(text).toContain("confirming the guardian's intent conversationally");
     expect(text).not.toContain(
       "tool execution layer will automatically deny it and escalate",
     );
@@ -2892,6 +2892,69 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).not.toContain("guardian-only context");
     expect(allText).toContain("from untrusted actor");
+  });
+
+  test("loadSlackChronologicalContext preserves summary and filters by Slack watermark", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "newer-inserted-first",
+        createdAt: 1700000030_000,
+        text: "after watermark",
+        slackMeta: buildSlackMeta({
+          channelTs: T2,
+          displayName: "carol",
+        }),
+      }),
+      userRow({
+        id: "older-backfilled-later",
+        createdAt: 1700000040_000,
+        text: "before watermark even though inserted later",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "at-watermark",
+        createdAt: 1700000045_000,
+        text: "at watermark",
+        slackMeta: buildSlackMeta({
+          channelTs: T1,
+          displayName: "bob",
+        }),
+      }),
+    ];
+
+    const result = loadSlackChronologicalContext("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextSummary: "## Summary\n- compacted Slack history",
+      contextCompactedMessageCount: 99,
+      slackContextCompactionWatermarkTs: T1,
+    });
+
+    expect(result).not.toBeNull();
+    const renderedText = result!.messages
+      .flatMap((message) => message.content)
+      .filter((block): block is { type: "text"; text: string } => {
+        return block.type === "text";
+      })
+      .map((block) => block.text)
+      .join("\n");
+    expect(renderedText).toContain("<context_summary>");
+    expect(renderedText).toContain("compacted Slack history");
+    expect(renderedText).toContain("after watermark");
+    expect(renderedText).not.toContain("before watermark");
+    expect(renderedText).not.toContain("at watermark");
+    expect(result!.sourceChannelTsByMessage).toEqual([null, T2]);
+    expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
   });
 
   // ── loadSlackChronologicalMessages returns null for non-slack channels ─
