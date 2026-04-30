@@ -74,19 +74,6 @@ struct NameExchangeView: View {
                     text: $userName
                 )
 
-                // Personality group grid
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Pick a vibe")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)], spacing: VSpacing.sm) {
-                        ForEach(PersonalityGroup.allGroups, id: \.id) { group in
-                            vibeCard(group)
-                        }
-                    }
-                }
-
                 // Assistant name + suggestions
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     VTextField(
@@ -98,11 +85,23 @@ struct NameExchangeView: View {
                     Text(selectedGroupID != nil ? "Suggestions" : "A few to try")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                        .textCase(.uppercase)
 
                     WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
                         ForEach(displayedAssistantNames, id: \.self) { suggestion in
                             suggestionPill(suggestion)
+                        }
+                    }
+                }
+
+                // Personality group grid
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Pick a vibe")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)], spacing: VSpacing.sm) {
+                        ForEach(PersonalityGroup.allGroups, id: \.id) { group in
+                            vibeCard(group)
                         }
                     }
                 }
