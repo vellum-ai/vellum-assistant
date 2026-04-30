@@ -143,9 +143,14 @@ struct RuleEditorModal: View {
                 selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
             }
             if !hasUserInteracted {
-                // In single-option mode the only Save As New choice is index 0; reset
-                // the initial default of 1 so the option isn't permanently out-of-bounds.
-                if isSingleOption { selectedPatternIndex = 0 }
+                // Default to the first narrower option so the selection isn't stale
+                // or pointing at the existing rule's own pattern.
+                if let firstNarrower = narrowerOptions.first,
+                   let idx = scopeOptions.firstIndex(where: { $0.pattern == firstNarrower.pattern }) {
+                    selectedPatternIndex = idx
+                } else if isSingleOption {
+                    selectedPatternIndex = 0
+                }
             }
             if let suggestion, !hasUserInteracted {
                 // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
