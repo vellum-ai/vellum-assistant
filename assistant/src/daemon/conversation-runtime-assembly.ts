@@ -22,10 +22,13 @@ import {
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
+  compareSlackTs,
   extractTagLineTexts,
   isReactionTagLine,
+  isSlackTsAfter,
   type RenderableSlackMessage,
   renderSlackTranscript,
+  renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
 import type {
@@ -1056,6 +1059,22 @@ export interface SlackChronologicalContext {
   readonly compactableStartIndex: number;
 }
 
+interface SlackBoundaryOptions {
+  readonly contextCompactedMessageCount?: number;
+  readonly slackContextCompactionWatermarkTs?: string | null;
+}
+
+function messageRowsToSlackTranscriptRows(
+  rows: MessageRow[],
+): SlackTranscriptInputRow[] {
+  return rows.map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
+}
+
 /**
  * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
  * Only `text` blocks contribute to the rendered transcript line. Tool-use /
@@ -1225,42 +1244,6 @@ export function assembleSlackChronologicalMessages(
   return renderSlackTranscript(renderable);
 }
 
-function slackTranscriptSortKey(msg: RenderableSlackMessage): number {
-  if (msg.metadata) {
-    const n = Number.parseFloat(msg.metadata.channelTs);
-    if (Number.isFinite(n)) return n;
-  }
-  return msg.createdAt / 1000;
-}
-
-function sortedSlackSourceChannelTs(
-  rows: RenderableSlackMessage[],
-): Array<string | null> {
-  const indexed = rows.map((row, index) => ({
-    row,
-    index,
-    key: slackTranscriptSortKey(row),
-  }));
-  indexed.sort((a, b) => {
-    if (a.key !== b.key) return a.key - b.key;
-    return a.index - b.index;
-  });
-  return indexed.map(({ row }) => row.metadata?.channelTs ?? null);
-}
-
-function compareSlackTs(a: string, b: string): number {
-  const aNum = Number.parseFloat(a);
-  const bNum = Number.parseFloat(b);
-  if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
-    return aNum - bNum;
-  }
-  return a.localeCompare(b);
-}
-
-function isSlackTsAfter(ts: string, watermarkTs: string): boolean {
-  return compareSlackTs(ts, watermarkTs) > 0;
-}
-
 function maxSlackTs(values: readonly (string | null)[]): string | null {
   let max: string | null = null;
   for (const value of values) {
@@ -1270,6 +1253,38 @@ function maxSlackTs(values: readonly (string | null)[]): string | null {
     }
   }
   return max;
+}
+
+function legacyRowIsAfterWatermark(
+  row: SlackTranscriptInputRow,
+  watermarkTs: string,
+): boolean {
+  return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
+}
+
+function filterRowsAfterSlackCompactionBoundary(
+  rows: SlackTranscriptInputRow[],
+  options: SlackBoundaryOptions,
+): SlackTranscriptInputRow[] {
+  const fallbackCount = Math.max(
+    0,
+    Math.floor(options.contextCompactedMessageCount ?? 0),
+  );
+  const watermarkTs = options.slackContextCompactionWatermarkTs ?? null;
+  if (watermarkTs === null) {
+    return fallbackCount > 0 ? rows.slice(fallbackCount) : rows;
+  }
+
+  return rows.filter((row, index) => {
+    const meta = rowToRenderable(row).metadata;
+    if (meta) {
+      return isSlackTsAfter(meta.channelTs, watermarkTs);
+    }
+    if (index < fallbackCount) {
+      return false;
+    }
+    return legacyRowIsAfterWatermark(row, watermarkTs);
+  });
 }
 
 export function getSlackCompactionWatermarkForPrefix(
@@ -1297,19 +1312,21 @@ export function assembleSlackChronologicalContext(
     return null;
   }
   const renderable = rows.map(rowToRenderable);
-  const rendered = renderSlackTranscript(renderable);
-  const sourceChannelTsByMessage = sortedSlackSourceChannelTs(renderable);
+  const rendered = renderSlackTranscriptWithProvenance(renderable);
   const contextSummary = options.contextSummary?.trim();
   if (contextSummary) {
     return {
-      messages: [createContextSummaryMessage(contextSummary), ...rendered],
-      sourceChannelTsByMessage: [null, ...sourceChannelTsByMessage],
+      messages: [
+        createContextSummaryMessage(contextSummary),
+        ...rendered.messages,
+      ],
+      sourceChannelTsByMessage: [null, ...rendered.sourceChannelTsByMessage],
       compactableStartIndex: 1,
     };
   }
   return {
-    messages: rendered,
-    sourceChannelTsByMessage,
+    messages: rendered.messages,
+    sourceChannelTsByMessage: rendered.sourceChannelTsByMessage,
     compactableStartIndex: 0,
   };
 }
@@ -1347,13 +1364,7 @@ export function loadSlackChronologicalMessages(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  // Coerce MessageRow.role (string) to the structural row's stricter union.
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
+  const rows = messageRowsToSlackTranscriptRows(scopedRows);
   return assembleSlackChronologicalMessages(rows, capabilities);
 }
 
@@ -1387,28 +1398,10 @@ export function loadSlackChronologicalContext(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  const fallbackCount =
-    options.slackContextCompactionWatermarkTs == null
-      ? Math.max(0, Math.floor(options.contextCompactedMessageCount ?? 0))
-      : 0;
-  const rowsAfterCount =
-    fallbackCount > 0 ? scopedRows.slice(fallbackCount) : scopedRows;
-  const rows: SlackTranscriptInputRow[] = rowsAfterCount
-    .map(
-      (row): SlackTranscriptInputRow => ({
-        role: row.role === "assistant" ? "assistant" : "user",
-        content: row.content,
-        createdAt: row.createdAt,
-        metadata: row.metadata,
-      }),
-    )
-    .filter((row) => {
-      const watermarkTs = options.slackContextCompactionWatermarkTs;
-      if (watermarkTs == null) return true;
-      const meta = rowToRenderable(row).metadata;
-      if (!meta) return true;
-      return isSlackTsAfter(meta.channelTs, watermarkTs);
-    });
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
   return assembleSlackChronologicalContext(rows, capabilities, {
     contextSummary: isUntrustedTrustClass(options.trustClass)
       ? null
@@ -1580,6 +1573,8 @@ export function loadSlackActiveThreadFocusBlock(
   options: {
     loader?: (id: string) => MessageRow[];
     trustClass?: TrustClass;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): string | null {
   if (capabilities.channel !== "slack") return null;
@@ -1589,12 +1584,10 @@ export function loadSlackActiveThreadFocusBlock(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
   return assembleSlackActiveThreadFocusBlock(rows, capabilities);
 }
 

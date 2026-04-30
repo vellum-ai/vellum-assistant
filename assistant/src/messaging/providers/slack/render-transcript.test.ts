@@ -16,6 +16,7 @@ import {
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
+  renderSlackTranscriptWithProvenance,
 } from "./render-transcript.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -266,6 +267,25 @@ describe("renderSlackTranscript — basics", () => {
         "[11/14/23 14:26 @bob]: [attached file: diagram.png, image/png]",
       ),
     ]);
+  });
+
+  test("provenance follows the rendered sequence after orphan filtering", () => {
+    const out = renderSlackTranscriptWithProvenance([
+      userMsg(TS_14_25, "@alice", "kept"),
+      {
+        ...userMsg(TS_14_26, null, "", { role: "assistant" }),
+        contentBlocks: [
+          { type: "tool_use", id: "tool-1", name: "lookup", input: {} },
+        ],
+      },
+      userMsg(TS_14_28, "@bob", "also kept"),
+    ]);
+
+    expect(extractTagLineTexts(out.messages)).toEqual([
+      "[11/14/23 14:25 @alice]: kept",
+      "[11/14/23 14:28 @bob]: also kept",
+    ]);
+    expect(out.sourceChannelTsByMessage).toEqual([TS_14_25, TS_14_28]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {

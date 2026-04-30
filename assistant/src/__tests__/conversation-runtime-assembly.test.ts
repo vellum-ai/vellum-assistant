@@ -2922,6 +2922,11 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         }),
       }),
       userRow({
+        id: "legacy-before-watermark",
+        createdAt: 1700000008_000,
+        text: "legacy row before watermark",
+      }),
+      userRow({
         id: "at-watermark",
         createdAt: 1700000045_000,
         text: "at watermark",
@@ -2952,9 +2957,70 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(renderedText).toContain("compacted Slack history");
     expect(renderedText).toContain("after watermark");
     expect(renderedText).not.toContain("before watermark");
+    expect(renderedText).not.toContain("legacy row before watermark");
     expect(renderedText).not.toContain("at watermark");
     expect(result!.sourceChannelTsByMessage).toEqual([null, T2]);
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
+  });
+
+  test("active-thread focus filters pre-watermark and legacy compacted rows", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "legacy-old",
+        createdAt: 1700000005_000,
+        text: "legacy compacted row",
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000008_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000025_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    const result = loadSlackActiveThreadFocusBlock("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextCompactedMessageCount: 3,
+      slackContextCompactionWatermarkTs: T1,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!).toContain("live reply");
+    expect(result!).not.toContain("compacted root");
+    expect(result!).not.toContain("compacted reply");
+    expect(result!).not.toContain("legacy compacted row");
   });
 
   test("long Slack thread stays compacted after a later reply", () => {

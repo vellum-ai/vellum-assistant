@@ -2335,6 +2335,102 @@ describe("session-agent-loop", () => {
   });
 
   describe("Slack compaction watermarks", () => {
+    test("start-of-turn Slack compaction derives and persists watermark from rendered context", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        sourceChannelTsByMessage: [
+          "1700000010.000000",
+          "1700000020.000000",
+          "1700000030.000000",
+        ],
+        compactableStartIndex: 0,
+      };
+      const shouldCompactInputs: Message[][] = [];
+      const maybeCompactInputs: Message[][] = [];
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: (messages: Message[]) => {
+            shouldCompactInputs.push(messages);
+            return { needed: true, estimatedTokens: 95_000 };
+          },
+          maybeCompact: async (messages: Message[]) => {
+            maybeCompactInputs.push(messages);
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "text", text: "summary" }],
+                },
+                messages[2]!,
+              ],
+              compactedPersistedMessages: 2,
+              previousEstimatedInputTokens: 95_000,
+              estimatedInputTokens: 5_000,
+              maxInputTokens: 100_000,
+              thresholdTokens: 80_000,
+              compactedMessages: 2,
+              summaryCalls: 1,
+              summaryInputTokens: 100,
+              summaryOutputTokens: 20,
+              summaryModel: "mock-model",
+              summaryText: "summary",
+              summaryFailed: false,
+            };
+          },
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
+
+      expect(shouldCompactInputs[0]).toBe(renderedSlackMessages);
+      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
+      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
+        mockSlackChronologicalContext,
+        2,
+      );
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
+    });
+
     test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
       mockConversationRow = {
         ...mockConversationRow,
