@@ -152,7 +152,7 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     },
     secretRequirements: [
       {
-        credentialStoreKey: "deepgram",
+        credentialStoreKey: "credential/deepgram/api_key",
         displayName: "Deepgram API Key",
         setCommand: "assistant keys set deepgram <key>",
       },

@@ -429,12 +429,8 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       if (credResult.unreachable) {
         throw new InternalError("Credential store is unreachable");
       }
-      let keyToDelete: string;
-      if (credResult.value !== undefined) {
-        keyToDelete = credKey;
-      } else {
-        // Fall back to the bare provider name (pre-migration window or partial
-        // migration failure).
+      // Confirm at least one location holds the key before reporting success.
+      if (credResult.value === undefined) {
         const bareResult = await getSecureKeyResultAsync(name);
         if (bareResult.unreachable) {
           throw new InternalError("Credential store is unreachable");
@@ -442,10 +438,17 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         if (bareResult.value === undefined) {
           throw new NotFoundError(`API key not found: ${name}`);
         }
-        keyToDelete = name;
       }
-      const deleteResult = await deleteSecureKeyAsync(keyToDelete);
-      if (deleteResult === "error") {
+      // Delete from both locations. During a migration overlap both may exist;
+      // ignore "not-found" since one location may already be empty.
+      const credDeleteResult = await deleteSecureKeyAsync(credKey);
+      if (credDeleteResult === "error") {
+        throw new InternalError(
+          `Failed to delete API key from secure storage: ${name}`,
+        );
+      }
+      const bareDeleteResult = await deleteSecureKeyAsync(name);
+      if (bareDeleteResult === "error") {
         throw new InternalError(
           `Failed to delete API key from secure storage: ${name}`,
         );
