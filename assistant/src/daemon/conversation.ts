@@ -9,7 +9,7 @@
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
- * - conversation-history.ts      — undo, regenerate, consolidateAssistantMessages
+ * - conversation-history.ts      — undo, consolidateAssistantMessages
  * - conversation-surfaces.ts     — handleSurfaceAction, handleSurfaceUndo
  * - conversation-workspace.ts    — refreshWorkspaceTopLevelContext
  * - conversation-usage.ts        — recordUsage
@@ -46,6 +46,7 @@ import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-st
 import {
   getConversation,
   getConversationOriginChannel,
+  getConversationOverrideProfileFromRow,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -71,10 +72,7 @@ import {
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import {
-  regenerate as regenerateImpl,
-  undo as undoImpl,
-} from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -561,7 +559,11 @@ export class Conversation {
 
     provider
       .sendMessage([warmMessage], tools, systemPrompt, {
-        config: { max_tokens: 1, callSite: "mainAgent" },
+        config: {
+          max_tokens: 1,
+          callSite: "mainAgent",
+          usageTracking: "manual",
+        },
         signal: abort.signal,
       })
       .then(() => {
@@ -1083,6 +1085,10 @@ export class Conversation {
         lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
+        overrideProfile:
+          getConversationOverrideProfileFromRow(
+            getConversation(this.conversationId),
+          ) ?? null,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1318,17 +1324,6 @@ export class Conversation {
 
   undo(): number {
     return undoImpl(this as HistoryConversationContext);
-  }
-
-  async regenerate(
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-  ): Promise<void> {
-    return regenerateImpl(
-      this as HistoryConversationContext,
-      onEvent ?? this.sendToClient,
-      requestId,
-    );
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────

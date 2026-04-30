@@ -1069,8 +1069,6 @@ export interface SlackChronologicalContext {
   readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
   /** Convenience projection of `renderedMessages[].message`. */
   readonly messages: Message[];
-  /** Convenience projection of `renderedMessages[].sourceChannelTs`. */
-  readonly sourceChannelTsByMessage: readonly (string | null)[];
   readonly compactableStartIndex: number;
 }
 
@@ -1235,9 +1233,10 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
 }
 
 /**
- * Build a chronological Slack transcript for Slack conversations (both DMs
- * and group/channel/mpim) and project it onto the LLM-facing `Message[]`
- * shape.
+ * Compatibility projection for callers that still need the legacy
+ * `Message[] | null` shape. New runtime callers should use
+ * `assembleSlackChronologicalContext` so compaction provenance stays
+ * available with the rendered messages.
  *
  * Returns `null` when the channel is not Slack (caller should fall through
  * to the default message history). Legacy pre-upgrade rows without
@@ -1252,11 +1251,9 @@ export function assembleSlackChronologicalMessages(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
 ): Message[] | null {
-  if (capabilities.channel !== "slack") {
-    return null;
-  }
-  const renderable = rows.map(rowToRenderable);
-  return renderSlackTranscript(renderable);
+  return (
+    assembleSlackChronologicalContext(rows, capabilities)?.messages ?? null
+  );
 }
 
 function maxSlackTs(values: readonly (string | null)[]): string | null {
@@ -1345,29 +1342,19 @@ export function assembleSlackChronologicalContext(
     return {
       renderedMessages: withSummary,
       messages: withSummary.map((entry) => entry.message),
-      sourceChannelTsByMessage: withSummary.map(
-        (entry) => entry.sourceChannelTs,
-      ),
       compactableStartIndex: 1,
     };
   }
   return {
     renderedMessages,
     messages: renderedMessages.map((entry) => entry.message),
-    sourceChannelTsByMessage: renderedMessages.map(
-      (entry) => entry.sourceChannelTs,
-    ),
     compactableStartIndex: 0,
   };
 }
 
 /**
- * Load DB rows for a Slack conversation and project them onto the
- * chronological transcript shape.
- *
- * Convenience wrapper over `getMessages` + `assembleSlackChronologicalMessages`.
- * The loader is exposed as a parameter so tests can substitute a stub. In
- * production it defaults to `getMessages` from `conversation-crud.ts`.
+ * Compatibility wrapper over `loadSlackChronologicalContext` for callers that
+ * still need only the legacy `Message[] | null` projection.
  *
  * When `trustClass` identifies an untrusted actor (guardian-scoped rows
  * must not leak into the model context), rows are passed through
@@ -1384,18 +1371,15 @@ export function loadSlackChronologicalMessages(
   options: {
     loader?: (id: string) => MessageRow[];
     trustClass?: TrustClass;
+    contextSummary?: string | null;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): Message[] | null {
-  if (capabilities.channel !== "slack") {
-    return null;
-  }
-  const loader = options.loader ?? defaultGetMessages;
-  const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
-  const rows = messageRowsToSlackTranscriptRows(scopedRows);
-  return assembleSlackChronologicalMessages(rows, capabilities);
+  return (
+    loadSlackChronologicalContext(conversationId, capabilities, options)
+      ?.messages ?? null
+  );
 }
 
 /**

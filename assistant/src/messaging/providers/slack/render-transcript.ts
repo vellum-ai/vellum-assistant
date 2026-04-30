@@ -63,17 +63,6 @@ export interface RenderedSlackTranscript {
   readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
   /** Convenience projection of `renderedMessages[].message`. */
   readonly messages: Message[];
-  /**
-   * Slack source timestamp represented by each rendered message.
-   * `null` means the rendered message came from a legacy row with no Slack
-   * metadata. Collapsed reaction overflow trailers carry the max source
-   * timestamp included in that trailer.
-   *
-   * Kept as a convenience projection of `renderedMessages[].sourceChannelTs`;
-   * watermark derivation should use `renderedMessages` so the message and
-   * provenance sequence cannot drift.
-   */
-  readonly sourceChannelTsByMessage: readonly (string | null)[];
 }
 
 export interface RenderedSlackTranscriptMessage {
@@ -416,7 +405,7 @@ export function renderSlackTranscriptWithProvenance(
   opts?: RenderOptions,
 ): RenderedSlackTranscript {
   if (messages.length === 0) {
-    return { renderedMessages: [], messages: [], sourceChannelTsByMessage: [] };
+    return { renderedMessages: [], messages: [] };
   }
 
   const maxReactions = Math.max(
@@ -538,7 +527,6 @@ export function renderSlackTranscriptWithProvenance(
   return {
     renderedMessages: filtered,
     messages: filtered.map((entry) => entry.message),
-    sourceChannelTsByMessage: filtered.map((entry) => entry.sourceChannelTs),
   };
 }
 

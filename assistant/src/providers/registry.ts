@@ -14,12 +14,13 @@ import { OpenAIResponsesProvider } from "./openai/client.js";
 import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
+import { UsageTrackingProvider } from "./usage-tracking.js";
 
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 
 function registerProvider(name: string, provider: Provider): void {
-  providers.set(name, provider);
+  providers.set(name, new UsageTrackingProvider(provider));
 }
 
 export function getProvider(name: string): Provider {
@@ -163,6 +164,10 @@ export async function initializeProviders(
             ? { baseURL: anthropicCreds.baseURL }
             : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            anthropicCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
@@ -180,6 +185,10 @@ export async function initializeProviders(
           streamTimeoutMs,
           ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            openaiCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("openai", openaiCreds.source);
@@ -198,6 +207,10 @@ export async function initializeProviders(
             ? { managedBaseUrl: geminiCreds.baseURL }
             : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            geminiCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("gemini", geminiCreds.source);

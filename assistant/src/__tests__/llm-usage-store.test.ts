@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => makeMockLogger(),
 }));
 
 import { getDb } from "../memory/db-connection.js";
@@ -12,6 +11,7 @@ import { initializeDb } from "../memory/db-init.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
+  getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
   listUsageEvents,
@@ -98,6 +98,26 @@ describe("recordUsageEvent", () => {
     expect(events[0].conversationId).toBe("c1");
   });
 
+  test("persists call-site and inference-profile attribution", () => {
+    const event = recordUsageEvent(
+      makeInput({
+        callSite: "mainAgent",
+        inferenceProfile: "balanced",
+        inferenceProfileSource: "conversation",
+      }),
+      pricedResult,
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(event.callSite).toBe("mainAgent");
+    expect(event.inferenceProfile).toBe("balanced");
+    expect(event.inferenceProfileSource).toBe("conversation");
+    expect(events[0].callSite).toBe("mainAgent");
+    expect(events[0].inferenceProfile).toBe("balanced");
+    expect(events[0].inferenceProfileSource).toBe("conversation");
+  });
+
   test("persists an unpriced event", () => {
     const input = makeInput({ provider: "ollama", model: "llama3" });
     const event = recordUsageEvent(input, unpricedResult);
@@ -126,8 +146,57 @@ describe("recordUsageEvent", () => {
     expect(events[0].conversationId).toBeNull();
     expect(events[0].runId).toBeNull();
     expect(events[0].requestId).toBeNull();
+    expect(events[0].callSite).toBeNull();
+    expect(events[0].inferenceProfile).toBeNull();
+    expect(events[0].inferenceProfileSource).toBeNull();
     expect(events[0].cacheCreationInputTokens).toBeNull();
     expect(events[0].cacheReadInputTokens).toBeNull();
+  });
+
+  test("reads old-shape rows with null attribution", () => {
+    const db = getDb();
+    db.run(/*sql*/ `
+      INSERT INTO llm_usage_events (
+        id,
+        created_at,
+        conversation_id,
+        run_id,
+        request_id,
+        actor,
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens,
+        cache_read_input_tokens,
+        estimated_cost_usd,
+        pricing_status,
+        llm_call_count,
+        metadata_json
+      ) VALUES (
+        'old-row',
+        1000,
+        NULL,
+        NULL,
+        NULL,
+        'main_agent',
+        'anthropic',
+        'claude-sonnet-4-20250514',
+        100,
+        50,
+        NULL,
+        NULL,
+        0.001,
+        'priced',
+        1,
+        NULL
+      )
+    `);
+
+    const [event] = listUsageEvents();
+    expect(event.callSite).toBeNull();
+    expect(event.inferenceProfile).toBeNull();
+    expect(event.inferenceProfileSource).toBeNull();
   });
 
   test("handles populated optional fields", () => {
@@ -822,6 +891,63 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[1].totalEstimatedCostUsd).toBe(0);
   });
 
+  test("groups by call site with display labels and raw group keys", () => {
+    insertEventAt(
+      1000,
+      { callSite: "mainAgent", inputTokens: 100 },
+      { estimatedCostUsd: 0.03, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { callSite: "conversationTitle", inputTokens: 200 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      3000,
+      { callSite: null, inputTokens: 300 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "call_site");
+    expect(groups.map((group) => group.group)).toEqual([
+      "Main agent",
+      "Unknown Task",
+      "Conversation title",
+    ]);
+    expect(groups.map((group) => group.groupKey)).toEqual([
+      "mainAgent",
+      null,
+      "conversationTitle",
+    ]);
+    expect(
+      groups.find((group) => group.groupKey === null)?.totalInputTokens,
+    ).toBe(300);
+  });
+
+  test("groups by inference profile with unset historical rows preserved", () => {
+    insertEventAt(
+      1000,
+      { inferenceProfile: "fast", inputTokens: 100 },
+      { estimatedCostUsd: 0.01, pricingStatus: "priced" },
+    );
+    insertEventAt(
+      2000,
+      { inferenceProfile: null, inputTokens: 200 },
+      { estimatedCostUsd: 0.02, pricingStatus: "priced" },
+    );
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "inference_profile",
+    );
+    expect(groups.map((group) => group.group)).toEqual([
+      "Default / Unset",
+      "fast",
+    ]);
+    expect(groups.map((group) => group.groupKey)).toEqual([null, "fast"]);
+    expect(groups[0].totalInputTokens).toBe(200);
+  });
+
   test("groups by model", () => {
     insertEventAt(
       1000,
@@ -965,6 +1091,131 @@ describe("getUsageGroupBreakdown", () => {
   });
 });
 
+describe("getUsageGroupedSeries", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("returns grouped daily buckets keyed by call-site ids", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 10), {
+      callSite: "mainAgent",
+      inputTokens: 100,
+      outputTokens: 10,
+    });
+    insertEventAt(Date.UTC(2026, 3, 10, 12), {
+      callSite: "conversationTitle",
+      inputTokens: 200,
+      outputTokens: 20,
+    });
+    insertEventAt(Date.UTC(2026, 3, 11, 10), {
+      callSite: null,
+      inputTokens: 300,
+      outputTokens: 30,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 10, 0),
+        to: Date.UTC(2026, 3, 11, 23),
+      },
+      "call_site",
+      "daily",
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    expect(buckets).toHaveLength(2);
+    expect(buckets[0].groups["value:mainAgent"]).toMatchObject({
+      group: "Main agent",
+      groupKey: "mainAgent",
+      totalInputTokens: 100,
+    });
+    expect(buckets[0].groups["value:conversationTitle"]).toMatchObject({
+      group: "Conversation title",
+      groupKey: "conversationTitle",
+      totalInputTokens: 200,
+    });
+    expect(buckets[1].groups["null:call_site"]).toMatchObject({
+      group: "Unknown Task",
+      groupKey: null,
+      totalInputTokens: 300,
+    });
+  });
+
+  test("returns grouped hourly buckets by inference profile including unset rows", () => {
+    insertEventAt(Date.UTC(2026, 3, 10, 10, 15), {
+      inferenceProfile: "fast",
+      inputTokens: 100,
+    });
+    insertEventAt(Date.UTC(2026, 3, 10, 10, 45), {
+      inferenceProfile: null,
+      inputTokens: 200,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 10, 10),
+        to: Date.UTC(2026, 3, 10, 11),
+      },
+      "inference_profile",
+      "hourly",
+      "UTC",
+      { fillEmpty: true },
+    );
+
+    const bucket = buckets.find((entry) => entry.date === "2026-04-10 10:00");
+    expect(bucket?.groups["value:fast"]).toMatchObject({
+      group: "fast",
+      groupKey: "fast",
+      totalInputTokens: 100,
+    });
+    expect(bucket?.groups["null:inference_profile"]).toMatchObject({
+      group: "Default / Unset",
+      groupKey: null,
+      totalInputTokens: 200,
+    });
+  });
+
+  test("orders grouped hourly buckets chronologically across positive-offset fall back", () => {
+    insertEventAt(Date.UTC(2026, 3, 4, 15, 15), {
+      inferenceProfile: "first-hour",
+      inputTokens: 100,
+    });
+    insertEventAt(Date.UTC(2026, 3, 4, 16, 15), {
+      inferenceProfile: "second-hour",
+      inputTokens: 200,
+    });
+
+    const buckets = getUsageGroupedSeries(
+      {
+        from: Date.UTC(2026, 3, 4, 15),
+        to: Date.UTC(2026, 3, 4, 17),
+      },
+      "inference_profile",
+      "hourly",
+      "Australia/Sydney",
+      { fillEmpty: true },
+    );
+
+    const duplicateTwoAmBuckets = buckets.filter(
+      (entry) => entry.date === "2026-04-05 02:00",
+    );
+    expect(duplicateTwoAmBuckets.map((entry) => entry.bucketId)).toEqual([
+      "2026-04-05 02:00|660",
+      "2026-04-05 02:00|600",
+    ]);
+    expect(duplicateTwoAmBuckets[0].groups["value:first-hour"]).toMatchObject({
+      group: "first-hour",
+      totalInputTokens: 100,
+    });
+    expect(duplicateTwoAmBuckets[1].groups["value:second-hour"]).toMatchObject({
+      group: "second-hour",
+      totalInputTokens: 200,
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // queryUnreportedUsageEvents tests
 // ---------------------------------------------------------------------------
@@ -999,6 +1250,20 @@ describe("queryUnreportedUsageEvents", () => {
     // Should return the earliest two due to ASC ordering
     expect(events[0].model).toBe("model-a");
     expect(events[1].model).toBe("model-b");
+  });
+
+  test("returns attribution fields for unreported usage events", () => {
+    insertEventAt(1000, {
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].callSite).toBe("mainAgent");
+    expect(events[0].inferenceProfile).toBe("balanced");
+    expect(events[0].inferenceProfileSource).toBe("active");
   });
 
   test("returns empty array when no events match", () => {

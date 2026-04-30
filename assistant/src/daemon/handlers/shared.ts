@@ -53,6 +53,8 @@ export interface HistoryToolCall {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   /** Whether the tool was auto-approved (true) or required explicit user input (false). */
   autoApproved?: boolean;
 }
@@ -352,6 +354,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.riskLevel = block._riskLevel;
       if (typeof block._riskReason === "string")
         entry.riskReason = block._riskReason;
+      if (typeof block._matchedTrustRuleId === "string")
+        entry.matchedTrustRuleId = block._matchedTrustRuleId;
       if (typeof block._autoApproved === "boolean")
         entry.autoApproved = block._autoApproved;
       toolCalls.push(entry);

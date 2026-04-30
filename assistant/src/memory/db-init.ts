@@ -107,6 +107,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
+  migrateLlmUsageAttribution,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -161,6 +162,7 @@ import {
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
+  migrateToolInvocationsMatchedRuleId,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -396,7 +398,9 @@ export function initializeDb(): void {
     migrateActivationState,
     migrateMemoryV2ActivationLogs,
     migrateCreateDocumentConversations,
+    migrateLlmUsageAttribution,
     migrateSlackCompactionWatermark,
+    migrateToolInvocationsMatchedRuleId,
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();
     },

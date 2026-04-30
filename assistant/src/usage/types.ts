@@ -1,4 +1,12 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UsageActor } from "./actors.js";
+import type { UsageAttributionProfileSource } from "./attribution.js";
+
+export type {
+  UsageAttributionInput,
+  UsageAttributionProfileSource,
+  UsageAttributionSnapshot,
+} from "./attribution.js";
 
 /**
  * Anthropic prompt caching exposes write-tier detail so callers can price
@@ -38,6 +46,9 @@ export interface UsageEventInput {
   conversationId: string | null;
   runId: string | null;
   requestId: string | null;
+  callSite?: LLMCallSite | null;
+  inferenceProfile?: string | null;
+  inferenceProfileSource?: UsageAttributionProfileSource | null;
   /** Number of actual LLM API calls represented by this event (defaults to 1). */
   llmCallCount?: number;
 }
@@ -57,6 +68,9 @@ export interface PricingResult {
 export interface UsageEvent extends UsageEventInput {
   id: string;
   createdAt: number;
+  callSite: LLMCallSite | null;
+  inferenceProfile: string | null;
+  inferenceProfileSource: UsageAttributionProfileSource | null;
   estimatedCostUsd: number | null;
   pricingStatus: "priced" | "unpriced";
 }

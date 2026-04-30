@@ -809,6 +809,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var riskLevel: String?
     /// Human-readable reason for the risk classification.
     public var riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public var matchedTrustRuleId: String?
     /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
     public var riskScopeOptions: [ToolResultRiskScopeOption]?
     /// Directory scope options ladder for the rule editor (scope + label pairs, narrowest to broadest).
@@ -862,6 +864,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.pendingConfirmation == rhs.pendingConfirmation
             && lhs.riskLevel == rhs.riskLevel
             && lhs.riskReason == rhs.riskReason
+            && lhs.matchedTrustRuleId == rhs.matchedTrustRuleId
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {

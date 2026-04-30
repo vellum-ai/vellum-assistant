@@ -129,6 +129,9 @@ function makeUsageEvent(overrides: Partial<UsageEvent> = {}): UsageEvent {
     cacheCreationInputTokens: 10,
     cacheReadInputTokens: 5,
     actor: "main_agent",
+    callSite: null,
+    inferenceProfile: null,
+    inferenceProfileSource: null,
     conversationId: "conv-1",
     runId: null,
     requestId: null,
@@ -359,6 +362,9 @@ describe("UsageTelemetryReporter", () => {
       cacheCreationInputTokens: 20,
       cacheReadInputTokens: 15,
       actor: "context_compactor",
+      callSite: "compactionAgent",
+      inferenceProfile: "quality-optimized",
+      inferenceProfileSource: "conversation",
       createdAt: 1700000099000,
     });
     mockQueryUnreportedUsageEvents.mockReturnValue([event]);
@@ -391,7 +397,37 @@ describe("UsageTelemetryReporter", () => {
     expect(e.cache_creation_input_tokens).toBe(20);
     expect(e.cache_read_input_tokens).toBe(15);
     expect(e.actor).toBe("context_compactor");
+    expect(e.llm_call_site).toBe("compactionAgent");
+    expect(e.inference_profile).toBe("quality-optimized");
+    expect(e.inference_profile_source).toBe("conversation");
     expect(e.recorded_at).toBe(1700000099000);
+  });
+
+  test("payload preserves null attribution for historical usage rows", async () => {
+    const event = makeUsageEvent({
+      id: "evt-legacy-usage",
+      callSite: null,
+      inferenceProfile: null,
+      inferenceProfileSource: null,
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events[0]).toMatchObject({
+      type: "llm_usage",
+      daemon_event_id: "evt-legacy-usage",
+      llm_call_site: null,
+      inference_profile: null,
+      inference_profile_source: null,
+    });
   });
 
   test("organization_id and user_id included in payload when available", async () => {

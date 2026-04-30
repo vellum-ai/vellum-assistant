@@ -46,6 +46,7 @@ import { downNormalizeUserFileByPrincipal } from "./220-normalize-user-file-by-p
 import { downActivationState } from "./232-activation-state.js";
 import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
 import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
+import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -395,6 +396,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Add Slack-specific compaction watermark columns to conversations",
     down: downSlackCompactionWatermark,
+  },
+  {
+    key: "migration_tool_invocations_matched_trust_rule_id_v1",
+    version: 46,
+    description:
+      "Add matched_trust_rule_id column to tool_invocations for trust rule audit and rule editor UI",
+    down: downToolInvocationsMatchedRuleId,
   },
 ];
 

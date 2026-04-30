@@ -334,7 +334,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-29T23:23:43Z"
+      "updatedAt": "2026-04-29T20:06:32-04:00"
     },
     {
       "id": "mcp-setup",
@@ -502,7 +502,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-29T23:23:43Z"
+      "updatedAt": "2026-04-29T20:06:32-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -601,6 +601,20 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-03-17T03:13:56-04:00"
+    },
+    {
+      "id": "stripe-app-setup",
+      "name": "stripe-app-setup",
+      "description": "Create and configure a Stripe restricted API key so the assistant can manage payments, subscriptions, and customers under its own scoped identity",
+      "metadata": {
+        "emoji": "💳",
+        "vellum": {
+          "display-name": "Stripe App Setup",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-04-30T02:09:49Z"
     },
     {
       "id": "tasks",

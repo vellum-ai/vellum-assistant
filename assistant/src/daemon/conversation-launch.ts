@@ -18,7 +18,6 @@ import {
 } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getOrCreateConversation } from "./conversation-store.js";
-import type { ServerMessage } from "./message-protocol.js";
 import { processMessageInBackground } from "./process-message.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -91,20 +90,11 @@ export async function launchConversation(
     ),
   );
 
-  const hubSender = (msg: ServerMessage) => {
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    broadcastMessage(msg, msgConversationId ?? conversationId);
-  };
-
   processMessageInBackground(
     conversationId,
     params.seedPrompt,
     undefined,
-    { onEvent: hubSender },
+    { onEvent: broadcastMessage },
     "vellum",
     "cli",
   ).catch((err) => {

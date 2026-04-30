@@ -116,10 +116,37 @@ do_build() {
     || { echo "❌ Failed to stamp name."; return 1; }
   echo "  Extension name: $EXT_NAME"
 
+  # Inject a deterministic public key for non-production builds so every
+  # developer running the same environment gets the same stable extension ID.
+  # Production builds omit the key — Chrome uses the CWS signing key instead.
+  # The mapping lives in extension-environments.json alongside this script.
+  ENV_KEY=$(jq -r --arg e "$VELLUM_ENV" '.[$e].key // empty' "$SCRIPT_DIR/extension-environments.json")
+  ENV_EXT_ID=$(jq -r --arg e "$VELLUM_ENV" '.[$e].extensionId // empty' "$SCRIPT_DIR/extension-environments.json")
+  if [ -n "$ENV_KEY" ]; then
+    jq --arg k "$ENV_KEY" '.key = $k' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+      && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json" \
+      || { echo "❌ Failed to inject extension key."; return 1; }
+  fi
+  if [ -n "$ENV_EXT_ID" ]; then
+    echo "  Extension ID: $ENV_EXT_ID"
+  fi
+
   cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html" \
     || { echo "❌ Failed to copy popup HTML."; return 1; }
 
-  if [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
+  # Copy icons and rewrite manifest paths for the current environment.
+  # Source icons live in icons/<env>/ subdirectories; the dist manifest
+  # references icons/<env>/icon*.png so Chrome picks the right set.
+  ICON_SRC="$SCRIPT_DIR/icons/$VELLUM_ENV"
+  if [ -d "$ICON_SRC" ] && [ "$(ls -A "$ICON_SRC" 2>/dev/null)" ]; then
+    mkdir -p "$DIST_DIR/icons/$VELLUM_ENV"
+    cp "$ICON_SRC/"* "$DIST_DIR/icons/$VELLUM_ENV/"
+    jq --arg e "$VELLUM_ENV" \
+      '.icons = { "16": "icons/\($e)/icon16.png", "48": "icons/\($e)/icon48.png", "128": "icons/\($e)/icon128.png" }' \
+      "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+      && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+    echo "  Icons: $VELLUM_ENV"
+  elif [ -d "$SCRIPT_DIR/icons" ] && [ "$(ls -A "$SCRIPT_DIR/icons" 2>/dev/null)" ]; then
     cp -r "$SCRIPT_DIR/icons/." "$DIST_DIR/icons/"
   else
     echo "  (No icons found — creating placeholder icon files)"

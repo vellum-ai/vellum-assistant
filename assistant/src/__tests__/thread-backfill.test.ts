@@ -228,8 +228,6 @@ interface PersistedRow {
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
-  backfillReason: string | undefined;
-  backfillOmittedMiddle: boolean | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
 }
 
@@ -243,8 +241,6 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
-      backfillReason: undefined,
-      backfillOmittedMiddle: undefined,
       slackFiles: undefined,
     };
     if (!row.metadata) {
@@ -279,8 +275,6 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
-      backfillReason: slackMeta?.backfillReason,
-      backfillOmittedMiddle: slackMeta?.backfillOmittedMiddle,
       slackFiles: slackMeta?.slackFiles?.map((file) => ({
         name: file.name,
         ...(file.mimetype ? { mimetype: file.mimetype } : {}),
@@ -366,7 +360,6 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(byChannelTs.get("1234.0")?.content).toBe("parent");
     expect(byChannelTs.get("1234.0")?.displayName).toBe("Parent User");
     expect(byChannelTs.get("1234.0")?.threadTs).toBeUndefined();
-    expect(byChannelTs.get("1234.0")?.backfillReason).toBe("thread_late_join");
 
     expect(byChannelTs.get("1234.1")?.content).toBe("first reply");
     expect(byChannelTs.get("1234.1")?.threadTs).toBe("1234.0");
@@ -462,10 +455,204 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(
       persisted.filter((p) => p.channelTs === ts(499960)).map((p) => p.content),
     ).toEqual(["recent 499960"]);
-    expect(persisted.some((p) => p.backfillOmittedMiddle === true)).toBe(true);
     expect(
       persisted.find((p) => p.channelTs === ts(499999))?.slackFiles,
     ).toEqual([{ name: "requirements.txt", mimetype: "text/plain" }]);
+  });
+
+  test("high-throughput initial backfill keeps shrinking after a truncated probe and persists newest pre-mention rows", async () => {
+    const conv = createTestConversation();
+    const ts = (seconds: number, micros = 0) =>
+      `${seconds}.${String(micros).padStart(6, "0")}`;
+    const threadTs = ts(1700000000);
+    const inboundTs = ts(1700001000);
+    const fiveMinuteAfter = ts(1700000700);
+    const sixtySecondAfter = ts(1700000940);
+    const tenSecondAfter = ts(1700000990);
+    const newestPreMention = [
+      makeBackfillMessage({
+        id: ts(1700000997, 100000),
+        text: "newest context 1",
+        threadId: threadTs,
+      }),
+      makeBackfillMessage({
+        id: ts(1700000998, 200000),
+        text: "newest context 2",
+        threadId: threadTs,
+      }),
+      makeBackfillMessage({
+        id: ts(1700000999, 300000),
+        text: "newest context 3",
+        threadId: threadTs,
+      }),
+    ];
+
+    backfillThreadPageMock.mockImplementation(
+      async (_channel, _thread, opts) => {
+        if (opts?.limit === 25 && opts.before === undefined) {
+          return {
+            messages: [
+              makeBackfillMessage({
+                id: threadTs,
+                text: "thread parent",
+                threadId: undefined,
+              }),
+            ],
+            hasMore: true,
+          };
+        }
+
+        if (opts?.limit === 50 && opts.before === inboundTs) {
+          if (
+            opts.after === fiveMinuteAfter ||
+            opts.after === sixtySecondAfter
+          ) {
+            return {
+              messages: Array.from({ length: 50 }, (_, i) =>
+                makeBackfillMessage({
+                  id: ts(1700000940 + i, i),
+                  text: `truncated high-throughput ${i}`,
+                  threadId: threadTs,
+                }),
+              ),
+              hasMore: true,
+              nextCursor: "still-truncated",
+            };
+          }
+
+          if (opts.after === tenSecondAfter) {
+            return { messages: newestPreMention, hasMore: false };
+          }
+        }
+
+        return { messages: [], hasMore: false };
+      },
+    );
+
+    const pageCallOffset = backfillThreadPageMock.mock.calls.length;
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs,
+      excludeChannelTs: inboundTs,
+    });
+
+    const afterAttempts = backfillThreadPageMock.mock.calls
+      .slice(pageCallOffset)
+      .map((call) => call[2]?.after)
+      .filter((after): after is string => after !== undefined);
+    expect(afterAttempts).toContain(sixtySecondAfter);
+    expect(afterAttempts).toContain(tenSecondAfter);
+    expect(afterAttempts.indexOf(tenSecondAfter)).toBeGreaterThan(
+      afterAttempts.indexOf(sixtySecondAfter),
+    );
+
+    expect(result.reason).toBe("thread_late_join");
+    expect(result.omittedMiddle).toBe(true);
+
+    const persisted = readPersistedSlackRows(conv.id);
+    expect(
+      persisted.filter((p) => p.threadTs === threadTs).map((p) => p.content),
+    ).toEqual(["newest context 1", "newest context 2", "newest context 3"]);
+    expect(
+      persisted.some((p) => p.content.startsWith("truncated high-throughput")),
+    ).toBe(false);
+    expect(persisted.find((p) => p.channelTs === inboundTs)).toBeUndefined();
+  });
+
+  test("high-throughput initial backfill still runs near-upper fallback after shrinking attempts are exhausted", async () => {
+    const conv = createTestConversation();
+    const ts = (seconds: number, micros = 0) =>
+      `${seconds}.${String(micros).padStart(6, "0")}`;
+    const threadTs = ts(1700000000);
+    const inboundTs = ts(1700001000);
+    const fiveMinuteAfter = ts(1700000700);
+    const sixtySecondAfter = ts(1700000940);
+    const tenSecondAfter = ts(1700000990);
+    const oneSecondAfter = ts(1700000999);
+    const hundredMillisecondAfter = ts(1700000999, 900000);
+    const nearUpperFallbackAfter = ts(1700000999, 999998);
+
+    backfillThreadPageMock.mockImplementation(
+      async (_channel, _thread, opts) => {
+        if (opts?.limit === 25 && opts.before === undefined) {
+          return {
+            messages: [
+              makeBackfillMessage({
+                id: threadTs,
+                text: "thread parent",
+                threadId: undefined,
+              }),
+            ],
+            hasMore: true,
+          };
+        }
+
+        if (opts?.limit === 50 && opts.before === inboundTs) {
+          if (opts.after === nearUpperFallbackAfter) {
+            return {
+              messages: [
+                makeBackfillMessage({
+                  id: ts(1700000999, 999999),
+                  text: "newest context after exhausted probes",
+                  threadId: threadTs,
+                }),
+              ],
+              hasMore: false,
+            };
+          }
+
+          return {
+            messages: Array.from({ length: 50 }, (_, i) =>
+              makeBackfillMessage({
+                id: ts(1700000999, 900000 + i),
+                text: `truncated exhausted probe ${i}`,
+                threadId: threadTs,
+              }),
+            ),
+            hasMore: true,
+            nextCursor: "still-truncated",
+          };
+        }
+
+        return { messages: [], hasMore: false };
+      },
+    );
+
+    const exhaustedPageCallOffset = backfillThreadPageMock.mock.calls.length;
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs,
+      excludeChannelTs: inboundTs,
+    });
+
+    const afterAttempts = backfillThreadPageMock.mock.calls
+      .slice(exhaustedPageCallOffset)
+      .map((call) => call[2]?.after)
+      .filter((after): after is string => after !== undefined);
+    expect(afterAttempts).toEqual([
+      fiveMinuteAfter,
+      sixtySecondAfter,
+      tenSecondAfter,
+      oneSecondAfter,
+      hundredMillisecondAfter,
+      nearUpperFallbackAfter,
+    ]);
+
+    expect(result.reason).toBe("thread_late_join");
+    expect(result.omittedMiddle).toBe(true);
+
+    const persisted = readPersistedSlackRows(conv.id);
+    expect(
+      persisted.find((p) => p.channelTs === ts(1700000999, 999999))?.content,
+    ).toBe("newest context after exhausted probes");
+    expect(
+      persisted.some((p) => p.content.startsWith("truncated exhausted probe")),
+    ).toBe(false);
+    expect(persisted.find((p) => p.channelTs === inboundTs)).toBeUndefined();
   });
 
   test("backfill is NOT triggered when the parent is already persisted and no upper-bound gap is known", async () => {

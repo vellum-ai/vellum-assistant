@@ -1,5 +1,9 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  resolveUsageAttribution,
+  sanitizeUsageMetadataValue,
+} from "../usage/attribution.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -23,6 +27,14 @@ import {
 } from "./types.js";
 
 const log = getLogger("retry");
+
+const USAGE_ATTRIBUTION_HEADER_NAMES = {
+  callSite: "X-Vellum-LLM-Call-Site",
+  inferenceProfile: "X-Vellum-Inference-Profile",
+  inferenceProfileSource: "X-Vellum-Inference-Profile-Source",
+  resolvedProvider: "X-Vellum-Resolved-Provider",
+  resolvedModel: "X-Vellum-Resolved-Model",
+} as const;
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
@@ -118,11 +130,17 @@ function isRetryableError(error: unknown): boolean {
 function normalizeSendMessageOptions(
   providerName: string,
   options?: SendMessageOptions,
+  normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
   if (!config) return options;
 
   const nextConfig: Record<string, unknown> = { ...config };
+
+  // Internal metadata must be derived here, not accepted from callers, and it
+  // must never leak into provider JSON request bodies.
+  delete nextConfig.usageAttributionHeaders;
+  delete nextConfig.usageTracking;
 
   // `overrideProfile` is a routing/resolution-time concern (consumed by the
   // resolver below and `CallSiteRoutingProvider`'s provider selection); it is
@@ -134,6 +152,10 @@ function normalizeSendMessageOptions(
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
       overrideProfile: config.overrideProfile,
     });
+    const attribution = resolveUsageAttribution({
+      callSite: config.callSite,
+      overrideProfile: config.overrideProfile,
+    });
 
     const explicitModel =
       typeof config.model === "string" && config.model.trim().length > 0
@@ -143,6 +165,18 @@ function normalizeSendMessageOptions(
     // Routing key is consumed by the resolver above and must not leak
     // downstream as a wire-format field.
     delete nextConfig.callSite;
+    if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      const usageAttributionHeaders = buildUsageAttributionHeaders({
+        callSite: attribution.callSite,
+        appliedProfile: attribution.appliedProfile,
+        profileSource: attribution.profileSource,
+        resolvedProvider: attribution.resolvedProvider,
+        resolvedModel: attribution.resolvedModel,
+      });
+      if (Object.keys(usageAttributionHeaders).length > 0) {
+        nextConfig.usageAttributionHeaders = usageAttributionHeaders;
+      }
+    }
 
     // Apply resolved values, letting per-call explicit fields win where set.
     nextConfig.model = explicitModel ?? resolved.model;
@@ -274,6 +308,55 @@ function normalizeSendMessageOptions(
   };
 }
 
+function buildUsageAttributionHeaders(input: {
+  callSite: string | null;
+  appliedProfile: string | null;
+  profileSource: string;
+  resolvedProvider: string;
+  resolvedModel: string;
+}): Record<string, string> {
+  const headers: Record<string, string> = {};
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.callSite,
+    input.callSite,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfile,
+    input.appliedProfile,
+  );
+  if (input.appliedProfile) {
+    addSanitizedHeader(
+      headers,
+      USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfileSource,
+      input.profileSource,
+    );
+  }
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedProvider,
+    input.resolvedProvider,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedModel,
+    input.resolvedModel,
+  );
+  return headers;
+}
+
+function addSanitizedHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: unknown,
+): void {
+  const sanitized = sanitizeUsageMetadataValue(value);
+  if (sanitized != null) {
+    headers[name] = sanitized;
+  }
+}
+
 /**
  * `RetryProvider` sets `retriesExhausted = true` on the final thrown error
  * when the retry loop burned through all attempts against a retryable error
@@ -289,7 +372,10 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
-  constructor(private readonly inner: Provider) {
+  constructor(
+    private readonly inner: Provider,
+    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+  ) {
     this.name = inner.name;
   }
 
@@ -302,7 +388,10 @@ export class RetryProvider implements Provider {
     let lastError: unknown;
     let didRetry = false;
 
-    const normalizedOptions = normalizeSendMessageOptions(this.name, options);
+    const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
+      forwardUsageAttributionHeaders:
+        this.options.forwardUsageAttributionHeaders === true,
+    });
 
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {

@@ -5,6 +5,8 @@ import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
   getUsageTotals,
+  type GroupByDimension,
+  USAGE_GROUP_BY_DIMENSIONS,
   type UsageDayBucket,
   type UsageGroupBreakdown,
   type UsageTotals,
@@ -126,7 +128,12 @@ function printBreakdownTable(
     return;
   }
 
-  const groupLabel = groupBy.toUpperCase();
+  const groupLabel =
+    groupBy === "call_site"
+      ? "TASK"
+      : groupBy === "inference_profile"
+        ? "PROFILE"
+        : groupBy.toUpperCase();
   const groupW = Math.max(
     groupLabel.length,
     ...entries.map((e) => e.group.length),
@@ -267,31 +274,38 @@ Examples:
 
   usage
     .command("breakdown")
-    .description("Grouped breakdown by actor, provider, model, or conversation")
+    .description(
+      "Grouped breakdown by task, profile, provider, model, or conversation",
+    )
     .option(...rangeOption)
     .option(...fromOption)
     .option(...toOption)
     .option(...jsonOption)
     .option(
       "-g, --group-by <dimension>",
-      "Grouping dimension: actor, provider, model, conversation",
+      "Grouping dimension: call_site, inference_profile, provider, model, conversation, actor",
       "model",
     )
     .addHelpText(
       "after",
       `
 Grouping dimensions:
-  actor          Groups by the subsystem that made the call (main_agent,
-                 title_generator, etc.)
-  provider       Groups by LLM provider (anthropic, openai, etc.)
-  model          Groups by model name (claude-sonnet-4-20250514, etc.)
-  conversation   Groups by conversation ID
+  call_site          Groups by user-facing task (Main agent, Memory extraction,
+                     Conversation title, etc.)
+  inference_profile  Groups by inference profile; unset historical rows are
+                     shown as Default / Unset
+  provider           Groups by LLM provider (anthropic, openai, etc.)
+  model              Groups by model name (claude-sonnet-4-20250514, etc.)
+  conversation       Groups by conversation ID
+  actor              Legacy/internal subsystem grouping (main_agent, etc.)
 
 Shows one row per group with input/output tokens, estimated cost, and
 call count. Rows are sorted by cost descending.
 
 Examples:
   $ assistant usage breakdown
+  $ assistant usage breakdown --group-by call_site
+  $ assistant usage breakdown --group-by inference_profile
   $ assistant usage breakdown --group-by provider
   $ assistant usage breakdown --group-by actor --range week`,
     )
@@ -303,15 +317,10 @@ Examples:
         json?: boolean;
         groupBy: string;
       }) => {
-        const validDimensions = new Set([
-          "actor",
-          "provider",
-          "model",
-          "conversation",
-        ]);
+        const validDimensions = new Set<string>(USAGE_GROUP_BY_DIMENSIONS);
         if (!validDimensions.has(opts.groupBy)) {
           log.error(
-            `Invalid --group-by value: '${opts.groupBy}'. Must be one of: actor, provider, model, conversation`,
+            `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${USAGE_GROUP_BY_DIMENSIONS.join(", ")}`,
           );
           process.exit(1);
         }
@@ -319,7 +328,7 @@ Examples:
         const { from, to } = resolveRange(opts);
         const breakdown = getUsageGroupBreakdown(
           { from, to },
-          opts.groupBy as "actor" | "provider" | "model" | "conversation",
+          opts.groupBy as GroupByDimension,
         );
         if (opts.json) {
           log.info(JSON.stringify({ breakdown }, null, 2));

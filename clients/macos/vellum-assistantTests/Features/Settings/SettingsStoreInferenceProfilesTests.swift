@@ -384,7 +384,7 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
                 "callSites": [
                     "memoryRetrieval": ["profile": "fast"],
                     "mainAgent": ["profile": "fast"],
-                    "watchSummary": ["provider": "openai"],
+                    "trustRuleSuggestion": ["provider": "openai"],
                 ]
             ]
         ])

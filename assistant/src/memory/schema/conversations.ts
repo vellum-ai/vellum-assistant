@@ -78,6 +78,7 @@ export const toolInvocations = sqliteTable(
     result: text("result").notNull(),
     decision: text("decision").notNull(),
     riskLevel: text("risk_level").notNull(),
+    matchedTrustRuleId: text("matched_trust_rule_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
   },

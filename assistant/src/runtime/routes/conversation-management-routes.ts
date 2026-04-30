@@ -28,7 +28,6 @@ import {
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
@@ -382,24 +381,8 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
 
 async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   const conversationId = pathParams.id!;
-  const resolvedId = resolveConversationId(conversationId) ?? conversationId;
-  let hubChain: Promise<void> = Promise.resolve();
-  const sendEvent = (event: ServerMessage) => {
-    const ae = buildAssistantEvent(event, resolvedId);
-    hubChain = (async () => {
-      await hubChain;
-      try {
-        await assistantEventHub.publish(ae);
-      } catch (err) {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during regenerate",
-        );
-      }
-    })();
-  };
   try {
-    const result = await regenerateResponse(conversationId, sendEvent);
+    const result = await regenerateResponse(conversationId);
     if (!result) {
       throw new NotFoundError(`No active conversation for ${pathParams.id}`);
     }
