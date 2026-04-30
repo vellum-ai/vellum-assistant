@@ -214,11 +214,11 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("anthropic");
 
-      // Unwrap RetryProvider → AnthropicProvider to inspect the Anthropic
-      // SDK client's baseURL. RetryProvider stores the inner provider as
-      // private `inner` and AnthropicProvider stores the SDK client as
-      // private `client`.
-      const retryInner = (provider as any).inner;
+      // Unwrap UsageTrackingProvider → RetryProvider → AnthropicProvider to
+      // inspect the Anthropic SDK client's baseURL. The wrappers store their
+      // inner providers as private `inner` fields.
+      const retryProvider = (provider as any).inner;
+      const retryInner = (retryProvider as any).inner;
       const anthropicClient = (retryInner as any).client;
 
       expect(anthropicClient).toBeDefined();
@@ -233,9 +233,10 @@ describe("managed proxy integration — credential precedence", () => {
 
       const provider = getProvider("openai");
 
-      // Unwrap RetryProvider → OpenAIResponsesProvider to inspect the OpenAI
-      // SDK client's baseURL.
-      const retryInner = (provider as any).inner;
+      // Unwrap UsageTrackingProvider → RetryProvider → OpenAIResponsesProvider
+      // to inspect the OpenAI SDK client's baseURL.
+      const retryProvider = (provider as any).inner;
+      const retryInner = (retryProvider as any).inner;
       const openaiClient = (retryInner as any).client;
 
       expect(openaiClient).toBeDefined();
@@ -271,7 +272,9 @@ describe("managed proxy integration — credential precedence", () => {
           mainAgent: {},
         },
       }) as Record<string, unknown>;
-      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+      await initializeProviders(
+        makeProvidersConfig("gemini", "gemini-3.1-pro"),
+      );
 
       const provider = getProvider("gemini");
       const response = await provider.sendMessage(
@@ -318,7 +321,9 @@ describe("managed proxy integration — credential precedence", () => {
       mockLlmConfig = LLMSchema.parse({
         default: { provider: "gemini", model: "gemini-3.1-pro" },
       }) as Record<string, unknown>;
-      await initializeProviders(makeProvidersConfig("gemini", "gemini-3.1-pro"));
+      await initializeProviders(
+        makeProvidersConfig("gemini", "gemini-3.1-pro"),
+      );
 
       const provider = getProvider("gemini");
       await provider.sendMessage(
