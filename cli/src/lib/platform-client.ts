@@ -815,8 +815,7 @@ export function parseUnifiedJobStatus(
  *   runtime can GET the bundle from during an import-from-GCS flow.
  *
  * Retries once with a fresh org-ID cache on 401 to match the retry pattern
- * used by other authenticated platform helpers. 503 is bubbled up so
- * callers can decide to fall back (e.g. legacy inline upload).
+ * used by other authenticated platform helpers.
  */
 export async function platformRequestSignedUrl(
   params: {
@@ -872,12 +871,6 @@ export async function platformRequestSignedUrl(
       expiresAt: json.expires_at,
       maxContentLength: json.max_content_length,
     };
-  }
-
-  if (response.status === 503) {
-    throw new Error(
-      `Signed URL endpoint unavailable (503) — caller may fall back`,
-    );
   }
 
   const errorBody = (await response.json().catch(() => ({}))) as {
