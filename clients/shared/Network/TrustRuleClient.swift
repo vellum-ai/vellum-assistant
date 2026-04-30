@@ -81,7 +81,8 @@ public protocol TrustRuleClientProtocol {
         riskAssessment: (risk: String, reasoning: String, reasonDescription: String),
         scopeOptions: [(pattern: String, label: String)],
         directoryScopeOptions: [(scope: String, label: String)],
-        intent: String
+        intent: String,
+        existingRule: (id: String, pattern: String, risk: String)?
     ) async throws -> TrustRuleSuggestion
 }
 

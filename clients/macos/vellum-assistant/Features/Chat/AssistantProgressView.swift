@@ -966,8 +966,9 @@ struct ToolCallStepDetailRow: View {
                 suggestion: ruleEditorSuggestion,
                 existingRule: ruleEditorExistingRule,
                 onSave: { rule in
+                    let existingRule = ruleEditorExistingRule
                     Task {
-                        if let existingRule = ruleEditorExistingRule {
+                        if let existingRule {
                             try? await Self.trustRuleClient.updateRule(
                                 id: existingRule.id,
                                 risk: rule.riskLevel,
@@ -1153,18 +1154,16 @@ struct ToolCallStepDetailRow: View {
 
     @MainActor
     private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
-        async let suggestionTask = fetchSuggestionForEditor(toolCall)
-        async let existingRuleTask = fetchMatchedRule(toolCall)
-
-        let suggestion = try? await suggestionTask
-        let existingRule = try? await existingRuleTask
+        // Fetch existing rule first so it can be passed as context to suggestRule.
+        let existingRule = try? await fetchMatchedRule(toolCall)
+        let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule)
 
         ruleEditorSuggestion = suggestion
         ruleEditorExistingRule = existingRule
         ruleEditorToolCall = toolCall
     }
 
-    private func fetchSuggestionForEditor(_ toolCall: ToolCallData) async throws -> TrustRuleSuggestion {
+    private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {
         let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
             (pattern: $0.pattern, label: $0.label)
         }
@@ -1186,7 +1185,8 @@ struct ToolCallStepDetailRow: View {
             ),
             scopeOptions: scopeOpts,
             directoryScopeOptions: dirScopeOpts,
-            intent: "auto_approve"
+            intent: "auto_approve",
+            existingRule: existingRule.map { (id: $0.id, pattern: $0.pattern, risk: $0.risk) }
         )
     }
 
