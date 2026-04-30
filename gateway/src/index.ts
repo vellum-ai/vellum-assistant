@@ -124,6 +124,7 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
+import { logAuthBypassState } from "./http/middleware/auth.js";
 import {
   resolveWebviewOrigin,
   handlePreflight,
@@ -1530,6 +1531,7 @@ async function main() {
   });
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+  logAuthBypassState();
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();

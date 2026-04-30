@@ -26,30 +26,12 @@ describe("hasNoAuthOverride", () => {
     expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "false" })).toBe(false);
   });
 
-  test("returns true when VELLUM_DAEMON_NOAUTH is 1 with safety gate", () => {
-    expect(
-      hasNoAuthOverride({
-        VELLUM_DAEMON_NOAUTH: "1",
-        VELLUM_UNSAFE_AUTH_BYPASS: "1",
-      }),
-    ).toBe(true);
+  test("returns true when VELLUM_DAEMON_NOAUTH is 1", () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "1" })).toBe(true);
   });
 
-  test("returns false when VELLUM_DAEMON_NOAUTH is 1 without safety gate", () => {
-    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "1" })).toBe(false);
-  });
-
-  test("returns true when VELLUM_DAEMON_NOAUTH is true with safety gate", () => {
-    expect(
-      hasNoAuthOverride({
-        VELLUM_DAEMON_NOAUTH: "true",
-        VELLUM_UNSAFE_AUTH_BYPASS: "1",
-      }),
-    ).toBe(true);
-  });
-
-  test("returns false when VELLUM_DAEMON_NOAUTH is true without safety gate", () => {
-    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "true" })).toBe(false);
+  test("returns true when VELLUM_DAEMON_NOAUTH is true", () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "true" })).toBe(true);
   });
 });
 

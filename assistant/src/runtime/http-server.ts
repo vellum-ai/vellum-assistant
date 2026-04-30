@@ -25,10 +25,8 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import {
-  hasUngatedHttpAuthDisabled,
-  isHttpAuthDisabled,
-} from "../config/env.js";
+import { isHttpAuthDisabled } from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
@@ -620,14 +618,16 @@ export class RuntimeHttpServer {
       );
     }
 
-    if (hasUngatedHttpAuthDisabled()) {
-      log.warn(
-        "DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
-      );
-    } else if (isHttpAuthDisabled()) {
-      log.warn(
-        "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.",
-      );
+    if (isHttpAuthDisabled()) {
+      if (getIsPlatform()) {
+        log.info(
+          "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
+        );
+      } else {
+        log.warn(
+          "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token.",
+        );
+      }
     }
 
     log.info(
