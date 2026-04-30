@@ -60,6 +60,30 @@ const screenMain = document.getElementById('screen-main') as HTMLDivElement;
 const screenActivity = document.getElementById('screen-activity') as HTMLDivElement;
 const screenDetail = document.getElementById('screen-detail') as HTMLDivElement;
 
+// ── Manifest-driven branding ────────────────────────────────────────
+// Read the extension name and icon paths from the manifest so the popup
+// automatically reflects the current environment without hardcoding.
+
+const manifest = chrome.runtime.getManifest();
+const manifestIcons = manifest.icons as Record<string, string> | undefined;
+const icon48Url = manifestIcons?.['48'] ?? '';
+const icon128Url = manifestIcons?.['128'] ?? '';
+const extensionName = typeof manifest.name === 'string' ? manifest.name : 'Vellum Assistant';
+
+// Welcome logo
+const welcomeLogo = document.querySelector<HTMLImageElement>('.welcome-logo');
+if (welcomeLogo && icon128Url) welcomeLogo.src = icon128Url;
+
+// Welcome title
+const welcomeTitle = document.querySelector<HTMLHeadingElement>('.welcome-title');
+if (welcomeTitle) welcomeTitle.textContent = extensionName;
+
+// All 48px env icons (assistant avatar, etc.)
+const envIcons = document.querySelectorAll<HTMLImageElement>('.env-icon-48');
+for (let i = 0; i < envIcons.length; i++) {
+  if (icon48Url) envIcons[i]!.src = icon48Url;
+}
+
 type ScreenId = 'welcome' | 'picker' | 'main' | 'activity' | 'detail';
 
 function showScreen(id: ScreenId): void {
@@ -633,7 +657,7 @@ function renderAssistantList(
     row.className = 'assistant-row';
     row.innerHTML = `
       <div class="assistant-row-icon">
-        <img src="../icons/production/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
+        <img src="${escapeHtml(icon48Url)}" alt="" width="16" height="16" style="border-radius:3px;" />
       </div>
       <span class="assistant-row-name">${escapeHtml(a.name)}</span>
       <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
