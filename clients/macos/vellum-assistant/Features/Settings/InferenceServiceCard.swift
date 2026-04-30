@@ -154,6 +154,11 @@ struct InferenceServiceCard: View {
                         if profilesEnabled {
                             activeProfilePicker
                             secondaryActionsRow
+                            ServiceCardActions(
+                                hasChanges: hasChanges,
+                                isSaving: false,
+                                onSave: { save() }
+                            )
                         } else {
                             managedProviderPicker
                             ServiceCardActions(
@@ -173,8 +178,18 @@ struct InferenceServiceCard: View {
                         apiKeysSection
                         activeProfilePicker
                         secondaryActionsRow
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: false,
+                            onSave: { save() }
+                        )
                     } else if profilesEnabled {
                         apiKeysEmptyState
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: false,
+                            onSave: { save() }
+                        )
                     } else {
                         providerPicker
                         apiKeyField
