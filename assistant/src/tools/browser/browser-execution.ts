@@ -844,18 +844,9 @@ export async function executeBrowserNavigate(
 
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await getPageTitle(cdp, context.signal);
-    // HTTP status is not available on the CDP path: `Page.navigate`
-    // resolves the frame id and (on failure) an error text, but does
-    // not carry the response status code. Both the local and extension
-    // paths therefore print "unknown" here. A future phase may subscribe
-    // to `Network.responseReceived` events during the navigation window
-    // if the status is needed again.
-    const status: number | null = null;
-
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
       `Final URL: ${safeFinalUrl}`,
-      `Status: ${status ?? "unknown"}`,
       `Title: ${title || "(none)"}`,
     ];
 
