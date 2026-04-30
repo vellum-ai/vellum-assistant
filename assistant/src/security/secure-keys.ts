@@ -28,7 +28,6 @@ import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
-import { credentialKey } from "./credential-key.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type {
@@ -37,6 +36,7 @@ import type {
   DeleteResult,
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
+import { credentialKey } from "./credential-key.js";
 
 export type {
   CredentialListResult,
