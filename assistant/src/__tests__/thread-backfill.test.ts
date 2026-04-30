@@ -537,6 +537,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       },
     );
 
+    const pageCallOffset = backfillThreadPageMock.mock.calls.length;
+
     const result = await triggerSlackThreadBackfillIfNeeded({
       conversationId: conv.id,
       channelId: SLACK_CHANNEL_ID,
@@ -545,6 +547,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     });
 
     const afterAttempts = backfillThreadPageMock.mock.calls
+      .slice(pageCallOffset)
       .map((call) => call[2]?.after)
       .filter((after): after is string => after !== undefined);
     expect(afterAttempts).toContain(sixtySecondAfter);
@@ -562,6 +565,100 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     ).toEqual(["newest context 1", "newest context 2", "newest context 3"]);
     expect(
       persisted.some((p) => p.content.startsWith("truncated high-throughput")),
+    ).toBe(false);
+    expect(persisted.find((p) => p.channelTs === inboundTs)).toBeUndefined();
+  });
+
+  test("high-throughput initial backfill still runs near-upper fallback after shrinking attempts are exhausted", async () => {
+    const conv = createTestConversation();
+    const ts = (seconds: number, micros = 0) =>
+      `${seconds}.${String(micros).padStart(6, "0")}`;
+    const threadTs = ts(1700000000);
+    const inboundTs = ts(1700001000);
+    const fiveMinuteAfter = ts(1700000700);
+    const sixtySecondAfter = ts(1700000940);
+    const tenSecondAfter = ts(1700000990);
+    const oneSecondAfter = ts(1700000999);
+    const hundredMillisecondAfter = ts(1700000999, 900000);
+    const nearUpperFallbackAfter = ts(1700000999, 999998);
+
+    backfillThreadPageMock.mockImplementation(
+      async (_channel, _thread, opts) => {
+        if (opts?.limit === 25 && opts.before === undefined) {
+          return {
+            messages: [
+              makeBackfillMessage({
+                id: threadTs,
+                text: "thread parent",
+                threadId: undefined,
+              }),
+            ],
+            hasMore: true,
+          };
+        }
+
+        if (opts?.limit === 50 && opts.before === inboundTs) {
+          if (opts.after === nearUpperFallbackAfter) {
+            return {
+              messages: [
+                makeBackfillMessage({
+                  id: ts(1700000999, 999999),
+                  text: "newest context after exhausted probes",
+                  threadId: threadTs,
+                }),
+              ],
+              hasMore: false,
+            };
+          }
+
+          return {
+            messages: Array.from({ length: 50 }, (_, i) =>
+              makeBackfillMessage({
+                id: ts(1700000999, 900000 + i),
+                text: `truncated exhausted probe ${i}`,
+                threadId: threadTs,
+              }),
+            ),
+            hasMore: true,
+            nextCursor: "still-truncated",
+          };
+        }
+
+        return { messages: [], hasMore: false };
+      },
+    );
+
+    const exhaustedPageCallOffset = backfillThreadPageMock.mock.calls.length;
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs,
+      excludeChannelTs: inboundTs,
+    });
+
+    const afterAttempts = backfillThreadPageMock.mock.calls
+      .slice(exhaustedPageCallOffset)
+      .map((call) => call[2]?.after)
+      .filter((after): after is string => after !== undefined);
+    expect(afterAttempts).toEqual([
+      fiveMinuteAfter,
+      sixtySecondAfter,
+      tenSecondAfter,
+      oneSecondAfter,
+      hundredMillisecondAfter,
+      nearUpperFallbackAfter,
+    ]);
+
+    expect(result.reason).toBe("thread_late_join");
+    expect(result.omittedMiddle).toBe(true);
+
+    const persisted = readPersistedSlackRows(conv.id);
+    expect(
+      persisted.find((p) => p.channelTs === ts(1700000999, 999999))?.content,
+    ).toBe("newest context after exhausted probes");
+    expect(
+      persisted.some((p) => p.content.startsWith("truncated exhausted probe")),
     ).toBe(false);
     expect(persisted.find((p) => p.channelTs === inboundTs)).toBeUndefined();
   });

@@ -1825,7 +1825,7 @@ async function fetchSlackThreadUpperAdjacentWindow(params: {
     }
   }
 
-  if (!safePage && attempts < maxAttempts) {
+  if (!safePage) {
     const after = slackTimestampFromMicros(upperMicros - 2n);
     const page = await backfillThreadWindowPage(
       params.channelId,
