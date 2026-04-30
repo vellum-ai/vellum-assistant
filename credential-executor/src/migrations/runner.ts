@@ -104,7 +104,7 @@ export async function runCesMigrations(
   }
 
   for (const migration of migrations) {
-    if (checkpoints.applied[migration.id]?.status === "completed") {
+    if (checkpoints.applied[migration.id]) {
       continue;
     }
 
