@@ -472,6 +472,54 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/voice-verify": {
+        post: {
+          summary: "Twilio voice verification callback",
+          description:
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+          operationId: "twilioVoiceVerifyCallback",
+          security: [{ TwilioSignature: [] }],
+          parameters: [
+            {
+              name: "attempt",
+              in: "query",
+              required: false,
+              schema: { type: "integer", default: 0 },
+              description: "Zero-based attempt counter for retry tracking.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description:
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+              content: {
+                "text/xml": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "403": {
+              description: "Twilio signature validation failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/whatsapp": {
         get: {
           summary: "WhatsApp webhook verification",
