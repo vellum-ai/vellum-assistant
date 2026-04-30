@@ -14,13 +14,13 @@ import {
   getEmbedWorkerPidPath,
 } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
-import type {
-  EmbeddingBackend,
-  EmbeddingInput,
-  EmbeddingRequestOptions,
-} from "./embedding-backend.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
-import { normalizeEmbeddingInput } from "./embedding-types.js";
+import {
+  type EmbeddingBackend,
+  type EmbeddingInput,
+  type EmbeddingRequestOptions,
+  normalizeEmbeddingInput,
+} from "./embedding-types.js";
 
 const log = getLogger("memory-embedding-local");
 
