@@ -44,7 +44,6 @@ export const slackMessageMetadataSchema = z.object({
   backfillReason: z
     .enum(["thread_late_join", "thread_delta", "dm_cold_start"])
     .optional(),
-  backfillOmittedCount: z.number().optional(),
   backfillOmittedMiddle: z.boolean().optional(),
   slackFiles: z.array(slackFileMetadataSchema).optional(),
 });

@@ -119,6 +119,8 @@ export interface ConversationCreateOptions {
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
+  /** Slack-only non-persisted notice injected into the active model turn. */
+  slackRuntimeContextNotice?: string;
   memoryScopeId?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
@@ -508,7 +510,6 @@ export function requestSecretStandalone(params: {
   allowedTools?: string[];
   allowedDomains?: string[];
 }): Promise<SecretPromptResult> {
-
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {

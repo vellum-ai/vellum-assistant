@@ -45,7 +45,8 @@ import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   backfillDm,
-  backfillThreadWindow,
+  backfillThreadWindowPage,
+  type SlackBackfillWindowPage,
 } from "../../messaging/providers/slack/backfill.js";
 import {
   mergeSlackMetadata,
@@ -673,6 +674,7 @@ export async function handleChannelInbound({
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
+  let slackRuntimeContextNotice: string | undefined;
 
   // Inject channel-scoped permission hints for Slack channel messages
   if (sourceChannel === "slack") {
@@ -1055,7 +1057,7 @@ export async function handleChannelInbound({
           account: slackAccount,
         });
         const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
-        if (lateJoinNotice) metadataHints.push(lateJoinNotice);
+        if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
       }
 
       // Wrap non-guardian inbound content in external_content boundaries so
@@ -1083,6 +1085,7 @@ export async function handleChannelInbound({
         externalChatId: conversationExternalId,
         trustCtx,
         metadataHints,
+        slackRuntimeContextNotice,
         metadataUxBrief,
         commandIntent,
         sourceLanguageCode,
@@ -1611,6 +1614,7 @@ const BACKFILL_TRIGGER_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const BACKFILL_TRIGGER_CACHE_MAX = 1_000;
 const SLACK_THREAD_INITIAL_EARLY_LIMIT = 25;
 const SLACK_THREAD_INITIAL_RECENT_LIMIT = 50;
+const SLACK_THREAD_INITIAL_RECENT_MAX_PAGES = 5;
 const SLACK_THREAD_DELTA_LIMIT = 50;
 
 export interface SlackThreadBackfillResult {
@@ -1657,14 +1661,89 @@ function isBackfillRecentlyTriggered(cacheKey: string): boolean {
   return true;
 }
 
+interface SlackInitialThreadWindowsResult {
+  messages: ProviderMessage[];
+  omittedMiddle: boolean;
+}
+
+function slackPageHasMore(page: SlackBackfillWindowPage): boolean {
+  return page.hasMore || page.nextCursor !== undefined;
+}
+
+function minSlackMessageTs(messages: ProviderMessage[]): string | undefined {
+  return sortSlackProviderMessages(messages)[0]?.id;
+}
+
+function maxSlackMessageTs(messages: ProviderMessage[]): string | undefined {
+  const sorted = sortSlackProviderMessages(messages);
+  return sorted[sorted.length - 1]?.id;
+}
+
+function didInitialWindowsLeaveGap(params: {
+  early: SlackBackfillWindowPage;
+  recent: SlackBackfillWindowPage;
+  recentScanTruncated: boolean;
+}): boolean {
+  if (params.recentScanTruncated) return true;
+  if (!slackPageHasMore(params.early)) return false;
+  const earlyMax = maxSlackMessageTs(params.early.messages);
+  const recentMin = minSlackMessageTs(params.recent.messages);
+  if (!earlyMax || !recentMin) return false;
+  const compared = compareSlackTimestamps(earlyMax, recentMin);
+  return compared !== null && compared < 0;
+}
+
+async function fetchRecentSlackThreadWindow(params: {
+  channelId: string;
+  threadTs: string;
+  upperBoundTs: string;
+  account?: string;
+}): Promise<{
+  page: SlackBackfillWindowPage;
+  truncatedBeforeUpperBound: boolean;
+}> {
+  let cursor: string | undefined;
+  let lastPage: SlackBackfillWindowPage = { messages: [], hasMore: false };
+  let truncatedBeforeUpperBound = false;
+
+  for (
+    let pageIndex = 0;
+    pageIndex < SLACK_THREAD_INITIAL_RECENT_MAX_PAGES;
+    pageIndex++
+  ) {
+    const page = await backfillThreadWindowPage(
+      params.channelId,
+      params.threadTs,
+      {
+        limit: SLACK_THREAD_INITIAL_RECENT_LIMIT,
+        account: params.account,
+        before: params.upperBoundTs,
+        ...(cursor !== undefined ? { cursor } : {}),
+      },
+    );
+    if (page.messages.length > 0) {
+      lastPage = page;
+    }
+    if (!slackPageHasMore(page)) {
+      truncatedBeforeUpperBound = false;
+      break;
+    }
+    cursor = page.nextCursor;
+    truncatedBeforeUpperBound = true;
+    if (!cursor) break;
+  }
+
+  return { page: lastPage, truncatedBeforeUpperBound };
+}
+
 async function fetchInitialSlackThreadWindows(params: {
   channelId: string;
   threadTs: string;
   upperBoundTs?: string;
   account?: string;
-}): Promise<ProviderMessage[]> {
+}): Promise<SlackInitialThreadWindowsResult> {
   if (!params.upperBoundTs) {
-    const early = await backfillThreadWindow(
+    const early = await backfillThreadWindowPage(
       params.channelId,
       params.threadTs,
       {
@@ -1672,22 +1751,36 @@ async function fetchInitialSlackThreadWindows(params: {
         account: params.account,
       },
     );
-    return sortSlackProviderMessages(dedupeSlackProviderMessages(early));
+    return {
+      messages: sortSlackProviderMessages(
+        dedupeSlackProviderMessages(early.messages),
+      ),
+      omittedMiddle: slackPageHasMore(early),
+    };
   }
-  const [early, recent] = await Promise.all([
-    backfillThreadWindow(params.channelId, params.threadTs, {
+  const [early, recentResult] = await Promise.all([
+    backfillThreadWindowPage(params.channelId, params.threadTs, {
       limit: SLACK_THREAD_INITIAL_EARLY_LIMIT,
       account: params.account,
     }),
-    backfillThreadWindow(params.channelId, params.threadTs, {
-      limit: SLACK_THREAD_INITIAL_RECENT_LIMIT,
+    fetchRecentSlackThreadWindow({
+      channelId: params.channelId,
+      threadTs: params.threadTs,
       account: params.account,
-      before: params.upperBoundTs,
+      upperBoundTs: params.upperBoundTs,
     }),
   ]);
-  return sortSlackProviderMessages(
-    dedupeSlackProviderMessages([...early, ...recent]),
-  );
+  const recent = recentResult.page;
+  return {
+    messages: sortSlackProviderMessages(
+      dedupeSlackProviderMessages([...early.messages, ...recent.messages]),
+    ),
+    omittedMiddle: didInitialWindowsLeaveGap({
+      early,
+      recent,
+      recentScanTruncated: recentResult.truncatedBeforeUpperBound,
+    }),
+  };
 }
 
 function dedupeSlackProviderMessages(
@@ -1709,16 +1802,6 @@ function sortSlackProviderMessages(
     if (compared !== null) return compared;
     return left.id.localeCompare(right.id);
   });
-}
-
-function didSlackThreadBackfillOmitMiddle(params: {
-  fetched: ProviderMessage[];
-  isInitialLateJoin: boolean;
-}): boolean {
-  if (params.isInitialLateJoin) {
-    return params.fetched.length > SLACK_THREAD_INITIAL_RECENT_LIMIT;
-  }
-  return params.fetched.length >= SLACK_THREAD_DELTA_LIMIT;
 }
 
 function buildSlackLateJoinNotice(
@@ -1822,19 +1905,27 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     const reason: SlackMessageMetadata["backfillReason"] = isInitialLateJoin
       ? "thread_late_join"
       : "thread_delta";
-    const fetched = isInitialLateJoin
-      ? await fetchInitialSlackThreadWindows({
-          channelId,
-          threadTs,
-          upperBoundTs,
-          account,
-        })
-      : await backfillThreadWindow(channelId, threadTs, {
-          limit: SLACK_THREAD_DELTA_LIMIT,
-          account,
-          ...(lowerBoundTs !== undefined ? { after: lowerBoundTs } : {}),
-          ...(upperBoundTs !== undefined ? { before: upperBoundTs } : {}),
-        });
+    let omittedMiddle = false;
+    let fetched: ProviderMessage[];
+    if (isInitialLateJoin) {
+      const initial = await fetchInitialSlackThreadWindows({
+        channelId,
+        threadTs,
+        upperBoundTs,
+        account,
+      });
+      fetched = initial.messages;
+      omittedMiddle = initial.omittedMiddle;
+    } else {
+      const page = await backfillThreadWindowPage(channelId, threadTs, {
+        limit: SLACK_THREAD_DELTA_LIMIT,
+        account,
+        ...(lowerBoundTs !== undefined ? { after: lowerBoundTs } : {}),
+        ...(upperBoundTs !== undefined ? { before: upperBoundTs } : {}),
+      });
+      fetched = page.messages;
+      omittedMiddle = slackPageHasMore(page);
+    }
     if (fetched.length === 0) {
       log.debug(
         { conversationId, channelId, threadTs },
@@ -1843,10 +1934,6 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
       return emptySlackThreadBackfillResult();
     }
 
-    const omittedMiddle = didSlackThreadBackfillOmitMiddle({
-      fetched,
-      isInitialLateJoin,
-    });
     let persisted = 0;
     let firstPersistedInOmittedSegment = true;
     for (const message of fetched) {
