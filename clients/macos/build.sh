@@ -212,7 +212,14 @@ if [ -z "${DISPLAY_VERSION:-}" ]; then
         DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_ts}.${_local_sha}"
     fi
 fi
-BUILD_VERSION="${BUILD_VERSION:-1}"
+# For local builds, auto-generate a monotonically increasing BUILD_VERSION
+# from the timestamp so Sparkle can determine "newer" via numeric comparison.
+# CI-driven builds set BUILD_VERSION explicitly; this only affects the default.
+if [ -z "${BUILD_VERSION:-}" ] && [ "$VELLUM_ENVIRONMENT" = "local" ]; then
+    BUILD_VERSION=$(date +%Y%m%d%H%M%S)
+else
+    BUILD_VERSION="${BUILD_VERSION:-1}"
+fi
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
