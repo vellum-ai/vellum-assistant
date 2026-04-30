@@ -63,6 +63,8 @@ import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
+import { CES_MIGRATIONS } from "./migrations/registry.js";
+import { runCesMigrations } from "./migrations/runner.js";
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -542,6 +544,10 @@ async function main(): Promise<void> {
     process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
   const vellumRoot = join(assistantDataMount, ".vellum");
   const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
+
+  // Run one-time credential store migrations before accepting connections.
+  await runCesMigrations(getCesDataRoot("managed"), secureKeyBackend, CES_MIGRATIONS);
+  log.info("CES managed startup: migrations complete");
 
   // Set up credential CRUD routes if a service token is configured.
   // The assistant and gateway use CES_SERVICE_TOKEN to authenticate

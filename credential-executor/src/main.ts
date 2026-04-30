@@ -36,6 +36,7 @@ import {
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
 import { LocalMaterialiser } from "./materializers/local.js";
+import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
 import { createLocalTokenRefreshFn } from "./materializers/local-token-refresh.js";
@@ -60,6 +61,8 @@ import {
 import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
+import { CES_MIGRATIONS } from "./migrations/registry.js";
+import { runCesMigrations } from "./migrations/runner.js";
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
@@ -90,7 +93,10 @@ function getVellumRootDir(): string {
 // Build RPC handler registry
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
+function buildHandlers(
+  sessionIdRef: SessionIdRef,
+  secureKeyBackend: SecureKeyBackend,
+): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("local"),
@@ -121,10 +127,6 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
   // Read-only OAuth connection lookup backed by the assistant's SQLite
   // database. CES opens the database in read-only mode.
   const oauthConnections = createLocalOAuthLookup(vellumRoot);
-
-  // CES-native SecureKeyBackend that reads from the assistant's encrypted
-  // key store file. Read-only — CES never writes or deletes keys.
-  const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
 
   const localMaterialiser = new LocalMaterialiser({
     secureKeyBackend,
@@ -318,11 +320,19 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Build the credential backend and run one-time migrations before starting
+  // the RPC server. Migrations complete synchronously before any connection
+  // is accepted — the backend is then passed to buildHandlers so it is not
+  // re-instantiated.
+  const secureKeyBackend = createLocalSecureKeyBackend(getVellumRootDir());
+  await runCesMigrations(getCesDataRoot("local"), secureKeyBackend, CES_MIGRATIONS);
+  log.info("CES local startup: migrations complete");
+
   // Build the handler registry with all available RPC implementations.
   // Use a mutable ref so audit records capture the handshake session ID
   // once it's negotiated (the handshake completes before any RPC call).
   const sessionIdRef: SessionIdRef = { current: `ces-local-${Date.now()}` };
-  const handlers = buildHandlers(sessionIdRef);
+  const handlers = buildHandlers(sessionIdRef, secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
   const server = new CesRpcServer({
