@@ -162,6 +162,25 @@ describe("first-greeting", () => {
       expect(greeting).toBe(CANNED_FIRST_GREETING);
     });
 
+    it("no names but valid tone uses tone-aware greeting", () => {
+      const greeting = getCannedFirstGreeting({
+        tools: [],
+        tasks: [],
+        tone: "warm",
+      });
+      expect(greeting).toBe(
+        "Hey,\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+      );
+    });
+
+    it("each valid tone with no names produces distinct invite", () => {
+      const greetings = ["grounded", "warm", "energetic", "poetic"].map(
+        (tone) => getCannedFirstGreeting({ tools: [], tasks: [], tone }),
+      );
+      const unique = new Set(greetings);
+      expect(unique.size).toBe(4);
+    });
+
     it("unknown tone falls back to grounded defaults", () => {
       const greeting = getCannedFirstGreeting({
         ...base,

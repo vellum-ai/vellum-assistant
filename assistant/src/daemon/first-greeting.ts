@@ -62,7 +62,7 @@ function buildIntroLine(
 ): string {
   const greeting = name ? `Hey ${name},` : "Hey,";
   const who = assistant ? `I'm ${assistant}.` : "";
-  const close = TONE_INTRO_CLOSE[tone];
+  const close = assistant ? TONE_INTRO_CLOSE[tone] : "";
   return [greeting, who, close].filter(Boolean).join(" ");
 }
 
@@ -96,7 +96,9 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
   const assistant = ctx.assistantName?.trim();
   const tone = resolveTone(ctx.tone);
 
-  if (!name && !assistant) return CANNED_FIRST_GREETING;
+  if (!name && !assistant && !VALID_TONES.has(ctx.tone)) {
+    return CANNED_FIRST_GREETING;
+  }
 
   const intro = buildIntroLine(name, assistant, tone);
   const invite = buildInvite(tone);
