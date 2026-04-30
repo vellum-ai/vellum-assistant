@@ -109,9 +109,9 @@ export class ToolExecutor {
           riskScopeOptions: Array<{ pattern: string; label: string }>;
           riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
           isContainerized?: boolean;
-          matchedRuleId?: string;
         }
       | undefined;
+    let permMatchedRuleId: string | undefined;
     const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
@@ -190,6 +190,7 @@ export class ToolExecutor {
         riskLevel = permResult.riskLevel;
         decision = permResult.decision;
         permRiskMeta = permResult.riskMeta;
+        permMatchedRuleId = permResult.matchedRuleId;
 
         if (!permResult.allowed) {
           return {
@@ -200,7 +201,7 @@ export class ToolExecutor {
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
-            matchedRuleId: permRiskMeta?.matchedRuleId,
+            matchedRuleId: permMatchedRuleId,
           };
         }
 
@@ -230,7 +231,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            matchedRuleId: permRiskMeta?.matchedRuleId,
+            matchedRuleId: permMatchedRuleId,
             decision: "error",
             durationMs,
             errorMessage: msg,
@@ -268,7 +269,7 @@ export class ToolExecutor {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
-          matchedRuleId: permRiskMeta?.matchedRuleId,
+          matchedRuleId: permMatchedRuleId,
           decision: "error",
           durationMs,
           errorMessage: msg,
@@ -335,7 +336,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            matchedRuleId: permRiskMeta?.matchedRuleId,
+            matchedRuleId: permMatchedRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -354,7 +355,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            matchedRuleId: permRiskMeta?.matchedRuleId,
+            matchedRuleId: permMatchedRuleId,
             decision: "error",
             durationMs,
             errorMessage: errorMsg,
@@ -390,7 +391,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        matchedRuleId: permRiskMeta?.matchedRuleId,
+        matchedRuleId: permMatchedRuleId,
         decision,
         durationMs,
         result: safeResult,
@@ -407,8 +408,10 @@ export class ToolExecutor {
           riskScopeOptions: permRiskMeta.riskScopeOptions,
           riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
-          matchedRuleId: permRiskMeta.matchedRuleId,
         };
+      }
+      if (permMatchedRuleId) {
+        execResult = { ...execResult, matchedRuleId: permMatchedRuleId };
       }
 
       return execResult;
@@ -451,7 +454,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        matchedRuleId: permRiskMeta?.matchedRuleId,
+        matchedRuleId: permMatchedRuleId,
         decision: "error",
         durationMs,
         errorMessage: msg,

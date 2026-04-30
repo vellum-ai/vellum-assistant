@@ -43,7 +43,7 @@ function toInvocationRecord(
         result: event.result.content.slice(0, RESULT_PREVIEW_LIMIT),
         decision: event.decision,
         riskLevel: event.riskLevel,
-        matchedRuleId: event.result.matchedRuleId,
+        matchedRuleId: event.matchedRuleId,
         durationMs: event.durationMs,
       };
     case "error":

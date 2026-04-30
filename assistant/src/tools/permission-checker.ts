@@ -23,6 +23,8 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       wasPrompted?: boolean;
+      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
+      matchedRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;
@@ -30,7 +32,6 @@ export type PermissionDecision =
         riskScopeOptions: Array<{ pattern: string; label: string }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
-        matchedRuleId?: string;
       };
     }
   | {
@@ -38,6 +39,8 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       content: string;
+      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
+      matchedRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;
@@ -45,7 +48,6 @@ export type PermissionDecision =
         riskScopeOptions: Array<{ pattern: string; label: string }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
-        matchedRuleId?: string;
       };
     };
 
@@ -97,16 +99,7 @@ export class PermissionChecker {
     // This is populated by classifyRisk() for classifier-backed tools (bash, file, web, skill).
     // For tools without classifiers (e.g. MCP tools), the cache returns undefined.
     const cachedAssessment = getCachedAssessment(name, input);
-    let riskMeta:
-      | {
-          riskLevel: string;
-          riskReason: string;
-          riskScopeOptions: Array<{ pattern: string; label: string }>;
-          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-          isContainerized?: boolean;
-          matchedRuleId?: string;
-        }
-      | undefined = cachedAssessment
+    const riskMeta = cachedAssessment
       ? {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
@@ -131,12 +124,10 @@ export class PermissionChecker {
         context.signal,
       );
 
-      // Augment riskMeta with the matched rule ID so it flows through to
-      // ToolExecutionResult and lifecycle events for audit and rule editor UI.
+      // Extract the matched rule ID for propagation. Returned as a top-level
+      // field on PermissionDecision so it reaches the executor even when
+      // riskMeta is absent (non-classifier tools like MCP don't populate it).
       const matchedRuleId = result.matchedRule?.id;
-      if (riskMeta && matchedRuleId) {
-        riskMeta = { ...riskMeta, matchedRuleId };
-      }
 
       // Some callers force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved -
@@ -183,6 +174,7 @@ export class PermissionChecker {
           decision: "denied",
           riskLevel,
           content: result.reason,
+          matchedRuleId,
           riskMeta,
         };
       }
@@ -208,6 +200,7 @@ export class PermissionChecker {
           allowed: true,
           decision: "platform_auto_approve",
           riskLevel,
+          matchedRuleId,
           riskMeta,
         };
       }
@@ -264,6 +257,7 @@ export class PermissionChecker {
               allowed: true,
               decision: "guardian_auto_approve",
               riskLevel,
+              matchedRuleId,
               riskMeta,
             };
           }
@@ -297,6 +291,7 @@ export class PermissionChecker {
             decision: "denied",
             riskLevel,
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
+            matchedRuleId,
             riskMeta,
           };
         }
@@ -382,6 +377,7 @@ export class PermissionChecker {
             decision,
             riskLevel,
             content: denialMessage,
+            matchedRuleId,
             riskMeta,
           };
         }
@@ -391,12 +387,13 @@ export class PermissionChecker {
           decision,
           riskLevel,
           wasPrompted: true,
+          matchedRuleId,
           riskMeta,
         };
       }
 
       // result.decision === 'allow'
-      return { allowed: true, decision: "allow", riskLevel, riskMeta };
+      return { allowed: true, decision: "allow", riskLevel, matchedRuleId, riskMeta };
     } catch (err) {
       if (err instanceof Error) {
         (err as Error & { riskLevel?: string }).riskLevel = riskLevel;
