@@ -93,7 +93,7 @@ export function resolveManagedAssistant(
 export async function interactiveSession(
   assistant: ResolvedManagedAssistant,
   initialCommand?: string,
-  container?: string,
+  service?: string,
 ): Promise<void> {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
@@ -106,7 +106,7 @@ export async function interactiveSession(
     cols,
     rows,
     assistant.platformUrl,
-    container,
+    service,
   );
 
   // --- TTY raw mode setup ---
@@ -270,7 +270,7 @@ export function shellEscapeArgs(args: string[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Run a command non-interactively in a managed assistant container. Creates
+ * Run a command non-interactively in a managed assistant service. Creates
  * an ephemeral terminal session, sends the command wrapped in sentinels for
  * reliable output extraction, captures the result, and exits with the
  * remote command's exit code.
@@ -284,7 +284,7 @@ export interface NonInteractiveExecOptions {
 export async function nonInteractiveExec(
   assistant: ResolvedManagedAssistant,
   command: string[],
-  options?: NonInteractiveExecOptions & { container?: string },
+  options?: NonInteractiveExecOptions & { service?: string },
 ): Promise<void> {
   const verbose = options?.verbose ?? false;
   const timeoutMs = options?.timeoutMs ?? 30_000;
@@ -300,7 +300,7 @@ export async function nonInteractiveExec(
     120,
     24,
     assistant.platformUrl,
-    options?.container,
+    options?.service,
   );
 
   dbg(`session created: ${sessionId}`);

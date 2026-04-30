@@ -47,12 +47,6 @@ function resolveDockerContainer(
   }
 }
 
-const K8S_CONTAINER_NAMES: Record<ServiceName, string> = {
-  assistant: "assistant-container",
-  gateway: "gateway-sidecar",
-  "credential-executor": "credential-executor-sidecar",
-};
-
 export async function exec(): Promise<void> {
   const rawArgs = process.argv.slice(3);
 
@@ -213,11 +207,11 @@ export async function exec(): Promise<void> {
       platformUrl: getPlatformUrl(),
     };
 
-    const container = K8S_CONTAINER_NAMES[service];
+    const serviceParam = service === "assistant" ? undefined : service;
 
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command), container);
+      await interactiveSession(assistant, shellEscapeArgs(command), serviceParam);
       return;
     }
 
@@ -225,7 +219,7 @@ export async function exec(): Promise<void> {
     await nonInteractiveExec(assistant, command, {
       verbose,
       timeoutMs,
-      container,
+      service: serviceParam,
     });
     return;
   }
