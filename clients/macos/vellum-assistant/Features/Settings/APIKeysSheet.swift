@@ -144,32 +144,28 @@ struct APIKeysSheet: View {
         let isSaving = saving[provider.id] == true
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Header: provider name + status + action
+            // Header: provider name + masked key + actions
             HStack(spacing: VSpacing.sm) {
-                Text(provider.displayName)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-
-                Spacer(minLength: 0)
-
-                if isConfigured {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(VIcon.check.rawValue)
-                            .resizable()
-                            .frame(width: 12, height: 12)
-                            .foregroundStyle(VColor.systemPositiveStrong)
-                        Text("Configured")
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text(provider.displayName)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                    if isConfigured, !isExpanded, let masked = maskedKeys[provider.id] {
+                        Text(masked)
                             .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.systemPositiveStrong)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
 
+                Spacer(minLength: 0)
+
                 if isConfigured && !isExpanded {
-                    HStack(spacing: VSpacing.xs) {
-                        VButton(label: "Update", style: .ghost, size: .compact) {
+                    HStack(spacing: VSpacing.sm) {
+                        VTag("Connected", color: VColor.systemPositiveStrong, icon: .check)
+                        VButton(label: "Update", style: .outlined, size: .compact) {
                             expandProvider(provider.id)
                         }
-                        VButton(label: "Remove", style: .dangerGhost, size: .compact) {
+                        VButton(label: "Remove", style: .dangerOutline, size: .compact) {
                             providerToRemove = provider.id
                         }
                     }
@@ -178,13 +174,6 @@ struct APIKeysSheet: View {
                         expandProvider(provider.id)
                     }
                 }
-            }
-
-            // Masked key preview when configured and not expanded
-            if isConfigured, !isExpanded, let masked = maskedKeys[provider.id] {
-                Text(masked)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
             }
 
             // Expanded: key entry form
