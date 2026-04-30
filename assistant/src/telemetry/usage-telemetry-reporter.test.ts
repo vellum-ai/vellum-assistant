@@ -70,14 +70,6 @@ mock.module("../util/device-id.js", () => ({
   getDeviceId: mockGetDeviceId,
 }));
 
-const mockGetExternalAssistantId = mock<() => string | undefined>(
-  () => "test-assistant-id",
-);
-
-mock.module("../runtime/auth/external-assistant-id.js", () => ({
-  getExternalAssistantId: mockGetExternalAssistantId,
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -107,7 +99,6 @@ mock.module("../memory/lifecycle-events-store.js", () => ({
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { UsageEvent } from "../usage/types.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
@@ -162,8 +153,6 @@ beforeEach(() => {
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
-  mockGetExternalAssistantId.mockReset();
-  mockGetExternalAssistantId.mockReturnValue("test-assistant-id");
   mockGetPlatformOrganizationId.mockReset();
   mockGetPlatformOrganizationId.mockReturnValue("");
   mockGetPlatformUserId.mockReset();
@@ -470,8 +459,7 @@ describe("UsageTelemetryReporter", () => {
     expect(body.user_id).toBeUndefined();
   });
 
-  test("assistant_id falls back to DAEMON_INTERNAL_ASSISTANT_ID when getExternalAssistantId returns undefined", async () => {
-    mockGetExternalAssistantId.mockReturnValue(undefined);
+  test("payload does not include assistant_id", async () => {
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -485,8 +473,7 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.device_id).toBe("test-device-id");
-    expect(body.assistant_id).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+    expect(body.assistant_id).toBeUndefined();
   });
 
   test("turn events are included in the events array with type discriminator", async () => {
