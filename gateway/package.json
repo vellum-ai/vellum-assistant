@@ -27,6 +27,7 @@
     "@vellumai/assistant-client": "file:../packages/assistant-client",
     "@vellumai/ces-client": "file:../packages/ces-client",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
+    "@vellumai/slack-text": "file:../packages/slack-text",
     "drizzle-kit": "0.30.6",
     "drizzle-orm": "0.45.2",
     "file-type": "21.3.0",
