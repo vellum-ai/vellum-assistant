@@ -85,7 +85,7 @@ bun run src/index.ts                # interactive CLI session
 | `assistant conversations list\|new\|export\|clear` | Manage conversations                             |
 | `assistant config set\|get\|list`                  | Manage configuration                             |
 | `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|add\|update\|remove`              | Manage trust rules                               |
+| `assistant trust list\|add\|update\|remove`        | Manage trust rules                               |
 
 ## Project Structure
 
@@ -189,7 +189,7 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
 - **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and local principals are rejected with 403.
-- **Dev bypass:** When `DISABLE_HTTP_AUTH` + `VELLUM_UNSAFE_AUTH_BYPASS=1` are set, JWT verification is skipped and a synthetic dev context is used.
+- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), JWT verification is skipped and a synthetic context is used.
 
 ## Twilio Setup Primitive
 
