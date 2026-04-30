@@ -14,9 +14,9 @@ export type LiveVoiceMetricsEvent =
   | "turn_cancelled"
   | "session_ended";
 
-export type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
+type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
 
-export interface LiveVoiceMetricsCollectorOptions {
+interface LiveVoiceMetricsCollectorOptions {
   sessionId: string;
   conversationId?: string;
   clock?: LiveVoiceMetricsClock;
@@ -24,7 +24,7 @@ export interface LiveVoiceMetricsCollectorOptions {
   recentTurnLimit?: number;
 }
 
-export interface LiveVoiceSessionMetrics {
+interface LiveVoiceSessionMetrics {
   sessionId: string;
   conversationId?: string;
   startedAtMs: number;
@@ -32,7 +32,7 @@ export interface LiveVoiceSessionMetrics {
   startToReadyMs: number | null;
 }
 
-export interface LiveVoiceTurnTimestamps {
+interface LiveVoiceTurnTimestamps {
   startedAtMs: number;
   firstAudioAtMs: number | null;
   firstPartialAtMs: number | null;
@@ -44,7 +44,7 @@ export interface LiveVoiceTurnTimestamps {
   cancelledAtMs: number | null;
 }
 
-export interface LiveVoiceTurnDurations {
+interface LiveVoiceTurnDurations {
   firstAudioToFirstPartialMs: number | null;
   pttReleaseToFinalTranscriptMs: number | null;
   finalTranscriptToFirstAssistantDeltaMs: number | null;
@@ -52,7 +52,7 @@ export interface LiveVoiceTurnDurations {
   totalTurnDurationMs: number | null;
 }
 
-export interface LiveVoiceTurnMetrics {
+interface LiveVoiceTurnMetrics {
   turnId: string;
   status: LiveVoiceTurnStatus;
   cancellationReason: string | null;
@@ -60,13 +60,13 @@ export interface LiveVoiceTurnMetrics {
   durations: LiveVoiceTurnDurations;
 }
 
-export interface LiveVoiceDurationSummary {
+interface LiveVoiceDurationSummary {
   count: number;
   p50Ms: number | null;
   p95Ms: number | null;
 }
 
-export interface LiveVoiceMetricsSummary {
+interface LiveVoiceMetricsSummary {
   retainedTurnCount: number;
   completedTurnCount: number;
   cancelledTurnCount: number;
@@ -79,14 +79,14 @@ export interface LiveVoiceMetricsSummary {
   };
 }
 
-export interface LiveVoiceMetricsSnapshot {
+interface LiveVoiceMetricsSnapshot {
   session: LiveVoiceSessionMetrics;
   activeTurn: LiveVoiceTurnMetrics | null;
   recentTurns: LiveVoiceTurnMetrics[];
   summary: LiveVoiceMetricsSummary;
 }
 
-export interface LiveVoiceMetricsAggregateFields {
+interface LiveVoiceMetricsAggregateFields {
   sttMs: number | null;
   llmFirstDeltaMs: number | null;
   ttsFirstAudioMs: number | null;

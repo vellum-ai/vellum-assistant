@@ -1317,7 +1317,7 @@ export function getSlackCompactionWatermarkForPrefix(
   );
 }
 
-export function assembleSlackChronologicalContext(
+function assembleSlackChronologicalContext(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
   options: {

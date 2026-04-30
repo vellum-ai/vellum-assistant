@@ -11,7 +11,7 @@ import {
  * updates propagate automatically. User-created profiles (keyed by
  * different names) are never touched.
  */
-export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
+const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
   balanced: {
     source: "managed",
     label: "Balanced",

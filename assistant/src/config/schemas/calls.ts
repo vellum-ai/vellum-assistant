@@ -232,12 +232,3 @@ export const CallsConfigSchema = z
   .describe(
     "Phone call configuration — controls telephony, voice, safety, and call behavior",
   );
-
-export type CallsConfig = z.infer<typeof CallsConfigSchema>;
-export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
-export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
-export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
-export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
-export type CallsVerificationConfig = z.infer<
-  typeof CallsVerificationConfigSchema
->;

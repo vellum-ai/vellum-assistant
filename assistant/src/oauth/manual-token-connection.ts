@@ -19,10 +19,6 @@ import {
   upsertApp,
 } from "./oauth-store.js";
 
-// Re-export from the centralized resolver so existing callers that import
-// from this module continue to work without changes.
-export { manualTokenAccessCredentialKey } from "./credential-token-resolver.js";
-
 const log = getLogger("manual-token-connection");
 
 /** Sentinel client_id used for non-OAuth providers that don't have a real app. */

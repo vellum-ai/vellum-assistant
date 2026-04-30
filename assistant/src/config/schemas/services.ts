@@ -4,7 +4,7 @@ import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
 const ServiceModeSchema = z.enum(["managed", "your-own"]);
-export type ServiceMode = z.infer<typeof ServiceModeSchema>;
+type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [
   "anthropic",
@@ -26,7 +26,6 @@ const VALID_WEB_SEARCH_PROVIDERS = [
 const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type BaseService = z.infer<typeof BaseServiceSchema>;
 
 /**
  * Inference service entry. Carries only the routing `mode`
@@ -37,52 +36,41 @@ export type BaseService = z.infer<typeof BaseServiceSchema>;
  * workspace migration `039-drop-legacy-llm-keys`.
  */
 const InferenceServiceSchema = BaseServiceSchema;
-export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 
 const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default("gemini-3.1-flash-image-preview"),
 });
-export type ImageGenerationService = z.infer<
-  typeof ImageGenerationServiceSchema
->;
 
 const WebSearchServiceSchema = BaseServiceSchema.extend({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
 });
-export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
 const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type OutlookOAuthService = z.infer<typeof OutlookOAuthServiceSchema>;
 
 const LinearOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
 
 const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
 
 const NotionOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
 
 const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
 
 /**
  * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
@@ -106,7 +94,6 @@ const MeetHostConfigSchema = z
       ),
   })
   .describe("Daemon-side configuration for the external meet-join skill host");
-export type MeetHostConfig = z.infer<typeof MeetHostConfigSchema>;
 
 /**
  * Daemon-side `services.meet` block. Intentionally distinct from the
@@ -120,7 +107,6 @@ const MeetDaemonServiceSchema = z
     host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
   })
   .describe("meet-join skill daemon-side configuration");
-export type MeetDaemonService = z.infer<typeof MeetDaemonServiceSchema>;
 
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
