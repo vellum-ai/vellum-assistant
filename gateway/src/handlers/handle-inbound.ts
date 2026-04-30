@@ -8,6 +8,7 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
+import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
 
@@ -75,6 +76,41 @@ export async function handleInbound(
     };
   }
 
+  // ── Gateway-owned text-channel verification intercept ──────────────
+  // Before forwarding to the runtime, check if this message is a
+  // verification code for a pending session. The gateway validates the
+  // code, consumes the session, and creates the guardian binding.
+  // The outcome is injected into sourceMetadata so the assistant can
+  // handle contact upsert and reply delivery without re-validating.
+  // The assistant NEVER decides whether verification passed.
+  let gatewayVerification: Record<string, unknown> | undefined;
+  if (!event.message.isEdit) {
+    try {
+      const verifyResult = await tryTextVerificationIntercept({
+        sourceChannel: event.sourceChannel,
+        messageContent: event.message.content,
+        actorExternalId: event.actor.actorExternalId,
+        conversationExternalId: event.message.conversationExternalId,
+        actorDisplayName: event.actor.displayName,
+        actorUsername: event.actor.username,
+      });
+
+      if (verifyResult) {
+        gatewayVerification = {
+          outcome: verifyResult.outcome,
+          ...(verifyResult.verificationType && { verificationType: verifyResult.verificationType }),
+          ...(verifyResult.bindingConflict && { bindingConflict: true }),
+          ...(verifyResult.failureReason && { failureReason: verifyResult.failureReason }),
+        };
+      }
+    } catch (err) {
+      log.warn(
+        { err, sourceChannel: event.sourceChannel },
+        "Text verification intercept failed — falling through to assistant without gateway verdict",
+      );
+    }
+  }
+
   const displayName = event.actor.displayName || event.actor.username;
   const transportHints = normalizeTransportHints(
     options?.transportMetadata?.hints,
@@ -110,6 +146,7 @@ export async function handleInbound(
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           ...(options?.sourceMetadata ?? {}),
+          ...(gatewayVerification ? { gatewayVerification } : {}),
         },
         ...(options?.attachmentIds?.length
           ? { attachmentIds: options.attachmentIds }
