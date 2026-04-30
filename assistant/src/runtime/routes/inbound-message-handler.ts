@@ -1820,8 +1820,8 @@ async function fetchSlackThreadUpperAdjacentWindow(params: {
   if (truncatedBeforeUpperBound && !safePage && attempts < maxAttempts) {
     for (const windowMicros of SLACK_UPPER_ADJACENT_SHRINKING_WINDOWS_MICROS) {
       if (attempts >= maxAttempts) break;
-      const shouldExpand = await considerWindow(windowMicros);
-      if (!shouldExpand || safePage) break;
+      await considerWindow(windowMicros);
+      if (safePage) break;
     }
   }
 
