@@ -8,7 +8,10 @@ import {
 
 describe("usage grouped buckets", () => {
   test("uses canonical labels for call-site groups and fallbacks", () => {
-    expect(displayUsageGroup("call_site", "mainAgent")).toBe("Main agent");
+    expect(displayUsageGroup("call_site", "mainAgent")).toBe("Main Agent");
+    expect(displayUsageGroup("call_site", "unknownCallSite")).toBe(
+      "unknownCallSite",
+    );
     expect(displayUsageGroup("call_site", null)).toBe("Unknown Task");
     expect(displayUsageGroup("inference_profile", null)).toBe(
       "Default / Unset",
@@ -19,9 +22,7 @@ describe("usage grouped buckets", () => {
     expect(stableUsageSeriesGroupKey("call_site", "mainAgent")).toBe(
       "value:mainAgent",
     );
-    expect(stableUsageSeriesGroupKey("call_site", null)).toBe(
-      "null:call_site",
-    );
+    expect(stableUsageSeriesGroupKey("call_site", null)).toBe("null:call_site");
     expect(stableUsageSeriesGroupKey("inference_profile", null)).toBe(
       "null:inference_profile",
     );
@@ -64,9 +65,9 @@ describe("usage grouped buckets", () => {
     expect(buckets[0].totalEstimatedCostUsd).toBe(0.03);
     expect(buckets[0].eventCount).toBe(2);
     expect(buckets[0].groups["value:mainAgent"].totalInputTokens).toBe(100);
-    expect(
-      buckets[0].groups["value:conversationTitle"].totalInputTokens,
-    ).toBe(200);
+    expect(buckets[0].groups["value:conversationTitle"].totalInputTokens).toBe(
+      200,
+    );
   });
 
   test("keeps unset inference profiles separate from matching profile names", () => {
@@ -144,7 +145,7 @@ describe("usage grouped buckets", () => {
 
     expect(buckets).toHaveLength(1);
     expect(buckets[0].totalInputTokens).toBe(300);
-    expect(buckets[0].groups["value:mainAgent"].group).toBe("Main agent");
+    expect(buckets[0].groups["value:mainAgent"].group).toBe("Main Agent");
     expect(buckets[0].groups["null:call_site"]).toMatchObject({
       group: "Unknown Task",
       groupKey: null,

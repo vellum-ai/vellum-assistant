@@ -101,7 +101,7 @@ describe("assistant usage CLI", () => {
       breakdown: Array<{ group: string; groupKey: string | null }>;
     };
     expect(parsed.breakdown.map((row) => row.group)).toEqual([
-      "Main agent",
+      "Main Agent",
       "Unknown Task",
     ]);
     expect(parsed.breakdown.map((row) => row.groupKey)).toEqual([

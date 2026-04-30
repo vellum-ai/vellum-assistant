@@ -356,8 +356,8 @@ describe("usage routes", () => {
       };
 
       expect(body.breakdown.map((row) => row.group)).toEqual([
-        "Main agent",
-        "Context compactor",
+        "Main Agent",
+        "Compaction Agent",
         "Unknown Task",
       ]);
       expect(body.breakdown.map((row) => row.groupKey)).toEqual([
@@ -432,12 +432,12 @@ describe("usage routes", () => {
 
       expect(body.buckets).toHaveLength(2);
       expect(body.buckets[0].groups["value:mainAgent"]).toMatchObject({
-        group: "Main agent",
+        group: "Main Agent",
         groupKey: "mainAgent",
         totalInputTokens: 850,
       });
       expect(body.buckets[0].groups["value:compactionAgent"]).toMatchObject({
-        group: "Context compactor",
+        group: "Compaction Agent",
         groupKey: "compactionAgent",
         totalInputTokens: 500,
       });
