@@ -81,7 +81,7 @@ function detectRuntimeModeFromEnv(): DaemonRuntimeMode {
  * `$HOME/.vellum/workspace`. The resolved path is hashed by
  * {@link getMeetBotInstanceHash} to scope Docker labels per instance.
  */
-function resolveInstancePath(): string {
+function resolveWorkspaceDir(): string {
   const workspaceDir = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (workspaceDir) return workspaceDir;
   return pathJoin(homedir(), ".vellum", "workspace");
@@ -883,12 +883,12 @@ export const MEET_BOT_INSTANCE_LABEL = "vellum.meet.instance";
  * filesystem path isn't leaked into Docker metadata. Deterministic for a
  * given instance — the stamp-side and the reap-side see the same value
  * as long as the daemon process sees the same `VELLUM_WORKSPACE_DIR`.
- * The path resolution is inlined via {@link resolveInstancePath} so the
+ * The path resolution is inlined via {@link resolveWorkspaceDir} so the
  * skill keeps zero `assistant/` imports.
  */
 export function getMeetBotInstanceHash(): string {
   return createHash("sha256")
-    .update(resolveInstancePath())
+    .update(resolveWorkspaceDir())
     .digest("hex")
     .slice(0, 16);
 }
