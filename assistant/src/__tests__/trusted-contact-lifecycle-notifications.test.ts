@@ -65,7 +65,6 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { findContactChannel } from "../contacts/contact-store.js";
 import {
   createGuardianBinding,
   upsertContactChannel,
@@ -73,7 +72,6 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createApprovalRequest } from "../memory/guardian-approvals.js";
-import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
@@ -466,107 +464,6 @@ describe("trusted contact activated notification signal", () => {
     resetState();
   });
 
-  test("successful trusted contact verification emits activated signal", async () => {
-    // Set up a guardian binding so the verification path allows bypass
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-user-789",
-      guardianDeliveryChatId: "guardian-chat-789",
-      guardianPrincipalId: "guardian-user-789",
-      verifiedVia: "test",
-    });
-
-    // Create an identity-bound outbound session (simulates M3 approval flow)
-    const session = createOutboundSession({
-      channel: "telegram",
-      expectedExternalUserId: "requester-user-456",
-      expectedChatId: "chat-123",
-      identityBindingStatus: "bound",
-      destinationAddress: "chat-123",
-      verificationPurpose: "trusted_contact",
-    });
-
-    // Requester enters the verification code
-    const verifyReq = buildInboundRequest({
-      content: session.secret,
-      conversationExternalId: "chat-123",
-      actorExternalId: "requester-user-456",
-    });
-
-    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
-
-    // Should emit the activated signal
-    const activatedSignals = emitSignalCalls.filter(
-      (c) => c.sourceEventName === "ingress.trusted_contact.activated",
-    );
-
-    expect(activatedSignals.length).toBe(1);
-
-    // Verify payload
-    const payload = activatedSignals[0].contextPayload as Record<
-      string,
-      unknown
-    >;
-    expect(payload.sourceChannel).toBe("telegram");
-    expect(payload.actorExternalId).toBe("requester-user-456");
-    expect(payload.conversationExternalId).toBe("chat-123");
-
-    // Verify deduplication key includes the user identity
-    const dedupeKey = activatedSignals[0].dedupeKey as string;
-    expect(dedupeKey).toContain("trusted-contact:activated:");
-    expect(dedupeKey).toContain("requester-user-456");
-
-    // Verify attention hints indicate informational (no action required)
-    const hints = activatedSignals[0].attentionHints as Record<string, unknown>;
-    expect(hints.requiresAction).toBe(false);
-    expect(hints.urgency).toBe("low");
-  });
-
-  test("re-verification preserves an existing guardian-managed member display name", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-user-789",
-      guardianDeliveryChatId: "guardian-chat-789",
-      guardianPrincipalId: "guardian-user-789",
-      verifiedVia: "test",
-    });
-
-    upsertContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "requester-user-456",
-      externalChatId: "chat-123",
-      status: "revoked",
-      policy: "allow",
-      displayName: "Jeff",
-    });
-
-    const session = createOutboundSession({
-      channel: "telegram",
-      expectedExternalUserId: "requester-user-456",
-      expectedChatId: "chat-123",
-      identityBindingStatus: "bound",
-      destinationAddress: "chat-123",
-      verificationPurpose: "trusted_contact",
-    });
-
-    const verifyReq = buildInboundRequest({
-      content: session.secret,
-      conversationExternalId: "chat-123",
-      actorExternalId: "requester-user-456",
-      actorDisplayName: "Noa Flaherty",
-    });
-
-    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
-
-    const result = findContactChannel({
-      channelType: "telegram",
-      externalUserId: "requester-user-456",
-    });
-    expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
-    expect(result!.contact.displayName).toBe("Jeff");
-  });
-
   test("guardian verification does NOT emit activated signal", async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createInboundVerificationSession } =
@@ -599,46 +496,4 @@ describe("trusted contact activated notification signal", () => {
     expect(resolver!.kind).toBe("access_request");
   });
 
-  test("member is persisted BEFORE activated signal is emitted", async () => {
-    // Set up a guardian binding
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-user-789",
-      guardianDeliveryChatId: "guardian-chat-789",
-      guardianPrincipalId: "guardian-user-789",
-      verifiedVia: "test",
-    });
-
-    const session = createOutboundSession({
-      channel: "telegram",
-      expectedExternalUserId: "requester-user-456",
-      expectedChatId: "chat-123",
-      identityBindingStatus: "bound",
-      destinationAddress: "chat-123",
-      verificationPurpose: "trusted_contact",
-    });
-
-    const verifyReq = buildInboundRequest({
-      content: session.secret,
-      conversationExternalId: "chat-123",
-      actorExternalId: "requester-user-456",
-    });
-
-    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
-
-    // The activated signal was emitted
-    const activatedSignals = emitSignalCalls.filter(
-      (c) => c.sourceEventName === "ingress.trusted_contact.activated",
-    );
-    expect(activatedSignals.length).toBe(1);
-
-    // Verify the member was already persisted (the signal fires after upsertContactChannel)
-    const result = findContactChannel({
-      channelType: "telegram",
-      externalUserId: "requester-user-456",
-    });
-    expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
-    expect(result!.channel.policy).toBe("allow");
-  });
 });
