@@ -62,6 +62,7 @@ import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERFACE_ROUTES } from "./interface-routes.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
+import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
@@ -152,6 +153,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
+  ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,

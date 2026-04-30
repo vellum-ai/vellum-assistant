@@ -31,6 +31,8 @@ struct CallSiteOverridesSheet: View {
     /// Search query for filtering the task list.
     @State private var searchQuery = ""
 
+    @ObservedObject private var catalog = CallSiteCatalog.shared
+
     /// Snapshot of provider IDs and per-provider model IDs at sheet open.
     /// Captured once so each row sees the same catalog without each row
     /// re-querying the store on every render.
@@ -49,23 +51,22 @@ struct CallSiteOverridesSheet: View {
     /// domain's display name. Empty groups are omitted.
     private var filteredEntriesByDomain: [(domain: CallSiteDomain, entries: [CallSiteOverride])] {
         let query = searchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        var grouped: [CallSiteDomain: [CallSiteOverride]] = [:]
-        for entry in CallSiteCatalog.all {
+        var grouped: [String: [CallSiteOverride]] = [:]
+        for entry in catalog.callSites {
             if !query.isEmpty {
                 let matchesName = entry.displayName.lowercased().contains(query)
                 let matchesDescription = entry.callSiteDescription.lowercased().contains(query)
-                let matchesDomain = entry.domain.displayName.lowercased().contains(query)
+                let domainDisplayName = catalog.domains.first { $0.id == entry.domain }?.displayName ?? entry.domain
+                let matchesDomain = domainDisplayName.lowercased().contains(query)
                 let matchesId = entry.id.lowercased().contains(query)
                 guard matchesName || matchesDescription || matchesDomain || matchesId else { continue }
             }
             grouped[entry.domain, default: []].append(entry)
         }
-        return CallSiteDomain.allCases
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .compactMap { domain in
-                guard let entries = grouped[domain], !entries.isEmpty else { return nil }
-                return (domain: domain, entries: entries)
-            }
+        return catalog.domains.compactMap { domain in
+            guard let entries = grouped[domain.id], !entries.isEmpty else { return nil }
+            return (domain: domain, entries: entries)
+        }
     }
 
     /// True when at least one draft differs from the persisted value.
@@ -120,6 +121,9 @@ struct CallSiteOverridesSheet: View {
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear { syncDraftsFromStore() }
+        .task {
+            catalog.ensureLoaded()
+        }
         .onChange(of: store.callSiteOverrides) { _, _ in
             syncDraftsFromStore()
         }
@@ -185,7 +189,12 @@ struct CallSiteOverridesSheet: View {
 
     // MARK: - Overrides List
 
+    @ViewBuilder
     private var overridesList: some View {
+        if !catalog.isLoaded {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 let filtered = filteredEntriesByDomain
@@ -223,6 +232,7 @@ struct CallSiteOverridesSheet: View {
             }
         }
         .frame(maxHeight: .infinity)
+        } // else catalog.isLoaded
     }
 
     // MARK: - Draft Management
@@ -274,7 +284,7 @@ struct CallSiteOverridesSheet: View {
                 self.drafts[id]
                     ?? self.persistedById[id]
                     ?? CallSiteCatalog.byId[id]
-                    ?? CallSiteOverride(id: id, displayName: id, domain: .utility)
+                    ?? CallSiteOverride(id: id, displayName: id, domain: "skills")
             },
             set: { newValue in
                 self.drafts[id] = newValue
@@ -291,7 +301,7 @@ struct CallSiteOverridesSheet: View {
         // (provider, model, profile, plus any maxTokens/effort/etc. that
         // may have been set elsewhere). Including a row with all-nil
         // fields would emit field-level nulls and leave hidden leaves.
-        let merged = CallSiteCatalog.all.compactMap { entry -> CallSiteOverride? in
+        let merged = catalog.callSites.compactMap { entry -> CallSiteOverride? in
             guard let draft = drafts[entry.id], draft.hasOverride else { return nil }
             return draft
         }
@@ -312,7 +322,7 @@ struct CallSiteOverridesSheet: View {
         // entry on the daemon — clearing not just provider/model/profile
         // but also any advanced leaves (maxTokens, effort, temperature,
         // contextWindow) that may have been set via manual config edits.
-        for entry in CallSiteCatalog.all {
+        for entry in catalog.callSites {
             let cleared = CallSiteOverride(
                 id: entry.id,
                 displayName: entry.displayName,
