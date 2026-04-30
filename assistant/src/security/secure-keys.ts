@@ -36,6 +36,7 @@ import type {
   DeleteResult,
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
+import { credentialKey } from "./credential-key.js";
 
 export type {
   CredentialListResult,
@@ -540,7 +541,11 @@ export async function bulkSetSecureKeysAsync(
 export async function getProviderKeyAsync(
   provider: string,
 ): Promise<string | undefined> {
-  const stored = await getSecureKeyAsync(provider);
+  // Check credential namespace first; fall back to bare name for the brief
+  // startup window before migration 002 has run.
+  const stored =
+    (await getSecureKeyAsync(credentialKey(provider, "api_key"))) ??
+    (await getSecureKeyAsync(provider));
   if (stored) return stored;
   const envVar = getAnyProviderEnvVar(provider);
   return envVar ? process.env[envVar] : undefined;

@@ -197,7 +197,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       }
 
-      const stored = await setSecureKeyAsync(name, value);
+      const stored = await setSecureKeyAsync(credentialKey(name, "api_key"), value);
       if (!stored) {
         throw new InternalError(
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
@@ -348,7 +348,7 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
           `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      accountKey = name;
+      accountKey = credentialKey(name, "api_key");
     } else if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
@@ -418,11 +418,12 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
           `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      const existing = await getSecureKeyAsync(name);
+      const key = credentialKey(name, "api_key");
+      const existing = await getSecureKeyAsync(key);
       if (existing === undefined) {
         throw new NotFoundError(`API key not found: ${name}`);
       }
-      const deleteResult = await deleteSecureKeyAsync(name);
+      const deleteResult = await deleteSecureKeyAsync(key);
       if (deleteResult === "error") {
         throw new InternalError(
           `Failed to delete API key from secure storage: ${name}`,
@@ -507,12 +508,24 @@ async function handleListSecrets() {
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
         if (slashIdx > 0 && slashIdx < rest.length - 1) {
+          const service = rest.slice(0, slashIdx);
+          const field = rest.slice(slashIdx + 1);
+          // api_key entries are stored as credential/{provider}/api_key
+          if (
+            field === "api_key" &&
+            API_KEY_PROVIDERS.includes(
+              service as (typeof API_KEY_PROVIDERS)[number],
+            )
+          ) {
+            return { type: "api_key" as const, name: service };
+          }
           return {
             type: "credential" as const,
-            name: `${rest.slice(0, slashIdx)}:${rest.slice(slashIdx + 1)}`,
+            name: `${service}:${field}`,
           };
         }
       }
+      // Bare keys (pre-migration or unknown): treat as api_key
       return { type: "api_key" as const, name: account };
     });
 

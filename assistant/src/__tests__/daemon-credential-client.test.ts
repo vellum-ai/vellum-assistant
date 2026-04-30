@@ -21,6 +21,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { setSecureKeyViaDaemon } from "../cli/lib/daemon-credential-client.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 
 describe("daemon credential writes (daemon unreachable)", () => {
@@ -32,7 +33,9 @@ describe("daemon credential writes (daemon unreachable)", () => {
     );
     expect(result).toBe(true);
 
-    const readBack = await getSecureKeyAsync("test-provider");
+    const readBack = await getSecureKeyAsync(
+      credentialKey("test-provider", "api_key"),
+    );
     expect(readBack).toBe("test-value");
   });
 });

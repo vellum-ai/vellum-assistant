@@ -42,6 +42,9 @@ export async function setSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct write.
+  if (type === "api_key") {
+    return setSecureKeyAsync(credentialKey(name, "api_key"), value);
+  }
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {
@@ -78,6 +81,9 @@ export async function deleteSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct delete.
+  if (type === "api_key") {
+    return deleteSecureKeyAsync(credentialKey(name, "api_key"));
+  }
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {

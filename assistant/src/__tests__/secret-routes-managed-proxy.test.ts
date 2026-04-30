@@ -187,7 +187,7 @@ describe("secret routes managed proxy registry sync", () => {
   test("provider API key writes notify live-conversation refresh listeners", async () => {
     await addApiKey("fireworks", "fw-key");
 
-    expect(secureKeyStore.fireworks).toBe("fw-key");
+    expect(secureKeyStore[credentialKey("fireworks", "api_key")]).toBe("fw-key");
     expect(providerRefreshCalls).toBe(1);
 
     await deleteApiKey("fireworks");
