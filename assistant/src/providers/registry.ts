@@ -14,12 +14,13 @@ import { OpenAIResponsesProvider } from "./openai/client.js";
 import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
+import { UsageTrackingProvider } from "./usage-tracking.js";
 
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 
 function registerProvider(name: string, provider: Provider): void {
-  providers.set(name, provider);
+  providers.set(name, new UsageTrackingProvider(provider));
 }
 
 export function getProvider(name: string): Provider {

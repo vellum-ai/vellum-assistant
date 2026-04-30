@@ -1032,6 +1032,7 @@ export class ContextWindowManager {
         {
           config: {
             callSite: "conversationSummarization" as const,
+            usageTracking: "manual",
             max_tokens: this.summaryMaxTokens,
           },
           signal,

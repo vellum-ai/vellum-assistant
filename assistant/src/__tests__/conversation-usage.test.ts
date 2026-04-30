@@ -42,6 +42,8 @@ import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { listUsageEvents } from "../memory/llm-usage-store.js";
+import type { Provider, ProviderResponse } from "../providers/types.js";
+import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
 
@@ -210,5 +212,69 @@ describe("recordUsage", () => {
         model: "claude-opus-4-6",
       },
     ]);
+  });
+
+  test("manual provider usage tracking leaves conversation aggregate recording as the only ledger row", async () => {
+    const response: ProviderResponse = {
+      content: [{ type: "text", text: "ok" }],
+      model: "gpt-5.4-mini",
+      usage: {
+        inputTokens: 1_000,
+        outputTokens: 2_000,
+      },
+      stopReason: "end_turn",
+    };
+    const provider: Provider = {
+      name: "openai",
+      async sendMessage() {
+        return response;
+      },
+    };
+    const wrapped = new UsageTrackingProvider(provider);
+
+    await wrapped.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      undefined,
+      undefined,
+      {
+        config: {
+          callSite: "mainAgent",
+          usageTracking: "manual",
+        },
+      },
+    );
+    expect(listUsageEvents()).toHaveLength(0);
+
+    const usageStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    };
+
+    recordUsage(
+      {
+        conversationId: "conv-manual-1",
+        providerName: "openai",
+        usageStats,
+      },
+      response.usage.inputTokens,
+      response.usage.outputTokens,
+      response.model,
+      () => {},
+      "main_agent",
+      "req-manual-1",
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      actor: "main_agent",
+      conversationId: "conv-manual-1",
+      requestId: "req-manual-1",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      inputTokens: 1_000,
+      outputTokens: 2_000,
+    });
   });
 });

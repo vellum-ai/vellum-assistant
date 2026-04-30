@@ -163,6 +163,12 @@ export interface SendMessageConfig {
    * JSON request bodies.
    */
   usageAttributionHeaders?: Record<string, string>;
+  /**
+   * Controls local usage-ledger writes for attributed provider calls.
+   * Defaults to `auto`; conversation paths that aggregate usage separately
+   * set `manual` to avoid double-counting.
+   */
+  usageTracking?: "auto" | "manual";
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";
