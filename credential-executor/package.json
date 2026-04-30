@@ -8,7 +8,8 @@
   },
   "bin": {
     "credential-executor": "./src/main.ts",
-    "credential-executor-managed": "./src/managed-main.ts"
+    "credential-executor-managed": "./src/managed-main.ts",
+    "ces-cli": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run src/main.ts",
