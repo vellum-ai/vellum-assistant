@@ -20,6 +20,7 @@
         "@vellumai/gateway-client": "file:../packages/gateway-client",
         "@vellumai/service-contracts": "file:../packages/service-contracts",
         "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
+        "@vellumai/slack-text": "file:../packages/slack-text",
         "archiver": "7.0.1",
         "commander": "13.1.0",
         "croner": "10.0.1",
@@ -421,6 +422,8 @@
     "@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
 
     "@vellumai/skill-host-contracts": ["@vellumai/skill-host-contracts@file:../packages/skill-host-contracts", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
+
+    "@vellumai/slack-text": ["@vellumai/slack-text@file:../packages/slack-text", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
     "@vue/compiler-core": ["@vue/compiler-core@3.5.33", "", { "dependencies": { "@babel/parser": "^7.29.2", "@vue/shared": "3.5.33", "entities": "^7.0.1", "estree-walker": "^2.0.2", "source-map-js": "^1.2.1" } }, "sha512-3PZLQwFw4Za3TC8t0FvTy3wI16Kt+pmwcgNZca4Pj9iWL2E72a/gZlpBtAJvEdDMdCxdG/qq0C7PN0bsJuv0Rw=="],
 
