@@ -572,6 +572,41 @@ export interface AgentLoopConversationContext {
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
+// ── Disk pressure context injection ──────────────────────────────────
+
+const DISK_PRESSURE_CONTEXT =
+  "\n\n<disk_pressure_mode>\n" +
+  "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
+  "You MUST only help the user diagnose and resolve the disk usage problem.\n" +
+  "Focus on:\n" +
+  "- Identifying large files and directories consuming disk space\n" +
+  "- Suggesting specific files or directories that can be safely deleted\n" +
+  "- Running commands like `du -sh` to analyze disk usage\n" +
+  "- Clearing caches, logs, temporary files, and other non-essential data\n" +
+  "Do NOT perform any other tasks until disk space is freed.\n" +
+  "The user can override this restriction via the disk lock override endpoint.\n" +
+  "</disk_pressure_mode>";
+
+/**
+ * Appends the disk-pressure context block to the last user message in the
+ * run-messages array. Called after every `applyRuntimeInjections` site so
+ * the constraint survives overflow-recovery re-injections.
+ */
+function applyDiskPressureContext(messages: Message[]): Message[] {
+  const tail = messages[messages.length - 1];
+  if (!tail || tail.role !== "user") return messages;
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...tail,
+      content: [
+        ...tail.content,
+        { type: "text" as const, text: DISK_PRESSURE_CONTEXT },
+      ],
+    },
+  ];
+}
+
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
@@ -1482,35 +1517,8 @@ export async function runAgentLoopImpl(
     });
     runMessages = injection.messages;
 
-    // When disk pressure is active and a guardian message was allowed through,
-    // append a context block to the last user message restricting the assistant
-    // to disk-cleanup guidance only.
     if (diskPressureActive) {
-      const tail = runMessages[runMessages.length - 1];
-      if (tail && tail.role === "user") {
-        const diskPressureContext =
-          "\n\n<disk_pressure_mode>\n" +
-          "CRITICAL: Disk usage has reached 95%. You are in disk pressure mode.\n" +
-          "You MUST only help the user diagnose and resolve the disk usage problem.\n" +
-          "Focus on:\n" +
-          "- Identifying large files and directories consuming disk space\n" +
-          "- Suggesting specific files or directories that can be safely deleted\n" +
-          "- Running commands like `du -sh` to analyze disk usage\n" +
-          "- Clearing caches, logs, temporary files, and other non-essential data\n" +
-          "Do NOT perform any other tasks until disk space is freed.\n" +
-          "The user can override this restriction via the disk lock override endpoint.\n" +
-          "</disk_pressure_mode>";
-        runMessages = [
-          ...runMessages.slice(0, -1),
-          {
-            ...tail,
-            content: [
-              ...tail.content,
-              { type: "text" as const, text: diskPressureContext },
-            ],
-          },
-        ];
-      }
+      runMessages = applyDiskPressureContext(runMessages);
     }
 
     // Persist injected blocks in message metadata so they survive conversation
@@ -2098,6 +2106,9 @@ export async function runAgentLoopImpl(
         turnContext: buildPluginTurnContext(ctx, reqId),
       });
       runMessages = injection.messages;
+      if (diskPressureActive) {
+        runMessages = applyDiskPressureContext(runMessages);
+      }
       if (isTrustedActor && currentInjectionMode !== "minimal") {
         ctx.graphMemory.retrackCachedNodes();
       }
@@ -2347,6 +2358,9 @@ export async function runAgentLoopImpl(
           turnContext: buildPluginTurnContext(ctx, reqId),
         });
         runMessages = injection.messages;
+        if (diskPressureActive) {
+          runMessages = applyDiskPressureContext(runMessages);
+        }
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
         }
@@ -2508,6 +2522,9 @@ export async function runAgentLoopImpl(
             turnContext: buildPluginTurnContext(ctx, reqId),
           });
           runMessages = injection.messages;
+          if (diskPressureActive) {
+            runMessages = applyDiskPressureContext(runMessages);
+          }
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
           }

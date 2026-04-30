@@ -133,14 +133,6 @@ export function isDiskSpacePressure(): boolean {
 }
 
 /**
- * Returns `true` when the assistant should be fully prevented from processing.
- * Kept for backward compatibility — equivalent to `isDiskSpacePressure()`.
- */
-export function isDiskSpaceLocked(): boolean {
-  return isDiskSpacePressure();
-}
-
-/**
  * Manually override the disk lock so the assistant can continue operating
  * without restrictions despite high disk usage. Requires the caller to
  * supply the correct confirmation phrase.
