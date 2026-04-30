@@ -401,6 +401,7 @@ export interface OverflowReduceArgs {
    */
   readonly onCompactionResult: (
     result: ContextWindowResult,
+    compactedBasis?: Message[],
   ) => void | Promise<void>;
   /**
    * Invoked after each step to rebuild `runMessages` from the step's

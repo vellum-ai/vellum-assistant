@@ -2990,7 +2990,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(renderedText).not.toContain("before watermark");
     expect(renderedText).not.toContain("legacy row before watermark");
     expect(renderedText).not.toContain("at watermark");
-    expect(result!.sourceChannelTsByMessage).toEqual([null, T2]);
     expect(result!.renderedMessages.map((entry) => entry.message)).toEqual(
       result!.messages,
     );
@@ -3116,9 +3115,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(renderedText).toContain("reply after compaction");
     expect(renderedText).not.toContain("original root");
     expect(renderedText).not.toContain("pre-compaction 80");
-    expect(result!.sourceChannelTsByMessage[0]).toBeNull();
+    const sourceChannelTs = result!.renderedMessages.map(
+      (entry) => entry.sourceChannelTs,
+    );
+    expect(sourceChannelTs[0]).toBeNull();
     expect(
-      result!.sourceChannelTsByMessage
+      sourceChannelTs
         .slice(1)
         .every(
           (channelTs) =>
