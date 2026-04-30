@@ -6,7 +6,6 @@
  * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
  *   skills, prompts, attachments, etc.) — excluding large/regenerable
  *   dirs (embedding-models/, data/qdrant/)
- * - trust/trust.json: trust rules (optional)
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -501,8 +500,6 @@ export interface BuildExportVBundleOptions {
   exportOptions: VBundleExportOptions;
   /** Whether secrets were stripped from the bundle before archiving. */
   secretsRedacted: boolean;
-  /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
-  trustPath?: string;
   /**
    * Absolute path to the workspace directory (~/.vellum/workspace/).
    * When provided and exists, the entire directory tree is walked and
@@ -529,7 +526,7 @@ export interface BuildExportVBundleOptions {
  * Walks the entire workspace directory (~/.vellum/workspace/) and includes
  * all files in the archive, skipping only large/regenerable directories
  * (embedding-models/, data/qdrant/). Binary files (SQLite DB, attachments)
- * are included. Trust rules are handled separately.
+ * are included.
  *
  * The WAL is checkpointed before the walk so the exported DB file contains
  * all committed rows.
@@ -544,7 +541,6 @@ export function buildExportVBundle(
     exportOptions,
     secretsRedacted,
     checkpoint,
-    trustPath,
     workspaceDir,
     credentials,
   } = options;
@@ -579,12 +575,6 @@ export function buildExportVBundle(
     const configJson = new TextDecoder().decode(configEntry.data);
     const sanitized = sanitizeConfigForTransfer(configJson);
     configEntry.data = new TextEncoder().encode(sanitized);
-  }
-
-  // Include trust rules if the file exists.
-  if (trustPath && existsSync(trustPath)) {
-    const trustData = new Uint8Array(readFileSync(trustPath));
-    files.push({ path: "trust/trust.json", data: trustData });
   }
 
   // Include credential entries if provided
@@ -885,7 +875,6 @@ export async function streamExportVBundle(
     exportOptions,
     secretsRedacted,
     checkpoint,
-    trustPath,
     workspaceDir,
     credentials,
   } = options;
@@ -909,18 +898,6 @@ export async function streamExportVBundle(
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
       }),
     );
-  }
-
-  // Include trust rules if the file exists
-  if (trustPath && existsSync(trustPath)) {
-    const trustStat = lstatSync(trustPath);
-    if (trustStat.isFile()) {
-      allFileMetadata.push({
-        archivePath: "trust/trust.json",
-        diskPath: trustPath,
-        size: trustStat.size,
-      });
-    }
   }
 
   // Sanitize workspace/config.json: read from disk, sanitize, and replace the
