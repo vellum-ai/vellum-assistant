@@ -8,30 +8,14 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
-// Text verification infrastructure — wired in PR B (tryTextVerificationIntercept)
-import { findContactChannelByExternalUserId, upsertVerifiedContactChannel } from "../verification/contact-helpers.js";
-import { revokeExistingChannelGuardian, getExistingGuardianBinding, resolveCanonicalPrincipal } from "../verification/binding-helpers.js";
-import { isRateLimited, recordInvalidAttempt, resetRateLimit } from "../verification/rate-limit-helpers.js";
-import { deliverVerificationReply, composeVerificationSuccessReply, composeVerificationFailureReply } from "../verification/reply-delivery.js";
-
-// Suppress unused-import lint until PR B wires these into the intercept path.
-void findContactChannelByExternalUserId;
-void upsertVerifiedContactChannel;
-void revokeExistingChannelGuardian;
-void getExistingGuardianBinding;
-void resolveCanonicalPrincipal;
-void isRateLimited;
-void recordInvalidAttempt;
-void resetRateLimit;
-void deliverVerificationReply;
-void composeVerificationSuccessReply;
-void composeVerificationFailureReply;
+import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
 
 export type InboundResult = {
   forwarded: boolean;
   rejected: boolean;
+  verificationIntercepted?: boolean;
   runtimeResponse?: RuntimeInboundResponse;
   rejectionReason?: string;
 };
@@ -94,6 +78,37 @@ export async function handleInbound(
   }
 
   const displayName = event.actor.displayName || event.actor.username;
+
+  // ── Text verification intercept ──
+  // Must run before forwardToRuntime so the assistant never sees
+  // verification code messages. Both success and failure short-circuit.
+  const verificationResult = await tryTextVerificationIntercept({
+    sourceChannel: event.sourceChannel,
+    messageContent: event.message.content,
+    actorExternalUserId: event.actor.actorExternalId,
+    actorChatId: event.message.conversationExternalId,
+    actorDisplayName: event.actor.displayName,
+    actorUsername: event.actor.username,
+    replyCallbackUrl: options?.replyCallbackUrl,
+    assistantId: routing.assistantId,
+  });
+
+  if (verificationResult.intercepted) {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        outcome: verificationResult.outcome,
+        trustClass: verificationResult.trustClass,
+      },
+      "Text verification intercepted — not forwarding to runtime",
+    );
+    return {
+      forwarded: false,
+      rejected: false,
+      verificationIntercepted: true,
+    };
+  }
+
   const transportHints = normalizeTransportHints(
     options?.transportMetadata?.hints,
   );
