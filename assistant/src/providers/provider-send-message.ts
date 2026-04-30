@@ -13,6 +13,8 @@ import type {
   Message,
   Provider,
   ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
   ToolUseContent,
 } from "./types.js";
 
@@ -31,6 +33,44 @@ export interface ConfiguredProviderResult {
  * each triggering a redundant `initializeProviders` call.
  */
 let lazyInitPromise: Promise<void> | null = null;
+
+export class CallSiteConfiguredProvider implements Provider {
+  public readonly name: string;
+  public readonly tokenEstimationProvider?: string;
+
+  constructor(
+    private readonly inner: Provider,
+    private readonly callSite: LLMCallSite,
+    private readonly overrideProfile?: string,
+  ) {
+    this.name = inner.name;
+    this.tokenEstimationProvider = inner.tokenEstimationProvider;
+  }
+
+  sendMessage(
+    messages: Message[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string,
+    options?: SendMessageOptions,
+  ): Promise<ProviderResponse> {
+    const config = options?.config;
+    if (config?.callSite) {
+      return this.inner.sendMessage(messages, tools, systemPrompt, options);
+    }
+
+    return this.inner.sendMessage(messages, tools, systemPrompt, {
+      ...options,
+      config: {
+        ...config,
+        callSite: this.callSite,
+        ...(config?.overrideProfile === undefined &&
+        this.overrideProfile !== undefined
+          ? { overrideProfile: this.overrideProfile }
+          : {}),
+      },
+    });
+  }
+}
 
 /**
  * Resolve the configured provider with full selection metadata.
@@ -76,7 +116,11 @@ export async function resolveConfiguredProvider(
   try {
     const provider = getProvider(inferenceProvider);
     return {
-      provider,
+      provider: new CallSiteConfiguredProvider(
+        provider,
+        callSite,
+        opts.overrideProfile,
+      ),
       configuredProviderName: inferenceProvider,
     };
   } catch {

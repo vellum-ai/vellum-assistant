@@ -7,7 +7,25 @@ public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse?
     func fetchUsageSeries(from: Int, to: Int, granularity: String, groupBy: String, tz: String) async -> UsageSeriesResponse?
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageFetchResult<UsageBreakdownResponse>
+}
+
+public struct UsageFetchResult<Value: Sendable>: Sendable {
+    public let value: Value?
+    public let statusCode: Int?
+
+    public init(value: Value?, statusCode: Int?) {
+        self.value = value
+        self.statusCode = statusCode
+    }
+
+    public static func success(_ value: Value) -> Self {
+        Self(value: value, statusCode: 200)
+    }
+
+    public static func failure(statusCode: Int? = nil) -> Self {
+        Self(value: nil, statusCode: statusCode)
+    }
 }
 
 /// Fetches usage data via GatewayHTTPClient.
@@ -47,12 +65,16 @@ public struct UsageClient: UsageClientProtocol {
         return result?.0
     }
 
-    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageFetchResult<UsageBreakdownResponse> {
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
-        let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
-        )
-        return result?.0
+        do {
+            let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response) = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+            )
+            return UsageFetchResult(value: result.0, statusCode: result.1.statusCode)
+        } catch {
+            return .failure()
+        }
     }
 }
 
@@ -224,6 +246,15 @@ public final class UsageDashboardStore {
 
     public init() {}
 
+    private func shouldFallbackToModelBreakdown(
+        requested groupBy: UsageGroupByDimension,
+        result: UsageFetchResult<UsageBreakdownResponse>
+    ) -> Bool {
+        guard result.value == nil else { return false }
+        guard groupBy == .callSite || groupBy == .inferenceProfile else { return false }
+        return result.statusCode == 400 || result.statusCode == 404 || result.statusCode == 422
+    }
+
     /// Replace the underlying client and reset all loaded data.
     public func updateClient(_ newClient: any UsageClientProtocol) {
         client = newClient
@@ -294,7 +325,26 @@ public final class UsageDashboardStore {
         let totals = await totalsResult
         let daily = await dailyResult
         var series = await seriesResult
-        let breakdown = await breakdownResult
+        let breakdownResultValue = await breakdownResult
+        var breakdown = breakdownResultValue.value
+        var effectiveGroupBy = groupBy
+
+        if shouldFallbackToModelBreakdown(requested: groupBy, result: breakdownResultValue) {
+            effectiveGroupBy = .model
+            async let modelSeriesResult = client.fetchUsageSeries(
+                from: range.from,
+                to: range.to,
+                granularity: granularity,
+                groupBy: UsageGroupByDimension.model.rawValue,
+                tz: tzIdentifier
+            )
+            async let modelBreakdownResult = client.fetchUsageBreakdown(
+                from: range.from, to: range.to, groupBy: UsageGroupByDimension.model.rawValue
+            )
+            series = await modelSeriesResult
+            let modelBreakdown = await modelBreakdownResult
+            breakdown = modelBreakdown.value
+        }
 
         if series == nil, let daily {
             series = UsageSeriesResponse(daily: daily)
@@ -316,6 +366,10 @@ public final class UsageDashboardStore {
         }
 
         if capturedBreakdownGen == breakdownGeneration {
+            if effectiveGroupBy != groupBy && selectedGroupBy == groupBy {
+                selectedGroupBy = effectiveGroupBy
+            }
+
             if let series {
                 seriesState = .loaded(series)
             } else {
@@ -359,13 +413,36 @@ public final class UsageDashboardStore {
         )
 
         var series = await seriesResult
-        let result = await breakdownResult
+        let breakdown = await breakdownResult
+        var result = breakdown.value
+        var effectiveDimension = dimension
+
+        if shouldFallbackToModelBreakdown(requested: dimension, result: breakdown) {
+            effectiveDimension = .model
+            async let modelSeriesResult = client.fetchUsageSeries(
+                from: range.from,
+                to: range.to,
+                granularity: granularity,
+                groupBy: UsageGroupByDimension.model.rawValue,
+                tz: resolvedTimezoneIdentifier
+            )
+            async let modelBreakdownResult = client.fetchUsageBreakdown(
+                from: range.from, to: range.to, groupBy: UsageGroupByDimension.model.rawValue
+            )
+            series = await modelSeriesResult
+            let modelBreakdown = await modelBreakdownResult
+            result = modelBreakdown.value
+        }
 
         if series == nil, case .loaded(let daily) = dailyState {
             series = UsageSeriesResponse(daily: daily)
         }
 
         guard capturedGeneration == breakdownGeneration else { return }
+
+        if effectiveDimension != dimension && selectedGroupBy == dimension {
+            selectedGroupBy = effectiveDimension
+        }
 
         if let series {
             seriesState = .loaded(series)

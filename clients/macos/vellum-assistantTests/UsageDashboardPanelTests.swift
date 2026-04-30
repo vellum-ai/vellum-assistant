@@ -758,9 +758,12 @@ private final class MockPanelClient: UsageClientProtocol {
         )
     }
 
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageFetchResult<UsageBreakdownResponse> {
         lastBreakdownFrom = from
         lastBreakdownGroupBy = groupBy
-        return stubbedBreakdown
+        if let stubbedBreakdown {
+            return .success(stubbedBreakdown)
+        }
+        return .failure()
     }
 }
