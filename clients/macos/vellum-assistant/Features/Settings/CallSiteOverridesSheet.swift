@@ -178,17 +178,12 @@ struct CallSiteOverridesSheet: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 let filtered = filteredEntriesByDomain
                 ForEach(Array(filtered.enumerated()), id: \.element.domain.id) { index, group in
-                    if index > 0 {
-                        SettingsDivider()
-                            .padding(.horizontal, VSpacing.lg)
-                    }
-
                     Text(group.domain.displayName)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
                         .padding(.horizontal, VSpacing.lg)
-                        .padding(.top, VSpacing.md)
+                        .padding(.top, index == 0 ? VSpacing.sm : VSpacing.xl)
                         .padding(.bottom, VSpacing.xs)
 
                     ForEach(group.entries) { entry in
