@@ -424,18 +424,27 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
           `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      let key = credentialKey(name, "api_key");
-      const existing = await getSecureKeyAsync(key);
-      if (existing === undefined) {
+      const credKey = credentialKey(name, "api_key");
+      const credResult = await getSecureKeyResultAsync(credKey);
+      if (credResult.unreachable) {
+        throw new InternalError("Credential store is unreachable");
+      }
+      let keyToDelete: string;
+      if (credResult.value !== undefined) {
+        keyToDelete = credKey;
+      } else {
         // Fall back to the bare provider name (pre-migration window or partial
         // migration failure).
-        const bareExisting = await getSecureKeyAsync(name);
-        if (bareExisting === undefined) {
+        const bareResult = await getSecureKeyResultAsync(name);
+        if (bareResult.unreachable) {
+          throw new InternalError("Credential store is unreachable");
+        }
+        if (bareResult.value === undefined) {
           throw new NotFoundError(`API key not found: ${name}`);
         }
-        key = name;
+        keyToDelete = name;
       }
-      const deleteResult = await deleteSecureKeyAsync(key);
+      const deleteResult = await deleteSecureKeyAsync(keyToDelete);
       if (deleteResult === "error") {
         throw new InternalError(
           `Failed to delete API key from secure storage: ${name}`,

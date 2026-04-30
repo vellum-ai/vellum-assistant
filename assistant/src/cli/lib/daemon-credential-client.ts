@@ -82,7 +82,13 @@ export async function deleteSecureKeyViaDaemon(
 
   // Daemon unreachable — fall back to direct delete.
   if (type === "api_key") {
-    return deleteSecureKeyAsync(credentialKey(name, "api_key"));
+    // Try the credential-namespaced key first; fall back to the bare provider
+    // name for the pre-migration window (bare key exists, credential key absent).
+    let result = await deleteSecureKeyAsync(credentialKey(name, "api_key"));
+    if (result === "not-found") {
+      result = await deleteSecureKeyAsync(name);
+    }
+    return result;
   }
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
