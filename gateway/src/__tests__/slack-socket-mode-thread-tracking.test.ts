@@ -267,6 +267,45 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("emits direct messages with im chat type for assistant backfill", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-dm", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-dm",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-dm",
+            event: {
+              type: "message",
+              user: "U-dm",
+              text: "hello from dm",
+              ts: "1700000000.000500",
+              channel: "D-direct",
+              channel_type: "im",
+            },
+          },
+        }),
+        ws,
+      );
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-dm");
+      expect(emitted[0].event.source.chatType).toBe("im");
+      expect(emitted[0].event.message.conversationExternalId).toBe("D-direct");
+      expect(emitted[0].threadTs).toBeUndefined();
+      expect(emitted[0].event.source.threadId).toBeUndefined();
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test.each([
     {
       name: "reaction",

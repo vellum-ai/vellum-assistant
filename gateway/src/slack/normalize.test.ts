@@ -492,7 +492,9 @@ describe("DM threading", () => {
     const result = normalizeSlackDirectMessage(event, "evt-dm-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBe("im");
     expect(result!.threadTs).toBeUndefined();
+    expect(result!.event.source.threadId).toBeUndefined();
   });
 
   it("threaded DM preserves threadTs", () => {
@@ -501,7 +503,9 @@ describe("DM threading", () => {
     const result = normalizeSlackDirectMessage(event, "evt-dm-2", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBe("im");
     expect(result!.threadTs).toBe("1700000000.000050");
+    expect(result!.event.source.threadId).toBe("1700000000.000050");
   });
 });
 
