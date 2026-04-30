@@ -761,6 +761,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "error",
+          conversationId: ctx.conversationId,
           code: "DISK_SPACE_CRITICAL",
           message:
             "Disk usage has reached 95%. All background tasks are suspended. " +
