@@ -154,11 +154,13 @@ struct InferenceServiceCard: View {
                         if profilesEnabled {
                             activeProfilePicker
                             secondaryActionsRow
-                            ServiceCardActions(
-                                hasChanges: hasChanges,
-                                isSaving: false,
-                                onSave: { save() }
-                            )
+                            if hasChanges {
+                                ServiceCardActions(
+                                    hasChanges: true,
+                                    isSaving: false,
+                                    onSave: { save() }
+                                )
+                            }
                         } else {
                             managedProviderPicker
                             ServiceCardActions(
@@ -178,18 +180,15 @@ struct InferenceServiceCard: View {
                         apiKeysSection
                         activeProfilePicker
                         secondaryActionsRow
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: false,
-                            onSave: { save() }
-                        )
+                        if hasChanges {
+                            ServiceCardActions(
+                                hasChanges: true,
+                                isSaving: false,
+                                onSave: { save() }
+                            )
+                        }
                     } else if profilesEnabled {
                         apiKeysEmptyState
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: false,
-                            onSave: { save() }
-                        )
                     } else {
                         providerPicker
                         apiKeyField
@@ -519,23 +518,21 @@ struct InferenceServiceCard: View {
     /// overrides controls since they can't do anything without credentials.
     private var apiKeysEmptyState: some View {
         VStack(spacing: VSpacing.md) {
-            Image(VIcon.keyRound.rawValue)
-                .resizable()
-                .frame(width: 28, height: 28)
+            VIconView(.keyRound, size: 28)
                 .foregroundStyle(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.xs) {
-                Text("Add an API key to get started")
+                Text("Bring your own keys")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Connect a provider so your assistant can generate responses using your own credentials.")
+                Text("Add API keys for the LLM providers you want to use.")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VButton(label: "Add API Keys\u{2026}", style: .primary) {
+            VButton(label: "Add API Keys", style: .primary) {
                 showAPIKeysSheet = true
             }
         }
