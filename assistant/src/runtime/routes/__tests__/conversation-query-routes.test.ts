@@ -12,6 +12,23 @@ import {
   sampleConfig,
   sampleSkills,
 } from "../../../memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
+
+let rawConfigFixture: Record<string, unknown> = {};
+let savedRawConfig: Record<string, unknown> | null = null;
+
+mock.module("../../../config/loader.js", () => ({
+  loadRawConfig: () => structuredClone(rawConfigFixture),
+  saveRawConfig: (raw: Record<string, unknown>) => {
+    savedRawConfig = raw;
+  },
+  deepMergeOverwrite: (
+    target: Record<string, unknown>,
+    overrides: Record<string, unknown>,
+  ) => {
+    Object.assign(target, overrides);
+  },
+}));
+
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
@@ -37,6 +54,10 @@ initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
+)!;
+
+const replaceProfileRoute = ROUTES.find(
+  (r) => r.operationId === "config_llm_profiles_replace",
 )!;
 
 function dispatchLlmContext(messageId: string) {
@@ -119,5 +140,75 @@ describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
     expect(body.memoryV2Activation!.config).toEqual(sampleConfig);
     // Backwards-compat: memoryRecall field still present.
     expect(body).toHaveProperty("memoryRecall");
+  });
+});
+
+describe("PUT /v1/config/llm/profiles/:name", () => {
+  beforeEach(() => {
+    savedRawConfig = null;
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          custom: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            maxTokens: 32000,
+            contextWindow: {
+              maxInputTokens: 900000,
+              summaryBudgetRatio: 0.08,
+            },
+            openrouter: {
+              only: ["anthropic"],
+            },
+          },
+        },
+      },
+    };
+  });
+
+  test("owns contextWindow while preserving non-UI profile leaves", () => {
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile.model).toBe("gpt-5.5");
+    expect(savedProfile.maxTokens).toBeUndefined();
+    expect(savedProfile.contextWindow).toBeUndefined();
+    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
+  });
+
+  test("writes a replacement contextWindow override", () => {
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        model: "gpt-5.5",
+        contextWindow: {
+          maxInputTokens: 150000,
+        },
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.contextWindow).toEqual({ maxInputTokens: 150000 });
+    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 });

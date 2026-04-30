@@ -131,10 +131,10 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertNil(profile.verbosity)
     }
 
-    func testUnknownKeysAreIgnored() {
+    func testUnknownKeysArePreservedThroughJSONRoundTrip() {
         let json: [String: Any] = [
             "provider": "anthropic",
-            "totallyUnknown": "ignored",
+            "totallyUnknown": "preserved",
             "thinking": [
                 "enabled": true,
                 "alsoUnknown": 123,
@@ -144,6 +144,11 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(profile.provider, "anthropic")
         XCTAssertEqual(profile.thinkingEnabled, true)
         XCTAssertNil(profile.thinkingStreamThinking)
+
+        let reEncoded = profile.toJSON()
+        XCTAssertEqual(reEncoded["totallyUnknown"] as? String, "preserved")
+        let thinking = reEncoded["thinking"] as? [String: Any]
+        XCTAssertNil(thinking?["alsoUnknown"])
     }
 
     // MARK: - Identifiable

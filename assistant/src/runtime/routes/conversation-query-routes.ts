@@ -89,6 +89,7 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "verbosity",
   "temperature",
   "thinking",
+  "contextWindow",
 ]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {

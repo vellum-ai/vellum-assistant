@@ -358,6 +358,58 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertNil(sanitized.thinkingStreamThinking)
     }
 
+    func testContextWindowMaxInputTokensRoundTripsThroughProfileJSON() {
+        let profile = InferenceProfile(
+            name: "long-context",
+            provider: "openai",
+            model: "gpt-5.5",
+            contextWindowMaxInputTokens: 150000
+        )
+
+        let json = profile.toJSON()
+        let contextWindow = json["contextWindow"] as? [String: Any]
+
+        XCTAssertEqual(contextWindow?["maxInputTokens"] as? Int, 150000)
+        let decoded = InferenceProfile(name: "long-context", json: json)
+        XCTAssertEqual(decoded.contextWindowMaxInputTokens, 150000)
+    }
+
+    func testOmittedContextWindowContinuesToInheritDefaults() {
+        let profile = InferenceProfile(
+            name: "default-context",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertNil(profile.contextWindowMaxInputTokens)
+        XCTAssertNil(profile.toJSON()["contextWindow"])
+    }
+
+    func testContextWindowSiblingLeavesArePreservedWhenContextMaxChanges() {
+        let profile = InferenceProfile(
+            name: "manual",
+            json: [
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "contextWindow": [
+                    "maxInputTokens": 900000,
+                    "summaryBudgetRatio": 0.08,
+                ],
+                "openrouter": ["only": ["anthropic"]],
+            ]
+        )
+        var edited = profile
+        edited.contextWindowMaxInputTokens = nil
+
+        let json = edited.toJSON()
+        let contextWindow = json["contextWindow"] as? [String: Any]
+
+        XCTAssertNil(contextWindow?["maxInputTokens"])
+        XCTAssertEqual(contextWindow?["summaryBudgetRatio"] as? Double, 0.08)
+        let openrouter = json["openrouter"] as? [String: Any]
+        XCTAssertEqual(openrouter?["only"] as? [String], ["anthropic"])
+    }
+
     // MARK: - Validation
 
     func testCanSaveWhenProviderAndModelAreNil() {
