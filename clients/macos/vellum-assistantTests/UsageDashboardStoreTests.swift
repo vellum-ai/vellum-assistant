@@ -359,6 +359,22 @@ struct UsageDashboardStoreLoadingTests {
     }
 
     @Test @MainActor
+    func needsRefreshTracksVisibleDashboardSectionsOnly() {
+        let store = UsageDashboardStore()
+        store.totalsState = .loaded(UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        ))
+        store.dailyState = .failed("Legacy daily endpoint failed")
+        store.seriesState = .loaded(UsageSeriesResponse(buckets: []))
+        store.breakdownState = .loaded(UsageBreakdownResponse(breakdown: []))
+
+        #expect(store.needsRefresh == false)
+    }
+
+    @Test @MainActor
     func selectRangeChangesRangeAndRefreshes() async {
         let client = MockUsageClient()
         client.stubbedTotals = UsageTotalsResponse(
@@ -478,6 +494,16 @@ struct UsageDashboardStoreGroupTests {
         #expect(client.lastBreakdownGroupBy == "inference_profile")
     }
 
+    @Test
+    func dashboardPickerOptionsMatchGroupedSeriesSupport() {
+        #expect(UsageGroupByDimension.dashboardOptions == [
+            .callSite,
+            .inferenceProfile,
+            .model,
+            .provider,
+        ])
+    }
+
     @Test @MainActor
     func taskDefaultFallsBackToModelForOlderAssistants() async {
         let client = MockUsageClient()
@@ -557,8 +583,29 @@ struct UsageDashboardStoreRaceTests {
         UsageDailyResponse(buckets: [])
     }
 
-    private static func makeSeries() -> UsageSeriesResponse {
-        UsageSeriesResponse(buckets: [])
+    private static func makeSeries(group: String? = nil) -> UsageSeriesResponse {
+        guard let group else {
+            return UsageSeriesResponse(buckets: [])
+        }
+
+        return UsageSeriesResponse(buckets: [
+            UsageSeriesBucket(
+                date: "2026-03-01",
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                totalEstimatedCostUsd: 0,
+                eventCount: 0,
+                groups: [
+                    group: UsageSeriesGroupValue(
+                        group: group,
+                        totalInputTokens: 0,
+                        totalOutputTokens: 0,
+                        totalEstimatedCostUsd: 0,
+                        eventCount: 0
+                    )
+                ]
+            )
+        ])
     }
 
     private static func makeBreakdown(group: String) -> UsageBreakdownResponse {
@@ -663,9 +710,15 @@ struct UsageDashboardStoreRaceTests {
         }
 
         // Complete selectGroupBy's breakdown first (the newer request)
-        client.seriesContinuations[1].resume(returning: Self.makeSeries())
+        client.seriesContinuations[1].resume(returning: Self.makeSeries(group: "provider-fresh"))
         client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-fresh"))
         await groupByTask.value
+
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets[0].groups.keys.contains("provider-fresh"))
+        } else {
+            Issue.record("Expected series to be loaded after selectGroupBy completes")
+        }
 
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown[0].group == "provider-fresh")
@@ -677,7 +730,7 @@ struct UsageDashboardStoreRaceTests {
         // because selectGroupBy() incremented breakdownGeneration
         client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 42))
         client.dailyContinuations[0].resume(returning: Self.makeDaily())
-        client.seriesContinuations[0].resume(returning: Self.makeSeries())
+        client.seriesContinuations[0].resume(returning: Self.makeSeries(group: "model-stale"))
         client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
         await refreshTask.value
 
@@ -689,6 +742,13 @@ struct UsageDashboardStoreRaceTests {
         }
 
         // Breakdown must still be the selectGroupBy result, not overwritten by refresh()
+        if case .loaded(let series) = store.seriesState {
+            #expect(series.buckets[0].groups.keys.contains("provider-fresh"),
+                    "refresh() must not overwrite series set by concurrent selectGroupBy()")
+        } else {
+            Issue.record("Series was overwritten by stale refresh()")
+        }
+
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown[0].group == "provider-fresh",
                     "refresh() must not overwrite breakdown set by concurrent selectGroupBy()")
