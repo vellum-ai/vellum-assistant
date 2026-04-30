@@ -1,12 +1,19 @@
 /**
- * In-memory ring buffer for chrome extension relay events.
+ * Ring buffer for chrome extension relay events.
  *
  * Events are stored as correlated **operations** — each inbound request
  * is paired with its outbound result by `requestId`. The popup reads
  * the operation list to show a single row per browser action.
  *
- * Only the last {@link MAX_OPERATIONS} operations are retained. The
- * buffer is ephemeral — it resets when the service worker restarts.
+ * Only the last {@link MAX_OPERATIONS} operations are retained.
+ *
+ * Operations are persisted to `chrome.storage.session` so they survive
+ * service worker restarts (MV3 lifecycle) and popup close/reopen. The
+ * session store clears automatically when the browser is closed, which
+ * is the right lifetime for ephemeral debugging data.
+ *
+ * The raw event log buffer remains in-memory only — it's lower-value
+ * diagnostic data that doesn't need persistence.
  */
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -52,6 +59,11 @@ export interface OperationEntry {
   responseContent?: string;
 }
 
+// ── Storage keys ────────────────────────────────────────────────────
+
+const STORAGE_KEY_OPS = "eventLog:operations";
+const STORAGE_KEY_NEXT_OP_ID = "eventLog:nextOpId";
+
 // ── Ring buffer ─────────────────────────────────────────────────────
 
 const MAX_ENTRIES = 100;
@@ -63,6 +75,72 @@ const buffer: EventLogEntry[] = [];
 let nextOpId = 1;
 const operations: OperationEntry[] = [];
 const operationsByRequestId = new Map<string, OperationEntry>();
+
+// ── Persistence helpers ─────────────────────────────────────────────
+
+/**
+ * Check whether `chrome.storage.session` is available at call time.
+ * Evaluated dynamically so test mocks installed after module load
+ * are picked up.
+ */
+function canPersist(): boolean {
+  return (
+    typeof chrome !== "undefined" &&
+    chrome?.storage?.session != null
+  );
+}
+
+/**
+ * Write-through: persist the current operations array and counter to
+ * session storage. Fire-and-forget — failures are silently ignored
+ * since the in-memory state is always authoritative.
+ */
+function persistOperations(): void {
+  if (!canPersist()) return;
+  chrome.storage.session
+    .set({
+      [STORAGE_KEY_OPS]: operations,
+      [STORAGE_KEY_NEXT_OP_ID]: nextOpId,
+    })
+    .catch(() => {});
+}
+
+/**
+ * Hydrate in-memory state from session storage. Called once at module
+ * load time. Until this resolves, `getOperations()` returns whatever
+ * is already in memory (empty on fresh start). The popup fetches via
+ * `get-operations` message which is processed after the service worker
+ * is fully awake, so the race window is negligible.
+ */
+export async function hydrateFromStorage(): Promise<void> {
+  if (!canPersist()) return;
+  try {
+    const stored = await chrome.storage.session.get([
+      STORAGE_KEY_OPS,
+      STORAGE_KEY_NEXT_OP_ID,
+    ]);
+    const storedOps = stored[STORAGE_KEY_OPS];
+    const storedNextId = stored[STORAGE_KEY_NEXT_OP_ID];
+    if (Array.isArray(storedOps) && storedOps.length > 0) {
+      operations.length = 0;
+      operationsByRequestId.clear();
+      for (const op of storedOps as OperationEntry[]) {
+        operations.push(op);
+        operationsByRequestId.set(op.requestId, op);
+      }
+    }
+    if (typeof storedNextId === "number" && storedNextId > nextOpId) {
+      nextOpId = storedNextId;
+    }
+  } catch {
+    // Storage read failed — start fresh.
+  }
+}
+
+// Hydrate eagerly on module load (fire-and-forget).
+hydrateFromStorage();
+
+// ── Public API ──────────────────────────────────────────────────────
 
 export function appendEvent(
   direction: EventLogDirection,
@@ -105,6 +183,7 @@ export function recordRequest(
     const evicted = operations.shift()!;
     operationsByRequestId.delete(evicted.requestId);
   }
+  persistOperations();
   return op;
 }
 
@@ -121,6 +200,7 @@ export function recordResponse(
   op.isError = opts?.isError;
   op.responseContent = opts?.responseContent;
   op.durationMs = new Date(op.respondedAt).getTime() - new Date(op.requestedAt).getTime();
+  persistOperations();
 }
 
 /** Return a snapshot of operations (oldest first). */
@@ -145,4 +225,5 @@ export function clearEventLog(): void {
   operations.length = 0;
   operationsByRequestId.clear();
   nextOpId = 1;
+  persistOperations();
 }
