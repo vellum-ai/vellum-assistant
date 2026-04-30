@@ -1,5 +1,6 @@
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
@@ -11,12 +12,27 @@ import { isModelInCatalog } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { OpenAIResponsesProvider } from "./openai/client.js";
+import { getOpenAICodexCredentials } from "./openai/codex-credentials.js";
 import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 
+const log = getLogger("provider-registry");
+
+export type ProviderRoutingSource =
+  | "user-key"
+  | "managed-proxy"
+  | "oauth-codex";
+
 const providers = new Map<string, Provider>();
-const routingSources = new Map<string, "user-key" | "managed-proxy">();
+const routingSources = new Map<string, ProviderRoutingSource>();
+
+const CODEX_OAUTH_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const CODEX_OAUTH_ORIGINATOR = "vellum-assistant";
+
+function isCodexOAuthEnabled(): boolean {
+  return process.env.VELLUM_ENABLE_OPENAI_CODEX_OAUTH === "1";
+}
 
 function registerProvider(name: string, provider: Provider): void {
   providers.set(name, provider);
@@ -36,7 +52,7 @@ export function listProviders(): string[] {
 
 export function getProviderRoutingSource(
   name: string,
-): "user-key" | "managed-proxy" | undefined {
+): ProviderRoutingSource | undefined {
   return routingSources.get(name);
 }
 
@@ -168,21 +184,62 @@ export async function initializeProviders(
     routingSources.set("anthropic", anthropicCreds.source);
   }
 
-  // OpenAI
-  const openaiCreds = await resolveProviderCredentials("openai", inferenceMode);
-  if (openaiCreds) {
+  // OpenAI — OAuth (Sign in with ChatGPT) takes precedence over API key
+  // when the feature flag is on and credentials are present. The Codex
+  // backend speaks the Responses API but at chatgpt.com/backend-api/codex,
+  // not api.openai.com/v1, and gates on subscription-specific headers.
+  const codexCreds = isCodexOAuthEnabled()
+    ? await getOpenAICodexCredentials()
+    : undefined;
+  if (codexCreds) {
     const model = resolveModel(config, "openai");
     registerProvider(
       "openai",
       new RetryProvider(
-        new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
-          useNativeWebSearch,
+        new OpenAIResponsesProvider(codexCreds.access, model, {
+          // Codex backend rejects `web_search_preview`; force the function-tool
+          // path so the assistant's own web-search mechanism is used.
+          useNativeWebSearch: false,
           streamTimeoutMs,
-          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
+          baseURL: CODEX_OAUTH_BASE_URL,
+          defaultHeaders: {
+            "chatgpt-account-id": codexCreds.accountId,
+            "OpenAI-Beta": "responses=experimental",
+            originator: CODEX_OAUTH_ORIGINATOR,
+          },
+          onAuthRefreshNeeded: async () => {
+            const refreshed = await getOpenAICodexCredentials({
+              forceRefresh: true,
+            });
+            return refreshed?.access;
+          },
         }),
       ),
     );
-    routingSources.set("openai", openaiCreds.source);
+    routingSources.set("openai", "oauth-codex");
+    log.info(
+      { accountId: codexCreds.accountId },
+      "Registered OpenAI provider via Codex OAuth",
+    );
+  } else {
+    const openaiCreds = await resolveProviderCredentials(
+      "openai",
+      inferenceMode,
+    );
+    if (openaiCreds) {
+      const model = resolveModel(config, "openai");
+      registerProvider(
+        "openai",
+        new RetryProvider(
+          new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
+            useNativeWebSearch,
+            streamTimeoutMs,
+            ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
+          }),
+        ),
+      );
+      routingSources.set("openai", openaiCreds.source);
+    }
   }
 
   // Gemini

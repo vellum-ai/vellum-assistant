@@ -23,6 +23,18 @@ export interface OpenAIResponsesProviderOptions {
   providerLabel?: string;
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
+  /**
+   * Extra headers attached to every outbound OpenAI request. Required by the
+   * Codex backend (`chatgpt.com/backend-api/codex`), which gates on
+   * `chatgpt-account-id`, `OpenAI-Beta`, and `originator`.
+   */
+  defaultHeaders?: Record<string, string>;
+  /**
+   * Called on an HTTP 401 from OpenAI, before re-throwing. If this resolves
+   * with a fresh access token, the client is rebuilt and the request is
+   * retried exactly once. Used by the OAuth (Sign in with ChatGPT) path.
+   */
+  onAuthRefreshNeeded?: () => Promise<string | undefined>;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -101,6 +113,12 @@ export class OpenAIResponsesProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
+  private readonly baseURL: string | undefined;
+  private readonly defaultHeaders: Record<string, string> | undefined;
+  private readonly onAuthRefreshNeeded:
+    | (() => Promise<string | undefined>)
+    | undefined;
+  private readonly isCodexBaseUrl: boolean;
 
   constructor(
     apiKey: string,
@@ -109,16 +127,56 @@ export class OpenAIResponsesProvider implements Provider {
   ) {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
-    this.client = new OpenAI({
-      apiKey,
-      baseURL: options.baseURL,
-    });
+    this.baseURL = options.baseURL;
+    this.defaultHeaders = options.defaultHeaders;
+    this.onAuthRefreshNeeded = options.onAuthRefreshNeeded;
+    this.isCodexBaseUrl =
+      options.baseURL?.startsWith("https://chatgpt.com/backend-api/codex") ??
+      false;
+    this.client = this.buildClient(apiKey);
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
+  private buildClient(apiKey: string): OpenAI {
+    return new OpenAI({
+      apiKey,
+      baseURL: this.baseURL,
+      defaultHeaders: this.defaultHeaders,
+    });
+  }
+
   async sendMessage(
+    messages: Message[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string,
+    options?: SendMessageOptions,
+  ): Promise<ProviderResponse> {
+    try {
+      return await this.sendMessageOnce(messages, tools, systemPrompt, options);
+    } catch (error) {
+      if (
+        this.onAuthRefreshNeeded &&
+        error instanceof ProviderError &&
+        error.statusCode === 401
+      ) {
+        const refreshedAccessToken = await this.onAuthRefreshNeeded();
+        if (refreshedAccessToken) {
+          this.client = this.buildClient(refreshedAccessToken);
+          return await this.sendMessageOnce(
+            messages,
+            tools,
+            systemPrompt,
+            options,
+          );
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async sendMessageOnce(
     messages: Message[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
@@ -147,7 +205,7 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
-      if (maxTokens) {
+      if (maxTokens && !this.isCodexBaseUrl) {
         params.max_output_tokens = maxTokens;
       }
 

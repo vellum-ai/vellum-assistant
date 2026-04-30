@@ -163,6 +163,10 @@ struct HatchingStepView: View {
                     let provider = state.selectedProvider
                     Task { await APIKeyManager.setKey(key, for: provider) }
                 }
+                // Same race resolution for the OpenAI Codex OAuth credential
+                // blob — saveAndHatch's fire-and-forget setCredential races
+                // the daemon startup, so re-push once the daemon is up.
+                Task { await CodexCredentialStore.pushToDaemonIfPresent() }
             }
         }
         .onChange(of: state.hatchFailed) { _, failed in

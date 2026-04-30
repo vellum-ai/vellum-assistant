@@ -17,6 +17,22 @@ enum ActivationKey: String, CaseIterable {
     }
 }
 
+/// State for the optional "Sign in with ChatGPT" OAuth flow surfaced on
+/// the API-key entry step when the OpenAI provider is selected and the
+/// `openai-codex-oauth` feature flag is enabled. Mutually exclusive states
+/// drive both button labels and onboarding step gating.
+enum OpenAICodexOAuthState: Equatable {
+    case idle
+    case pending
+    case completed
+    case failed(String)
+
+    var isPending: Bool {
+        if case .pending = self { return true }
+        return false
+    }
+}
+
 @Observable
 @MainActor
 final class OnboardingState {
@@ -88,6 +104,9 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
     var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
+    /// Tracks the in-flight "Sign in with ChatGPT" flow. Reset to `.idle`
+    /// whenever the selected provider changes.
+    var openaiCodexOAuthState: OpenAICodexOAuthState = .idle
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -231,6 +250,16 @@ final class OnboardingState {
                 await APIKeyManager.deleteKey(for: providerToDelete)
             }
             await APIKeyManager.deleteKey(for: "anthropic")
+        }
+
+        // Clear any OpenAI Codex OAuth credentials so a retry doesn't silently
+        // re-push stale tokens after the next hatch.
+        CodexCredentialStore.clear()
+        Task {
+            _ = await APIKeyManager.deleteCredential(
+                service: CodexCredentialStore.service,
+                field: CodexCredentialStore.field
+            )
         }
 
         selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"

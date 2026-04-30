@@ -83,6 +83,10 @@ struct APIKeyEntryStepView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                if isCodexOAuthAvailable, let oauth = currentProviderEntry?.oauth {
+                    oauthSection(oauth: oauth)
+                }
             }
 
             VStack(spacing: VSpacing.sm) {
@@ -129,6 +133,7 @@ struct APIKeyEntryStepView: View {
                 hasExistingKey = false
                 isEditing = false
             }
+            state.openaiCodexOAuthState = .idle
         }
 
         Spacer()
@@ -237,5 +242,73 @@ struct APIKeyEntryStepView: View {
             Task { await APIKeyManager.setKey(trimmed, for: provider) }
         }
         state.advance()
+    }
+
+    // MARK: - OpenAI Codex OAuth (Sign in with ChatGPT)
+
+    private var isCodexOAuthAvailable: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("openai-codex-oauth")
+    }
+
+    @ViewBuilder
+    private func oauthSection(oauth: LLMProviderOAuthDescriptor) -> some View {
+        VStack(spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.sm) {
+                Rectangle().fill(VColor.borderBase).frame(height: 1)
+                Text("Or")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Rectangle().fill(VColor.borderBase).frame(height: 1)
+            }
+
+            VButton(
+                label: oauthButtonLabel(displayLabel: oauth.displayLabel),
+                style: .outlined,
+                isFullWidth: true,
+                isDisabled: state.openaiCodexOAuthState.isPending
+            ) {
+                Task { @MainActor in
+                    await beginOpenAICodexOAuth()
+                }
+            }
+
+            VStack(spacing: VSpacing.xxs) {
+                Text(oauth.subtitleHint)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                Text(oauth.tosWarning)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+
+            if case .failed(let reason) = state.openaiCodexOAuthState {
+                Text("Sign-in failed: \(reason)")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    private func oauthButtonLabel(displayLabel: String) -> String {
+        switch state.openaiCodexOAuthState {
+        case .idle, .completed, .failed: return displayLabel
+        case .pending: return "Authorize in your browser…"
+        }
+    }
+
+    private func beginOpenAICodexOAuth() async {
+        state.openaiCodexOAuthState = .pending
+        do {
+            let creds = try await CodexOAuthFlow.login()
+            CodexCredentialStore.save(creds)
+            state.openaiCodexOAuthState = .completed
+            state.advance()
+        } catch {
+            state.openaiCodexOAuthState = .failed(error.localizedDescription)
+        }
     }
 }

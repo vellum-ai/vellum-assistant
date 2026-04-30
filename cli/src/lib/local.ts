@@ -1002,6 +1002,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_ENABLE_OPENAI_CODEX_OAUTH",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {

@@ -270,8 +270,13 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setSentryUserId(effectiveValue || undefined);
         }
       }
-      if (isManagedProxyCredential(service, field)) {
+      const triggersProviderRefresh =
+        isManagedProxyCredential(service, field) ||
+        service === "openai_codex_oauth";
+      if (triggersProviderRefresh) {
         await refreshProvidersAfterSecretChange();
+      }
+      if (isManagedProxyCredential(service, field)) {
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
           const deps = getSecretsDeps();

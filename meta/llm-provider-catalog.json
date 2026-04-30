@@ -90,6 +90,12 @@
       "setupHint": "Enter your OpenAI API key to enable GPT.",
       "envVar": "OPENAI_API_KEY",
       "apiKeyPlaceholder": "sk-proj-...",
+      "oauth": {
+        "kind": "openai-codex",
+        "displayLabel": "Sign in with ChatGPT",
+        "subtitleHint": "Use your ChatGPT Plus/Pro/Team subscription quota.",
+        "tosWarning": "Subscription auth — not endorsed by OpenAI. May be removed by them at any time."
+      },
       "credentialsGuide": {
         "description": "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
         "url": "https://platform.openai.com/api-keys",

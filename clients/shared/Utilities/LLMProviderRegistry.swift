@@ -101,6 +101,38 @@ public struct LLMModelEntry: Decodable {
     }
 }
 
+/// Describes an alternative OAuth-based authentication path for a provider
+/// that also supports API-key auth. When present, clients may surface a
+/// "Sign in with …" affordance alongside the API-key field.
+///
+/// The transport-layer constants (loopback port, redirect path, allowed
+/// models) live in the client's flow implementation rather than the
+/// catalog because they are dictated by the OAuth provider's registered
+/// client and are not deployment-configurable.
+public struct LLMProviderOAuthDescriptor: Decodable {
+    /// Discriminator identifying which OAuth flow to run (e.g.
+    /// `"openai-codex"`).
+    public let kind: String
+    /// Button label shown in onboarding (e.g. `"Sign in with ChatGPT"`).
+    public let displayLabel: String
+    /// Short helper text shown beneath the button.
+    public let subtitleHint: String
+    /// Small-print disclaimer about ToS posture for this OAuth path.
+    public let tosWarning: String
+
+    public init(
+        kind: String,
+        displayLabel: String,
+        subtitleHint: String,
+        tosWarning: String
+    ) {
+        self.kind = kind
+        self.displayLabel = displayLabel
+        self.subtitleHint = subtitleHint
+        self.tosWarning = tosWarning
+    }
+}
+
 /// A single entry in the client-facing LLM provider catalog.
 ///
 /// Captures the subset of provider metadata that client apps need for
@@ -128,6 +160,10 @@ public struct LLMProviderEntry: Decodable {
     /// Guide for obtaining API credentials from this provider. `nil` for
     /// keyless providers.
     public let credentialsGuide: LLMCredentialsGuide?
+    /// Optional OAuth-based auth path offered alongside the API key. When
+    /// non-nil, clients may render a "Sign in with …" button in addition
+    /// to the API-key field.
+    public let oauth: LLMProviderOAuthDescriptor?
     /// The default model ID (must be present in `models`).
     public let defaultModel: String
     /// All models offered by this provider.
@@ -142,6 +178,7 @@ public struct LLMProviderEntry: Decodable {
         envVar: String?,
         apiKeyPlaceholder: String?,
         credentialsGuide: LLMCredentialsGuide?,
+        oauth: LLMProviderOAuthDescriptor? = nil,
         defaultModel: String,
         models: [LLMModelEntry]
     ) {
@@ -153,6 +190,7 @@ public struct LLMProviderEntry: Decodable {
         self.envVar = envVar
         self.apiKeyPlaceholder = apiKeyPlaceholder
         self.credentialsGuide = credentialsGuide
+        self.oauth = oauth
         self.defaultModel = defaultModel
         self.models = models
     }
