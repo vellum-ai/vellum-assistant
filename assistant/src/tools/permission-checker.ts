@@ -316,7 +316,10 @@ export class PermissionChecker {
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
             matchedTrustRuleId,
             riskMeta,
-            ...mapApprovalProvenance("denied", { matchedTrustRuleId }),
+            // Do not pass matchedTrustRuleId here: an ask-rule match put us in
+            // the prompt path, but the *reason* for denial is no interactive
+            // client, not a deny rule. Always emit no_interactive_client.
+            ...mapApprovalProvenance("denied", {}),
             riskThreshold,
           };
         }

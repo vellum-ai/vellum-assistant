@@ -22,7 +22,6 @@ export type ApprovalReason =
 export type RiskThreshold = "none" | "low" | "medium" | "high";
 
 export const RISK_ORDINAL: Record<string, number> = {
-  unknown: -1,
   low: 0,
   medium: 1,
   high: 2,

@@ -49,6 +49,12 @@ describe("mapApprovalProvenance", () => {
     expect(r.approvalReason).toBe("user_denied");
   });
 
+  test("deny + wasTimeout → prompted / timed_out", () => {
+    const r = mapApprovalProvenance("deny", { wasTimeout: true });
+    expect(r.approvalMode).toBe("prompted");
+    expect(r.approvalReason).toBe("timed_out");
+  });
+
   test("denied + matchedTrustRuleId → blocked / trust_rule_denied", () => {
     const r = mapApprovalProvenance("denied", { matchedTrustRuleId: "rule-abc" });
     expect(r.approvalMode).toBe("blocked");
@@ -82,6 +88,20 @@ describe("mapApprovalProvenance", () => {
     });
     expect(r.approvalMode).toBe("prompted");
     expect(r.approvalReason).toBe("user_approved");
+  });
+});
+
+// ── RISK_ORDINAL — unknown riskLevel must not map to a safe value ─────────────
+
+describe("RISK_ORDINAL semantics", () => {
+  test("known risk levels have expected ordinals", () => {
+    expect(RISK_ORDINAL["low"]).toBe(0);
+    expect(RISK_ORDINAL["medium"]).toBe(1);
+    expect(RISK_ORDINAL["high"]).toBe(2);
+  });
+
+  test("unknown riskLevel is absent so callers fall through to ?? 2 (high)", () => {
+    expect(RISK_ORDINAL["unknown"]).toBeUndefined();
   });
 });
 
