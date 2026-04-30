@@ -107,6 +107,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
+  migrateLlmUsageAttribution,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -395,6 +396,7 @@ export function initializeDb(): void {
     migrateActivationState,
     migrateMemoryV2ActivationLogs,
     migrateCreateDocumentConversations,
+    migrateLlmUsageAttribution,
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();
     },

@@ -28,6 +28,9 @@ export function recordUsageEvent(
     id: uuid(),
     createdAt: Date.now(),
     ...input,
+    callSite: input.callSite ?? null,
+    inferenceProfile: input.inferenceProfile ?? null,
+    inferenceProfileSource: input.inferenceProfileSource ?? null,
     estimatedCostUsd: pricing.estimatedCostUsd,
     pricingStatus: pricing.pricingStatus,
   };
@@ -39,6 +42,9 @@ export function recordUsageEvent(
       runId: event.runId,
       requestId: event.requestId,
       actor: event.actor,
+      callSite: event.callSite,
+      inferenceProfile: event.inferenceProfile,
+      inferenceProfileSource: event.inferenceProfileSource,
       provider: event.provider,
       model: event.model,
       inputTokens: event.inputTokens,
@@ -66,6 +72,9 @@ function rowToUsageEvent(row: {
   runId: string | null;
   requestId: string | null;
   actor: string;
+  callSite: string | null;
+  inferenceProfile: string | null;
+  inferenceProfileSource: string | null;
   provider: string;
   model: string;
   inputTokens: number;
@@ -82,6 +91,10 @@ function rowToUsageEvent(row: {
     runId: row.runId,
     requestId: row.requestId,
     actor: row.actor as UsageEvent["actor"],
+    callSite: row.callSite as UsageEvent["callSite"],
+    inferenceProfile: row.inferenceProfile,
+    inferenceProfileSource:
+      row.inferenceProfileSource as UsageEvent["inferenceProfileSource"],
     provider: row.provider,
     model: row.model,
     inputTokens: row.inputTokens,
