@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import VellumAssistantShared
 
 /// A domain grouping for LLM call sites, fetched from the API catalog.
@@ -75,14 +76,15 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
 /// runtime and replaces the seed data with the authoritative API response,
 /// then sets `isLoaded = true`.
 @MainActor
-public final class CallSiteCatalog: ObservableObject {
+@Observable
+public final class CallSiteCatalog {
     public static let shared = CallSiteCatalog()
 
-    @Published public private(set) var domains: [CallSiteDomain] = CallSiteCatalog.staticDomains
-    @Published public private(set) var callSites: [CallSiteOverride] = CallSiteCatalog.staticCallSites
-    @Published public private(set) var isLoaded: Bool = false
+    public private(set) var domains: [CallSiteDomain] = CallSiteCatalog.staticDomains
+    public private(set) var callSites: [CallSiteOverride] = CallSiteCatalog.staticCallSites
+    public private(set) var isLoaded: Bool = false
 
-    private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
 
     private init() {}
 

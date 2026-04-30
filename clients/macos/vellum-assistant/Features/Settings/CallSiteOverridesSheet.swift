@@ -31,7 +31,7 @@ struct CallSiteOverridesSheet: View {
     /// Search query for filtering the task list.
     @State private var searchQuery = ""
 
-    @ObservedObject private var catalog = CallSiteCatalog.shared
+    private let catalog = CallSiteCatalog.shared
 
     /// Snapshot of provider IDs and per-provider model IDs at sheet open.
     /// Captured once so each row sees the same catalog without each row
