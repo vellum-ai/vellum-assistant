@@ -1069,8 +1069,6 @@ export interface SlackChronologicalContext {
   readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
   /** Convenience projection of `renderedMessages[].message`. */
   readonly messages: Message[];
-  /** Convenience projection of `renderedMessages[].sourceChannelTs`. */
-  readonly sourceChannelTsByMessage: readonly (string | null)[];
   readonly compactableStartIndex: number;
 }
 
@@ -1345,18 +1343,12 @@ export function assembleSlackChronologicalContext(
     return {
       renderedMessages: withSummary,
       messages: withSummary.map((entry) => entry.message),
-      sourceChannelTsByMessage: withSummary.map(
-        (entry) => entry.sourceChannelTs,
-      ),
       compactableStartIndex: 1,
     };
   }
   return {
     renderedMessages,
     messages: renderedMessages.map((entry) => entry.message),
-    sourceChannelTsByMessage: renderedMessages.map(
-      (entry) => entry.sourceChannelTs,
-    ),
     compactableStartIndex: 0,
   };
 }

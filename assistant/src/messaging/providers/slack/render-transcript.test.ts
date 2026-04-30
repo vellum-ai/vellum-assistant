@@ -292,7 +292,10 @@ describe("renderSlackTranscript — basics", () => {
       TS_14_25,
       TS_14_28,
     ]);
-    expect(out.sourceChannelTsByMessage).toEqual([TS_14_25, TS_14_28]);
+    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
+      TS_14_25,
+      TS_14_28,
+    ]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {

@@ -249,7 +249,6 @@ let mockSlackChronologicalContext: {
     sourceChannelTs: string | null;
   }>;
   messages: Message[];
-  sourceChannelTsByMessage: Array<string | null>;
   compactableStartIndex: number;
 } | null = null;
 const loadSlackChronologicalContextMock = mock(
@@ -2365,11 +2364,6 @@ describe("session-agent-loop", () => {
             "1700000030.000000",
           ][index]!,
         })),
-        sourceChannelTsByMessage: [
-          "1700000010.000000",
-          "1700000020.000000",
-          "1700000030.000000",
-        ],
         compactableStartIndex: 0,
       };
       const shouldCompactInputs: Message[][] = [];
@@ -2469,11 +2463,6 @@ describe("session-agent-loop", () => {
             "1700000030.000000",
           ][index]!,
         })),
-        sourceChannelTsByMessage: [
-          "1700000010.000000",
-          "1700000020.000000",
-          "1700000030.000000",
-        ],
         compactableStartIndex: 0,
       };
       mockEstimateTokens = 120_000;
@@ -2604,7 +2593,6 @@ describe("session-agent-loop", () => {
             sourceChannelTs: "1700000020.000000",
           },
         ],
-        sourceChannelTsByMessage: [null, "1700000020.000000"],
         compactableStartIndex: 1,
       };
 
@@ -2711,7 +2699,6 @@ describe("session-agent-loop", () => {
             sourceChannelTs: "1700000121.000000",
           },
         ],
-        sourceChannelTsByMessage: [null, "1700000121.000000"],
         compactableStartIndex: 1,
       };
 
