@@ -72,6 +72,10 @@ struct InferenceServiceCard: View {
 
     // MARK: - Computed State
 
+    private var profilesEnabled: Bool {
+        assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
+    }
+
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
     }
@@ -132,10 +136,14 @@ struct InferenceServiceCard: View {
             managedContent: {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        managedProviderPicker
-                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
+                        if profilesEnabled {
                             activeProfilePicker
-                            manageProfilesButton
+                            HStack(spacing: VSpacing.md) {
+                                manageProfilesButton
+                                overridesBadge
+                            }
+                        } else {
+                            managedProviderPicker
                         }
                         ServiceCardActions(
                             hasChanges: hasChanges,
@@ -149,15 +157,19 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    providerPicker
+                    if !profilesEnabled {
+                        providerPicker
+                    }
 
                     // API Key field
                     apiKeyField
 
-                    // Active profile picker + Manage Profiles button
-                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
+                    if profilesEnabled {
                         activeProfilePicker
-                        manageProfilesButton
+                        HStack(spacing: VSpacing.md) {
+                            manageProfilesButton
+                            overridesBadge
+                        }
                     }
 
                     // Action buttons
@@ -176,12 +188,7 @@ struct InferenceServiceCard: View {
                 }
             },
             footer: {
-                // Per-call-site overrides badge — only visible when the user has
-                // at least one override configured. Tapping opens the overrides
-                // sheet.
-                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
-                    overridesBadge
-                }
+                EmptyView()
             }
         )
         .sheet(isPresented: $showOverridesSheet) {

@@ -150,18 +150,20 @@ struct ComposerSettingsMenu: View {
                 }
 
                 if let config, !config.profiles.isEmpty {
+                    let effectiveProfile = config.current ?? config.activeProfile
+
                     sectionHeader("Model Profile")
 
                     ForEach(config.profiles) { profile in
                         VMenuItem(
                             icon: VIcon.sparkles.rawValue,
                             label: profile.displayName,
-                            isActive: config.current == profile.name,
+                            isActive: effectiveProfile == profile.name,
                             size: .regular
                         ) {
                             config.onSelect(profile.name)
                         } trailing: {
-                            if config.current == profile.name {
+                            if effectiveProfile == profile.name {
                                 VIconView(.check, size: 12)
                                     .foregroundStyle(VColor.primaryBase)
                             }
