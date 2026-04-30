@@ -194,4 +194,72 @@ describe("SlackSocketModeClient thread tracking", () => {
       rawDb.close();
     }
   });
+
+  test("accepts unmentioned thread replies after a top-level app mention", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await Promise.all([
+        resolveSlackUser("U-mentioned", "xoxb-test"),
+        resolveSlackUser("U-reply", "xoxb-test"),
+      ]);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-top-level-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-top-level-mention",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@U-bot> can you help here?",
+              ts: "1700000000.000300",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-top-level-mention");
+      expect(emitted[0].threadTs).toBe("1700000000.000300");
+      expect(emitted[0].event.source.threadId).toBeUndefined();
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-top-level-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-top-level-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up in the new thread",
+              ts: "1700000000.000400",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000300",
+            },
+          },
+        }),
+        ws,
+      );
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.source.updateId).toBe("Ev-top-level-reply");
+      expect(emitted[1].event.message.content).toBe(
+        "following up in the new thread",
+      );
+      expect(emitted[1].event.source.chatType).toBe("channel");
+      expect(emitted[1].threadTs).toBe("1700000000.000300");
+      expect(emitted[1].event.source.threadId).toBe("1700000000.000300");
+    } finally {
+      rawDb.close();
+    }
+  });
 });
