@@ -1,5 +1,5 @@
 {
-  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "src/verification/index.ts"],
   "project": ["src/**/*.ts"],
   "ignoreDependencies": [
     "@vellumai/assistant-client",
