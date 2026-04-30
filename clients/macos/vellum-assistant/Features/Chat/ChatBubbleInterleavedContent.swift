@@ -501,12 +501,13 @@ extension ChatBubble {
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
                     let isLatest = indices == latestToolGroup
+                    let showThinking = MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks")
                     inlineToolProgress(
                         toolIndices: indices,
                         isLatestGroup: isLatest,
                         hasTrailingText: cachedToolGroupsWithTrailingText.contains(group.stableId),
-                        thinkingContent: toolGroupThinkingContent[group.stableId],
-                        thinkingIsStreaming: isLatest && thinkingIsCurrentlyStreaming
+                        thinkingContent: showThinking ? toolGroupThinkingContent[group.stableId] : nil,
+                        thinkingIsStreaming: showThinking && isLatest && thinkingIsCurrentlyStreaming
                     )
                     // Show images immediately when no text follows;
                     // otherwise they are deferred to render after the next text group.
