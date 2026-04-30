@@ -403,6 +403,11 @@ async function startDaemonFromSource(
       ".vellum",
       "protected",
     );
+    env.CREDENTIAL_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
@@ -530,6 +535,11 @@ async function startDaemonWatchFromSource(
       "workspace",
     );
     env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
       "protected",
@@ -990,6 +1000,7 @@ export async function startLocalDaemon(
         "APP_VERSION",
         "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
+        "CREDENTIAL_SECURITY_DIR",
         "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
@@ -1022,6 +1033,11 @@ export async function startLocalDaemon(
           "workspace",
         );
         daemonEnv.GATEWAY_SECURITY_DIR = join(
+          resources.instanceDir,
+          ".vellum",
+          "protected",
+        );
+        daemonEnv.CREDENTIAL_SECURITY_DIR = join(
           resources.instanceDir,
           ".vellum",
           "protected",
@@ -1203,6 +1219,11 @@ export async function startGateway(
             "workspace",
           ),
           GATEWAY_SECURITY_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "protected",
+          ),
+          CREDENTIAL_SECURITY_DIR: join(
             resources.instanceDir,
             ".vellum",
             "protected",
