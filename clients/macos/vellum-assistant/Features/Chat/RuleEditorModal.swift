@@ -139,6 +139,11 @@ struct RuleEditorModal: View {
             if !hasUserInteracted {
                 selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
             }
+            if !hasUserInteracted {
+                // In single-option mode the only Save As New choice is index 0; reset
+                // the initial default of 1 so the option isn't permanently out-of-bounds.
+                if isSingleOption { selectedPatternIndex = 0 }
+            }
             if let suggestion, !hasUserInteracted {
                 // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
                 if !suggestion.pattern.isEmpty,

@@ -840,6 +840,8 @@ struct ToolCallStepDetailRow: View {
     @State private var ruleEditorExistingRule: TrustRule?
     /// Tracks the in-flight suggestion task so it can be cancelled on re-open or dismiss.
     @State private var suggestionTask: Task<Void, Never>?
+    /// Tracks the outer badge-tap task (fetchMatchedRule + modal open) so rapid taps don't race.
+    @State private var ruleEditorTask: Task<Void, Never>?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -1005,6 +1007,8 @@ struct ToolCallStepDetailRow: View {
                     }
                 },
                 onDismiss: {
+                    ruleEditorTask?.cancel()
+                    ruleEditorTask = nil
                     suggestionTask?.cancel()
                     suggestionTask = nil
                     ruleEditorToolCall = nil
@@ -1113,7 +1117,8 @@ struct ToolCallStepDetailRow: View {
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
             RiskBadgeView(riskLevel: risk, hasExistingRule: toolCall.matchedTrustRuleId != nil) {
-                Task { await openRuleEditorForCompletedCall(toolCall) }
+                ruleEditorTask?.cancel()
+                ruleEditorTask = Task { await openRuleEditorForCompletedCall(toolCall) }
             }
         }
     }
