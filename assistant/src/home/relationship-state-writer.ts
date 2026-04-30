@@ -423,6 +423,20 @@ function safeRead(path: string): string {
 }
 
 /**
+ * Map personality-group tone IDs (from onboarding) to human-readable
+ * voice descriptions displayed as relationship-state facts.
+ * Unrecognized values (e.g. legacy `"balanced"` or free-text tones from
+ * older clients) fall through via the `?? tone` fallback in
+ * `extractFacts`.
+ */
+const TONE_VOICE_MAP: Record<string, string> = {
+  grounded: "Calm and precise",
+  warm: "Warm and easy",
+  energetic: "Fast and direct",
+  poetic: "Quiet and observant",
+};
+
+/**
  * Walk the workspace prompt files and emit a flat list of inferred
  * facts. This is deliberately a simple bullet/heading parser — the TDD
  * explicitly calls out "don't try to be clever" here; the goal is to
@@ -477,7 +491,7 @@ function extractFacts(input: {
       facts.push({
         id: nextId("onboarding"),
         category: "voice",
-        text: tone,
+        text: TONE_VOICE_MAP[tone] ?? tone,
         confidence: "strong",
         source: "onboarding",
       });

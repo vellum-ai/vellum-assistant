@@ -21,7 +21,6 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
@@ -406,8 +405,6 @@ export class SubagentManager {
     this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
-    const onEvent = conversation.sendToClient;
-
     try {
       // For forks, inject the parent's message history before the first message.
       // This prepends the inherited context so the fork has full conversational
@@ -441,7 +438,7 @@ export class SubagentManager {
           ].join("\n")
         : objective;
       const messageId = await conversation.persistUserMessage(message, []);
-      await conversation.runAgentLoop(message, messageId, onEvent, {
+      await conversation.runAgentLoop(message, messageId, undefined, {
         callSite: "subagentSpawn",
         ...(managed.state.config.overrideProfile
           ? { overrideProfile: managed.state.config.overrideProfile }
@@ -613,18 +610,10 @@ export class SubagentManager {
     if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation)
       return "terminal";
 
-    const onEvent = managed.conversation.sendToClient;
-    const requestId = uuid();
-
     // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage(
-      trimmed,
-      [],
-      onEvent,
-      requestId,
-    );
+    const result = managed.conversation.enqueueMessage(trimmed, []);
     if (result.rejected) {
-      return "sent"; // error event already delivered via onEvent
+      return "sent"; // error event already delivered via sendToClient
     }
     if (result.queued) {
       managed.hadEnqueuedMessages = true;
@@ -635,7 +624,7 @@ export class SubagentManager {
       const conversation = managed.conversation;
       const messageId = await conversation.persistUserMessage(trimmed, []);
       conversation
-        .runAgentLoop(trimmed, messageId, onEvent, {
+        .runAgentLoop(trimmed, messageId, undefined, {
           callSite: "subagentSpawn",
           ...(managed.state.config.overrideProfile
             ? { overrideProfile: managed.state.config.overrideProfile }
@@ -978,8 +967,8 @@ export class SubagentManager {
 
   /**
    * Inject a notification message into the parent conversation so the LLM
-   * sees subagent lifecycle events. Uses {@link broadcastMessage} for event
-   * delivery instead of a per-connection sendToClient.
+   * sees subagent lifecycle events. Relies on the parent conversation's
+   * sendToClient (backed by broadcastMessage) for event delivery.
    */
   private injectMessageIntoParent(
     parentConversationId: string,
@@ -994,14 +983,11 @@ export class SubagentManager {
       );
       return;
     }
-    const onEvent = (msg: ServerMessage) =>
-      broadcastMessage(msg, parentConversationId);
-    const requestId = `subagent-notify-${Date.now()}`;
     const enqueueResult = parentConversation.enqueueMessage(
       message,
       [],
-      onEvent,
-      requestId,
+      undefined,
+      undefined,
       undefined,
       undefined,
       metadata,
@@ -1010,7 +996,7 @@ export class SubagentManager {
       parentConversation
         .persistUserMessage(message, [], undefined, metadata)
         .then((messageId) =>
-          parentConversation.runAgentLoop(message, messageId, onEvent),
+          parentConversation.runAgentLoop(message, messageId),
         )
         .catch((err) => {
           log.error(

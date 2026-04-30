@@ -96,7 +96,11 @@ import {
 } from "./conversation-process.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
-import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
+import {
+  type ChannelCapabilities,
+  getSlackCompactionWatermarkForPrefix,
+  loadSlackChronologicalContext,
+} from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -224,6 +228,7 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /** @internal */ slackRuntimeContextNotice?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -797,8 +802,8 @@ export class Conversation {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -811,8 +816,8 @@ export class Conversation {
       this,
       content,
       attachments,
-      onEvent,
-      requestId,
+      onEvent ?? this.sendToClient,
+      requestId ?? crypto.randomUUID(),
       activeSurfaceId,
       currentPage,
       metadata,
@@ -1057,8 +1062,26 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    const conversationRow = getConversation(this.conversationId);
+    const slackChronologicalContext =
+      this.channelCapabilities?.channel === "slack"
+        ? loadSlackChronologicalContext(
+            this.conversationId,
+            this.channelCapabilities,
+            {
+              trustClass: this.trustContext?.trustClass,
+              contextSummary: conversationRow?.contextSummary,
+              contextCompactedMessageCount:
+                conversationRow?.contextCompactedMessageCount,
+              slackContextCompactionWatermarkTs:
+                conversationRow?.slackContextCompactionWatermarkTs,
+            },
+          )
+        : null;
+    const messagesToCompact =
+      slackChronologicalContext?.messages ?? this.messages;
     const result = await this.contextWindowManager.maybeCompact(
-      this.messages,
+      messagesToCompact,
       this.abortController?.signal ?? undefined,
       {
         force: true,
@@ -1084,7 +1107,12 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null);
+      applyCompactionResult(this, result, this.sendToClient, null, {
+        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
+          slackChronologicalContext,
+          result.compactedMessages,
+        ),
+      });
     }
     return result;
   }
@@ -1119,6 +1147,10 @@ export class Conversation {
 
   setTransportHints(hints: string[] | undefined): void {
     this.transportHints = hints;
+  }
+
+  setSlackRuntimeContextNotice(notice: string | undefined): void {
+    this.slackRuntimeContextNotice = notice;
   }
 
   /**
@@ -1232,7 +1264,7 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -1249,7 +1281,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
-    return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
+    return runAgentLoopImpl(
+      this,
+      content,
+      userMessageId,
+      onEvent ?? this.sendToClient,
+      options,
+    );
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
@@ -1259,7 +1297,7 @@ export class Conversation {
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1272,7 +1310,7 @@ export class Conversation {
       this as ProcessConversationContext,
       content,
       attachments,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
       activeSurfaceId,
       currentPage,
@@ -1292,12 +1330,12 @@ export class Conversation {
   }
 
   async regenerate(
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
   ): Promise<void> {
     return regenerateImpl(
       this as HistoryConversationContext,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
     );
   }

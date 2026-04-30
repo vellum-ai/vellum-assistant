@@ -641,6 +641,13 @@ fi
 export VELLUM_ENVIRONMENT
 echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
+# For local builds, auto-generate a monotonically increasing BUILD_VERSION
+# from the timestamp so Sparkle can determine "newer" via numeric comparison.
+# CI-driven builds set BUILD_VERSION explicitly; this only affects the default.
+if [ "$BUILD_VERSION" = "1" ] && [ "$VELLUM_ENVIRONMENT" = "local" ]; then
+    BUILD_VERSION=$(date +%Y%m%d%H%M%S)
+fi
+
 case "$CMD" in
     test)
         echo "Running tests..."
@@ -784,6 +791,61 @@ RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
+
+# ---------------------------------------------------------------------------
+# Local Sparkle configuration
+#
+# For local builds, point the Sparkle appcast at a localhost route served by
+# the Next.js web app and generate a local-only EdDSA keypair for signing.
+# This allows testing the full Sparkle upgrade flow without touching CI.
+# ---------------------------------------------------------------------------
+if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -z "${SU_FEED_URL:-}" ]; then
+    _SPARKLE_DIR="$_VELLUM_CONFIG_DIR/sparkle"
+    _SPARKLE_KEY_FILE="$_SPARKLE_DIR/ed25519-key.pem"
+    _SPARKLE_PUB_FILE="$_SPARKLE_DIR/ed25519-public.pem"
+
+    # Resolve the web app URL for the appcast feed.
+    _LOCAL_WEB_URL="${VELLUM_WEB_URL:-http://localhost:3000}"
+    export SU_FEED_URL="${_LOCAL_WEB_URL}/api/local-builds/appcast.xml"
+
+    # Generate a local-only EdDSA keypair if one doesn't exist yet.
+    # Requires `generate_keys` from `brew install sparkle`.
+    if [ ! -f "$_SPARKLE_KEY_FILE" ]; then
+        _GEN_KEYS=$(command -v generate_keys 2>/dev/null || true)
+        if [ -z "$_GEN_KEYS" ]; then
+            _GEN_KEYS=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
+                -name generate_keys -type f 2>/dev/null | head -1 || true)
+        fi
+        if [ -n "$_GEN_KEYS" ]; then
+            echo "Generating local Sparkle EdDSA keypair..."
+            mkdir -p "$_SPARKLE_DIR"
+            _KEY_OUTPUT=$("$_GEN_KEYS" 2>&1 || true)
+            # generate_keys outputs the private key to stdout and public key on a
+            # separate line. Newer versions may write to a file directly.
+            # The tool stores keys in ~/.config/sparkle by default — copy them.
+            _SPARKLE_DEFAULT_DIR="$HOME/.config/sparkle"
+            if [ -f "$_SPARKLE_DEFAULT_DIR/ed25519-key.pem" ]; then
+                cp "$_SPARKLE_DEFAULT_DIR/ed25519-key.pem" "$_SPARKLE_KEY_FILE"
+                echo "Copied private key to $_SPARKLE_KEY_FILE"
+            fi
+            # Extract the public key from generate_keys output
+            _PUB_KEY=$(echo "$_KEY_OUTPUT" | sed -n 's/.*SUPublicEDKey.*=.*"\([^"]*\)".*/\1/p' | head -1)
+            if [ -n "$_PUB_KEY" ]; then
+                echo "$_PUB_KEY" > "$_SPARKLE_PUB_FILE"
+                echo "Local Sparkle public key: $_PUB_KEY"
+            fi
+        else
+            echo "Note: generate_keys not found — install with 'brew install sparkle' for local Sparkle signing"
+        fi
+    fi
+
+    # Set the public key for Info.plist if we have one
+    if [ -f "$_SPARKLE_PUB_FILE" ]; then
+        export SU_PUBLIC_ED_KEY=$(cat "$_SPARKLE_PUB_FILE")
+    fi
+
+    echo "SU_FEED_URL=$SU_FEED_URL"
+fi
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -2027,6 +2089,83 @@ if [ "$CONFIG" = "release" ]; then
     # Note: Sentry.framework is a pre-built binary from SPM and does not contain
     # the .o object files needed by dsymutil. Sentry distributes their own dSYMs
     # separately via their SDK integration — no need to run dsymutil on it.
+fi
+
+# 6b. Register local build manifest
+#
+# For local builds, record a manifest entry so the localhost downloads page
+# can discover and serve previous builds. Each build gets a JSON file under
+# $_VELLUM_CONFIG_DIR/builds/ keyed by BUILD_VERSION, and a companion ZIP
+# of the .app bundle for download.
+if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -d "$APP_DIR" ]; then
+    _BUILDS_DIR="$_VELLUM_CONFIG_DIR/builds/macos"
+    mkdir -p "$_BUILDS_DIR"
+
+    # DISPLAY_VERSION is unique per local build (e.g. 0.6.6-local.20260429143709.b8d2555c5).
+    # BUILD_VERSION defaults to "1" for local builds and would overwrite on every build.
+    _BUILD_ZIP="$_BUILDS_DIR/${DISPLAY_VERSION}.zip"
+    _BUILD_MANIFEST="$_BUILDS_DIR/${DISPLAY_VERSION}.json"
+
+    # Create ZIP of the .app bundle (ditto preserves macOS metadata + code signatures)
+    echo "Registering local build $DISPLAY_VERSION (build $BUILD_VERSION)..."
+    if command -v ditto &>/dev/null; then
+        ditto -c -k --keepParent "$APP_DIR" "$_BUILD_ZIP"
+    else
+        (cd "$SCRIPT_DIR/dist" && zip -r -q "$_BUILD_ZIP" "$BUNDLE_DISPLAY_NAME.app")
+    fi
+
+    _BUILD_SHA=$(git -C "$SCRIPT_DIR/../.." rev-parse HEAD 2>/dev/null | head -c 10)
+    _BUILD_ARCH=$(uname -m)
+    _BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    _BUILD_SIZE=$(stat -f%z "$_BUILD_ZIP" 2>/dev/null || stat -c%s "$_BUILD_ZIP" 2>/dev/null || echo "0")
+
+    # Sign the ZIP with the local Sparkle EdDSA key (if available).
+    _ED_SIGNATURE=""
+    _SPARKLE_KEY_FILE="${_VELLUM_CONFIG_DIR}/sparkle/ed25519-key.pem"
+    if [ -f "$_SPARKLE_KEY_FILE" ]; then
+        _SIGN_UPDATE=$(command -v sign_update 2>/dev/null || true)
+        if [ -z "$_SIGN_UPDATE" ]; then
+            _SIGN_UPDATE=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
+                -name sign_update -type f 2>/dev/null | head -1 || true)
+        fi
+        if [ -n "$_SIGN_UPDATE" ]; then
+            _SIGN_OUTPUT=$("$_SIGN_UPDATE" "$_BUILD_ZIP" --ed-key-file "$_SPARKLE_KEY_FILE" 2>&1 || true)
+            _ED_SIGNATURE=$(echo "$_SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+            if [ -n "$_ED_SIGNATURE" ]; then
+                echo "Sparkle signature generated"
+            else
+                echo "Warning: sign_update ran but no signature parsed"
+            fi
+        fi
+    fi
+
+    cat > "$_BUILD_MANIFEST" << MANIFEST_EOF
+{
+  "version": "$DISPLAY_VERSION",
+  "buildVersion": "$BUILD_VERSION",
+  "displayName": "$BUNDLE_DISPLAY_NAME",
+  "bundleId": "$BUNDLE_ID",
+  "timestamp": "$_BUILD_TIMESTAMP",
+  "commitSha": "$_BUILD_SHA",
+  "architecture": "$_BUILD_ARCH",
+  "zipPath": "$_BUILD_ZIP",
+  "zipSize": $_BUILD_SIZE,
+  "edSignature": "$_ED_SIGNATURE"
+}
+MANIFEST_EOF
+
+    echo "Build registered: $_BUILD_MANIFEST"
+    echo "Build ZIP: $_BUILD_ZIP ($(du -h "$_BUILD_ZIP" | cut -f1))"
+
+    # Prune old builds — keep the latest 10
+    _build_count=$(ls -1 "$_BUILDS_DIR"/*.json 2>/dev/null | wc -l)
+    if [ "$_build_count" -gt 10 ]; then
+        ls -1t "$_BUILDS_DIR"/*.json | tail -n +11 | while read -r old_manifest; do
+            old_zip="${old_manifest%.json}.zip"
+            rm -f "$old_manifest" "$old_zip"
+        done
+        echo "Pruned old builds (keeping latest 10)"
+    fi
 fi
 
 # 7. Run if requested

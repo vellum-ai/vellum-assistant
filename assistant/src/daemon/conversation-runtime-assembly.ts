@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import {
   getMessages as defaultGetMessages,
@@ -21,10 +22,14 @@ import {
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
+  compareSlackTs,
   extractTagLineTexts,
   isReactionTagLine,
+  isSlackTsAfter,
   type RenderableSlackMessage,
+  type RenderedSlackTranscriptMessage,
   renderSlackTranscript,
+  renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
 import type {
@@ -1004,6 +1009,17 @@ function injectTransportHints(message: Message, hints: string[]): Message {
   };
 }
 
+function injectSlackRuntimeContextNotice(
+  message: Message,
+  notice: string,
+): Message {
+  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
+  return {
+    ...message,
+    content: [{ type: "text", text: block }, ...message.content],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Slack chronological transcript assembly
 // ---------------------------------------------------------------------------
@@ -1047,6 +1063,31 @@ export interface SlackTranscriptInputRow {
   createdAt: number;
   /** Raw `metadata` column value (JSON string with optional `slackMeta` sub-key). */
   metadata: string | null;
+}
+
+export interface SlackChronologicalContext {
+  readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
+  /** Convenience projection of `renderedMessages[].message`. */
+  readonly messages: Message[];
+  /** Convenience projection of `renderedMessages[].sourceChannelTs`. */
+  readonly sourceChannelTsByMessage: readonly (string | null)[];
+  readonly compactableStartIndex: number;
+}
+
+interface SlackBoundaryOptions {
+  readonly contextCompactedMessageCount?: number;
+  readonly slackContextCompactionWatermarkTs?: string | null;
+}
+
+function messageRowsToSlackTranscriptRows(
+  rows: MessageRow[],
+): SlackTranscriptInputRow[] {
+  return rows.map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
 }
 
 /**
@@ -1218,6 +1259,108 @@ export function assembleSlackChronologicalMessages(
   return renderSlackTranscript(renderable);
 }
 
+function maxSlackTs(values: readonly (string | null)[]): string | null {
+  let max: string | null = null;
+  for (const value of values) {
+    if (value === null) continue;
+    if (max === null || compareSlackTs(value, max) > 0) {
+      max = value;
+    }
+  }
+  return max;
+}
+
+function legacyRowIsAfterWatermark(
+  row: SlackTranscriptInputRow,
+  watermarkTs: string,
+): boolean {
+  return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
+}
+
+function filterRowsAfterSlackCompactionBoundary(
+  rows: SlackTranscriptInputRow[],
+  options: SlackBoundaryOptions,
+): SlackTranscriptInputRow[] {
+  const fallbackCount = Math.max(
+    0,
+    Math.floor(options.contextCompactedMessageCount ?? 0),
+  );
+  const watermarkTs = options.slackContextCompactionWatermarkTs ?? null;
+  if (watermarkTs === null) {
+    return fallbackCount > 0 ? rows.slice(fallbackCount) : rows;
+  }
+
+  return rows.filter((row, index) => {
+    const meta = rowToRenderable(row).metadata;
+    if (meta) {
+      return isSlackTsAfter(meta.channelTs, watermarkTs);
+    }
+    if (index < fallbackCount) {
+      return false;
+    }
+    return legacyRowIsAfterWatermark(row, watermarkTs);
+  });
+}
+
+export function getSlackCompactionWatermarkForPrefix(
+  context: SlackChronologicalContext | null,
+  compactedRenderedMessages: number,
+): string | null {
+  if (!context || compactedRenderedMessages <= 0) return null;
+  const start = context.compactableStartIndex;
+  const end = Math.min(
+    context.renderedMessages.length,
+    start + compactedRenderedMessages,
+  );
+  if (end <= start) return null;
+  return maxSlackTs(
+    context.renderedMessages
+      .slice(start, end)
+      .map((entry) => entry.sourceChannelTs),
+  );
+}
+
+export function assembleSlackChronologicalContext(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+  options: {
+    contextSummary?: string | null;
+  } = {},
+): SlackChronologicalContext | null {
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  const renderable = rows.map(rowToRenderable);
+  const rendered = renderSlackTranscriptWithProvenance(renderable);
+  const contextSummary = options.contextSummary?.trim();
+  const renderedMessages = rendered.renderedMessages;
+  if (contextSummary) {
+    const withSummary: RenderedSlackTranscriptMessage[] = [
+      {
+        message: createContextSummaryMessage(contextSummary),
+        sourceChannelTs: null,
+      },
+      ...renderedMessages,
+    ];
+    return {
+      renderedMessages: withSummary,
+      messages: withSummary.map((entry) => entry.message),
+      sourceChannelTsByMessage: withSummary.map(
+        (entry) => entry.sourceChannelTs,
+      ),
+      compactableStartIndex: 1,
+    };
+  }
+  return {
+    renderedMessages,
+    messages: renderedMessages.map((entry) => entry.message),
+    sourceChannelTsByMessage: renderedMessages.map(
+      (entry) => entry.sourceChannelTs,
+    ),
+    compactableStartIndex: 0,
+  };
+}
+
 /**
  * Load DB rows for a Slack conversation and project them onto the
  * chronological transcript shape.
@@ -1251,14 +1394,49 @@ export function loadSlackChronologicalMessages(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  // Coerce MessageRow.role (string) to the structural row's stricter union.
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
+  const rows = messageRowsToSlackTranscriptRows(scopedRows);
   return assembleSlackChronologicalMessages(rows, capabilities);
+}
+
+/**
+ * Load DB rows for a Slack conversation and project them onto the
+ * chronological transcript shape plus source metadata used by compaction.
+ *
+ * If a Slack timestamp watermark exists, rows at or before that Slack
+ * `channelTs` are omitted. When no timestamp watermark exists yet, the
+ * legacy `contextCompactedMessageCount` is used as a DB-order fallback so
+ * old compacted Slack conversations do not immediately resurrect history;
+ * the next successful Slack compaction replaces that count boundary with a
+ * durable Slack timestamp watermark.
+ */
+export function loadSlackChronologicalContext(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+    contextSummary?: string | null;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
+  } = {},
+): SlackChronologicalContext | null {
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  const loader = options.loader ?? defaultGetMessages;
+  const allRows = loader(conversationId);
+  const scopedRows = isUntrustedTrustClass(options.trustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
+  return assembleSlackChronologicalContext(rows, capabilities, {
+    contextSummary: isUntrustedTrustClass(options.trustClass)
+      ? null
+      : options.contextSummary,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1425,6 +1603,8 @@ export function loadSlackActiveThreadFocusBlock(
   options: {
     loader?: (id: string) => MessageRow[];
     trustClass?: TrustClass;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): string | null {
   if (capabilities.channel !== "slack") return null;
@@ -1434,12 +1614,10 @@ export function loadSlackActiveThreadFocusBlock(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
   return assembleSlackActiveThreadFocusBlock(rows, capabilities);
 }
 
@@ -1478,6 +1656,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
+  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1762,6 +1941,7 @@ export interface RuntimeInjectionOptions {
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   transportHints?: string[] | null;
+  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -1775,7 +1955,7 @@ export interface RuntimeInjectionOptions {
    * skipped for any Slack conversation so the persisted view isn't
    * duplicated by gateway-side hints.
    *
-   * Callers build this via `loadSlackChronologicalMessages` (or the
+   * Callers build this via `loadSlackChronologicalContext` (or the
    * underlying `assembleSlackChronologicalMessages`) before invoking
    * this function so the assembly path stays free of direct DB calls
    * and remains easy to test.
@@ -2090,6 +2270,23 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  if (
+    mode === "full" &&
+    slackConversation &&
+    options.slackRuntimeContextNotice
+  ) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectSlackRuntimeContextNotice(
+          userTail,
+          options.slackRuntimeContextNotice,
+        ),
       ];
     }
   }

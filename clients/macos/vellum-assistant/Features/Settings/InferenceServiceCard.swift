@@ -484,7 +484,7 @@ struct InferenceServiceCard: View {
             VDropdown(
                 placeholder: "Select a profile\u{2026}",
                 selection: activeProfileBinding,
-                options: store.profiles.map { (label: $0.name, value: $0.name) }
+                options: store.profiles.map { (label: $0.displayName, value: $0.name) }
             )
         }
     }

@@ -17,7 +17,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import type { Message } from "../../provider-types.js";
+import type {
+  HistoryOptions,
+  HistoryPageResult,
+  Message,
+} from "../../provider-types.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 
@@ -27,18 +31,30 @@ type ResolveConnectionFn = (
 type GetHistoryFn = (
   connection: OAuthConnection | undefined,
   conversationId: string,
-  options?: { limit?: number; before?: string; after?: string },
+  options?: HistoryOptions,
 ) => Promise<Message[]>;
 type GetThreadRepliesFn = (
   connection: OAuthConnection | undefined,
   conversationId: string,
   threadId: string,
-  options?: { limit?: number },
+  options?: HistoryOptions,
 ) => Promise<Message[]>;
+type GetThreadRepliesPageFn = (
+  connection: OAuthConnection | undefined,
+  conversationId: string,
+  threadId: string,
+  options?: HistoryOptions,
+) => Promise<HistoryPageResult>;
 
 const resolveConnectionMock = mock<ResolveConnectionFn>(async () => undefined);
 const getHistoryMock = mock<GetHistoryFn>(async () => []);
 const getThreadRepliesMock = mock<GetThreadRepliesFn>(async () => []);
+const getThreadRepliesPageMock = mock<GetThreadRepliesPageFn>(
+  async (...args) => ({
+    messages: await getThreadRepliesMock(...args),
+    hasMore: false,
+  }),
+);
 
 mock.module("./adapter.js", () => ({
   slackProvider: {
@@ -50,14 +66,21 @@ mock.module("./adapter.js", () => ({
     getHistory: (
       connection: OAuthConnection | undefined,
       conversationId: string,
-      options?: { limit?: number; before?: string; after?: string },
+      options?: HistoryOptions,
     ) => getHistoryMock(connection, conversationId, options),
     getThreadReplies: (
       connection: OAuthConnection | undefined,
       conversationId: string,
       threadId: string,
-      options?: { limit?: number },
+      options?: HistoryOptions,
     ) => getThreadRepliesMock(connection, conversationId, threadId, options),
+    getThreadRepliesPage: (
+      connection: OAuthConnection | undefined,
+      conversationId: string,
+      threadId: string,
+      options?: HistoryOptions,
+    ) =>
+      getThreadRepliesPageMock(connection, conversationId, threadId, options),
     // Stub the rest of the MessagingProvider surface as no-ops; the backfill
     // helpers should never reach for these.
     testConnection: async () => {
@@ -71,7 +94,12 @@ mock.module("./adapter.js", () => ({
   },
 }));
 
-import { backfillDm, backfillThread } from "./backfill.js";
+import {
+  backfillDm,
+  backfillThread,
+  backfillThreadWindow,
+  backfillThreadWindowPage,
+} from "./backfill.js";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -93,6 +121,11 @@ describe("backfillThread", () => {
     resolveConnectionMock.mockImplementation(async () => undefined);
     getThreadRepliesMock.mockReset();
     getThreadRepliesMock.mockImplementation(async () => []);
+    getThreadRepliesPageMock.mockReset();
+    getThreadRepliesPageMock.mockImplementation(async (...args) => ({
+      messages: await getThreadRepliesMock(...args),
+      hasMore: false,
+    }));
     getHistoryMock.mockReset();
     getHistoryMock.mockImplementation(async () => []);
   });
@@ -120,6 +153,57 @@ describe("backfillThread", () => {
     await backfillThread("C123", "1700000000.000100", { limit: 10 });
     const [, , , opts] = getThreadRepliesMock.mock.calls[0];
     expect(opts).toEqual({ limit: 10 });
+  });
+
+  test("forwards explicit before/after window through window helper", async () => {
+    await backfillThreadWindow("C123", "1700000000.000100", {
+      limit: 10,
+      after: "1700000000.000100",
+      before: "1700000005.000100",
+    });
+
+    const [, , , opts] = getThreadRepliesMock.mock.calls[0];
+    expect(opts).toEqual({
+      limit: 10,
+      after: "1700000000.000100",
+      before: "1700000005.000100",
+    });
+  });
+
+  test("forwards cursor through window helper", async () => {
+    await backfillThreadWindow("C123", "1700000000.000100", {
+      cursor: "cursor-123",
+    });
+
+    const [, , , opts] = getThreadRepliesMock.mock.calls[0];
+    expect(opts).toEqual({
+      limit: 50,
+      cursor: "cursor-123",
+    });
+  });
+
+  test("page helper returns Slack pagination metadata", async () => {
+    const reply = makeMessage({
+      id: "1700000000.000300",
+      threadId: "1700000000.000100",
+    });
+    getThreadRepliesPageMock.mockImplementation(async () => ({
+      messages: [reply],
+      hasMore: true,
+      nextCursor: "cursor-next",
+    }));
+
+    const out = await backfillThreadWindowPage("C123", "1700000000.000100", {
+      limit: 25,
+      before: "1700000005.000100",
+    });
+
+    expect(getThreadRepliesPageMock).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({
+      messages: [reply],
+      hasMore: true,
+      nextCursor: "cursor-next",
+    });
   });
 
   test("returns [] when getThreadReplies throws (generic Slack API error)", async () => {
@@ -184,6 +268,11 @@ describe("backfillDm", () => {
     getHistoryMock.mockImplementation(async () => []);
     getThreadRepliesMock.mockReset();
     getThreadRepliesMock.mockImplementation(async () => []);
+    getThreadRepliesPageMock.mockReset();
+    getThreadRepliesPageMock.mockImplementation(async (...args) => ({
+      messages: await getThreadRepliesMock(...args),
+      hasMore: false,
+    }));
   });
 
   test("passes channelId through and defaults limit to 50, before undefined", async () => {

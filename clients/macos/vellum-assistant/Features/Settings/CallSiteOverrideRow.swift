@@ -124,6 +124,8 @@ struct CallSiteOverrideRow: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
+        .animation(VAnimation.fast, value: isExpanded)
+        .animation(VAnimation.fast, value: isOverrideOn)
         .onAppear {
             // Expand rows that are already configured so the user sees their
             // current settings without an extra click.
@@ -281,7 +283,7 @@ struct CallSiteOverrideRow: View {
                         }
                     }
                 ),
-                options: profiles.map { (label: $0.name, value: $0.name) }
+                options: profiles.map { (label: $0.displayName, value: $0.name) }
                     + [(label: Self.customLabel, value: Self.customSentinel)]
             )
         }
@@ -366,7 +368,8 @@ struct CallSiteOverrideRow: View {
         }
         var parts: [String] = []
         if let profile = draft.profile {
-            parts.append("Profile: \(profile)")
+            let display = profiles.first(where: { $0.name == profile })?.displayName ?? profile
+            parts.append(display)
         } else if let provider = draft.provider, let model = draft.model {
             parts.append("\(providerDisplayName(provider)) \u{00B7} \(modelDisplayName(provider, model))")
         } else if let model = draft.model {

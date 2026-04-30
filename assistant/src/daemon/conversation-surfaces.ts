@@ -326,8 +326,8 @@ export interface SurfaceConversationContext {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -339,7 +339,7 @@ export interface SurfaceConversationContext {
   processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,

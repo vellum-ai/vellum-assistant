@@ -310,6 +310,7 @@ export async function conversationHistory(
   latest?: string,
   oldest?: string,
   cursor?: string,
+  inclusive?: boolean,
 ): Promise<SlackConversationHistoryResponse> {
   return request<SlackConversationHistoryResponse>(
     connectionOrToken,
@@ -320,6 +321,7 @@ export async function conversationHistory(
       latest,
       oldest,
       cursor,
+      inclusive: inclusive === undefined ? undefined : String(inclusive),
     },
   );
 }
@@ -329,6 +331,10 @@ export async function conversationReplies(
   channel: string,
   ts: string,
   limit = 50,
+  latest?: string,
+  oldest?: string,
+  inclusive?: boolean,
+  cursor?: string,
 ): Promise<SlackConversationRepliesResponse> {
   return request<SlackConversationRepliesResponse>(
     connectionOrToken,
@@ -337,6 +343,10 @@ export async function conversationReplies(
       channel,
       ts,
       limit: String(limit),
+      latest,
+      oldest,
+      inclusive: inclusive === undefined ? undefined : String(inclusive),
+      cursor,
     },
   );
 }

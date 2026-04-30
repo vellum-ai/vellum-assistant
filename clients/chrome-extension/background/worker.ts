@@ -59,7 +59,7 @@ import {
 } from "./relay-connection.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
 import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
-import { appendEvent, getEventLog } from "./event-log.js";
+import { appendEvent, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -131,6 +131,30 @@ async function invalidateAuthTokens(): Promise<void> {
     k.startsWith("vellum.localCapabilityToken"),
   );
   await chrome.storage.local.remove(keysToRemove);
+}
+
+// ── Environment-aware toolbar icon ─────────────────────────────────
+
+/**
+ * Update the toolbar icon to match the current environment.
+ *
+ * Each environment has its own set of pre-generated icon PNGs under
+ * `icons/<env>/`. Production is green, staging yellow, dev pink,
+ * local blue — matching the desktop app's environment tinting.
+ */
+async function updateExtensionIcon(env: ExtensionEnvironment): Promise<void> {
+  try {
+    await chrome.action.setIcon({
+      path: {
+        "16": `icons/${env}/icon16.png`,
+        "48": `icons/${env}/icon48.png`,
+        "128": `icons/${env}/icon128.png`,
+      },
+    });
+  } catch {
+    // Best-effort — `chrome.action` may be unavailable in tests or
+    // during early service-worker initialization.
+  }
 }
 
 // ── Stable client instance id ──────────────────────────────────────
@@ -383,6 +407,10 @@ async function dispatchHostBrowserResult(
   appendEvent("outbound", "host_browser_result", {
     summary: `${result.requestId.slice(0, 8)}${result.isError ? " (error)" : ""}`,
     isError: result.isError,
+  });
+  recordResponse(result.requestId, {
+    isError: result.isError,
+    responseContent: result.content,
   });
   if (relayConnection) {
     // Read the live mode from the active connection so that
@@ -757,6 +785,12 @@ async function handleSseMessage(data: unknown): Promise<void> {
     appendEvent("inbound", "host_browser_request", {
       summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
     });
+    recordRequest(req.requestId, req.cdpMethod, {
+      cdpMethod: req.cdpMethod,
+      cdpParams: req.cdpParams,
+      cdpSessionId: req.cdpSessionId,
+      conversationId: req.conversationId,
+    });
     await hostBrowserDispatcher.handle(req);
     return;
   }
@@ -999,6 +1033,12 @@ async function handleServerMessage(raw: string): Promise<void> {
       appendEvent("inbound", "host_browser_request", {
         summary: `${req.cdpMethod} (${req.requestId.slice(0, 8)})`,
       });
+      recordRequest(req.requestId, req.cdpMethod, {
+        cdpMethod: req.cdpMethod,
+        cdpParams: req.cdpParams,
+        cdpSessionId: req.cdpSessionId,
+        conversationId: req.conversationId,
+      });
       await hostBrowserDispatcher.handle(req);
       return;
     }
@@ -1214,6 +1254,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // environment are not reused on the next connect cycle.
         if (effectiveEnvironment !== previousEnv) {
           await invalidateAuthTokens();
+          void updateExtensionIcon(effectiveEnvironment);
         }
         sendResponseFn({
           ok: true,
@@ -1250,6 +1291,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const effectiveEnvironment = await getEffectiveEnvironment();
       if (effectiveEnvironment !== previousEnv) {
         await invalidateAuthTokens();
+        void updateExtensionIcon(effectiveEnvironment);
       }
       sendResponseFn({
         ok: true,
@@ -1397,6 +1439,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return false; // synchronous
   }
 
+  if (message.type === "get-operations") {
+    sendResponseFn({ ok: true, operations: getOperations() });
+    return false;
+  }
+
+  if (message.type === "get-operation-detail") {
+    const op = getOperationById(message.operationId as number);
+    sendResponseFn({ ok: !!op, operation: op ?? null });
+    return false;
+  }
+
   // Unknown message type — let Chrome close the port naturally.
   return false;
 });
@@ -1408,6 +1461,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
 // are missing the user will see the disconnected state in the popup
 // and can trigger an interactive connect manually.
 async function bootstrap(): Promise<void> {
+  // Set the toolbar icon to match the current environment on every
+  // service-worker startup, regardless of auto-connect state.
+  void updateExtensionIcon(await getEffectiveEnvironment());
+
   const result = await chrome.storage.local.get(AUTO_CONNECT_KEY);
   if (result[AUTO_CONNECT_KEY] !== true) return;
   shouldConnect = true;

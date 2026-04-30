@@ -1,5 +1,13 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { appendEvent, getEventLog, clearEventLog } from "../event-log.js";
+import {
+  appendEvent,
+  getEventLog,
+  clearEventLog,
+  recordRequest,
+  recordResponse,
+  getOperations,
+  getOperationById,
+} from "../event-log.js";
 
 describe("event-log", () => {
   beforeEach(() => {
@@ -67,5 +75,98 @@ describe("event-log", () => {
   test("isError defaults to undefined", () => {
     const entry = appendEvent("inbound", "test");
     expect(entry.isError).toBeUndefined();
+  });
+});
+
+describe("operations", () => {
+  beforeEach(() => {
+    clearEventLog();
+  });
+
+  test("starts empty", () => {
+    expect(getOperations()).toEqual([]);
+  });
+
+  test("recordRequest creates an operation", () => {
+    const op = recordRequest("req-1", "Page.navigate", {
+      cdpMethod: "Page.navigate",
+      cdpParams: { url: "https://example.com" },
+    });
+    expect(op.id).toBe(1);
+    expect(op.requestId).toBe("req-1");
+    expect(op.operationName).toBe("Page.navigate");
+    expect(op.request).toEqual({
+      cdpMethod: "Page.navigate",
+      cdpParams: { url: "https://example.com" },
+    });
+    expect(op.respondedAt).toBeUndefined();
+    expect(op.durationMs).toBeUndefined();
+  });
+
+  test("recordResponse correlates with existing request", () => {
+    recordRequest("req-1", "Page.navigate");
+    recordResponse("req-1", {
+      isError: false,
+      responseContent: '{"frameId":"abc"}',
+    });
+
+    const ops = getOperations();
+    expect(ops.length).toBe(1);
+    expect(ops[0]!.respondedAt).toBeDefined();
+    expect(ops[0]!.isError).toBe(false);
+    expect(ops[0]!.responseContent).toBe('{"frameId":"abc"}');
+    expect(ops[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("recordResponse for unknown requestId is a no-op", () => {
+    recordResponse("nonexistent", { isError: false });
+    expect(getOperations()).toEqual([]);
+  });
+
+  test("caps at 50 operations", () => {
+    for (let i = 0; i < 60; i++) {
+      recordRequest(`req-${i}`, `Method.${i}`);
+    }
+    const ops = getOperations();
+    expect(ops.length).toBe(50);
+    expect(ops[0]!.requestId).toBe("req-10");
+    expect(ops[49]!.requestId).toBe("req-59");
+  });
+
+  test("getOperationById returns the right operation", () => {
+    const op1 = recordRequest("req-1", "Page.navigate");
+    recordRequest("req-2", "Runtime.evaluate");
+
+    expect(getOperationById(op1.id)?.operationName).toBe("Page.navigate");
+    expect(getOperationById(999)).toBeUndefined();
+  });
+
+  test("clearEventLog also clears operations", () => {
+    recordRequest("req-1", "Page.navigate");
+    clearEventLog();
+    expect(getOperations()).toEqual([]);
+    const op = recordRequest("req-2", "Runtime.evaluate");
+    expect(op.id).toBe(1);
+  });
+
+  test("operations snapshot is independent of buffer", () => {
+    recordRequest("req-1", "Page.navigate");
+    const snap1 = getOperations();
+    recordRequest("req-2", "Runtime.evaluate");
+    const snap2 = getOperations();
+    expect(snap1.length).toBe(1);
+    expect(snap2.length).toBe(2);
+  });
+
+  test("error response is tracked", () => {
+    recordRequest("req-1", "Page.navigate");
+    recordResponse("req-1", {
+      isError: true,
+      responseContent: "Target closed",
+    });
+
+    const ops = getOperations();
+    expect(ops[0]!.isError).toBe(true);
+    expect(ops[0]!.responseContent).toBe("Target closed");
   });
 });

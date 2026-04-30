@@ -64,8 +64,9 @@ function createMockContext(
     hasNoClient: overrides?.hasNoClient ?? false,
     isProcessing: () => false,
     enqueueMessage: (content, _attachments, _onEvent, requestId) => {
-      enqueuedMessages.push({ content, requestId });
-      return { queued: false, requestId };
+      const resolvedId = requestId ?? "mock-request-id";
+      enqueuedMessages.push({ content, requestId: resolvedId });
+      return { queued: false, requestId: resolvedId };
     },
     getQueueDepth: () => 0,
     processMessage: async () => "msg-id",

@@ -28,11 +28,13 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
+  getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   isGroupChatType,
   isSlackChannelConversation,
   loadSlackActiveThreadFocusBlock,
+  loadSlackChronologicalContext,
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
@@ -1159,9 +1161,7 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).toContain("member_policy: allow");
     // Behavioral guidance: conversational confirmation (one-time decision pattern)
     expect(text).toContain("trusted contact (non-guardian)");
-    expect(text).toContain(
-      "confirming the guardian's intent conversationally",
-    );
+    expect(text).toContain("confirming the guardian's intent conversationally");
     expect(text).not.toContain(
       "tool execution layer will automatically deny it and escalate",
     );
@@ -2825,6 +2825,37 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("dm context");
   });
 
+  test("slack late-join notice is model-facing and non-persisted", async () => {
+    const slackChannelCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const notice =
+      "Slack context note: this turn joined an existing thread. 3 earlier thread messages were backfilled before the current message.";
+
+    const { messages: result, blocks } = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
+      {
+        channelCapabilities: slackChannelCaps,
+        slackRuntimeContextNotice: notice,
+        transportHints: [notice],
+      },
+    );
+
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<slack_context_notice>");
+    expect(allText).toContain(notice);
+    expect(allText).not.toContain("<transport_hints>");
+    expect(JSON.stringify(blocks)).not.toContain(notice);
+  });
+
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -2892,6 +2923,209 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).not.toContain("guardian-only context");
     expect(allText).toContain("from untrusted actor");
+  });
+
+  test("loadSlackChronologicalContext preserves summary and filters by Slack watermark", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "newer-inserted-first",
+        createdAt: 1700000030_000,
+        text: "after watermark",
+        slackMeta: buildSlackMeta({
+          channelTs: T2,
+          displayName: "carol",
+        }),
+      }),
+      userRow({
+        id: "older-backfilled-later",
+        createdAt: 1700000040_000,
+        text: "before watermark even though inserted later",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "legacy-before-watermark",
+        createdAt: 1700000008_000,
+        text: "legacy row before watermark",
+      }),
+      userRow({
+        id: "at-watermark",
+        createdAt: 1700000045_000,
+        text: "at watermark",
+        slackMeta: buildSlackMeta({
+          channelTs: T1,
+          displayName: "bob",
+        }),
+      }),
+    ];
+
+    const result = loadSlackChronologicalContext("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextSummary: "## Summary\n- compacted Slack history",
+      contextCompactedMessageCount: 99,
+      slackContextCompactionWatermarkTs: T1,
+    });
+
+    expect(result).not.toBeNull();
+    const renderedText = result!.messages
+      .flatMap((message) => message.content)
+      .filter((block): block is { type: "text"; text: string } => {
+        return block.type === "text";
+      })
+      .map((block) => block.text)
+      .join("\n");
+    expect(renderedText).toContain("<context_summary>");
+    expect(renderedText).toContain("compacted Slack history");
+    expect(renderedText).toContain("after watermark");
+    expect(renderedText).not.toContain("before watermark");
+    expect(renderedText).not.toContain("legacy row before watermark");
+    expect(renderedText).not.toContain("at watermark");
+    expect(result!.sourceChannelTsByMessage).toEqual([null, T2]);
+    expect(result!.renderedMessages.map((entry) => entry.message)).toEqual(
+      result!.messages,
+    );
+    expect(
+      result!.renderedMessages.map((entry) => entry.sourceChannelTs),
+    ).toEqual([null, T2]);
+    expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
+  });
+
+  test("active-thread focus filters pre-watermark and legacy compacted rows", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "legacy-old",
+        createdAt: 1700000005_000,
+        text: "legacy compacted row",
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000008_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000025_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    const result = loadSlackActiveThreadFocusBlock("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextCompactedMessageCount: 3,
+      slackContextCompactionWatermarkTs: T1,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!).toContain("live reply");
+    expect(result!).not.toContain("compacted root");
+    expect(result!).not.toContain("compacted reply");
+    expect(result!).not.toContain("legacy compacted row");
+  });
+
+  test("long Slack thread stays compacted after a later reply", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const ts = (n: number) => `1700000${String(n).padStart(3, "0")}.000000`;
+    const watermark = ts(80);
+    const rows: MessageRow[] = [
+      ...Array.from({ length: 121 }, (_, index) =>
+        userRow({
+          id: `thread-${index}`,
+          createdAt: 1700000000_000 + index,
+          text: index === 0 ? "original root" : `pre-compaction ${index}`,
+          slackMeta: buildSlackMeta({
+            channelTs: ts(index),
+            threadTs: index === 0 ? undefined : ts(0),
+            displayName: index % 2 === 0 ? "alice" : "bob",
+          }),
+        }),
+      ),
+      userRow({
+        id: "subsequent-reply",
+        createdAt: 1700000000_500,
+        text: "reply after compaction",
+        slackMeta: buildSlackMeta({
+          channelTs: ts(121),
+          threadTs: ts(0),
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    const result = loadSlackChronologicalContext("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+      contextSummary: "## Summary\n- compacted long Slack thread",
+      contextCompactedMessageCount: 81,
+      slackContextCompactionWatermarkTs: watermark,
+    });
+
+    expect(result).not.toBeNull();
+    const renderedText = result!.messages
+      .flatMap((message) => message.content)
+      .filter((block): block is { type: "text"; text: string } => {
+        return block.type === "text";
+      })
+      .map((block) => block.text)
+      .join("\n");
+
+    expect(renderedText).toContain("compacted long Slack thread");
+    expect(renderedText).toContain("reply after compaction");
+    expect(renderedText).not.toContain("original root");
+    expect(renderedText).not.toContain("pre-compaction 80");
+    expect(result!.sourceChannelTsByMessage[0]).toBeNull();
+    expect(
+      result!.sourceChannelTsByMessage
+        .slice(1)
+        .every(
+          (channelTs) =>
+            channelTs !== null &&
+            Number.parseFloat(channelTs) > Number.parseFloat(watermark),
+        ),
+    ).toBe(true);
   });
 
   // ── loadSlackChronologicalMessages returns null for non-slack channels ─

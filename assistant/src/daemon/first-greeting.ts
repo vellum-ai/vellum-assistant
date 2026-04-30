@@ -5,6 +5,7 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 export interface OnboardingGreetingContext {
   tools: string[];
   tasks: string[];
+  /** Valid values: "grounded" | "warm" | "energetic" | "poetic" */
   tone: string;
   userName?: string;
   assistantName?: string;
@@ -135,7 +136,46 @@ function highestPriorityTask(tasks: string[]): string | undefined {
   return tasks[0];
 }
 
-function buildIntroLine(userName?: string, assistantName?: string): string {
+const TONE_INTROS: Record<
+  string,
+  {
+    greeting: (userName?: string) => string;
+    selfIntro: (assistantName: string) => string;
+  }
+> = {
+  grounded: {
+    greeting: (u) => (u ? `${u}.` : ""),
+    selfIntro: (n) =>
+      `I'm ${n}. Brand new, and I'll get sharper the more we work together.`,
+  },
+  warm: {
+    greeting: (u) => (u ? `Hey ${u}!` : "Hey!"),
+    selfIntro: (n) =>
+      `I'm ${n} — brand new, but I'll get better the more we hang out.`,
+  },
+  energetic: {
+    greeting: (u) => (u ? `${u}!` : "Hey!"),
+    selfIntro: (n) => `I'm ${n}. Fresh start — let's get into it.`,
+  },
+  poetic: {
+    greeting: (u) => (u ? `Hello, ${u}.` : "Hello."),
+    selfIntro: (n) => `I'm ${n}. Still quite new — I'll grow alongside you.`,
+  },
+};
+
+function buildIntroLine(
+  userName?: string,
+  assistantName?: string,
+  tone?: string,
+): string {
+  const toneEntry = tone ? TONE_INTROS[tone] : undefined;
+
+  if (toneEntry && assistantName) {
+    const greetPart = toneEntry.greeting(userName);
+    const selfPart = toneEntry.selfIntro(assistantName);
+    return greetPart ? `${greetPart} ${selfPart}` : selfPart;
+  }
+
   const namepart = userName ? `Hey ${userName},` : "Hey,";
   const who = assistantName
     ? `I'm ${assistantName}. Brand new, and I'll get sharper the more we work together.`
@@ -198,7 +238,11 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
     return CANNED_FIRST_GREETING;
   }
 
-  const intro = buildIntroLine(hasName ? userName : undefined, assistantName);
+  const intro = buildIntroLine(
+    hasName ? userName : undefined,
+    assistantName,
+    ctx.tone,
+  );
 
   let secondParagraph: string;
 

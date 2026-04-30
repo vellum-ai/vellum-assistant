@@ -334,7 +334,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T10:31:03-04:00"
+      "updatedAt": "2026-04-29T23:23:43Z"
     },
     {
       "id": "mcp-setup",
@@ -360,7 +360,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-04-27T10:20:03-04:00"
+      "updatedAt": "2026-04-28T21:24:44-04:00"
     },
     {
       "id": "meme-generator",
@@ -502,7 +502,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T10:31:03-04:00"
+      "updatedAt": "2026-04-29T23:23:43Z"
     },
     {
       "id": "restaurant-reservation",
@@ -794,7 +794,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-25T22:07:21-04:00"
+      "updatedAt": "2026-04-29T08:26:02-04:00"
     },
     {
       "id": "vellum-skills-catalog",

@@ -81,6 +81,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# macOS: ensure Sparkle tools are installed for local Sparkle signing
+#
+# build.sh uses sign_update and generate_keys from the Sparkle cask to sign
+# local build ZIPs and generate EdDSA keypairs. Without these tools, local
+# builds still work but Sparkle update verification won't function.
+# ---------------------------------------------------------------------------
+if [ "$(uname)" = "Darwin" ] && command -v brew &>/dev/null; then
+  if ! brew list --cask sparkle &>/dev/null; then
+    info "Installing Sparkle tools via Homebrew (for local build signing)"
+    brew install --cask sparkle
+  else
+    info "Sparkle tools already installed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant credential-executor; do

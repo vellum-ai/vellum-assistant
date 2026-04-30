@@ -704,6 +704,36 @@ describe("relationship-state-writer", () => {
       expect(state.facts[0]?.source).toBe("onboarding");
     });
 
+    test("tone group ID 'warm' maps to descriptive voice fact 'Warm and easy'", async () => {
+      writeOnboardingSidecar({
+        tools: [],
+        tasks: [],
+        tone: "warm",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      const voiceFacts = state.facts.filter(
+        (f) => f.category === "voice" && f.source === "onboarding",
+      );
+      expect(voiceFacts).toHaveLength(1);
+      expect(voiceFacts[0]!.text).toBe("Warm and easy");
+    });
+
+    test("unrecognized tone value passes through verbatim (backwards-compatible)", async () => {
+      writeOnboardingSidecar({
+        tools: [],
+        tasks: [],
+        tone: "balanced",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      const voiceFacts = state.facts.filter(
+        (f) => f.category === "voice" && f.source === "onboarding",
+      );
+      expect(voiceFacts).toHaveLength(1);
+      expect(voiceFacts[0]!.text).toBe("balanced");
+    });
+
     test("missing sidecar produces no onboarding-sourced facts", async () => {
       writeFile("USER.md", "- Preferred name: Alex");
       const state = (await computeRelationshipState()) as RelationshipStateLike;

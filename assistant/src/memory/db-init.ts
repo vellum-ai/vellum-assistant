@@ -158,6 +158,7 @@ import {
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
+  migrateSlackCompactionWatermark,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
@@ -397,6 +398,7 @@ export function initializeDb(): void {
     migrateMemoryV2ActivationLogs,
     migrateCreateDocumentConversations,
     migrateLlmUsageAttribution,
+    migrateSlackCompactionWatermark,
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();
     },

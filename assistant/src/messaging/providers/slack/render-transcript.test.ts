@@ -16,6 +16,7 @@ import {
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
+  renderSlackTranscriptWithProvenance,
 } from "./render-transcript.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ function userMsg(
     deletedAt?: number;
     role?: "user" | "assistant";
     createdAt?: number;
+    slackFiles?: Array<{ id?: string; name: string; mimetype?: string }>;
   } = {},
 ): RenderableSlackMessage {
   return {
@@ -59,6 +61,7 @@ function userMsg(
       eventKind: "message",
       editedAt: opts.editedAt,
       deletedAt: opts.deletedAt,
+      slackFiles: opts.slackFiles,
     },
   };
 }
@@ -240,6 +243,56 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, null, "yo 👋", { role: "assistant" }),
     ]);
     expect(out).toEqual([textMsg("assistant", "yo 👋")]);
+  });
+
+  test("backfilled Slack file metadata renders as concise attachment markers", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "shared the draft", {
+        slackFiles: [
+          { id: "F123", name: "requirements.txt", mimetype: "text/plain" },
+        ],
+      }),
+      userMsg(TS_14_26, "@bob", "", {
+        slackFiles: [{ name: "diagram.png", mimetype: "image/png" }],
+      }),
+    ]);
+
+    expect(out).toEqual([
+      textMsg(
+        "user",
+        "[11/14/23 14:25 @alice]: shared the draft [attached file: requirements.txt, text/plain]",
+      ),
+      textMsg(
+        "user",
+        "[11/14/23 14:26 @bob]: [attached file: diagram.png, image/png]",
+      ),
+    ]);
+  });
+
+  test("provenance follows the rendered sequence after orphan filtering", () => {
+    const out = renderSlackTranscriptWithProvenance([
+      userMsg(TS_14_25, "@alice", "kept"),
+      {
+        ...userMsg(TS_14_26, null, "", { role: "assistant" }),
+        contentBlocks: [
+          { type: "tool_use", id: "tool-1", name: "lookup", input: {} },
+        ],
+      },
+      userMsg(TS_14_28, "@bob", "also kept"),
+    ]);
+
+    expect(extractTagLineTexts(out.messages)).toEqual([
+      "[11/14/23 14:25 @alice]: kept",
+      "[11/14/23 14:28 @bob]: also kept",
+    ]);
+    expect(out.renderedMessages.map((entry) => entry.message)).toEqual(
+      out.messages,
+    );
+    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
+      TS_14_25,
+      TS_14_28,
+    ]);
+    expect(out.sourceChannelTsByMessage).toEqual([TS_14_25, TS_14_28]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {
