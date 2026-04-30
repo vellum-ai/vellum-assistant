@@ -21,14 +21,18 @@ final class PreChatOnboardingState {
     /// A representative sample shown when no personality group is selected.
     static let tasterNames = ["Penn", "Sage", "Wren", "Milo", "Nova", "Ember", "Luna", "Iris"]
 
+    /// Maximum number of name suggestion pills to display.
+    static let suggestionLimit = 5
+
     /// Names to show as quick-tap pills. When a group is selected, shows only
-    /// that group's names. Otherwise shows a curated taster sample.
+    /// that group's names. Otherwise shows a curated taster sample. Capped at
+    /// `suggestionLimit` entries.
     var displayedAssistantNames: [String] {
         guard let selectedID = selectedGroupID,
               let group = PersonalityGroup.allGroups.first(where: { $0.id == selectedID }) else {
-            return Self.tasterNames
+            return Array(Self.tasterNames.prefix(Self.suggestionLimit))
         }
-        return group.names
+        return Array(group.names.prefix(Self.suggestionLimit))
     }
 
     // MARK: - Persistence Keys

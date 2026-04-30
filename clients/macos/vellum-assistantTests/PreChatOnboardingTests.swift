@@ -96,7 +96,10 @@ final class PreChatOnboardingTests: XCTestCase {
         let state = PreChatOnboardingState()
 
         XCTAssertNil(state.selectedGroupID)
-        XCTAssertEqual(state.displayedAssistantNames, PreChatOnboardingState.tasterNames)
+        XCTAssertEqual(
+            state.displayedAssistantNames,
+            Array(PreChatOnboardingState.tasterNames.prefix(PreChatOnboardingState.suggestionLimit))
+        )
     }
 
     func testStateDisplayedNamesFiltersToSelectedGroup() {
@@ -105,7 +108,10 @@ final class PreChatOnboardingTests: XCTestCase {
         state.selectedGroupID = "warm"
 
         let warmGroup = PersonalityGroup.allGroups.first { $0.id == "warm" }!
-        XCTAssertEqual(state.displayedAssistantNames, warmGroup.names)
+        XCTAssertEqual(
+            state.displayedAssistantNames,
+            Array(warmGroup.names.prefix(PreChatOnboardingState.suggestionLimit))
+        )
     }
 
     func testDefaultAssistantNameIsEmptyOnFreshState() {
