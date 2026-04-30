@@ -163,6 +163,10 @@ export async function initializeProviders(
             ? { baseURL: anthropicCreds.baseURL }
             : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            anthropicCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
@@ -180,6 +184,10 @@ export async function initializeProviders(
           streamTimeoutMs,
           ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            openaiCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("openai", openaiCreds.source);
@@ -198,6 +206,10 @@ export async function initializeProviders(
             ? { managedBaseUrl: geminiCreds.baseURL }
             : {}),
         }),
+        {
+          forwardUsageAttributionHeaders:
+            geminiCreds.source === "managed-proxy",
+        },
       ),
     );
     routingSources.set("gemini", geminiCreds.source);

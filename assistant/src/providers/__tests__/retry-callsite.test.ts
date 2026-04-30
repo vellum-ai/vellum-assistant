@@ -122,6 +122,117 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.modelIntent).toBeUndefined();
   });
 
+  test("attaches sanitized stable attribution headers only when enabled", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+      },
+      profiles: {
+        "conversation-profile": {
+          model: "claude-profile",
+          source: "user",
+        },
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        callSite: "memoryRetrieval",
+        overrideProfile: "conversation-profile",
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toEqual({
+      "X-Vellum-LLM-Call-Site": "memoryRetrieval",
+      "X-Vellum-Inference-Profile": "conversation-profile",
+      "X-Vellum-Inference-Profile-Source": "conversation",
+      "X-Vellum-Resolved-Provider": "openai",
+      "X-Vellum-Resolved-Model": "claude-profile",
+    });
+    expect(
+      (config.usageAttributionHeaders as Record<string, string>)[
+        "X-Vellum-LLM-Call-Site-Label"
+      ],
+    ).toBeUndefined();
+  });
+
+  test("omits attribution headers by default for direct provider transports", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-default",
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toBeUndefined();
+    expect(config.callSite).toBeUndefined();
+  });
+
+  test("omits profile source attribution header when no profile is applied", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-default",
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toEqual({
+      "X-Vellum-LLM-Call-Site": "memoryRetrieval",
+      "X-Vellum-Resolved-Provider": "openai",
+      "X-Vellum-Resolved-Model": "gpt-default",
+    });
+  });
+
   test("falls back to llm.default when llm.callSites[id] is absent", async () => {
     setLlmConfig({
       default: {
@@ -385,6 +496,32 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
     expect(config.max_tokens).toBe(1234);
     expect(config.model).not.toBe("MUST-NOT-LEAK");
     expect(config.model).not.toBe("ALSO-MUST-NOT-LEAK");
+  });
+
+  test("does not forward caller-supplied attribution headers without callSite", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "MUST-NOT-LEAK" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        model: "explicit-model",
+        usageAttributionHeaders: {
+          "X-Vellum-LLM-Call-Site": "injected",
+        },
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("explicit-model");
+    expect(config.usageAttributionHeaders).toBeUndefined();
   });
 });
 
