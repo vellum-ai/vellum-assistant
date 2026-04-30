@@ -17,6 +17,7 @@ import type {
   ConnectionInfo,
   Conversation,
   HistoryOptions,
+  HistoryPageResult,
   ListOptions,
   Message,
   SearchOptions,
@@ -259,6 +260,19 @@ function mapSearchMatch(match: SlackSearchMatch): Message {
   };
 }
 
+async function mapSlackMessages(
+  auth: OAuthConnection | string,
+  channelId: string,
+  slackMessages: SlackMessage[],
+): Promise<Message[]> {
+  const messages: Message[] = [];
+  for (const msg of slackMessages) {
+    const name = await resolveUserName(auth, msg.user ?? "");
+    messages.push(mapMessage(msg, channelId, name));
+  }
+  return messages;
+}
+
 export const slackProvider: MessagingProvider = {
   id: "slack",
   displayName: "Slack",
@@ -422,13 +436,7 @@ export const slackProvider: MessagingProvider = {
       );
     });
 
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
   },
 
   async search(
@@ -486,12 +494,35 @@ export const slackProvider: MessagingProvider = {
         options?.cursor,
       );
     });
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
+  },
+
+  async getThreadRepliesPage(
+    connection: OAuthConnection | undefined,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<HistoryPageResult> {
+    let auth: OAuthConnection | string = getReadAuth(connection);
+    const resp = await runReadWithFallback(connection, async (a) => {
+      auth = a;
+      return slack.conversationReplies(
+        a,
+        conversationId,
+        threadId,
+        options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
+      );
+    });
+    const nextCursor = resp.response_metadata?.next_cursor || undefined;
+    return {
+      messages: await mapSlackMessages(auth, conversationId, resp.messages),
+      hasMore: Boolean(resp.has_more || nextCursor),
+      ...(nextCursor ? { nextCursor } : {}),
+    };
   },
 
   async markRead(

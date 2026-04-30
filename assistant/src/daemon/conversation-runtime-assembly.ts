@@ -1008,6 +1008,17 @@ function injectTransportHints(message: Message, hints: string[]): Message {
   };
 }
 
+function injectSlackRuntimeContextNotice(
+  message: Message,
+  notice: string,
+): Message {
+  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
+  return {
+    ...message,
+    content: [{ type: "text", text: block }, ...message.content],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Slack chronological transcript assembly
 // ---------------------------------------------------------------------------
@@ -1626,6 +1637,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
+  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1910,6 +1922,7 @@ export interface RuntimeInjectionOptions {
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   transportHints?: string[] | null;
+  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -2238,6 +2251,23 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  if (
+    mode === "full" &&
+    slackConversation &&
+    options.slackRuntimeContextNotice
+  ) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectSlackRuntimeContextNotice(
+          userTail,
+          options.slackRuntimeContextNotice,
+        ),
       ];
     }
   }

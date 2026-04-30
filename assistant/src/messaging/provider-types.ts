@@ -41,6 +41,12 @@ export interface SearchResult {
   nextCursor?: string;
 }
 
+export interface HistoryPageResult {
+  messages: Message[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
 export interface SendResult {
   id: string;
   timestamp: number;

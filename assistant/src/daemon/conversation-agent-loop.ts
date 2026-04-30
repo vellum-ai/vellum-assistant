@@ -488,6 +488,7 @@ export interface AgentLoopConversationContext {
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
+  slackRuntimeContextNotice?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -1316,6 +1317,7 @@ export async function runAgentLoopImpl(
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
+      slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
       slackChronologicalMessages,
@@ -2842,6 +2844,7 @@ export async function runAgentLoopImpl(
     ctx.allowedToolNames = undefined;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.slackRuntimeContextNotice = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

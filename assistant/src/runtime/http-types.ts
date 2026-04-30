@@ -118,6 +118,8 @@ export interface RuntimeMessageConversationOptions {
   isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Slack-only non-persisted notice injected into the active model turn. */
+  slackRuntimeContextNotice?: string;
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
   /**

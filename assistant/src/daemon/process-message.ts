@@ -564,6 +564,9 @@ export async function processMessage(
   }
 
   try {
+    conversation.setSlackRuntimeContextNotice(
+      options?.slackRuntimeContextNotice,
+    );
     await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
