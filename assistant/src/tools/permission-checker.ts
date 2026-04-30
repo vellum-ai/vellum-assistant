@@ -30,6 +30,7 @@ export type PermissionDecision =
         riskScopeOptions: Array<{ pattern: string; label: string }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
+        matchedRuleId?: string;
       };
     }
   | {
@@ -44,6 +45,7 @@ export type PermissionDecision =
         riskScopeOptions: Array<{ pattern: string; label: string }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
+        matchedRuleId?: string;
       };
     };
 
@@ -95,7 +97,16 @@ export class PermissionChecker {
     // This is populated by classifyRisk() for classifier-backed tools (bash, file, web, skill).
     // For tools without classifiers (e.g. MCP tools), the cache returns undefined.
     const cachedAssessment = getCachedAssessment(name, input);
-    const riskMeta = cachedAssessment
+    let riskMeta:
+      | {
+          riskLevel: string;
+          riskReason: string;
+          riskScopeOptions: Array<{ pattern: string; label: string }>;
+          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+          isContainerized?: boolean;
+          matchedRuleId?: string;
+        }
+      | undefined = cachedAssessment
       ? {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
@@ -119,6 +130,13 @@ export class PermissionChecker {
         undefined,
         context.signal,
       );
+
+      // Augment riskMeta with the matched rule ID so it flows through to
+      // ToolExecutionResult and lifecycle events for audit and rule editor UI.
+      const matchedRuleId = result.matchedRule?.id;
+      if (riskMeta && matchedRuleId) {
+        riskMeta = { ...riskMeta, matchedRuleId };
+      }
 
       // Some callers force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved -
@@ -155,6 +173,7 @@ export class PermissionChecker {
           requestId: context.requestId,
           riskLevel,
           riskReason,
+          matchedRuleId,
           decision: "deny",
           reason: result.reason,
           durationMs,
@@ -268,6 +287,7 @@ export class PermissionChecker {
             requestId: context.requestId,
             riskLevel,
             riskReason,
+            matchedRuleId,
             decision: "deny",
             reason: "Non-interactive session: no client to approve prompt",
             durationMs,
@@ -352,6 +372,7 @@ export class PermissionChecker {
             requestId: context.requestId,
             riskLevel,
             riskReason,
+            matchedRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,

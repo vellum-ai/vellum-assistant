@@ -102,6 +102,16 @@ export class ToolExecutor {
     const startTime = Date.now();
     let decision = "allow";
     let riskLevel: string = RiskLevel.Low;
+    let permRiskMeta:
+      | {
+          riskLevel: string;
+          riskReason: string;
+          riskScopeOptions: Array<{ pattern: string; label: string }>;
+          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+          isContainerized?: boolean;
+          matchedRuleId?: string;
+        }
+      | undefined;
     const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
@@ -164,15 +174,6 @@ export class ToolExecutor {
       // Exception: requireFreshApproval tools always go through the
       // permission check even when a grant was consumed - the grant does
       // not substitute for an interactive human review.
-      let permRiskMeta:
-        | {
-            riskLevel: string;
-            riskReason: string;
-            riskScopeOptions: Array<{ pattern: string; label: string }>;
-            riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-            isContainerized?: boolean;
-          }
-        | undefined;
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
@@ -199,6 +200,7 @@ export class ToolExecutor {
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
+            matchedRuleId: permRiskMeta?.matchedRuleId,
           };
         }
 
@@ -228,6 +230,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedRuleId: permRiskMeta?.matchedRuleId,
             decision: "error",
             durationMs,
             errorMessage: msg,
@@ -265,6 +268,7 @@ export class ToolExecutor {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          matchedRuleId: permRiskMeta?.matchedRuleId,
           decision: "error",
           durationMs,
           errorMessage: msg,
@@ -331,6 +335,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedRuleId: permRiskMeta?.matchedRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -349,6 +354,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedRuleId: permRiskMeta?.matchedRuleId,
             decision: "error",
             durationMs,
             errorMessage: errorMsg,
@@ -384,6 +390,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
+        matchedRuleId: permRiskMeta?.matchedRuleId,
         decision,
         durationMs,
         result: safeResult,
@@ -400,6 +407,7 @@ export class ToolExecutor {
           riskScopeOptions: permRiskMeta.riskScopeOptions,
           riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
+          matchedRuleId: permRiskMeta.matchedRuleId,
         };
       }
 
@@ -443,6 +451,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
+        matchedRuleId: permRiskMeta?.matchedRuleId,
         decision: "error",
         durationMs,
         errorMessage: msg,

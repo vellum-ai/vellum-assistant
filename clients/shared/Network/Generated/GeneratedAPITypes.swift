@@ -2236,10 +2236,12 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     public let riskLevel: String?
     /// Human-readable reason for the risk classification.
     public let riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public let matchedRuleId: String?
     /// Whether the tool was auto-approved (true) or required explicit user input (false).
     public let autoApproved: Bool?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, autoApproved: Bool? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedRuleId: String? = nil, autoApproved: Bool? = nil) {
         self.name = name
         self.input = input
         self.result = result
@@ -2251,6 +2253,7 @@ public struct HistoryResponseToolCall: Codable, Sendable {
         self.confirmationLabel = confirmationLabel
         self.riskLevel = riskLevel
         self.riskReason = riskReason
+        self.matchedRuleId = matchedRuleId
         self.autoApproved = autoApproved
     }
 }
@@ -4890,13 +4893,15 @@ public struct ToolResult: Codable, Sendable {
     public let riskLevel: String?
     /// Human-readable reason for the risk classification.
     public let riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public let matchedRuleId: String?
     /// Whether the daemon is running in a containerized (Docker) environment.
     public let isContainerized: Bool?
     /// Scope options ladder for the rule editor modal (narrowest to broadest).
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedRuleId: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4908,6 +4913,7 @@ public struct ToolResult: Codable, Sendable {
         self.toolUseId = toolUseId
         self.riskLevel = riskLevel
         self.riskReason = riskReason
+        self.matchedRuleId = matchedRuleId
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
