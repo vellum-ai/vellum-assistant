@@ -24,7 +24,7 @@ export type PermissionDecision =
       riskLevel: string;
       wasPrompted?: boolean;
       /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
-      matchedRuleId?: string;
+      matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;
@@ -40,7 +40,7 @@ export type PermissionDecision =
       riskLevel: string;
       content: string;
       /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
-      matchedRuleId?: string;
+      matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;
@@ -127,7 +127,7 @@ export class PermissionChecker {
       // Extract the matched rule ID for propagation. Returned as a top-level
       // field on PermissionDecision so it reaches the executor even when
       // riskMeta is absent (non-classifier tools like MCP don't populate it).
-      const matchedRuleId = result.matchedRule?.id;
+      const matchedTrustRuleId = result.matchedRule?.id;
 
       // Some callers force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved -
@@ -164,7 +164,7 @@ export class PermissionChecker {
           requestId: context.requestId,
           riskLevel,
           riskReason,
-          matchedRuleId,
+          matchedTrustRuleId,
           decision: "deny",
           reason: result.reason,
           durationMs,
@@ -174,7 +174,7 @@ export class PermissionChecker {
           decision: "denied",
           riskLevel,
           content: result.reason,
-          matchedRuleId,
+          matchedTrustRuleId,
           riskMeta,
         };
       }
@@ -200,7 +200,7 @@ export class PermissionChecker {
           allowed: true,
           decision: "platform_auto_approve",
           riskLevel,
-          matchedRuleId,
+          matchedTrustRuleId,
           riskMeta,
         };
       }
@@ -257,7 +257,7 @@ export class PermissionChecker {
               allowed: true,
               decision: "guardian_auto_approve",
               riskLevel,
-              matchedRuleId,
+              matchedTrustRuleId,
               riskMeta,
             };
           }
@@ -281,7 +281,7 @@ export class PermissionChecker {
             requestId: context.requestId,
             riskLevel,
             riskReason,
-            matchedRuleId,
+            matchedTrustRuleId,
             decision: "deny",
             reason: "Non-interactive session: no client to approve prompt",
             durationMs,
@@ -291,7 +291,7 @@ export class PermissionChecker {
             decision: "denied",
             riskLevel,
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
-            matchedRuleId,
+            matchedTrustRuleId,
             riskMeta,
           };
         }
@@ -367,7 +367,7 @@ export class PermissionChecker {
             requestId: context.requestId,
             riskLevel,
             riskReason,
-            matchedRuleId,
+            matchedTrustRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -377,7 +377,7 @@ export class PermissionChecker {
             decision,
             riskLevel,
             content: denialMessage,
-            matchedRuleId,
+            matchedTrustRuleId,
             riskMeta,
           };
         }
@@ -387,13 +387,13 @@ export class PermissionChecker {
           decision,
           riskLevel,
           wasPrompted: true,
-          matchedRuleId,
+          matchedTrustRuleId,
           riskMeta,
         };
       }
 
       // result.decision === 'allow'
-      return { allowed: true, decision: "allow", riskLevel, matchedRuleId, riskMeta };
+      return { allowed: true, decision: "allow", riskLevel, matchedTrustRuleId, riskMeta };
     } catch (err) {
       if (err instanceof Error) {
         (err as Error & { riskLevel?: string }).riskLevel = riskLevel;

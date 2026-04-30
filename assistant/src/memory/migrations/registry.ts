@@ -398,10 +398,10 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     down: downSlackCompactionWatermark,
   },
   {
-    key: "migration_tool_invocations_matched_rule_id_v1",
+    key: "migration_tool_invocations_matched_trust_rule_id_v1",
     version: 46,
     description:
-      "Add matched_rule_id column to tool_invocations for trust rule audit and rule editor UI",
+      "Add matched_trust_rule_id column to tool_invocations for trust rule audit and rule editor UI",
     down: downToolInvocationsMatchedRuleId,
   },
 ];

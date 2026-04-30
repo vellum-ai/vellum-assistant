@@ -93,7 +93,7 @@ export type AgentEvent =
       contentBlocks?: ContentBlock[];
       riskLevel?: string;
       riskReason?: string;
-      matchedRuleId?: string;
+      matchedTrustRuleId?: string;
       isContainerized?: boolean;
       riskScopeOptions?: Array<{ pattern: string; label: string }>;
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
@@ -276,7 +276,7 @@ export type LoopToolExecutor = (
   yieldToUser?: boolean;
   riskLevel?: string;
   riskReason?: string;
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   isContainerized?: boolean;
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
@@ -989,7 +989,7 @@ export class AgentLoop {
             contentBlocks: result.contentBlocks,
             riskLevel: result.riskLevel,
             riskReason: result.riskReason,
-            matchedRuleId: result.matchedRuleId,
+            matchedTrustRuleId: result.matchedTrustRuleId,
             isContainerized: result.isContainerized,
             riskScopeOptions: result.riskScopeOptions,
             riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,

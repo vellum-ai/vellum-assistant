@@ -95,7 +95,7 @@ export interface ToolExecutionResult {
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
@@ -134,7 +134,7 @@ export interface ToolExecutedEvent {
   executionTarget?: ExecutionTarget;
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;

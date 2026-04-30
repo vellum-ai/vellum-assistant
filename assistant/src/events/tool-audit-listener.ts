@@ -43,7 +43,7 @@ function toInvocationRecord(
         result: event.result.content.slice(0, RESULT_PREVIEW_LIMIT),
         decision: event.decision,
         riskLevel: event.riskLevel,
-        matchedRuleId: event.matchedRuleId,
+        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
       };
     case "error":
@@ -54,7 +54,7 @@ function toInvocationRecord(
         result: `error: ${event.errorMessage}`,
         decision: "error",
         riskLevel: event.riskLevel,
-        matchedRuleId: event.matchedRuleId,
+        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
       };
     case "permission_denied":
@@ -65,7 +65,7 @@ function toInvocationRecord(
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
-        matchedRuleId: event.matchedRuleId,
+        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
       };
     case "start":

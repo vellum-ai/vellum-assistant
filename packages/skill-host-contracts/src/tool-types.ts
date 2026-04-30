@@ -143,7 +143,7 @@ export interface ToolExecutionResult {
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
@@ -215,7 +215,7 @@ export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
   /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
   riskReason?: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   decision: "deny" | "always_deny";
   reason: string;
   durationMs: number;
@@ -225,7 +225,7 @@ export interface ToolExecutedEvent extends ToolLifecycleEventBase {
   type: "executed";
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
@@ -235,7 +235,7 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   type: "error";
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
-  matchedRuleId?: string;
+  matchedTrustRuleId?: string;
   decision: string;
   durationMs: number;
   errorMessage: string;
