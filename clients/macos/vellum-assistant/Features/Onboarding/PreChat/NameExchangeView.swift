@@ -188,9 +188,6 @@ struct NameExchangeView: View {
         let isActive = assistantName == name
         return Button {
             assistantName = name
-            withAnimation(VAnimation.fast) {
-                selectedGroupID = PersonalityGroup.groupForName(name)?.id
-            }
         } label: {
             Text(name)
                 .font(VFont.menuCompact)
