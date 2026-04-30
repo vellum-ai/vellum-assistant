@@ -573,6 +573,7 @@ export async function processMessage(
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     });
   } finally {
+    conversation.setSlackRuntimeContextNotice(undefined);
     if (
       options?.isInteractive === true &&
       conversation.getCurrentSender() === onEvent

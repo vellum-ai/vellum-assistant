@@ -57,6 +57,18 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   }),
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        contextWindow: { maxInputTokens: 100000 },
+      },
+    },
+  }),
+}));
+
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
@@ -99,14 +111,21 @@ interface TestConversation {
   getTurnChannelContext: () => TurnChannelContext | null;
   setTurnInterfaceContext: (ctx: TurnInterfaceContext) => void;
   getTurnInterfaceContext: () => TurnInterfaceContext | null;
+  getMessages: () => unknown[];
+  usageStats: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  };
   persistUserMessage: PersistUserMessageMock;
   setSlackRuntimeContextNotice: NoticeMock;
   runAgentLoop: RunAgentLoopMock;
-  updateClient: () => void;
-  getCurrentSender: () => undefined;
+  updateClient: (sender: (...args: unknown[]) => void) => void;
+  getCurrentSender: () => ((...args: unknown[]) => void) | undefined;
   __loopDeferred: Deferred<void>;
   __noticeCalls: Array<string | undefined>;
   __loopNotices: Array<string | undefined>;
+  __clientSenders: Array<((...args: unknown[]) => void) | undefined>;
 }
 
 let activeConversation: TestConversation;
@@ -121,7 +140,10 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { processMessageInBackground } from "../daemon/process-message.js";
+import {
+  processMessage,
+  processMessageInBackground,
+} from "../daemon/process-message.js";
 
 function createDeferred<T = void>(): Deferred<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -133,13 +155,23 @@ function createDeferred<T = void>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+async function waitForRunAgentLoopCall(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    if (activeConversation.runAgentLoop.mock.calls.length > 0) return;
+    await Promise.resolve();
+  }
+}
+
 function makeConversation(): TestConversation {
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
   let slackNotice: string | undefined;
+  let currentSender: ((...args: unknown[]) => void) | undefined;
   const noticeCalls: Array<string | undefined> = [];
   const loopDeferred = createDeferred<void>();
   const loopNotices: Array<string | undefined> = [];
+  const clientSenders: Array<((...args: unknown[]) => void) | undefined> = [];
+  const messages: unknown[] = [];
 
   const conversation: TestConversation = {
     conversationId: "conv-background-slack",
@@ -174,6 +206,12 @@ function makeConversation(): TestConversation {
       turnInterfaceContext = ctx;
     },
     getTurnInterfaceContext: () => turnInterfaceContext,
+    getMessages: () => messages,
+    usageStats: {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    },
     persistUserMessage: mock(
       async (
         _content: string,
@@ -190,11 +228,15 @@ function makeConversation(): TestConversation {
       loopNotices.push(slackNotice);
       await loopDeferred.promise;
     }),
-    updateClient: () => {},
-    getCurrentSender: () => undefined,
+    updateClient: (sender: (...args: unknown[]) => void) => {
+      currentSender = sender;
+      clientSenders.push(sender);
+    },
+    getCurrentSender: () => currentSender,
     __loopDeferred: loopDeferred,
     __noticeCalls: noticeCalls,
     __loopNotices: loopNotices,
+    __clientSenders: clientSenders,
   };
 
   return conversation;
@@ -241,6 +283,36 @@ describe("processMessageInBackground Slack option propagation", () => {
     await Promise.resolve();
 
     expect(activeConversation.__noticeCalls).toEqual([notice, undefined]);
+  });
+
+  test("clears the Slack runtime notice after normal message processing", async () => {
+    const notice =
+      "Slack context note: this turn joined an existing thread. 2 earlier messages were backfilled.";
+
+    const processing = processMessage(
+      "conv-background-slack",
+      "Reply from Slack",
+      undefined,
+      {
+        slackRuntimeContextNotice: notice,
+        isInteractive: true,
+      },
+      "slack",
+      "slack",
+    );
+
+    await waitForRunAgentLoopCall();
+
+    expect(activeConversation.runAgentLoop).toHaveBeenCalledTimes(1);
+    expect(activeConversation.__loopNotices).toEqual([notice]);
+
+    activeConversation.__loopDeferred.resolve();
+    await expect(processing).resolves.toEqual({
+      messageId: "persisted-user-message-id",
+    });
+
+    expect(activeConversation.__noticeCalls).toEqual([notice, undefined]);
+    expect(activeConversation.__clientSenders).toHaveLength(2);
   });
 
   test("leaves non-Slack background persistence metadata absent", async () => {
