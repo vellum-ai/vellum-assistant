@@ -15,6 +15,8 @@ import {
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import {
+  createGuardianBinding,
+  revokeGuardianBinding,
   touchContactInteraction,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
@@ -996,20 +998,25 @@ export class RelayConnection {
         "Guardian voice verification succeeded",
       );
 
-      // Guardian binding creation for inbound verification is now handled
-      // by the gateway before the ConversationRelay is established. The
-      // gateway intercepts the call, runs the DTMF challenge via <Gather>,
-      // and creates the binding itself. By the time we reach this code path
-      // (outbound verification only), the binding already exists or isn't
-      // applicable.
-      if (result.verificationType === "guardian" && result.bindingConflict) {
-        log.warn(
-          {
-            callSessionId: this.callSessionId,
-            existingGuardian: result.bindingConflict.existingGuardian,
-          },
-          "Guardian binding conflict: another user already holds the voice binding",
-        );
+      if (result.verificationType === "guardian") {
+        if (result.bindingConflict) {
+          log.warn(
+            {
+              callSessionId: this.callSessionId,
+              existingGuardian: result.bindingConflict.existingGuardian,
+            },
+            "Guardian binding conflict: another user already holds the voice binding",
+          );
+        } else if (isOutbound) {
+          revokeGuardianBinding("phone");
+          createGuardianBinding({
+            channel: "phone",
+            guardianExternalUserId: fromNumber,
+            guardianDeliveryChatId: fromNumber,
+            guardianPrincipalId: result.canonicalPrincipal!,
+            verifiedVia: "challenge",
+          });
+        }
       }
 
       if (isOutbound) {

@@ -56,7 +56,7 @@ interface PendingSession {
 }
 
 interface RateLimitRecord {
-  attemptCount: number;
+  attemptTimestampsJson: string;
   lockedUntil: number | null;
 }
 
@@ -122,64 +122,87 @@ async function getRateLimit(
   fromNumber: string,
 ): Promise<RateLimitRecord | null> {
   const rows = await assistantDbQuery<{
-    attemptCount: number;
+    attemptTimestampsJson: string;
     lockedUntil: number | null;
   }>(
-    `SELECT attempt_count AS attemptCount, locked_until AS lockedUntil
-     FROM channel_verification_rate_limits
+    `SELECT attempt_timestamps_json AS attemptTimestampsJson,
+            locked_until AS lockedUntil
+     FROM channel_guardian_rate_limits
      WHERE channel = 'phone'
-       AND external_user_id = ?
-       AND chat_id = ?
+       AND actor_external_user_id = ?
+       AND actor_chat_id = ?
      LIMIT 1`,
     [fromNumber, fromNumber],
   );
   return rows[0] ?? null;
 }
 
+function parseTimestamps(json: string): number[] {
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 async function recordInvalidAttempt(fromNumber: string): Promise<void> {
   const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
 
-  // Upsert rate limit record
-  await assistantDbRun(
-    `INSERT INTO channel_verification_rate_limits
-       (channel, external_user_id, chat_id, attempt_count, first_attempt_at, last_attempt_at, locked_until)
-     VALUES ('phone', ?, ?, 1, ?, ?, NULL)
-     ON CONFLICT (channel, external_user_id, chat_id) DO UPDATE SET
-       attempt_count = CASE
-         WHEN first_attempt_at < ? THEN 1
-         ELSE attempt_count + 1
-       END,
-       first_attempt_at = CASE
-         WHEN first_attempt_at < ? THEN ?
-         ELSE first_attempt_at
-       END,
-       last_attempt_at = ?,
-       locked_until = CASE
-         WHEN first_attempt_at >= ? AND attempt_count + 1 >= ? THEN ?
-         ELSE locked_until
-       END`,
-    [
-      fromNumber,
-      fromNumber,
-      now,
-      now,
-      windowStart,
-      windowStart,
-      now,
-      now,
-      windowStart,
-      RATE_LIMIT_MAX_ATTEMPTS,
-      now + RATE_LIMIT_LOCKOUT_MS,
-    ],
-  );
+  const existing = await getRateLimit(fromNumber);
+  if (existing) {
+    const recentTimestamps = parseTimestamps(
+      existing.attemptTimestampsJson,
+    ).filter((ts) => ts > cutoff);
+    recentTimestamps.push(now);
+
+    const newLockedUntil =
+      recentTimestamps.length >= RATE_LIMIT_MAX_ATTEMPTS
+        ? now + RATE_LIMIT_LOCKOUT_MS
+        : existing.lockedUntil;
+
+    await assistantDbRun(
+      `UPDATE channel_guardian_rate_limits
+       SET attempt_timestamps_json = ?,
+           locked_until = ?,
+           updated_at = ?
+       WHERE channel = 'phone'
+         AND actor_external_user_id = ?
+         AND actor_chat_id = ?`,
+      [
+        JSON.stringify(recentTimestamps),
+        newLockedUntil,
+        now,
+        fromNumber,
+        fromNumber,
+      ],
+    );
+  } else {
+    const id = crypto.randomUUID();
+    const timestamps = JSON.stringify([now]);
+    const lockedUntil =
+      1 >= RATE_LIMIT_MAX_ATTEMPTS ? now + RATE_LIMIT_LOCKOUT_MS : null;
+
+    await assistantDbRun(
+      `INSERT INTO channel_guardian_rate_limits
+         (id, channel, actor_external_user_id, actor_chat_id,
+          attempt_timestamps_json, locked_until, created_at, updated_at)
+       VALUES (?, 'phone', ?, ?, ?, ?, ?, ?)`,
+      [id, fromNumber, fromNumber, timestamps, lockedUntil, now, now],
+    );
+  }
 }
 
 async function resetRateLimit(fromNumber: string): Promise<void> {
+  const now = Date.now();
   await assistantDbRun(
-    `DELETE FROM channel_verification_rate_limits
-     WHERE channel = 'phone' AND external_user_id = ? AND chat_id = ?`,
-    [fromNumber, fromNumber],
+    `UPDATE channel_guardian_rate_limits
+     SET attempt_timestamps_json = '[]', locked_until = NULL, updated_at = ?
+     WHERE channel = 'phone'
+       AND actor_external_user_id = ?
+       AND actor_chat_id = ?`,
+    [now, fromNumber, fromNumber],
   );
 }
 
@@ -282,9 +305,20 @@ export async function validateVerificationCode(
       }
     }
 
+    if (!identityMatch && session.expectedChatId != null) {
+      if (session.expectedExternalUserId != null) {
+        if (fromNumber === session.expectedExternalUserId) {
+          identityMatch = true;
+        }
+      } else if (fromNumber === session.expectedChatId) {
+        identityMatch = true;
+      }
+    }
+
     if (
       !identityMatch &&
       session.expectedPhoneE164 == null &&
+      session.expectedChatId == null &&
       session.expectedExternalUserId != null
     ) {
       if (fromNumber === session.expectedExternalUserId) {

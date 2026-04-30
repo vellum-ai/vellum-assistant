@@ -1748,10 +1748,10 @@ describe("relay-server", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // In production, the gateway creates the guardian binding BEFORE the
-    // ConversationRelay WebSocket is established, so resolveActorTrust()
-    // would find it. In this test (no gateway running), the binding doesn't
-    // exist, so trust context reflects the resolved state without it.
+    // The gateway creates the guardian binding before the ConversationRelay
+    // WebSocket is established, so resolveActorTrust() would find it in
+    // production. Without a gateway in this test, trust reflects the
+    // resolved state without a binding.
     const postVerify = (
       relay.getController() as unknown as {
         trustContext?: {
@@ -1761,9 +1761,9 @@ describe("relay-server", () => {
       }
     )?.trustContext;
     expect(postVerify?.sourceChannel).toBe("phone");
-    // Trust class is 'unknown' because the assistant no longer creates
-    // the binding — the gateway does. The resolveActorTrust call in
-    // relay-server won't find a guardian binding in the test DB.
+    // Trust class is 'unknown' because the gateway creates the binding
+    // before the relay is established. Without a gateway in this test,
+    // resolveActorTrust finds no guardian binding.
     expect(postVerify?.trustClass).toBe("unknown");
 
     relay.destroy();
