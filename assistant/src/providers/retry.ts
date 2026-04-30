@@ -325,11 +325,13 @@ function buildUsageAttributionHeaders(input: {
     USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfile,
     input.appliedProfile,
   );
-  addSanitizedHeader(
-    headers,
-    USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfileSource,
-    input.profileSource,
-  );
+  if (input.appliedProfile) {
+    addSanitizedHeader(
+      headers,
+      USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfileSource,
+      input.profileSource,
+    );
+  }
   addSanitizedHeader(
     headers,
     USAGE_ATTRIBUTION_HEADER_NAMES.resolvedProvider,

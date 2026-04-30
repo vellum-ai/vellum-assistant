@@ -207,11 +207,7 @@ export class GeminiProvider implements Provider {
         createStreamTimeout(this.streamTimeoutMs, signal);
       geminiConfig.abortSignal = timeoutSignal;
       if (usageAttributionHeaders) {
-        (
-          geminiConfig as genai.GenerateContentConfig & {
-            httpOptions?: { headers?: Record<string, string> };
-          }
-        ).httpOptions = { headers: usageAttributionHeaders };
+        geminiConfig.httpOptions = { headers: usageAttributionHeaders };
       }
 
       // Accumulate from streaming chunks
