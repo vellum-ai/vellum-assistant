@@ -58,6 +58,7 @@ struct InferenceProfilesSheet: View {
         case create
         case edit(name: String)
         case duplicate(name: String)
+        case view(name: String)
     }
 
     /// Conflict surface for a blocked delete. Mirrors
@@ -117,18 +118,13 @@ struct InferenceProfilesSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            HStack(spacing: VSpacing.sm) {
-                VButton(label: "+ New Profile", style: .primary) {
-                    beginCreate()
-                }
-                VButton(
-                    label: "Close",
-                    iconOnly: VIcon.x.rawValue,
-                    style: .ghost,
-                    tintColor: VColor.contentTertiary
-                ) {
-                    isPresented = false
-                }
+            VButton(
+                label: "Close",
+                iconOnly: VIcon.x.rawValue,
+                style: .ghost,
+                tintColor: VColor.contentTertiary
+            ) {
+                isPresented = false
             }
         }
         .padding(VSpacing.lg)
@@ -136,6 +132,9 @@ struct InferenceProfilesSheet: View {
 
     private var footer: some View {
         HStack {
+            VButton(label: "+ New Profile", style: .primary) {
+                beginCreate()
+            }
             if let actionError {
                 Text(actionError)
                     .font(VFont.bodySmallDefault)
@@ -182,8 +181,11 @@ struct InferenceProfilesSheet: View {
                             )
                         )
                         .contextMenu {
-                            Button("Edit") { beginEdit(profile.name) }
-                                .disabled(profile.isManaged)
+                            if profile.isManaged {
+                                Button("View") { beginView(profile.name) }
+                            } else {
+                                Button("Edit") { beginEdit(profile.name) }
+                            }
                             Button("Duplicate") { beginDuplicate(profile.name) }
                             Divider()
                             Button("Delete", role: .destructive) {
@@ -258,10 +260,13 @@ struct InferenceProfilesSheet: View {
                     .foregroundStyle(VColor.contentSecondary)
             }
             Spacer(minLength: 0)
-            VButton(label: "Edit", style: .ghost, isDisabled: profile.isManaged) {
-                beginEdit(profile.name)
+            VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
+                if profile.isManaged {
+                    beginView(profile.name)
+                } else {
+                    beginEdit(profile.name)
+                }
             }
-            .help(profile.isManaged ? "Managed profiles are read-only. Duplicate to customize." : "")
         }
         .padding(.vertical, VSpacing.xs)
         .contentShape(Rectangle())
@@ -280,12 +285,37 @@ struct InferenceProfilesSheet: View {
     // MARK: - Editor Sheet
 
     private var editorSheet: some View {
-        InferenceProfileEditor(
+        let isViewMode: Bool = {
+            if case .view = editorState { return true }
+            return false
+        }()
+        let isCreateMode: Bool = {
+            switch editorState {
+            case .create, .duplicate: return true
+            default: return false
+            }
+        }()
+
+        return InferenceProfileEditor(
             store: store,
             profile: $editorDraft,
+            isReadOnly: isViewMode,
+            isCreating: isCreateMode,
             onSave: {
                 Task { await commitEditor() }
             },
+            onSaveAs: isViewMode ? {
+                // Transition from view mode to a duplicate-style create:
+                // clear the managed source, generate a unique name, and
+                // open a fresh editable editor.
+                guard let originalName = editorOriginalName else { return }
+                editorState = nil
+                // Defer so the sheet dismissal animation completes before
+                // the new sheet presents.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    beginDuplicate(originalName)
+                }
+            } : nil,
             onCancel: {
                 editorState = nil
             }
@@ -408,6 +438,14 @@ struct InferenceProfilesSheet: View {
         editorDraft = InferenceProfile(name: uniqueName)
         editorOriginalName = nil
         editorState = .create
+    }
+
+    private func beginView(_ name: String) {
+        actionError = nil
+        guard let existing = store.profiles.first(where: { $0.name == name }) else { return }
+        editorDraft = existing
+        editorOriginalName = name
+        editorState = .view(name: name)
     }
 
     private func beginEdit(_ name: String) {
@@ -675,6 +713,8 @@ extension InferenceProfilesSheet.EditorState: Identifiable {
             return "edit:\(name)"
         case .duplicate(let name):
             return "duplicate:\(name)"
+        case .view(let name):
+            return "view:\(name)"
         }
     }
 }
