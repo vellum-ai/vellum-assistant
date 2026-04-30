@@ -782,27 +782,37 @@ export async function runAgentLoopImpl(
     let shouldInjectWorkspace = isFirstMessage;
     let compactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
+    let currentSlackContextSummary =
+      turnStartConversation?.contextSummary ?? null;
+    let currentSlackContextCompactedMessageCount =
+      turnStartConversation?.contextCompactedMessageCount ?? 0;
+    let currentSlackContextCompactionWatermarkTs =
+      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
+    const loadCurrentSlackChronologicalContext =
+      (): SlackChronologicalContext | null => {
+        if (!isSlackConversation) return null;
+        return loadSlackChronologicalContext(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+          {
+            trustClass: ctx.trustContext?.trustClass,
+            contextSummary: currentSlackContextSummary,
+            contextCompactedMessageCount:
+              currentSlackContextCompactedMessageCount,
+            slackContextCompactionWatermarkTs:
+              currentSlackContextCompactionWatermarkTs,
+          },
+        );
+      };
     let slackChronologicalContext: SlackChronologicalContext | null =
-      isSlackConversation
-        ? loadSlackChronologicalContext(
-            ctx.conversationId,
-            ctx.channelCapabilities!,
-            {
-              trustClass: ctx.trustContext?.trustClass,
-              contextSummary: turnStartConversation?.contextSummary,
-              contextCompactedMessageCount:
-                turnStartConversation?.contextCompactedMessageCount,
-              slackContextCompactionWatermarkTs:
-                turnStartConversation?.slackContextCompactionWatermarkTs,
-            },
-          )
-        : null;
+      loadCurrentSlackChronologicalContext();
     const messagesForStartOfTurnCompaction =
       slackChronologicalContext?.messages ?? ctx.messages;
     const applySuccessfulCompaction = (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
-      provenanceContext: SlackChronologicalContext | null = null,
     ) => {
+      const provenanceContext =
+        slackChronologicalContext ?? loadCurrentSlackChronologicalContext();
       const slackWatermarkTs = getSlackCompactionWatermarkForPrefix(
         provenanceContext,
         result.compactedMessages,
@@ -810,7 +820,11 @@ export async function runAgentLoopImpl(
       applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
+      currentSlackContextSummary = result.summaryText;
+      currentSlackContextCompactedMessageCount =
+        ctx.contextCompactedMessageCount;
       if (slackWatermarkTs) {
+        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
         slackChronologicalContext = null;
       }
     };
@@ -881,7 +895,7 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applySuccessfulCompaction(compacted, slackChronologicalContext);
+      applySuccessfulCompaction(compacted);
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;

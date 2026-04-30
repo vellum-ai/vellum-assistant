@@ -2444,6 +2444,122 @@ describe("session-agent-loop", () => {
       expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
     });
 
+    test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+          ][index]!,
+        })),
+        sourceChannelTsByMessage: [
+          "1700000010.000000",
+          "1700000020.000000",
+          "1700000030.000000",
+        ],
+        compactableStartIndex: 0,
+      };
+      mockEstimateTokens = 120_000;
+      mockReducerStepFn = (_msgs: Message[]) => ({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "summary" }],
+          },
+          renderedSlackMessages[2]!,
+        ],
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5_000,
+        compactionResult: {
+          compacted: true,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "summary" }],
+            },
+            renderedSlackMessages[2]!,
+          ],
+          compactedPersistedMessages: 2,
+          previousEstimatedInputTokens: 120_000,
+          estimatedInputTokens: 5_000,
+          maxInputTokens: 100_000,
+          thresholdTokens: 80_000,
+          compactedMessages: 2,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryFailed: false,
+        },
+      });
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-overflow", () => {});
+
+      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
+        mockSlackChronologicalContext,
+        2,
+      );
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
+        (call) => {
+          const options = call[1] as {
+            slackChronologicalMessages?: Message[] | null;
+          };
+          return options.slackChronologicalMessages === null;
+        },
+      )?.[1] as { slackChronologicalMessages?: Message[] | null } | undefined;
+      expect(reinjectionOptions?.slackChronologicalMessages).toBeNull();
+    });
+
     test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
       mockConversationRow = {
         ...mockConversationRow,
