@@ -9,8 +9,8 @@ struct NameExchangeView: View {
     @Binding var assistantName: String
     @Binding var selectedGroupID: String?
 
-    /// Names to display as quick-tap pills, ordered by the caller based on
-    /// the currently selected personality group.
+    /// Names to display as quick-tap pills. Sampled once per onboarding
+    /// session from the full pool — independent of the selected vibe.
     let displayedAssistantNames: [String]
 
     var onBack: (() -> Void)?
@@ -82,7 +82,7 @@ struct NameExchangeView: View {
                         text: $assistantName
                     )
 
-                    Text(selectedGroupID != nil ? "Suggestions" : "A few to try")
+                    Text("A few to try")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
 
