@@ -41,7 +41,7 @@ type Listener = (event?: unknown) => void;
 
 class FakeWebSocket {
   binaryType: BinaryType = "blob";
-  readyState = WS_CONNECTING;
+  readyState: number = WS_CONNECTING;
   sent: string[] = [];
   closes: { code?: number; reason?: string }[] = [];
   private readonly listeners = new Map<string, Listener[]>();
