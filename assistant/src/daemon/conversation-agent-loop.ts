@@ -758,8 +758,13 @@ export async function runAgentLoopImpl(
     let diskPressureActive = false;
     if (isDiskSpacePressure()) {
       const isBackgroundTask = turnCallSite !== "mainAgent";
-      const isGuardianCaller =
-        resolveTrustClass(ctx.trustContext) === "guardian";
+      // Desktop/macOS conversations have no channel trust resolution so
+      // ctx.trustContext is undefined. Those messages originate from the
+      // local owner, so treat absent trust context as guardian access.
+      const trustClass = ctx.trustContext
+        ? resolveTrustClass(ctx.trustContext)
+        : "guardian";
+      const isGuardianCaller = trustClass === "guardian";
 
       if (isBackgroundTask) {
         rlog.info(
