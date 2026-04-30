@@ -801,9 +801,10 @@ export async function runAgentLoopImpl(
       slackChronologicalContext?.messages ?? ctx.messages;
     const applySuccessfulCompaction = (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+      provenanceContext: SlackChronologicalContext | null = null,
     ) => {
       const slackWatermarkTs = getSlackCompactionWatermarkForPrefix(
-        slackChronologicalContext,
+        provenanceContext,
         result.compactedMessages,
       );
       applyCompactionResult(ctx, result, onEvent, reqId, {
@@ -880,7 +881,7 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applySuccessfulCompaction(compacted);
+      applySuccessfulCompaction(compacted, slackChronologicalContext);
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;

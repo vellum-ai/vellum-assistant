@@ -244,6 +244,10 @@ const applyRuntimeInjectionsMock = mock(
   }),
 );
 let mockSlackChronologicalContext: {
+  renderedMessages: Array<{
+    message: Message;
+    sourceChannelTs: string | null;
+  }>;
   messages: Message[];
   sourceChannelTsByMessage: Array<string | null>;
   compactableStartIndex: number;
@@ -263,11 +267,12 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
     if (!context || compactedRenderedMessages <= 0) return null;
     const start = context.compactableStartIndex;
     const end = Math.min(
-      context.sourceChannelTsByMessage.length,
+      context.renderedMessages.length,
       start + compactedRenderedMessages,
     );
-    const values = context.sourceChannelTsByMessage
+    const values = context.renderedMessages
       .slice(start, end)
+      .map((entry) => entry.sourceChannelTs)
       .filter((value): value is string => value !== null);
     return values.length > 0 ? values[values.length - 1]! : null;
   },
@@ -2352,6 +2357,14 @@ describe("session-agent-loop", () => {
       ];
       mockSlackChronologicalContext = {
         messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+          ][index]!,
+        })),
         sourceChannelTsByMessage: [
           "1700000010.000000",
           "1700000020.000000",
@@ -2454,6 +2467,27 @@ describe("session-agent-loop", () => {
             content: [{ type: "text", text: "after watermark reply" }],
           },
         ],
+        renderedMessages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "<context_summary>\n## Summary\n- compacted Slack context\n</context_summary>",
+                },
+              ],
+            },
+            sourceChannelTs: null,
+          },
+          {
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "after watermark reply" }],
+            },
+            sourceChannelTs: "1700000020.000000",
+          },
+        ],
         sourceChannelTsByMessage: [null, "1700000020.000000"],
         compactableStartIndex: 1,
       };
@@ -2533,6 +2567,32 @@ describe("session-agent-loop", () => {
                 text: "[11/14/23 22:34 @carol → Mabc123]: reply after compaction",
               },
             ],
+          },
+        ],
+        renderedMessages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "<context_summary>\n## Summary\n- compacted long Slack thread\n</context_summary>",
+                },
+              ],
+            },
+            sourceChannelTs: null,
+          },
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[11/14/23 22:34 @carol → Mabc123]: reply after compaction",
+                },
+              ],
+            },
+            sourceChannelTs: "1700000121.000000",
           },
         ],
         sourceChannelTsByMessage: [null, "1700000121.000000"],

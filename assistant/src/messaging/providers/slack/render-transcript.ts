@@ -59,17 +59,24 @@ export interface RenderOptions {
 const DEFAULT_MAX_REACTIONS = 5;
 
 export interface RenderedSlackTranscript {
+  /** Rendered messages paired with the Slack source timestamp they represent. */
+  readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
+  /** Convenience projection of `renderedMessages[].message`. */
   readonly messages: Message[];
   /**
    * Slack source timestamp represented by each rendered message.
    * `null` means the rendered message came from a legacy row with no Slack
    * metadata. Collapsed reaction overflow trailers carry the max source
    * timestamp included in that trailer.
+   *
+   * Kept as a convenience projection of `renderedMessages[].sourceChannelTs`;
+   * watermark derivation should use `renderedMessages` so the message and
+   * provenance sequence cannot drift.
    */
   readonly sourceChannelTsByMessage: readonly (string | null)[];
 }
 
-interface RenderedSlackEntry {
+export interface RenderedSlackTranscriptMessage {
   readonly message: Message;
   readonly sourceChannelTs: string | null;
 }
@@ -409,7 +416,7 @@ export function renderSlackTranscriptWithProvenance(
   opts?: RenderOptions,
 ): RenderedSlackTranscript {
   if (messages.length === 0) {
-    return { messages: [], sourceChannelTsByMessage: [] };
+    return { renderedMessages: [], messages: [], sourceChannelTsByMessage: [] };
   }
 
   const maxReactions = Math.max(
@@ -446,7 +453,7 @@ export function renderSlackTranscriptWithProvenance(
       role: "user" | "assistant";
       sourceChannelTs: string | null;
     },
-  ): RenderedSlackEntry => ({
+  ): RenderedSlackTranscriptMessage => ({
     message: {
       role: acc.role,
       content: [
@@ -460,7 +467,7 @@ export function renderSlackTranscriptWithProvenance(
   });
 
   const flushOverflowExcept = (
-    out: RenderedSlackEntry[],
+    out: RenderedSlackTranscriptMessage[],
     keepTarget: string | null,
   ) => {
     for (const target of Array.from(overflowAccumulator.keys())) {
@@ -471,7 +478,7 @@ export function renderSlackTranscriptWithProvenance(
     }
   };
 
-  const out: RenderedSlackEntry[] = [];
+  const out: RenderedSlackTranscriptMessage[] = [];
   for (const m of sorted) {
     const meta = m.metadata;
     if (meta?.eventKind === "reaction" && meta.reaction) {
@@ -529,6 +536,7 @@ export function renderSlackTranscriptWithProvenance(
 
   const filtered = filterOrphanToolPairs(out);
   return {
+    renderedMessages: filtered,
     messages: filtered.map((entry) => entry.message),
     sourceChannelTsByMessage: filtered.map((entry) => entry.sourceChannelTs),
   };
@@ -557,8 +565,8 @@ export function renderSlackTranscriptWithProvenance(
  * rejected by the provider.
  */
 function filterOrphanToolPairs(
-  entries: RenderedSlackEntry[],
-): RenderedSlackEntry[] {
+  entries: RenderedSlackTranscriptMessage[],
+): RenderedSlackTranscriptMessage[] {
   const produced = new Set<string>();
   const consumed = new Set<string>();
   for (const { message: msg } of entries) {
@@ -568,7 +576,7 @@ function filterOrphanToolPairs(
         consumed.add(b.tool_use_id);
     }
   }
-  const out: RenderedSlackEntry[] = [];
+  const out: RenderedSlackTranscriptMessage[] = [];
   for (const entry of entries) {
     const msg = entry.message;
     const kept: ContentBlock[] = [];
