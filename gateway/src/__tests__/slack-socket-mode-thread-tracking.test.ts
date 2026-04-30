@@ -201,6 +201,85 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("tracks app mention thread before slow mentioned-user lookup completes", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    let resolveDelayedMention: ((response: Response) => void) | undefined;
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      const userId = url.searchParams.get("user");
+      if (userId === "ULEO") {
+        return new Promise<Response>((resolve) => {
+          resolveDelayedMention = resolve;
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-race-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-race-mention",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> <@ULEO> can you help here?",
+              ts: "1700000000.000150",
+              channel: "C-thread",
+              thread_ts: "1700000000.000140",
+            },
+          },
+        }),
+        ws,
+      );
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-race-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-race-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up while lookup is still pending",
+              ts: "1700000000.000160",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000140",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-race-reply");
+      expect(emitted[0].event.message.content).toBe(
+        "following up while lookup is still pending",
+      );
+
+      expect(resolveDelayedMention).toBeDefined();
+      resolveDelayedMention!(makeSlackUserResponse());
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.source.updateId).toBe("Ev-race-mention");
+      expect(emitted[1].event.message.content).toBe(
+        "@Example User can you help here?",
+      );
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("accepts unmentioned thread replies after a top-level app mention", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

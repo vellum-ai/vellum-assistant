@@ -588,6 +588,14 @@ export class SlackSocketModeClient {
     }
     this.store.markEventSeen(eventId, DEDUP_TTL_MS);
 
+    if (isAppMention) {
+      const appMentionEvent = event as SlackAppMentionEvent;
+      const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
+      if (threadTs) {
+        this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
+      }
+    }
+
     void this.normalizeAndEmit(
       event,
       eventId,
@@ -774,8 +782,6 @@ export class SlackSocketModeClient {
       const mentionedLabel = userLabels[actor.actorExternalId];
       if (mentionedLabel) {
         actor.displayName = mentionedLabel;
-        this.onEvent(normalized);
-        return;
       }
 
       const userInfo = await Promise.race([
