@@ -392,7 +392,6 @@ async function startDaemonFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
@@ -528,7 +527,6 @@ async function startDaemonWatchFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
@@ -998,7 +996,6 @@ export async function startLocalDaemon(
       for (const key of [
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
-        "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
         "CREDENTIAL_SECURITY_DIR",
         "VELLUM_ENVIRONMENT",
@@ -1026,7 +1023,6 @@ export async function startLocalDaemon(
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
       if (resources) {
-        daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.VELLUM_WORKSPACE_DIR = join(
           resources.instanceDir,
           ".vellum",
@@ -1212,7 +1208,6 @@ export async function startGateway(
     // assistant DB directly for guardian bootstrap.
     ...(resources
       ? {
-          BASE_DATA_DIR: resources.instanceDir,
           VELLUM_WORKSPACE_DIR: join(
             resources.instanceDir,
             ".vellum",
