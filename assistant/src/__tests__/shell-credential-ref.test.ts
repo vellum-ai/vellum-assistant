@@ -32,14 +32,6 @@ mock.module("../security/secret-scanner.js", () => ({
   redactSecrets: (s: string) => s,
 }));
 
-// Mock sandbox
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (cmd: string, _cwd: string) => ({
-    command: "/bin/sh",
-    args: ["-c", cmd],
-  }),
-}));
-
 // Mock safe-env
 mock.module("../tools/terminal/safe-env.js", () => ({
   buildSanitizedEnv: () => ({ PATH: "/usr/bin" }),

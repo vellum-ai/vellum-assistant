@@ -52,14 +52,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (command: string, _workingDir: string, _config: unknown) => ({
-    command: "bash",
-    args: ["-c", "--", command],
-    sandboxed: false,
-  }),
-}));
-
 import { loadSkillCatalog } from "../config/skills.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";

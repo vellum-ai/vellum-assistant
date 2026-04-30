@@ -51,20 +51,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// shell.ts requires the sandbox wrapper — provide a pass-through stub.
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (
-    command: string,
-    _cwd: string,
-    _cfg: unknown,
-    _opts?: unknown,
-  ) => ({
-    command: "bash",
-    args: ["-c", "--", command],
-    sandboxed: false,
-  }),
-}));
-
 // shell.ts uses the script proxy — stub it to avoid network side-effects.
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: async () => ({

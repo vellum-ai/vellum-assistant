@@ -36,9 +36,6 @@ const mockConfig = {
   auditLog: { retentionDays: 0 },
 };
 
-// Track whether wrapCommand was ever called — host_bash must never invoke it
-let wrapCommandCallCount = 0;
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
@@ -55,13 +52,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (...args: unknown[]) => {
-    wrapCommandCallCount++;
-    return { command: "bash", args: ["-c", "--", args[0]], sandboxed: false };
-  },
 }));
 
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
@@ -123,8 +113,6 @@ describe("host_bash tool", () => {
   });
 
   test("does not route through sandbox wrapCommand", async () => {
-    wrapCommandCallCount = 0;
-
     const dir = mkdtempSync(join(tmpdir(), "host-shell-nosandbox-"));
     testDirs.push(dir);
 
@@ -138,8 +126,6 @@ describe("host_bash tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content.trim()).toBe("isolation-test");
-    // The sandbox wrapCommand must never be called for host_bash
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("spawns plain bash without sandbox-exec or bwrap", async () => {
@@ -234,7 +220,6 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     const result = await hostShellTool.execute(
       {
@@ -245,7 +230,6 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(wrapCommandCallCount).toBe(0);
     expect(spawnCalls[0].command).toBe("bash");
   });
 });
@@ -287,7 +271,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     // Pass network_mode as if the model hallucinated the parameter —
     // host_bash must ignore it and run the command normally.
@@ -306,7 +289,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with proxied-mode input
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("execute ignores credential_ids even if supplied in input", async () => {
@@ -314,7 +296,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     const result = await hostShellTool.execute(
       {
@@ -330,7 +311,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with credential inputs
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("tool name is host_bash (not bash)", () => {

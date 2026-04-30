@@ -42,15 +42,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Pass through without actual sandboxing so tests can run bun directly
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (command: string, _workingDir: string, _config: unknown) => ({
-    command: "bash",
-    args: ["-c", "--", command],
-    sandboxed: false,
-  }),
-}));
-
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";
 import type { ToolContext } from "../tools/types.js";
 

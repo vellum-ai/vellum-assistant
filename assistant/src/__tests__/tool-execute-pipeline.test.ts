@@ -129,10 +129,6 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
-}));
-
 // ── Redaction + token manager so the executor's imports resolve ──────
 mock.module("../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,

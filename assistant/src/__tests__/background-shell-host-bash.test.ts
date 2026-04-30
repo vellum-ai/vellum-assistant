@@ -88,14 +88,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (...args: unknown[]) => ({
-    command: "bash",
-    args: ["-c", "--", args[0]],
-    sandboxed: false,
-  }),
-}));
-
 // ---------------------------------------------------------------------------
 // Import under test — MUST come after mock.module calls.
 // ---------------------------------------------------------------------------

@@ -41,30 +41,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Track wrapCommand calls to verify sandbox-only execution
-let lastWrapCall: {
-  command: string;
-  workingDir: string;
-  config: { enabled: boolean };
-  options?: { networkMode?: string };
-} | null = null;
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (
-    command: string,
-    workingDir: string,
-    config: { enabled: boolean },
-    options?: { networkMode?: string },
-  ) => {
-    lastWrapCall = { command, workingDir, config, options };
-    return {
-      command: "bash",
-      args: ["-c", "--", command],
-      sandboxed: false,
-    };
-  },
-}));
-
 mock.module("../tools/terminal/safe-env.js", () => ({
   buildSanitizedEnv: () => ({
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -98,46 +74,6 @@ function expectFailure(
 // ---------------------------------------------------------------------------
 
 describe("runInlineCommand", () => {
-  // ── Sandbox enforcement ──────────────────────────────────────────────────
-
-  describe("sandbox enforcement", () => {
-    test("always passes sandbox config with enabled=false", async () => {
-      lastWrapCall = null;
-      await runInlineCommand("echo sandbox-check", CWD);
-
-      expect(lastWrapCall).not.toBeNull();
-      expect(lastWrapCall!.config.enabled).toBe(false);
-    });
-
-    test("does not pass networkMode when sandbox is disabled", async () => {
-      lastWrapCall = null;
-      await runInlineCommand("echo network-check", CWD);
-
-      expect(lastWrapCall).not.toBeNull();
-      // networkMode is a no-op when sandbox is disabled (wrapCommand returns
-      // a plain bash invocation), so it is not passed. Network isolation is
-      // provided by the Docker/platform-managed container.
-      expect(lastWrapCall!.options).toBeUndefined();
-    });
-
-    test("uses the provided workingDir as cwd", async () => {
-      lastWrapCall = null;
-      const customDir = "/tmp/my-project";
-      await runInlineCommand("echo cwd-check", customDir);
-
-      expect(lastWrapCall).not.toBeNull();
-      expect(lastWrapCall!.workingDir).toBe(customDir);
-    });
-
-    test("passes the literal command string to the sandbox", async () => {
-      lastWrapCall = null;
-      await runInlineCommand("git log --oneline -n 5", CWD);
-
-      expect(lastWrapCall).not.toBeNull();
-      expect(lastWrapCall!.command).toBe("git log --oneline -n 5");
-    });
-  });
-
   // ── Successful execution ─────────────────────────────────────────────────
 
   describe("successful execution", () => {
