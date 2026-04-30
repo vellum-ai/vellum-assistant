@@ -5,6 +5,11 @@
  * implements the MessagingProvider interface.
  */
 
+import {
+  extractSlackUserMentionIds,
+  renderSlackTextForModel,
+} from "@vellumai/slack-text";
+
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { upsertContactChannel } from "../../../contacts/contacts-write.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
@@ -218,6 +223,7 @@ function mapMessage(
   msg: SlackMessage,
   channelId: string,
   senderName: string,
+  renderedText: string,
 ): Message {
   // Bot-authored when Slack sets `subtype: "bot_message"` or attributes the
   // row to a `bot_id` with no user. Backfill callers rely on this flag to
@@ -229,7 +235,7 @@ function mapMessage(
     id: msg.ts,
     conversationId: channelId,
     sender: { id: msg.user ?? msg.bot_id ?? "unknown", name: senderName },
-    text: msg.text,
+    text: renderedText,
     timestamp: parseFloat(msg.ts) * 1000,
     threadId: msg.thread_ts,
     replyCount: msg.reply_count,
@@ -265,12 +271,49 @@ async function mapSlackMessages(
   channelId: string,
   slackMessages: SlackMessage[],
 ): Promise<Message[]> {
+  const userLabels = await buildMentionUserLabels(auth, slackMessages);
   const messages: Message[] = [];
   for (const msg of slackMessages) {
     const name = await resolveUserName(auth, msg.user ?? "");
-    messages.push(mapMessage(msg, channelId, name));
+    messages.push(
+      mapMessage(
+        msg,
+        channelId,
+        name,
+        renderSlackTextForModel(msg.text, { userLabels }),
+      ),
+    );
   }
   return messages;
+}
+
+async function buildMentionUserLabels(
+  auth: OAuthConnection | string,
+  slackMessages: SlackMessage[],
+): Promise<Record<string, string>> {
+  const mentionUserIds = [
+    ...new Set(
+      slackMessages.flatMap((msg) => extractSlackUserMentionIds(msg.text)),
+    ),
+  ];
+  if (mentionUserIds.length === 0) return {};
+
+  const userLabels: Record<string, string> = {};
+
+  await Promise.all(
+    mentionUserIds.map(async (userId) => {
+      try {
+        const label = await resolveUserName(auth, userId);
+        if (label && label !== userId) {
+          userLabels[userId] = label;
+        }
+      } catch {
+        // Leave unresolved mentions out so the renderer uses @unknown-user.
+      }
+    }),
+  );
+
+  return userLabels;
 }
 
 export const slackProvider: MessagingProvider = {

@@ -46,6 +46,7 @@
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
     "@vellumai/gateway-client": "file:../packages/gateway-client",
     "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
+    "@vellumai/slack-text": "file:../packages/slack-text",
     "archiver": "7.0.1",
     "commander": "13.1.0",
     "croner": "10.0.1",
@@ -75,7 +76,8 @@
     "@vellumai/service-contracts",
     "@vellumai/egress-proxy",
     "@vellumai/gateway-client",
-    "@vellumai/skill-host-contracts"
+    "@vellumai/skill-host-contracts",
+    "@vellumai/slack-text"
   ],
   "overrides": {
     "lodash": "4.18.1",
