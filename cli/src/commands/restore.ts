@@ -9,7 +9,7 @@ import {
 import {
   readPlatformToken,
   rollbackPlatformAssistant,
-  platformRequestUploadUrl,
+  platformRequestSignedUrl,
   platformUploadToSignedUrl,
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
@@ -180,7 +180,8 @@ async function restorePlatform(
   }
 
   // Step 1.5 — Upload to GCS via signed URL
-  const { uploadUrl, bundleKey } = await platformRequestUploadUrl(
+  const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+    { operation: "upload" },
     token,
     entry.runtimeUrl,
   );

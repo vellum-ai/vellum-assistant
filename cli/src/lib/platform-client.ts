@@ -669,45 +669,6 @@ export async function rollbackPlatformAssistant(
 // Signed-URL upload flow
 // ---------------------------------------------------------------------------
 
-export async function platformRequestUploadUrl(
-  token: string,
-  platformUrl?: string,
-): Promise<{ uploadUrl: string; bundleKey: string; expiresAt: string }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/migrations/upload-url/`, {
-    method: "POST",
-    headers: await authHeaders(token, platformUrl),
-    body: JSON.stringify({ content_type: "application/octet-stream" }),
-  });
-
-  if (response.status === 201) {
-    const body = (await response.json()) as {
-      upload_url: string;
-      bundle_key: string;
-      expires_at: string;
-    };
-    return {
-      uploadUrl: body.upload_url,
-      bundleKey: body.bundle_key,
-      expiresAt: body.expires_at,
-    };
-  }
-
-  if (response.status === 404 || response.status === 503) {
-    throw new Error(
-      "Signed uploads are not available on this platform instance",
-    );
-  }
-
-  const errorBody = (await response.json().catch(() => ({}))) as {
-    detail?: string;
-  };
-  throw new Error(
-    errorBody.detail ??
-      `Failed to request upload URL: ${response.status} ${response.statusText}`,
-  );
-}
-
 export async function platformUploadToSignedUrl(
   uploadUrl: string,
   bundleData: Uint8Array<ArrayBuffer>,
