@@ -1,22 +1,38 @@
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
-import { HostCuProxy } from "../daemon/host-cu-proxy.js";
+const sentMessages: unknown[] = [];
+const resolvedInteractionIds: string[] = [];
+let mockHasClient = false;
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+  },
+}));
+
+mock.module("../runtime/pending-interactions.js", () => ({
+  resolve: (requestId: string) => {
+    resolvedInteractionIds.push(requestId);
+    return undefined;
+  },
+  get: () => undefined,
+  getByKind: () => [],
+  getByConversation: () => [],
+  removeByConversation: () => {},
+}));
+
+const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
 
 describe("HostCuProxy", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
-  let sentMessages: unknown[];
-  let sendToClient: (msg: unknown) => void;
-  let resolvedRequestIds: string[];
 
   function setup(maxSteps?: number) {
-    sentMessages = [];
-    resolvedRequestIds = [];
-    sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(
-      sendToClient as never,
-      (requestId: string) => resolvedRequestIds.push(requestId),
-      maxSteps,
-    );
+    sentMessages.length = 0;
+    resolvedInteractionIds.length = 0;
+    mockHasClient = false;
+    proxy = new HostCuProxy(maxSteps);
   }
 
   afterEach(() => {
@@ -888,65 +904,11 @@ describe("HostCuProxy", () => {
   });
 
   // -------------------------------------------------------------------------
-  // sender throws synchronously
+  // pendingInteractions.resolve callback
   // -------------------------------------------------------------------------
 
-  describe("sender throws synchronously", () => {
-    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
-      sentMessages = [];
-      resolvedRequestIds = [];
-      const throwingSend = () => {
-        throw new Error("transport down");
-      };
-      proxy = new HostCuProxy(throwingSend as never, (requestId: string) =>
-        resolvedRequestIds.push(requestId),
-      );
-
-      // request() synchronously calls sendToClient inside the Promise
-      // executor. A throw there surfaces as a rejected promise.
-      const resultPromise = proxy.request(
-        "computer_use_click",
-        { element_id: 1 },
-        "session-1",
-        1,
-      );
-
-      await expect(resultPromise).rejects.toThrow("transport down");
-
-      // The internal resolve should fire exactly once as part of cleanup.
-      expect(resolvedRequestIds).toHaveLength(1);
-
-      // Issue a new request on a fresh (non-throwing) sender and verify
-      // the proxy is still functional — no stale timers or bookkeeping
-      // from the failed request.
-      sentMessages = [];
-      proxy.updateSender(
-        ((msg: unknown) => sentMessages.push(msg)) as never,
-        true,
-      );
-      const okPromise = proxy.request(
-        "computer_use_click",
-        { element_id: 2 },
-        "session-1",
-        2,
-      );
-      expect(sentMessages).toHaveLength(1);
-      const okRequestId = (sentMessages[0] as Record<string, unknown>)
-        .requestId as string;
-      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
-      proxy.resolve(okRequestId, { axTree: "Button [2]" });
-      const okResult = await okPromise;
-      expect(okResult.isError).toBe(false);
-      expect(okResult.content).toContain("Button [2]");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // onInternalResolve callback
-  // -------------------------------------------------------------------------
-
-  describe("onInternalResolve", () => {
-    test("calls onInternalResolve when abort signal fires", async () => {
+  describe("pendingInteractions.resolve callback", () => {
+    test("fires when abort signal fires", async () => {
       setup();
 
       const controller = new AbortController();
@@ -965,10 +927,10 @@ describe("HostCuProxy", () => {
       controller.abort();
 
       await resultPromise;
-      expect(resolvedRequestIds).toContain(requestId);
+      expect(resolvedInteractionIds).toContain(requestId);
     });
 
-    test("calls onInternalResolve on dispose", async () => {
+    test("fires on dispose", async () => {
       setup();
 
       const resultPromise = proxy.request(
@@ -986,44 +948,11 @@ describe("HostCuProxy", () => {
       // dispose rejects pending requests — catch to avoid unhandled rejection
       await resultPromise.catch(() => {});
 
-      expect(resolvedRequestIds).toContain(requestId);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // isAvailable
-  // -------------------------------------------------------------------------
-
-  describe("isAvailable", () => {
-    test("returns false by default", () => {
-      setup();
-      expect(proxy.isAvailable()).toBe(false);
+      expect(resolvedInteractionIds).toContain(requestId);
     });
 
-    test("returns true after updateSender with clientConnected=true", () => {
+    test("does not fire on normal client-initiated resolve", async () => {
       setup();
-      proxy.updateSender(sendToClient as never, true);
-      expect(proxy.isAvailable()).toBe(true);
-    });
-
-    test("returns false after updateSender with clientConnected=false", () => {
-      setup();
-      proxy.updateSender(sendToClient as never, true);
-      proxy.updateSender(sendToClient as never, false);
-      expect(proxy.isAvailable()).toBe(false);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // updateSender
-  // -------------------------------------------------------------------------
-
-  describe("updateSender", () => {
-    test("uses updated sender for new requests", async () => {
-      setup();
-
-      const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg), true);
 
       const resultPromise = proxy.request(
         "computer_use_click",
@@ -1032,15 +961,31 @@ describe("HostCuProxy", () => {
         1,
       );
 
-      expect(sentMessages).toHaveLength(0); // Old sender not used
-      expect(newMessages).toHaveLength(1); // New sender used
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
 
-      const sent = newMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, {
-        axTree: "Button [1]",
-      });
+      proxy.resolve(requestId, { axTree: "Button [1]" });
 
       await resultPromise;
+      expect(resolvedInteractionIds).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // isAvailable
+  // -------------------------------------------------------------------------
+
+  describe("isAvailable", () => {
+    test("returns false when no client with host_cu capability is connected", () => {
+      setup();
+      mockHasClient = false;
+      expect(proxy.isAvailable()).toBe(false);
+    });
+
+    test("returns true when a client with host_cu capability is connected", () => {
+      setup();
+      mockHasClient = true;
+      expect(proxy.isAvailable()).toBe(true);
     });
   });
 });

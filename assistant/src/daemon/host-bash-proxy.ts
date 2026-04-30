@@ -1,6 +1,8 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -19,25 +21,47 @@ interface PendingRequest {
 }
 
 export class HostBashProxy {
-  private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
+  private static _instance: HostBashProxy | null = null;
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Lazily-initialized singleton. Availability of an actual desktop
+   * connection is checked at send time via the assistant event hub,
+   * not at construction time.
+   */
+  static get instance(): HostBashProxy {
+    if (!HostBashProxy._instance) {
+      log.info("Creating singleton HostBashProxy");
+      HostBashProxy._instance = new HostBashProxy();
+    }
+    return HostBashProxy._instance;
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostBashProxy._instance) {
+      HostBashProxy._instance.dispose();
+      HostBashProxy._instance = null;
+    }
+  }
+
+  /** For tests. */
+  static reset(): void {
+    HostBashProxy._instance = null;
+  }
+
+  private pending = new Map<string, PendingRequest>();
+
+  /**
+   * Whether a client with `host_bash` capability is connected.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_bash") != null
+    );
+  }
+
+  private send(msg: ServerMessage): void {
+    broadcastMessage(msg);
   }
 
   request(
@@ -70,7 +94,7 @@ export class HostBashProxy {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, command: input.command },
           "Host bash proxy request timed out",
@@ -91,12 +115,10 @@ export class HostBashProxy {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
+              this.send({
                 type: "host_bash_cancel",
                 requestId,
               } as ServerMessage);
@@ -119,7 +141,7 @@ export class HostBashProxy {
       });
 
       try {
-        this.sendToClient({
+        this.send({
           type: "host_bash_request",
           requestId,
           conversationId,
@@ -131,13 +153,10 @@ export class HostBashProxy {
             : {}),
         } as ServerMessage);
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
         clearTimeout(timer);
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, command: input.command, err },
           "Host bash proxy send failed",
@@ -178,17 +197,13 @@ export class HostBashProxy {
     return this.pending.has(requestId);
   }
 
-  isAvailable(): boolean {
-    return this.clientConnected;
-  }
-
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+      pendingInteractions.resolve(requestId);
       try {
-        this.sendToClient({
+        this.send({
           type: "host_bash_cancel",
           requestId,
         } as ServerMessage);

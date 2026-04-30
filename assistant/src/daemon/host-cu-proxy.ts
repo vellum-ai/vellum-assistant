@@ -5,6 +5,10 @@
  * managed assistant, following the same request/resolve pattern as
  * HostBashProxy. Also owns CU-specific state tracking (step counting,
  * loop detection, observation formatting) for the unified agent loop.
+ *
+ * Unlike HostBashProxy/HostFileProxy/HostTransferProxy, this is NOT a
+ * singleton — each conversation gets its own instance because CU state
+ * (step count, AX tree history, loop detection) is per-conversation.
  */
 
 import { v4 as uuid } from "uuid";
@@ -12,6 +16,8 @@ import { v4 as uuid } from "uuid";
 import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
+import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -67,9 +73,6 @@ interface PendingRequest {
 
 export class HostCuProxy {
   private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
 
   // CU state tracking (per-conversation)
   private _stepCount = 0;
@@ -78,13 +81,7 @@ export class HostCuProxy {
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-    maxSteps = loadConfig().maxStepsPerSession,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  constructor(maxSteps = loadConfig().maxStepsPerSession) {
     this._maxSteps = maxSteps;
   }
 
@@ -113,15 +110,24 @@ export class HostCuProxy {
   }
 
   // ---------------------------------------------------------------------------
-  // Sender management
+  // Availability
   // ---------------------------------------------------------------------------
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /**
+   * Whether a client with `host_cu` capability is connected.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_cu") != null
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Send helper
+  // ---------------------------------------------------------------------------
+
+  private send(msg: ServerMessage): void {
+    broadcastMessage(msg);
   }
 
   // ---------------------------------------------------------------------------
@@ -154,14 +160,12 @@ export class HostCuProxy {
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
           content: "Host CU proxy timed out waiting for client response",
@@ -174,12 +178,10 @@ export class HostCuProxy {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
+              this.send({
                 type: "host_cu_cancel",
                 requestId,
               } as ServerMessage);
@@ -196,7 +198,7 @@ export class HostCuProxy {
       this.pending.set(requestId, { resolve, reject, timer, detachAbort });
 
       try {
-        this.sendToClient({
+        this.send({
           type: "host_cu_request",
           requestId,
           conversationId,
@@ -206,13 +208,10 @@ export class HostCuProxy {
           reasoning,
         } as ServerMessage);
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
         clearTimeout(timer);
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -241,10 +240,6 @@ export class HostCuProxy {
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
-  }
-
-  isAvailable(): boolean {
-    return this.clientConnected;
   }
 
   // ---------------------------------------------------------------------------
@@ -413,9 +408,9 @@ export class HostCuProxy {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+      pendingInteractions.resolve(requestId);
       try {
-        this.sendToClient({
+        this.send({
           type: "host_cu_cancel",
           requestId,
         } as ServerMessage);

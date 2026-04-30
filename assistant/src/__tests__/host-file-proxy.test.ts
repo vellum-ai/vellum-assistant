@@ -1,4 +1,27 @@
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
+
+const sentMessages: unknown[] = [];
+const resolvedInteractionIds: string[] = [];
+let mockHasClient = false;
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
+  },
+}));
+
+mock.module("../runtime/pending-interactions.js", () => ({
+  resolve: (requestId: string) => {
+    resolvedInteractionIds.push(requestId);
+    return undefined;
+  },
+  get: () => undefined,
+  getByKind: () => [],
+  getByConversation: () => [],
+  removeByConversation: () => {},
+}));
 
 const { HostFileProxy } = await import("../daemon/host-file-proxy.js");
 
@@ -10,17 +33,17 @@ const PNG_HEADER = Buffer.from([
 
 describe("HostFileProxy", () => {
   let proxy: InstanceType<typeof HostFileProxy>;
-  let sentMessages: unknown[];
-  let sendToClient: (msg: unknown) => void;
 
-  function setup(onInternalResolve?: (requestId: string) => void) {
-    sentMessages = [];
-    sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostFileProxy(sendToClient, onInternalResolve);
+  function setup() {
+    sentMessages.length = 0;
+    resolvedInteractionIds.length = 0;
+    mockHasClient = false;
+    proxy = new (HostFileProxy as any)();
   }
 
   afterEach(() => {
     proxy?.dispose();
+    HostFileProxy.reset();
   });
 
   describe("request/resolve lifecycle (happy path)", () => {
@@ -271,23 +294,16 @@ describe("HostFileProxy", () => {
   });
 
   describe("isAvailable", () => {
-    test("returns false by default (no client connected)", () => {
+    test("returns false when no client with host_file capability is connected", () => {
       setup();
+      mockHasClient = false;
       expect(proxy.isAvailable()).toBe(false);
     });
 
-    test("returns true after updateSender with clientConnected=true", () => {
+    test("returns true when a client with host_file capability is connected", () => {
       setup();
-      proxy.updateSender(sendToClient, true);
+      mockHasClient = true;
       expect(proxy.isAvailable()).toBe(true);
-    });
-
-    test("returns false after updateSender with clientConnected=false", () => {
-      setup();
-      proxy.updateSender(sendToClient, true);
-      expect(proxy.isAvailable()).toBe(true);
-      proxy.updateSender(sendToClient, false);
-      expect(proxy.isAvailable()).toBe(false);
     });
   });
 
@@ -374,34 +390,6 @@ describe("HostFileProxy", () => {
       });
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
-    });
-  });
-
-  describe("updateSender", () => {
-    test("uses updated sender for new requests", async () => {
-      setup();
-
-      const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg), true);
-
-      const resultPromise = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/test.txt",
-        },
-        "session-1",
-      );
-
-      expect(sentMessages).toHaveLength(0); // Old sender not used
-      expect(newMessages).toHaveLength(1); // New sender used
-
-      const sent = newMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, {
-        content: "updated content",
-        isError: false,
-      });
-
-      await resultPromise;
     });
   });
 
@@ -522,49 +510,9 @@ describe("HostFileProxy", () => {
     });
   });
 
-  describe("sender throws synchronously", () => {
-    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
-      const resolvedIds: string[] = [];
-      sentMessages = [];
-      sendToClient = () => {
-        throw new Error("transport down");
-      };
-      proxy = new HostFileProxy(sendToClient, (id) => resolvedIds.push(id));
-
-      const resultPromise = proxy.request(
-        { operation: "read", path: "/tmp/test.txt" },
-        "session-1",
-      );
-
-      await expect(resultPromise).rejects.toThrow("transport down");
-
-      // The internal resolve should fire exactly once as part of cleanup.
-      expect(resolvedIds).toHaveLength(1);
-
-      // Issue a new request on a fresh (non-throwing) sender and verify
-      // the proxy is still functional — no stale timers or bookkeeping
-      // from the failed request.
-      sentMessages = [];
-      proxy.updateSender((msg) => sentMessages.push(msg), true);
-      const okPromise = proxy.request(
-        { operation: "read", path: "/tmp/ok.txt" },
-        "session-1",
-      );
-      expect(sentMessages).toHaveLength(1);
-      const okRequestId = (sentMessages[0] as Record<string, unknown>)
-        .requestId as string;
-      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
-      proxy.resolve(okRequestId, { content: "ok", isError: false });
-      const okResult = await okPromise;
-      expect(okResult.content).toBe("ok");
-      expect(okResult.isError).toBe(false);
-    });
-  });
-
-  describe("onInternalResolve callback", () => {
+  describe("pendingInteractions.resolve callback", () => {
     test("fires on abort", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+      setup();
 
       const controller = new AbortController();
       const resultPromise = proxy.request(
@@ -582,12 +530,11 @@ describe("HostFileProxy", () => {
       controller.abort();
       await resultPromise;
 
-      expect(resolvedIds).toEqual([requestId]);
+      expect(resolvedInteractionIds).toContain(requestId);
     });
 
     test("fires for each pending request on dispose", () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+      setup();
 
       // Create two pending requests and catch rejections from dispose
       const p1 = proxy.request(
@@ -614,14 +561,13 @@ describe("HostFileProxy", () => {
 
       proxy.dispose();
 
-      expect(resolvedIds).toHaveLength(2);
-      expect(resolvedIds).toContain(ids[0]);
-      expect(resolvedIds).toContain(ids[1]);
+      expect(resolvedInteractionIds).toHaveLength(2);
+      expect(resolvedInteractionIds).toContain(ids[0]);
+      expect(resolvedInteractionIds).toContain(ids[1]);
     });
 
     test("does not fire on normal client-initiated resolve", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+      setup();
 
       const resultPromise = proxy.request(
         {
@@ -634,14 +580,14 @@ describe("HostFileProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      // Normal resolve from client — should NOT trigger onInternalResolve
+      // Normal resolve from client — should NOT trigger pendingInteractions.resolve
       proxy.resolve(requestId, {
         content: "file contents",
         isError: false,
       });
 
       await resultPromise;
-      expect(resolvedIds).toEqual([]);
+      expect(resolvedInteractionIds).toEqual([]);
     });
   });
 });

@@ -32,7 +32,6 @@ import {
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
@@ -153,43 +152,23 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
+  // Bash/File/Transfer are singletons — just assign the reference.
+  // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (supportsHostProxy(resolvedInterface, "host_bash")) {
-    if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      conversation.setHostBashProxy(
-        new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
+    conversation.setHostBashProxy(HostBashProxy.instance);
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
   if (supportsHostProxy(resolvedInterface, "host_file")) {
-    if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      conversation.setHostFileProxy(
-        new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
-    if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      conversation.setHostTransferProxy(
-        new HostTransferProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
+    conversation.setHostFileProxy(HostFileProxy.instance);
+    conversation.setHostTransferProxy(HostTransferProxy.instance);
   } else if (!conversation.isProcessing()) {
     conversation.setHostFileProxy(undefined);
     conversation.setHostTransferProxy(undefined);
   }
   if (supportsHostProxy(resolvedInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(
-        new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
+      conversation.setHostCuProxy(new HostCuProxy());
     }
     conversation.addPreactivatedSkillId("computer-use");
   } else if (!conversation.isProcessing()) {

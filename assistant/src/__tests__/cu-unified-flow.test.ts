@@ -5,11 +5,32 @@
  * point between the agent loop and the HostCuProxy.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
-import { surfaceProxyResolver } from "../daemon/conversation-surfaces.js";
-import { HostCuProxy } from "../daemon/host-cu-proxy.js";
+const sentMessages: unknown[] = [];
+let mockHasClient = true; // Default to true for CU unified flow tests
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+  },
+}));
+
+mock.module("../runtime/pending-interactions.js", () => ({
+  resolve: () => undefined,
+  get: () => undefined,
+  getByKind: () => [],
+  getByConversation: () => [],
+  removeByConversation: () => {},
+}));
+
+const { surfaceProxyResolver } = await import(
+  "../daemon/conversation-surfaces.js"
+);
+const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
+type SurfaceConversationContext = import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -20,7 +41,7 @@ import { HostCuProxy } from "../daemon/host-cu-proxy.js";
  * Only the fields required by the CU routing path are populated.
  */
 function buildMockContext(
-  hostCuProxy?: HostCuProxy,
+  hostCuProxy?: InstanceType<typeof HostCuProxy>,
 ): SurfaceConversationContext {
   return {
     conversationId: "test-session",
@@ -47,15 +68,12 @@ function buildMockContext(
 // ---------------------------------------------------------------------------
 
 describe("surfaceProxyResolver — CU tool routing", () => {
-  let sentMessages: unknown[];
-  let proxy: HostCuProxy;
+  let proxy: InstanceType<typeof HostCuProxy>;
 
   function setupProxy(maxSteps?: number): SurfaceConversationContext {
-    sentMessages = [];
-    const sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(sendToClient as never, undefined, maxSteps);
-    // Mark client as connected so requests are sent
-    proxy.updateSender(sendToClient as never, true);
+    sentMessages.length = 0;
+    mockHasClient = true;
+    proxy = new HostCuProxy(maxSteps);
     return buildMockContext(proxy);
   }
 
@@ -93,9 +111,8 @@ describe("surfaceProxyResolver — CU tool routing", () => {
     });
 
     test("returns error when proxy exists but client not connected", async () => {
-      const sendToClient = () => {};
-      const proxyObj = new HostCuProxy(sendToClient as never);
-      // Default clientConnected is false — do NOT call updateSender with true
+      mockHasClient = false;
+      const proxyObj = new HostCuProxy();
       const ctx = buildMockContext(proxyObj);
       const result = await surfaceProxyResolver(ctx, "computer_use_click", {
         element_id: 1,

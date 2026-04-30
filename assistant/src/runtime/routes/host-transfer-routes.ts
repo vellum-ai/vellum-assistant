@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -17,17 +17,18 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
- * Find the HostTransferProxy that owns a given transferId by scanning
- * all pending host_transfer interactions. Returns the proxy and the
- * interaction entry (with its requestId) so callers can resolve the
- * pending interaction when appropriate.
+ * Find the singleton HostTransferProxy if it owns the given transferId.
+ * Returns the proxy and the first matching interaction entry so callers
+ * can resolve the pending interaction when appropriate.
  */
 function findProxyByTransferId(transferId: string) {
+  const proxy = HostTransferProxy.instance;
+  if (!proxy.hasPendingTransfer(transferId)) return null;
   const interactions = pendingInteractions.getByKind("host_transfer");
   for (const interaction of interactions) {
-    const conversation = findConversation(interaction.conversationId);
-    const proxy = conversation?.getHostTransferProxy();
-    if (proxy?.hasPendingTransfer(transferId)) {
+    // The singleton owns the transfer — find the matching interaction
+    // so callers can clean up pendingInteractions.
+    if (proxy.hasPendingTransfer(transferId)) {
       return { proxy, interaction };
     }
   }
@@ -158,13 +159,9 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
-  const conversation = findConversation(interaction.conversationId);
-  if (!conversation) {
-    throw new NotFoundError("Conversation not found for host transfer result");
-  }
+  pendingInteractions.resolve(requestId);
 
-  conversation.resolveHostTransfer(requestId, {
+  HostTransferProxy.instance.resolveTransferResult(requestId, {
     isError: isError ?? false,
     bytesWritten,
     errorMessage,

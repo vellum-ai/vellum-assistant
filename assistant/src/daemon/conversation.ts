@@ -113,7 +113,6 @@ import {
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
-import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import { HostTransferProxy } from "./host-transfer-proxy.js";
@@ -633,18 +632,11 @@ export class Conversation {
   updateClient(
     sendToClient: (msg: ServerMessage) => void,
     hasNoClient = false,
-    opts?: { skipProxySenderUpdate?: boolean },
   ): void {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
-    if (!opts?.skipProxySenderUpdate) {
-      this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostTransferProxy?.updateSender(sendToClient, !hasNoClient);
-    }
 
     // Replay last activity state so a reconnecting client sees the current phase
     // instead of being stuck on the last state it received before disconnection.
@@ -665,21 +657,29 @@ export class Conversation {
     return this.sendToClient;
   }
 
-  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  /**
+   * Mark host proxies as unavailable so tool execution uses local fallback.
+   * Nulls out the singleton references on this conversation — tools check
+   * `ctx.hostBashProxy?.isAvailable()` which short-circuits to falsy when
+   * the field is undefined.
+   */
   clearProxyAvailability(): void {
-    this.hostBashProxy?.updateSender(this.sendToClient, false);
-    this.hostCuProxy?.updateSender(this.sendToClient, false);
-    this.hostFileProxy?.updateSender(this.sendToClient, false);
-    this.hostTransferProxy?.updateSender(this.sendToClient, false);
+    this.hostBashProxy = undefined;
+    this.hostCuProxy = undefined;
+    this.hostFileProxy = undefined;
+    this.hostTransferProxy = undefined;
   }
 
-  /** Restore host proxy availability based on whether a real client is connected. */
+  /**
+   * Restore host proxy availability by re-assigning singleton instances.
+   * Only restores if a real client is connected.
+   */
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
-      this.hostBashProxy?.updateSender(this.sendToClient, true);
-      this.hostCuProxy?.updateSender(this.sendToClient, true);
-      this.hostFileProxy?.updateSender(this.sendToClient, true);
-      this.hostTransferProxy?.updateSender(this.sendToClient, true);
+      this.hostBashProxy = HostBashProxy.instance;
+      this.hostCuProxy = undefined; // CU is per-conversation; restored via setHostCuProxy
+      this.hostFileProxy = HostFileProxy.instance;
+      this.hostTransferProxy = HostTransferProxy.instance;
     }
   }
 
@@ -769,10 +769,9 @@ export class Conversation {
       clearTimeout(timer);
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
-    this.hostBashProxy?.dispose();
+    // Only dispose the per-conversation CU proxy. Bash/File/Transfer are
+    // singletons — their lifecycle is managed by static disposeInstance().
     this.hostCuProxy?.dispose();
-    this.hostFileProxy?.dispose();
-    this.hostTransferProxy?.dispose();
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
@@ -944,63 +943,20 @@ export class Conversation {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
-  resolveHostBash(
-    requestId: string,
-    response: {
-      stdout: string;
-      stderr: string;
-      exitCode: number | null;
-      timedOut: boolean;
-    },
-  ): void {
-    this.hostBashProxy?.resolve(requestId, response);
-  }
-
   setHostBashProxy(proxy: HostBashProxy | undefined): void {
-    if (this.hostBashProxy && this.hostBashProxy !== proxy) {
-      this.hostBashProxy.dispose();
-    }
     this.hostBashProxy = proxy;
   }
 
-  resolveHostFile(
-    requestId: string,
-    response: { content: string; isError: boolean; imageData?: string },
-  ): void {
-    this.hostFileProxy?.resolve(requestId, response);
-  }
-
   setHostFileProxy(proxy: HostFileProxy | undefined): void {
-    if (this.hostFileProxy && this.hostFileProxy !== proxy) {
-      this.hostFileProxy.dispose();
-    }
     this.hostFileProxy = proxy;
   }
 
-  resolveHostTransfer(
-    requestId: string,
-    result: {
-      isError: boolean;
-      bytesWritten?: number;
-      errorMessage?: string;
-    },
-  ): void {
-    this.hostTransferProxy?.resolveTransferResult(requestId, result);
-  }
-
   setHostTransferProxy(proxy: HostTransferProxy | undefined): void {
-    if (this.hostTransferProxy && this.hostTransferProxy !== proxy) {
-      this.hostTransferProxy.dispose();
-    }
     this.hostTransferProxy = proxy;
   }
 
   getHostTransferProxy(): HostTransferProxy | undefined {
     return this.hostTransferProxy;
-  }
-
-  resolveHostCu(requestId: string, observation: CuObservationResult): void {
-    this.hostCuProxy?.resolve(requestId, observation);
   }
 
   setHostCuProxy(proxy: HostCuProxy | undefined): void {

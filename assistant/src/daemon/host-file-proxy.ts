@@ -1,5 +1,7 @@
 import { v4 as uuid } from "uuid";
 
+import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -31,25 +33,48 @@ interface PendingRequest {
 }
 
 export class HostFileProxy {
-  private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
+  private static _instance: HostFileProxy | null = null;
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Lazily-initialized singleton. Availability of an actual desktop
+   * connection is checked at send time via the assistant event hub,
+   * not at construction time.
+   */
+  static get instance(): HostFileProxy {
+    if (!HostFileProxy._instance) {
+      log.info("Creating singleton HostFileProxy");
+      HostFileProxy._instance = new HostFileProxy();
+    }
+    return HostFileProxy._instance;
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostFileProxy._instance) {
+      HostFileProxy._instance.dispose();
+      HostFileProxy._instance = null;
+    }
+  }
+
+  /** For tests. */
+  static reset(): void {
+    HostFileProxy._instance = null;
+  }
+
+  private pending = new Map<string, PendingRequest>();
+
+  /**
+   * Whether a client with `host_file` capability is connected.
+   * Note: host_file covers both file operations and transfers.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_file") != null
+    );
+  }
+
+  private send(msg: ServerMessage): void {
+    broadcastMessage(msg);
   }
 
   request(
@@ -67,14 +92,12 @@ export class HostFileProxy {
       // File operations should be fast — 30 second timeout.
       const timeoutSec = 30;
 
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation },
           "Host file proxy request timed out",
@@ -90,12 +113,10 @@ export class HostFileProxy {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
+              this.send({
                 type: "host_file_cancel",
                 requestId,
               } as ServerMessage);
@@ -119,20 +140,17 @@ export class HostFileProxy {
       });
 
       try {
-        this.sendToClient({
+        this.send({
           ...input,
           type: "host_file_request",
           requestId,
           conversationId,
         } as ServerMessage);
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
         clearTimeout(timer);
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation, err },
           "Host file proxy send failed",
@@ -170,17 +188,13 @@ export class HostFileProxy {
     return this.pending.has(requestId);
   }
 
-  isAvailable(): boolean {
-    return this.clientConnected;
-  }
-
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+      pendingInteractions.resolve(requestId);
       try {
-        this.sendToClient({
+        this.send({
           type: "host_file_cancel",
           requestId,
         } as ServerMessage);

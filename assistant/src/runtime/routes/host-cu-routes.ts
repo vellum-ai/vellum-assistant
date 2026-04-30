@@ -75,7 +75,7 @@ function handleHostCuResult({ body }: RouteHandlerArgs) {
     throw new NotFoundError("Conversation not found for host CU result");
   }
 
-  conversation.resolveHostCu(requestId, {
+  conversation.hostCuProxy?.resolve(requestId, {
     axTree,
     axDiff,
     screenshot,

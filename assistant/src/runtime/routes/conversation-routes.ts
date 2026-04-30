@@ -1395,46 +1395,24 @@ export async function handleSendMessage(
   // capability. macOS supports all four; the chrome-extension interface only
   // supports host_browser. Non-desktop conversations (CLI, channels, headless)
   // fall back to local execution.
-  // Set the proxy BEFORE updateClient so updateClient's call to
-  // hostBashProxy.updateSender targets the correct (new) proxy.
+  //
+  // Bash/File/Transfer are singletons — just assign the reference.
+  // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (supportsHostProxy(sourceInterface, "host_bash")) {
-    // Reuse the existing proxy if the conversation is actively processing a
-    // host bash request to avoid orphaning in-flight requests.
-    if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      const proxy = new HostBashProxy(broadcastMessage, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostBashProxy(proxy);
-    }
+    conversation.setHostBashProxy(HostBashProxy.instance);
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
   if (supportsHostProxy(sourceInterface, "host_file")) {
-    if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      const fileProxy = new HostFileProxy(broadcastMessage, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostFileProxy(fileProxy);
-    }
-    if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      const transferProxy = new HostTransferProxy(
-        broadcastMessage,
-        (requestId) => {
-          pendingInteractions.resolve(requestId);
-        },
-      );
-      conversation.setHostTransferProxy(transferProxy);
-    }
+    conversation.setHostFileProxy(HostFileProxy.instance);
+    conversation.setHostTransferProxy(HostTransferProxy.instance);
   } else if (!conversation.isProcessing()) {
     conversation.setHostFileProxy(undefined);
     conversation.setHostTransferProxy(undefined);
   }
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      const cuProxy = new HostCuProxy(broadcastMessage, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostCuProxy(cuProxy);
+      conversation.setHostCuProxy(new HostCuProxy());
     }
     // Only preactivate CU when the conversation is idle — if the conversation is
     // processing, this message will be queued and preactivation is deferred
@@ -1446,14 +1424,6 @@ export async function handleSendMessage(
     conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
-  // Called after setHostBashProxy so updateSender targets the current proxy.
-  // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them. The gate
-  // matches the host_bash capability because the legacy "reject send during
-  // host bash" flow is what this is really protecting.
-  const preservingProxies =
-    conversation.isProcessing() &&
-    !supportsHostProxy(sourceInterface, "host_bash");
   // hasNoClient must remain `!isInteractive` so downstream tool gating
   // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
   // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
@@ -1461,9 +1431,7 @@ export async function handleSendMessage(
   // is non-interactive (no SSE prompter UI) but still has a connected client
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(broadcastMessage, !isInteractive, {
-    skipProxySenderUpdate: preservingProxies,
-  });
+  conversation.updateClient(broadcastMessage, !isInteractive);
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS

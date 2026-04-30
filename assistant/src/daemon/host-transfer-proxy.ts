@@ -5,6 +5,8 @@ import { dirname } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -41,6 +43,8 @@ function computeTimeoutMs(sizeBytes?: number): number {
 }
 
 export class HostTransferProxy {
+  private static _instance: HostTransferProxy | null = null;
+
   /**
    * Override for tests: when set, all timeout durations use this value instead
    * of the size-adaptive computation.  Reset to `undefined` after tests.
@@ -48,28 +52,49 @@ export class HostTransferProxy {
    */
   static _testTimeoutOverrideMs: number | undefined;
 
+  /**
+   * Lazily-initialized singleton. Availability of an actual desktop
+   * connection is checked at send time via the assistant event hub,
+   * not at construction time.
+   */
+  static get instance(): HostTransferProxy {
+    if (!HostTransferProxy._instance) {
+      log.info("Creating singleton HostTransferProxy");
+      HostTransferProxy._instance = new HostTransferProxy();
+    }
+    return HostTransferProxy._instance;
+  }
+
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostTransferProxy._instance) {
+      HostTransferProxy._instance.dispose();
+      HostTransferProxy._instance = null;
+    }
+  }
+
+  /** For tests. */
+  static reset(): void {
+    HostTransferProxy._instance = null;
+  }
+
   /** Pending transfers keyed by requestId (for resolution from client results). */
   private pending = new Map<string, PendingTransfer>();
   /** Pending transfers keyed by transferId (for content endpoint lookups). */
   private transfers = new Map<string, PendingTransfer>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Whether a client with `host_file` capability is connected.
+   * Transfers piggyback on the host_file capability.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_file") != null
+    );
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  private send(msg: ServerMessage): void {
+    broadcastMessage(msg);
   }
 
   /**
@@ -116,7 +141,7 @@ export class HostTransferProxy {
             this.pending.delete(requestId);
             this.transfers.delete(transferId);
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             log.warn(
               { requestId, transferId, direction: "to_host" },
               "Host transfer proxy request timed out",
@@ -135,9 +160,9 @@ export class HostTransferProxy {
                 this.pending.delete(requestId);
                 this.transfers.delete(transferId);
                 detachAbort();
-                this.onInternalResolve?.(requestId);
+                pendingInteractions.resolve(requestId);
                 try {
-                  this.sendToClient({
+                  this.send({
                     type: "host_transfer_cancel",
                     requestId,
                   } as ServerMessage);
@@ -168,7 +193,7 @@ export class HostTransferProxy {
           this.transfers.set(transferId, entry);
 
           try {
-            this.sendToClient({
+            this.send({
               type: "host_transfer_request",
               requestId,
               conversationId: input.conversationId,
@@ -184,7 +209,7 @@ export class HostTransferProxy {
             this.pending.delete(requestId);
             this.transfers.delete(transferId);
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             log.warn(
               { requestId, transferId, err },
               "Host transfer proxy send failed",
@@ -237,7 +262,7 @@ export class HostTransferProxy {
         this.pending.delete(requestId);
         this.transfers.delete(transferId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, transferId, direction: "to_sandbox" },
           "Host transfer proxy request timed out",
@@ -255,9 +280,9 @@ export class HostTransferProxy {
             this.pending.delete(requestId);
             this.transfers.delete(transferId);
             detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
+              this.send({
                 type: "host_transfer_cancel",
                 requestId,
               } as ServerMessage);
@@ -286,7 +311,7 @@ export class HostTransferProxy {
       this.transfers.set(transferId, entry);
 
       try {
-        this.sendToClient({
+        this.send({
           type: "host_transfer_request",
           requestId,
           conversationId: input.conversationId,
@@ -299,7 +324,7 @@ export class HostTransferProxy {
         this.pending.delete(requestId);
         this.transfers.delete(transferId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, transferId, err },
           "Host transfer proxy send failed",
@@ -311,9 +336,6 @@ export class HostTransferProxy {
 
   /**
    * Resolve a to_host transfer result from the client.
-   *
-   * Called when the client POSTs the result after downloading content
-   * and writing it to the host filesystem.
    */
   resolveTransferResult(
     requestId: string,
@@ -454,9 +476,9 @@ export class HostTransferProxy {
     entry.detachAbort();
     this.pending.delete(requestId);
     this.transfers.delete(entry.transferId);
-    this.onInternalResolve?.(requestId);
+    pendingInteractions.resolve(requestId);
     try {
-      this.sendToClient({
+      this.send({
         type: "host_transfer_cancel",
         requestId,
       } as ServerMessage);
@@ -470,17 +492,13 @@ export class HostTransferProxy {
     return this.transfers.has(transferId);
   }
 
-  isAvailable(): boolean {
-    return this.clientConnected;
-  }
-
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+      pendingInteractions.resolve(requestId);
       try {
-        this.sendToClient({
+        this.send({
           type: "host_transfer_cancel",
           requestId,
         } as ServerMessage);

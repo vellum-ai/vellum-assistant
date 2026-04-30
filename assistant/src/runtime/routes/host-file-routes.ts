@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -48,13 +48,9 @@ function handleHostFileResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
-  const conversation = findConversation(interaction.conversationId);
-  if (!conversation) {
-    throw new NotFoundError("Conversation not found for host file result");
-  }
+  pendingInteractions.resolve(requestId);
 
-  conversation.resolveHostFile(requestId, {
+  HostFileProxy.instance.resolve(requestId, {
     content: content ?? "",
     isError: isError ?? false,
     imageData,
