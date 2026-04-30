@@ -22,7 +22,7 @@ class FakeWebSocket {
   static CLOSED = WS_CLOSED;
 
   binaryType: BinaryType = "blob";
-  readyState = WS_CONNECTING;
+  readyState: number = WS_CONNECTING;
   sent: (string | Uint8Array)[] = [];
   closes: { code?: number; reason?: string }[] = [];
   private readonly listeners = new Map<string, Listener[]>();

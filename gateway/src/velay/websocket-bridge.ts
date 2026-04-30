@@ -19,6 +19,16 @@ const MAX_PENDING_MESSAGES = 100;
 
 type PendingMessage = string | Uint8Array;
 
+type WebSocketConstructorWithHeaders = {
+  new (
+    url: string,
+    options?: {
+      headers?: OutgoingHttpHeaders;
+      protocol?: string;
+    },
+  ): WebSocket;
+};
+
 type BridgeConnection = {
   ws: WebSocket;
   opened: boolean;
@@ -62,7 +72,9 @@ export class VelayWebSocketBridge {
 
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url, {
+      const WebSocketWithHeaders =
+        WebSocket as unknown as WebSocketConstructorWithHeaders;
+      ws = new WebSocketWithHeaders(url, {
         headers: headersFromVelay(frame.headers),
         ...(frame.subprotocol ? { protocol: frame.subprotocol } : {}),
       });
