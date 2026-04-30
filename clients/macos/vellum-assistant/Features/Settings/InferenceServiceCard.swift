@@ -59,6 +59,15 @@ struct InferenceServiceCard: View {
     /// subsequent dropdown pick can cancel it and avoid an out-of-order
     /// PATCH landing the older selection last.
     @State private var activeProfileTask: Task<Void, Never>?
+    /// Whether the API keys management sheet is presented.
+    @State private var showAPIKeysSheet = false
+    /// Per-provider key-exists status. Loaded async on appear and refreshed
+    /// after the API keys sheet is dismissed.
+    @State private var providerKeyStatuses: [String: Bool] = [:]
+    /// Monotonically increasing counter bumped every time the API keys
+    /// sheet is dismissed. Drives `.task(id:)` to re-fetch key statuses
+    /// without a manual onChange handler.
+    @State private var apiKeysRefreshToken: Int = 0
 
     // MARK: - Provider Helpers
 
@@ -78,6 +87,11 @@ struct InferenceServiceCard: View {
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
+    }
+
+    /// True when at least one key-required provider has a configured API key.
+    private var hasAnyProviderKey: Bool {
+        providerKeyStatuses.values.contains(true)
     }
 
     /// True when changing inference mode/provider would invalidate the current
@@ -121,7 +135,10 @@ struct InferenceServiceCard: View {
             return false
         }
         let modeChanged = draftMode != store.inferenceMode
-        let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // When profiles are enabled, API keys are managed in the sheet —
+        // the card's Save button only covers mode changes.
+        let hasNewKey = !profilesEnabled && draftMode == "your-own"
+            && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let providerChanged = draftProvider != initialProvider
         return modeChanged || hasNewKey || providerChanged
     }
@@ -157,34 +174,55 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if !profilesEnabled {
-                        providerPicker
-                    }
+                    if profilesEnabled && hasAnyProviderKey {
+                        // Multi-provider API key summary + full profile UI
+                        apiKeysSection
 
-                    // API Key field
-                    apiKeyField
-
-                    if profilesEnabled {
                         activeProfilePicker
                         HStack(spacing: VSpacing.md) {
                             manageProfilesButton
                             overridesBadge
                         }
-                    }
 
-                    // Action buttons
-                    ServiceCardActions(
-                        hasChanges: hasChanges,
-                        isSaving: store.apiKeySaving,
-                        onSave: { save() },
-                        savingLabel: "Validating...",
-                        onReset: {
-                            store.clearAPIKeyForProvider(effectiveProvider)
-                            providerHasKey = false
-                            apiKeyText = ""
-                        },
-                        showReset: providerHasKey
-                    )
+                        // Save button — only needed for mode changes when
+                        // profiles are enabled (API keys are managed in the
+                        // sheet, not inline on this card).
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: false,
+                            onSave: { save() }
+                        )
+                    } else if profilesEnabled {
+                        // No API keys configured — show a friendly empty
+                        // state instead of profiles/overrides (which can't
+                        // do anything without provider credentials).
+                        apiKeysEmptyState
+
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: false,
+                            onSave: { save() }
+                        )
+                    } else {
+                        providerPicker
+
+                        // Single-provider API key field (legacy path)
+                        apiKeyField
+
+                        // Action buttons
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: store.apiKeySaving,
+                            onSave: { save() },
+                            savingLabel: "Validating...",
+                            onReset: {
+                                store.clearAPIKeyForProvider(effectiveProvider)
+                                providerHasKey = false
+                                apiKeyText = ""
+                            },
+                            showReset: providerHasKey
+                        )
+                    }
                 }
             },
             footer: {
@@ -196,6 +234,19 @@ struct InferenceServiceCard: View {
         }
         .sheet(isPresented: $showProfilesSheet) {
             InferenceProfilesSheet(store: store, isPresented: $showProfilesSheet)
+        }
+        .sheet(isPresented: $showAPIKeysSheet) {
+            APIKeysSheet(store: store, isPresented: $showAPIKeysSheet, showToast: showToast)
+        }
+        .onChange(of: showAPIKeysSheet) { _, isShowing in
+            // Refresh key statuses when the sheet is dismissed so the card
+            // summary reflects any keys added or removed in the sheet.
+            if !isShowing {
+                apiKeysRefreshToken += 1
+            }
+        }
+        .task(id: apiKeysRefreshToken) {
+            await loadProviderKeyStatuses()
         }
         .onAppear {
             draftMode = store.inferenceMode
@@ -355,11 +406,8 @@ struct InferenceServiceCard: View {
                 pendingOverrideOldProviderName = ""
             }
         } message: {
-            Text(
-                "\(pendingOverrideClears.count) task(s) are pinned to "
-                    + "\(pendingOverrideOldProviderName). Keep them as-is, or "
-                    + "update them to follow the new default?"
-            )
+            let msg = "\(pendingOverrideClears.count) task(s) are pinned to \(pendingOverrideOldProviderName). Keep them as-is, or update them to follow the new default?"
+            Text(msg)
         }
     }
 
@@ -457,6 +505,82 @@ struct InferenceServiceCard: View {
             errorMessage: store.apiKeySaveError
         )
         .disabled(store.apiKeySaving)
+    }
+
+    // MARK: - Multi-Provider API Keys Section
+
+    /// Compact summary of configured provider API keys, shown in "Your Own"
+    /// mode when the inference-profiles feature flag is enabled.
+    private var apiKeysSection: some View {
+        let configuredProviders = store.providerCatalog
+            .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == true }
+
+        return VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("API Keys")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+
+            if configuredProviders.isEmpty {
+                Text("No API keys configured.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            } else {
+                // Flow of chips for each configured provider
+                HStack(spacing: VSpacing.sm) {
+                    ForEach(configuredProviders, id: \.id) { provider in
+                        HStack(spacing: VSpacing.xs) {
+                            Image(VIcon.check.rawValue)
+                                .resizable()
+                                .frame(width: 10, height: 10)
+                                .foregroundStyle(VColor.systemPositiveStrong)
+                            Text(provider.displayName)
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentDefault)
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(VColor.surfaceBase.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.chip))
+                    }
+                }
+            }
+
+            Button {
+                showAPIKeysSheet = true
+            } label: {
+                Text(configuredProviders.isEmpty ? "Add API Keys\u{2026}" : "Manage API Keys\u{2026}")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(.secondary)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+        }
+    }
+
+    /// Friendly empty state shown when profiles are enabled but no provider
+    /// API keys have been configured yet. Replaces the profile picker and
+    /// overrides controls since they can't do anything without credentials.
+    private var apiKeysEmptyState: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Add an API key to get started")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+            Text("Configure at least one provider API key so your inference profiles have credentials to use.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            VButton(label: "Add API Keys\u{2026}", style: .outlined) {
+                showAPIKeysSheet = true
+            }
+        }
+    }
+
+    /// Fetches the key-exists status for every key-required provider.
+    private func loadProviderKeyStatuses() async {
+        for provider in store.providerCatalog where provider.apiKeyPlaceholder != nil {
+            providerKeyStatuses[provider.id] = await APIKeyManager.hasKey(for: provider.id)
+        }
     }
 
     // MARK: - Active Profile Picker
@@ -594,18 +718,20 @@ struct InferenceServiceCard: View {
             initialProvider = draftProvider
         }
 
-        // Persist API key if entered and in your-own mode.
-        // saveAPIKey / saveInferenceAPIKey is async (validates with the provider before storing).
-        // The key text is kept until validation succeeds so the user can retry.
-        let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if draftMode == "your-own" && !trimmedKey.isEmpty {
-            let keyTextBinding = $apiKeyText
-            let displayName = providerDisplayName
-            store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: { [self] in
-                providerHasKey = true
-                keyTextBinding.wrappedValue = ""
-                showToast("\(displayName) API key saved", .success)
-            })
+        // Persist API key if entered and in your-own mode (legacy single-key
+        // path). When profiles are enabled, keys are managed in the API Keys
+        // sheet — not inline on this card.
+        if !profilesEnabled {
+            let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if draftMode == "your-own" && !trimmedKey.isEmpty {
+                let keyTextBinding = $apiKeyText
+                let displayName = providerDisplayName
+                store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: { [self] in
+                    providerHasKey = true
+                    keyTextBinding.wrappedValue = ""
+                    showToast("\(displayName) API key saved", .success)
+                })
+            }
         }
 
         // Persist provider in a single PATCH when it changed (or when the
