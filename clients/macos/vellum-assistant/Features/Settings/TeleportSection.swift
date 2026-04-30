@@ -368,20 +368,15 @@ struct TeleportSection: View {
             throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
         }
 
-        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let bundleKey: String?
-        do {
-            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
-            bundleKey = uploadInfo.bundleKey
-        } catch let error as PlatformMigrationClient.PlatformMigrationError {
-            if case .signedUrlsNotAvailable = error {
-                bundleKey = nil
-            } else {
-                throw error
-            }
-        }
+        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        try await PlatformMigrationClient.uploadToSignedUrl(
+            uploadInfo.uploadUrl,
+            bundleData: bundleData,
+            onProgress: { self.transferProgress = $0 }
+        )
+        let bundleKey = uploadInfo.bundleKey
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
         transferProgress = nil
@@ -424,7 +419,7 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+        try await importBundleToManaged(bundleKey: bundleKey)
 
         // Step 5b — Inject client-resolvable vellum identity fields that
         // Django's post-hatch provisioning doesn't cover (org id, user id).
@@ -548,20 +543,15 @@ struct TeleportSection: View {
             throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
         }
 
-        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let bundleKey: String?
-        do {
-            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
-            bundleKey = uploadInfo.bundleKey
-        } catch let error as PlatformMigrationClient.PlatformMigrationError {
-            if case .signedUrlsNotAvailable = error {
-                bundleKey = nil
-            } else {
-                throw error
-            }
-        }
+        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        try await PlatformMigrationClient.uploadToSignedUrl(
+            uploadInfo.uploadUrl,
+            bundleData: bundleData,
+            onProgress: { self.transferProgress = $0 }
+        )
+        let bundleKey = uploadInfo.bundleKey
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
         transferProgress = nil
@@ -603,7 +593,7 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+        try await importBundleToManaged(bundleKey: bundleKey)
 
         // Step 5b — Inject client-resolvable vellum identity fields that
         // Django's post-hatch provisioning doesn't cover (org id, user id).
@@ -682,22 +672,12 @@ struct TeleportSection: View {
         return response.data
     }
 
-    /// Imports a `.vbundle` archive into the managed assistant.
+    /// Imports a `.vbundle` archive into the managed assistant via GCS.
     ///
-    /// If `bundleKey` is non-nil, triggers import from GCS (the bundle was already uploaded
-    /// via a signed URL). Otherwise, falls back to inline import by sending the raw bundle
-    /// data directly to the platform.
-    ///
-    /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data, bundleKey: String?) async throws {
-        let statusCode: Int
-        let data: Data
-
-        if let bundleKey {
-            (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: bundleKey)
-        } else {
-            (statusCode, data) = try await PlatformMigrationClient.importInline(bundleData: bundleData)
-        }
+    /// The bundle must already have been uploaded via a signed URL upstream. All endpoints
+    /// are org-scoped, so no `connectedAssistantId` swap is needed.
+    private func importBundleToManaged(bundleKey: String) async throws {
+        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: bundleKey)
 
         guard (200..<300).contains(statusCode) else {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -721,9 +701,9 @@ struct TeleportSection: View {
             while Date().timeIntervalSince(start) < timeout {
                 try await Task.sleep(nanoseconds: pollInterval)
 
-                let status: PlatformMigrationClient.ImportJobStatus
+                let status: PlatformMigrationClient.JobStatus
                 do {
-                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                    status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {

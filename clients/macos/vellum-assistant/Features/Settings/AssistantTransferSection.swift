@@ -442,9 +442,9 @@ struct AssistantTransferSection: View {
             while Date().timeIntervalSince(start) < timeout {
                 try await Task.sleep(nanoseconds: pollInterval)
 
-                let status: PlatformMigrationClient.ImportJobStatus
+                let status: PlatformMigrationClient.JobStatus
                 do {
-                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                    status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {
