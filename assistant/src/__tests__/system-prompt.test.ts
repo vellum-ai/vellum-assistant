@@ -345,6 +345,21 @@ describe("buildSystemPrompt", () => {
       expect(voiceIdx).toBeLessThan(bootstrapBodyIdx);
     });
 
+    test("prepends poetic voice block when tone is 'poetic'", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nWelcome aboard.",
+      );
+      const result = buildSystemPrompt({
+        onboardingContext: {
+          tools: [],
+          tasks: [],
+          tone: "poetic",
+        },
+      });
+      expect(result).toContain("## Voice\nThoughtful and unhurried");
+    });
+
     test("prepends grounded voice block when tone is 'grounded'", () => {
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
