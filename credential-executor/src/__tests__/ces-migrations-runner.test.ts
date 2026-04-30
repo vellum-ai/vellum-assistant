@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 import type { CesMigration } from "../migrations/types.js";
+import { runCesMigrations, type MigrationFs } from "../migrations/runner.js";
 
 // ---------------------------------------------------------------------------
-// Mock state
+// Mock state — injected via the `fs` parameter, NOT via mock.module.
+//
+// Using mock.module("node:fs") is process-global in bun and poisons every
+// other test file that imports node:fs in the same test run.
 // ---------------------------------------------------------------------------
 
 let mockFileExists = false;
@@ -21,40 +25,14 @@ const readFileSyncFn = mock((): string => {
 });
 const writeFileSyncFn = mock((): void => {});
 const renameSyncFn = mock((): void => {});
-const logWarnFn = mock((): void => {});
-const logInfoFn = mock((): void => {});
-const logErrorFn = mock((..._args: unknown[]): void => {});
 
-// ---------------------------------------------------------------------------
-// Mock modules — before importing module under test
-// ---------------------------------------------------------------------------
-
-mock.module("node:fs", () => ({
-  existsSync: existsSyncFn,
-  mkdirSync: mkdirSyncFn,
-  readFileSync: readFileSyncFn,
-  writeFileSync: writeFileSyncFn,
-  renameSync: renameSyncFn,
-}));
-
-// Intercept pino at the package level (same technique as workspace-migrations-runner.test.ts)
-// so that the lazy proxy in getLogger() returns our mock child logger.
-const mockChildLogger = {
-  debug: (): void => {},
-  info: logInfoFn,
-  warn: logWarnFn,
-  error: logErrorFn,
-  child: () => mockChildLogger,
+const mockFs: MigrationFs = {
+  existsSync: existsSyncFn as unknown as MigrationFs["existsSync"],
+  mkdirSync: mkdirSyncFn as unknown as MigrationFs["mkdirSync"],
+  readFileSync: readFileSyncFn as unknown as MigrationFs["readFileSync"],
+  writeFileSync: writeFileSyncFn as unknown as MigrationFs["writeFileSync"],
+  renameSync: renameSyncFn as unknown as MigrationFs["renameSync"],
 };
-const mockPinoLogger = Object.assign(() => mockChildLogger, {
-  destination: () => ({}),
-  multistream: () => ({}),
-});
-mock.module("pino", () => ({ default: mockPinoLogger }));
-mock.module("pino-pretty", () => ({ default: (): object => ({}) }));
-
-// Import after mocking
-import { runCesMigrations } from "../migrations/runner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,9 +71,6 @@ describe("runCesMigrations", () => {
     readFileSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     renameSyncFn.mockClear();
-    logWarnFn.mockClear();
-    logInfoFn.mockClear();
-    logErrorFn.mockClear();
   });
 
   test("fresh install — no checkpoint file — runs all migrations", async () => {
@@ -103,7 +78,7 @@ describe("runCesMigrations", () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
-    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2]);
+    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2], mockFs);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
     expect(m2.run).toHaveBeenCalledTimes(1);
@@ -121,7 +96,7 @@ describe("runCesMigrations", () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
-    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2]);
+    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2], mockFs);
 
     expect(m1.run).not.toHaveBeenCalled();
     expect(m2.run).toHaveBeenCalledTimes(1);
@@ -137,10 +112,9 @@ describe("runCesMigrations", () => {
     const backend = makeBackend();
     const m1 = makeMigration("001");
 
-    await runCesMigrations(CES_DATA_ROOT, backend, [m1]);
+    await runCesMigrations(CES_DATA_ROOT, backend, [m1], mockFs);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
-    expect(logWarnFn).toHaveBeenCalled();
   });
 
   test("failed migration is NOT re-run", async () => {
@@ -153,7 +127,7 @@ describe("runCesMigrations", () => {
     const backend = makeBackend();
     const m1 = makeMigration("001");
 
-    await runCesMigrations(CES_DATA_ROOT, backend, [m1]);
+    await runCesMigrations(CES_DATA_ROOT, backend, [m1], mockFs);
 
     expect(m1.run).not.toHaveBeenCalled();
   });
@@ -164,7 +138,7 @@ describe("runCesMigrations", () => {
     const m2 = makeMigration("001");
 
     await expect(
-      runCesMigrations(CES_DATA_ROOT, backend, [m1, m2]),
+      runCesMigrations(CES_DATA_ROOT, backend, [m1, m2], mockFs),
     ).rejects.toThrow('Duplicate CES migration id: "001"');
 
     expect(m1.run).not.toHaveBeenCalled();
@@ -178,12 +152,10 @@ describe("runCesMigrations", () => {
       throw new Error("m1 blew up");
     });
 
-    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2]);
+    await runCesMigrations(CES_DATA_ROOT, backend, [m1, m2], mockFs);
 
     // m2 should still run after m1's failure
     expect(m2.run).toHaveBeenCalledTimes(1);
-    // error was logged
-    expect(logErrorFn).toHaveBeenCalled();
 
     // Checkpoint writes: started m1, failed m1, started m2, completed m2 = 4
     expect(writeFileSyncFn).toHaveBeenCalledTimes(4);
