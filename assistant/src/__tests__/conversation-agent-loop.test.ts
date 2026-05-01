@@ -960,8 +960,8 @@ describe("session-agent-loop", () => {
 
     test("started and finished use the same provider name for a streaming response", async () => {
       // In the real routing scenario, text_delta fires while
-      // CallSiteRoutingProvider._routedProviderName is set to the active
-      // transport (covered by call-site-routing-provider.test.ts). Here we
+      // CallSiteRoutingProvider's AsyncLocalStorage context holds the active
+      // transport name (covered by call-site-routing-provider.test.ts). Here we
       // verify the loop wiring: when text_delta fires before usage, the started
       // event reflects the provider that will also appear on finished.
       const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
@@ -1027,8 +1027,9 @@ describe("session-agent-loop", () => {
 
     test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
       // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
-      // fires as a fallback inside handleUsage *after* _routedProviderName has
-      // been cleared. Without passing providerName explicitly it would say "anthropic".
+      // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
+      // context in CallSiteRoutingProvider has already exited. Without passing
+      // providerName explicitly it would say "anthropic".
       const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
         [];
 

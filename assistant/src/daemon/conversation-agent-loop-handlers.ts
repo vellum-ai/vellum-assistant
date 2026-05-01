@@ -241,7 +241,7 @@ export function createEventHandlerState(): EventHandlerState {
 // Passing the override from handleUsage guarantees started/finished never
 // disagree even for tool-call-only responses where text_delta never fires
 // (and therefore the started event would otherwise fall back here *after*
-// _routedProviderName has already been cleared in the finally block).
+// the AsyncLocalStorage context in CallSiteRoutingProvider has already exited).
 function emitLlmCallStartedIfNeeded(
   state: EventHandlerState,
   deps: EventHandlerDeps,

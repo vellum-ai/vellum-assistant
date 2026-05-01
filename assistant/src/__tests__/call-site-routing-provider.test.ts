@@ -351,14 +351,14 @@ describe("CallSiteRoutingProvider", () => {
     const nameSeenByFireworks: string[] = [];
 
     // Shared resolve handles so we can interleave the two calls:
-    // openAI starts → google starts → openAI resolves → google resolves
+    // openAI starts → fireworks starts → openAI resolves → fireworks resolves
     let resolveOpenAI!: () => void;
-    let resolveGoogle!: () => void;
+    let resolveFireworks!: () => void;
 
     const openAIProvider: Provider = {
       name: "openai",
       async sendMessage() {
-        // Yield so google call can start before we complete.
+        // Yield so fireworks call can start before we complete.
         await new Promise<void>((r) => { resolveOpenAI = r; });
         nameSeenByOpenAI.push(wrapped.name);
         return makeResponse("openai");
@@ -368,7 +368,7 @@ describe("CallSiteRoutingProvider", () => {
     const fireworksProvider: Provider = {
       name: "fireworks",
       async sendMessage() {
-        await new Promise<void>((r) => { resolveGoogle = r; });
+        await new Promise<void>((r) => { resolveFireworks = r; });
         nameSeenByFireworks.push(wrapped.name);
         return makeResponse("fireworks");
       },
@@ -385,13 +385,13 @@ describe("CallSiteRoutingProvider", () => {
       config: { callSite: "memoryRetrieval" },   // → openai
     });
     const callB = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { callSite: "conversationTitle" },   // → google
+      config: { callSite: "conversationTitle" },   // → fireworks
     });
 
     // Let both reach their suspension point, then resolve in order.
     await Promise.resolve(); // flush microtasks so both calls are in-flight
     resolveOpenAI();
-    resolveGoogle();
+    resolveFireworks();
 
     await Promise.all([callA, callB]);
 
