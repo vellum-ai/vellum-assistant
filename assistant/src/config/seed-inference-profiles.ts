@@ -1,5 +1,8 @@
 import { loadRawConfig, saveRawConfig } from "./loader.js";
-import type { ProfileEntry } from "./schemas/llm.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  type ProfileEntry,
+} from "./schemas/llm.js";
 
 /**
  * Declarative seed data for daemon-managed inference profiles.
@@ -18,6 +21,7 @@ export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
     maxTokens: 16000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   "quality-optimized": {
     source: "managed",
@@ -28,6 +32,7 @@ export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
     maxTokens: 32000,
     effort: "max",
     thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   "cost-optimized": {
     source: "managed",
@@ -38,6 +43,7 @@ export const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
 };
 

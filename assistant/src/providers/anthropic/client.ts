@@ -880,8 +880,8 @@ export class AnthropicProvider implements Provider {
         output_config?: Record<string, unknown>;
         usageAttributionHeaders?: Record<string, string>;
       };
-      // Haiku does not support the effort / output_config parameter,
-      // extended cache TTL betas, 1M context, or 64K output tokens.
+      // Haiku does not support the effort / output_config parameter or
+      // extended cache TTL betas.
       // Determine the effective model (per-call override or provider default)
       // and gate features accordingly.
       const effectiveModel =
@@ -1119,15 +1119,13 @@ export class AnthropicProvider implements Provider {
         finalMessage(): Promise<Anthropic.Message>;
       }
 
-      // Fast mode: use the beta endpoint with speed: "fast" for Opus models (4.6, 4.7)
+      // Fast mode: use the beta endpoint with speed: "fast" for Opus models (4.6, 4.7).
       const useFastMode = speed === "fast" && effectiveModel.includes("opus");
 
-      // Collect required betas: extended cache TTL for 1h system prompt caching,
-      // 1M context window, and fast-mode when applicable.
-      // Haiku doesn't support the extended cache TTL or 1M context betas.
-      const betas: string[] = isHaiku
-        ? []
-        : ["extended-cache-ttl-2025-04-11", "context-1m-2025-08-07"];
+      // Collect request betas that are still explicit transport features.
+      // Current long-context Anthropic models expose their larger windows by
+      // model capability in the catalog/resolver, not by this generic header.
+      const betas: string[] = isHaiku ? [] : ["extended-cache-ttl-2025-04-11"];
       if (useFastMode) {
         betas.push("fast-mode-2026-02-01");
       }

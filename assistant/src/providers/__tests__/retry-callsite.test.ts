@@ -296,7 +296,7 @@ describe("RetryProvider — callSite resolution", () => {
     // fields with `{type:"invalid_request_error", message:"contextWindow:
     // Extra inputs are not permitted"}`. Provider routing is handled by
     // CallSiteRoutingProvider; contextWindow is consumed by the agent loop
-    // directly from `config.llm.default.contextWindow.*`.
+    // from the effective per-call-site/profile context resolver.
     expect(config.contextWindow).toBeUndefined();
     expect(config.provider).toBeUndefined();
   });
