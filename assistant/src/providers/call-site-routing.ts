@@ -48,7 +48,23 @@ export class CallSiteRoutingProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const target = this.selectProvider(options);
-    return target.sendMessage(messages, tools, systemPrompt, options);
+    const response = await target.sendMessage(
+      messages,
+      tools,
+      systemPrompt,
+      options,
+    );
+    // When routing to a non-default provider, stamp actualProvider so that
+    // callers (loop.ts, emitUsage, llm_call_finished) attribute the call to
+    // the right provider instead of falling back to the default provider's
+    // name. Without this, a memoryRetrieval call routed to "openai" from an
+    // "anthropic"-default conversation would be logged and billed as
+    // "anthropic", causing wrong provider labels and $0 cost (no pricing
+    // match for e.g. gpt-5.5 under the anthropic catalog).
+    if (target !== this.defaultProvider && response.actualProvider == null) {
+      return { ...response, actualProvider: target.name };
+    }
+    return response;
   }
 
   /**
