@@ -114,6 +114,7 @@ import type {
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
@@ -2532,7 +2533,7 @@ export async function runAgentLoopImpl(
       ).map(([toolUseId, result]) => ({
         type: "tool_result",
         tool_use_id: toolUseId,
-        content: result.content,
+        content: redactSecrets(result.content),
         is_error: result.isError,
         ...(result.contentBlocks
           ? { contentBlocks: result.contentBlocks }

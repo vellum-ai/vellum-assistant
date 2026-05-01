@@ -41,7 +41,7 @@ function toInvocationRecord(
         conversationId: event.conversationId,
         toolName: event.toolName,
         input: stringifyInput(event.input),
-        result: redactSecrets(event.result.content).slice(0, RESULT_PREVIEW_LIMIT),
+        result: redactSecrets(event.result.content.slice(0, RESULT_PREVIEW_LIMIT)),
         decision: event.decision,
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
