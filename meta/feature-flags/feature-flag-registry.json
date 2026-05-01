@@ -234,14 +234,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "backward-releases",
-      "scope": "assistant",
-      "key": "backward-releases",
-      "label": "Backward Releases",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
-    },
-    {
       "id": "voice-mode",
       "scope": "assistant",
       "key": "voice-mode",
