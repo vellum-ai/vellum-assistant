@@ -52,6 +52,7 @@ describe("auto-approve thresholds", () => {
       expect(data).toEqual({
         interactive: "medium",
         autonomous: "low",
+        headless: "none",
       });
     });
 
@@ -59,16 +60,15 @@ describe("auto-approve thresholds", () => {
       const putHandler = createGlobalThresholdPutHandler();
       const getHandler = createGlobalThresholdGetHandler();
 
-      // First PUT to set values
       await putHandler(makeRequest({ interactive: "none" }));
 
-      // GET should reflect the update
       const res = await getHandler(makeRequest(undefined, "GET"));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
         interactive: "none",
         autonomous: "low",
+        headless: "none",
       });
     });
   });
@@ -83,6 +83,7 @@ describe("auto-approve thresholds", () => {
       expect(data).toEqual({
         interactive: "none",
         autonomous: "low",
+        headless: "none",
       });
     });
 
@@ -105,6 +106,7 @@ describe("auto-approve thresholds", () => {
       expect(data).toEqual({
         interactive: "high",
         autonomous: "low",
+        headless: "none",
       });
     });
 
@@ -160,7 +162,6 @@ describe("auto-approve thresholds", () => {
     test("upserts correctly — first write creates, second write updates", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      // First write — creates the row
       const res1 = await handler(
         makeRequest({ interactive: "none", autonomous: "low" }),
       );
@@ -169,17 +170,16 @@ describe("auto-approve thresholds", () => {
       expect(data1).toEqual({
         interactive: "none",
         autonomous: "low",
+        headless: "none",
       });
 
-      // Second write — updates the existing row
-      const res2 = await handler(
-        makeRequest({ autonomous: "medium" }),
-      );
+      const res2 = await handler(makeRequest({ autonomous: "medium" }));
       expect(res2.status).toBe(200);
       const data2 = await res2.json();
       expect(data2).toEqual({
         interactive: "none",
         autonomous: "medium",
+        headless: "none",
       });
     });
 
@@ -187,42 +187,69 @@ describe("auto-approve thresholds", () => {
       const handler = createGlobalThresholdPutHandler();
 
       const res = await handler(
-        makeRequest({
-          interactive: "medium",
-          autonomous: "low",
-        }),
+        makeRequest({ interactive: "medium", autonomous: "low" }),
       );
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
         interactive: "medium",
         autonomous: "low",
+        headless: "none",
       });
     });
 
     test("empty object preserves existing values when row exists", async () => {
       const putHandler = createGlobalThresholdPutHandler();
 
-      // First: set non-default values
-      await putHandler(
-        makeRequest({
-          interactive: "medium",
-          autonomous: "low",
-        }),
-      );
+      await putHandler(makeRequest({ interactive: "medium", autonomous: "low" }));
 
-      // Then PUT empty object — existing values should be preserved
       const res = await putHandler(makeRequest({}));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
         interactive: "medium",
         autonomous: "low",
+        headless: "none",
       });
     });
 
-    // Note: "empty PUT inserts schema defaults when no row" is covered by
-    // the GET handler test suite. The PUT tests run after prior PUTs leave
-    // a row in the DB (bun test reuse), so we test preserve-existing above.
+    // ── headless field ────────────────────────────────────────────────────────
+
+    test("can set headless threshold", async () => {
+      const handler = createGlobalThresholdPutHandler();
+
+      const res = await handler(makeRequest({ headless: "low" }));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual({
+        interactive: "medium",
+        autonomous: "low",
+        headless: "low",
+      });
+    });
+
+    test("returns 400 for invalid headless value", async () => {
+      const handler = createGlobalThresholdPutHandler();
+
+      const res = await handler(makeRequest({ headless: "extreme" }));
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain("headless");
+      expect(data.error).toContain("none, low, medium, high");
+    });
+
+    test("headless is preserved when other fields are updated", async () => {
+      const handler = createGlobalThresholdPutHandler();
+
+      // Explicitly set headless to a non-default value
+      await handler(makeRequest({ headless: "low" }));
+
+      // Update only interactive — headless should remain "low"
+      const res = await handler(makeRequest({ interactive: "high" }));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.headless).toBe("low");
+      expect(data.interactive).toBe("high");
+    });
   });
 });
