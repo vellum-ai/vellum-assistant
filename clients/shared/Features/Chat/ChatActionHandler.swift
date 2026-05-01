@@ -339,6 +339,9 @@ final class ChatActionHandler {
                 vm.contextWindowTokens = tokens
             }
             if let max = update.contextWindowMaxTokens {
+                // The assistant resolves this per conversation from the active
+                // call-site/profile config. Do not replace it with a bundled
+                // model catalog maximum on the client.
                 vm.contextWindowMaxTokens = max
             }
 
@@ -346,6 +349,9 @@ final class ChatActionHandler {
             // Scoped per-conversation — see CompactionCircuitOpen doc.
             guard belongsToConversation(event.conversationId) else { return }
             vm.contextWindowTokens = event.estimatedInputTokens
+            // `maxInputTokens` is the same assistant-resolved effective budget
+            // reported by usage_update, emitted again so the indicator updates
+            // immediately after compaction.
             vm.contextWindowMaxTokens = event.maxInputTokens
             let callWord = event.summaryCalls == 1 ? "call" : "calls"
             let summary =

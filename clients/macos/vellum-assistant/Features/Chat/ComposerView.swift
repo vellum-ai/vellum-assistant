@@ -107,6 +107,8 @@ struct ComposerView: View, Equatable {
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
+    /// Assistant-resolved effective budget for this conversation's active
+    /// profile/call site. Display as-is; do not substitute catalog maximums.
     var contextWindowMaxTokens: Int? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil

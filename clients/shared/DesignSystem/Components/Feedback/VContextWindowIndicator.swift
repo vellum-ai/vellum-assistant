@@ -3,7 +3,9 @@ import SwiftUI
 /// A small circular ring indicator showing context window fill level.
 /// Designed to sit in the composer toolbar area. On hover, shows a rich
 /// popover with percentage, token counts, and compaction note.
-/// Hidden when `fillRatio` is nil (no usage data yet).
+/// Hidden when `fillRatio` is nil (no usage data yet). `tokensMax` is the
+/// assistant-resolved effective budget for the current conversation, which may
+/// be lower than the selected model's catalog maximum.
 public struct VContextWindowIndicator: View {
     public let fillRatio: Double?
     public let tokensUsed: Int?
