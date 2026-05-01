@@ -114,14 +114,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "ces-credential-backend",
-      "scope": "assistant",
-      "key": "ces-credential-backend",
-      "label": "CES Credential Backend",
-      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-billing",
       "scope": "client",
       "key": "settings-billing",
