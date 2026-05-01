@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  _isNonLiteralGenericValue,
   _isPlaceholder,
   redactSecrets,
   scanText,
@@ -493,6 +494,12 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/ygWep4PAtGoSNQ==
 // Edge cases / false positives
 // ---------------------------------------------------------------------------
 describe("false positive resistance", () => {
+  test("does not flag GitHub Actions SHA-pinned action ref", () => {
+    expectNoMatch(
+      "uses: actions/create-github-app-token@a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0",
+    );
+  });
+
   test("does not flag base64-encoded images", () => {
     // A typical short base64 image data chunk — should not trigger
     const img = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA";
@@ -521,6 +528,151 @@ describe("false positive resistance", () => {
     const matches = scanText(pubKey);
     const privKeys = matches.filter((m) => m.type === "Private Key");
     expect(privKeys).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Generic secret non-literal suppression
+// ---------------------------------------------------------------------------
+describe("generic secret non-literal suppression", () => {
+  // --- Suppressed cases (should NOT match) ---
+
+  test("does not flag GitHub Actions template expression (quoted)", () => {
+    const input = 'token: "${{ secrets.GITHUB_TOKEN }}"';
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag GitHub Actions template expression (unquoted)", () => {
+    const input = "token=${{ secrets.GITHUB_TOKEN }}";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag shell variable reference", () => {
+    const input = "token=$GITHUB_TOKEN_VALUE";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag braced shell variable", () => {
+    const input = "token=${DATABASE_SECRET}";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag UUID after credential keyword", () => {
+    const input = "token=f47ac10b-58cc-4372-a567-0e02b2c3d479";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag SRI integrity hash", () => {
+    const input = "token=sha512-abcdefghijklmnop";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag Go module hash", () => {
+    const input = "secret=h1:abcdefghijklmnop";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  test("does not flag npm integrity hash", () => {
+    const input = "token=sha256:abcdef1234567890abcdef1234567890";
+    const matches = scanText(input);
+    const generic = matches.filter(
+      (m) => m.type === "Generic Secret Assignment",
+    );
+    expect(generic).toHaveLength(0);
+  });
+
+  // --- Preserved detection (MUST still match) ---
+
+  test("still flags real quoted secret", () => {
+    expectMatch('password="SuperSecret123!"', "Generic Secret Assignment");
+  });
+
+  test("still flags hex string after credential keyword", () => {
+    // 32-char hex — bare hex can be a real credential
+    expectMatch(
+      "SECRET=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      "Generic Secret Assignment",
+    );
+  });
+
+  test("still flags mixed alphanumeric after keyword", () => {
+    expectMatch("token=aB3xY7mN9pQ2wK5v", "Generic Secret Assignment");
+  });
+
+  test("still flags base64-ish string after keyword", () => {
+    expectMatch(
+      'secret="dGhpcyBpcyBhIHJlYWwgc2VjcmV0IHZhbHVl"',
+      "Generic Secret Assignment",
+    );
+  });
+
+  // --- Unit tests for _isNonLiteralGenericValue ---
+
+  test("_isNonLiteralGenericValue: template expressions", () => {
+    expect(_isNonLiteralGenericValue("${{ secrets.X }}")).toBe(true);
+  });
+
+  test("_isNonLiteralGenericValue: shell vars", () => {
+    expect(_isNonLiteralGenericValue("$TOKEN")).toBe(true);
+    expect(_isNonLiteralGenericValue("${TOKEN}")).toBe(true);
+  });
+
+  test("_isNonLiteralGenericValue: UUIDs", () => {
+    expect(
+      _isNonLiteralGenericValue("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+    ).toBe(true);
+  });
+
+  test("_isNonLiteralGenericValue: integrity hashes", () => {
+    expect(_isNonLiteralGenericValue("sha256:abc123")).toBe(true);
+    expect(_isNonLiteralGenericValue("h1:abc123")).toBe(true);
+  });
+
+  test("_isNonLiteralGenericValue: literal strings return false", () => {
+    expect(_isNonLiteralGenericValue("SuperSecret123!")).toBe(false);
+    expect(_isNonLiteralGenericValue("aB3xY7mN9pQ2wK5v")).toBe(false);
+    expect(_isNonLiteralGenericValue("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6")).toBe(
+      false,
+    );
+  });
+
+  test("_isNonLiteralGenericValue: dollar-prefixed passwords return false", () => {
+    expect(_isNonLiteralGenericValue("$uperSecret123")).toBe(false);
+    expect(_isNonLiteralGenericValue("$4ltyP4ssw0rd!")).toBe(false);
+    expect(_isNonLiteralGenericValue("$ecretValue!@#")).toBe(false);
+  });
+
+  test("still flags dollar-prefixed passwords after credential keyword", () => {
+    expectMatch("password=$uperSecret123", "Generic Secret Assignment");
+    expectMatch("password=$4ltyP4ssw0rd!", "Generic Secret Assignment");
   });
 });
 
