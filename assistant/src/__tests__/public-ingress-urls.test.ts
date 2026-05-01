@@ -33,6 +33,7 @@ import {
   getTelegramWebhookUrl,
   getTwilioConnectActionUrl,
   getTwilioMediaStreamUrl,
+  getTwilioPublicBaseUrl,
   getTwilioRelayUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
@@ -223,6 +224,18 @@ describe("Twilio-specific public base URL selection", () => {
     expect(getTwilioMediaStreamUrl(config)).toBe(
       "wss://twilio.example.com/webhooks/twilio/media-stream",
     );
+  });
+
+  test("Twilio public base resolver accepts twilioPublicBaseUrl without generic publicBaseUrl", () => {
+    const result = getTwilioPublicBaseUrl({
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "",
+        twilioPublicBaseUrl: "  https://twilio-only.example.com///  ",
+      },
+    });
+
+    expect(result).toBe("https://twilio-only.example.com");
   });
 
   test("Twilio URL builders fall back to ingress.publicBaseUrl", () => {

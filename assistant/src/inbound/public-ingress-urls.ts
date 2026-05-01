@@ -82,7 +82,7 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   );
 }
 
-function getTwilioPublicBaseUrl(config: IngressConfig): string {
+export function getTwilioPublicBaseUrl(config: IngressConfig): string {
   assertPublicIngressEnabled(config);
 
   const ingressValue = config.ingress?.twilioPublicBaseUrl;
@@ -91,7 +91,19 @@ function getTwilioPublicBaseUrl(config: IngressConfig): string {
     if (normalized) return normalized;
   }
 
-  return getPublicBaseUrl(config);
+  try {
+    return getPublicBaseUrl(config);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      /No public base URL configured/.test(err.message)
+    ) {
+      throw new Error(
+        "No Twilio public base URL configured. Set ingress.twilioPublicBaseUrl or ingress.publicBaseUrl in config.",
+      );
+    }
+    throw err;
+  }
 }
 
 /**
