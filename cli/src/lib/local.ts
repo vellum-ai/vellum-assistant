@@ -111,7 +111,9 @@ function computeIpcSocketDirOverride(workspaceDir: string): string | undefined {
  * a short override directory and set all IPC socket env vars on the target
  * env object. No-op on non-macOS or when paths are within limits.
  */
-function applyIpcSocketDirOverride(env: Record<string, string>): void {
+function applyIpcSocketDirOverride(
+  env: Record<string, string | undefined>,
+): void {
   const workspaceDir =
     env.VELLUM_WORKSPACE_DIR || join(homedir(), ".vellum", "workspace");
   const override = computeIpcSocketDirOverride(workspaceDir);
@@ -417,6 +419,8 @@ async function startDaemonFromSource(
       options.defaultWorkspaceConfigPath;
   }
 
+  applyIpcSocketDirOverride(env);
+
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
   writeFileSync(pidFile, "starting", "utf-8");
@@ -551,6 +555,8 @@ async function startDaemonWatchFromSource(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+
+  applyIpcSocketDirOverride(env);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -1182,10 +1188,6 @@ export async function startGateway(
   };
 
   applyIpcSocketDirOverride(gatewayEnv);
-
-  if (publicUrl) {
-    console.log(`   HTTP URL: ${publicUrl}`);
-  }
 
   let gateway;
 
