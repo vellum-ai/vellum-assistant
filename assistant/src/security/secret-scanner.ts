@@ -214,6 +214,44 @@ function isLikelyAwsSecret(value: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Non-literal value suppression for Generic Secret Assignment
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns `true` when the captured value is structurally NOT a literal secret
+ * string — i.e., it is a reference, expression, or well-known hash format.
+ * Used to suppress false positives from the "Generic Secret Assignment"
+ * patterns without weakening detection of real credential values.
+ *
+ * Bare hex strings of any length are explicitly NOT suppressed — a 32/40/64
+ * char hex string assigned to `token=` or `secret=` can absolutely be a real
+ * credential (e.g. a raw HMAC key, Stripe-style opaque hex token).
+ */
+function isNonLiteralGenericValue(value: string): boolean {
+  // Template expressions: GitHub Actions ${{ secrets.X }}, Terraform, etc.
+  if (/^\$\{\{.*\}\}$/s.test(value)) return true;
+
+  // Shell / env variable references: $GITHUB_TOKEN, ${DB_PASSWORD}
+  if (/^\$\w/.test(value) || /^\$\{[^}]+\}$/.test(value)) return true;
+
+  // UUIDs: generated identifiers, not credential values
+  // (Heroku-style UUID credentials are already handled by their own keyword-gated pattern.)
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  )
+    return true;
+
+  // Algorithm-prefixed integrity hashes: SRI (sha512-...), npm integrity,
+  // Go module sums (h1:...), etc.
+  if (/^(?:sha(?:1|256|384|512)|md5|h1|blake2[bs])[-:]/i.test(value))
+    return true;
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Scan function
 // ---------------------------------------------------------------------------
 
@@ -247,6 +285,14 @@ export function scanText(text: string): SecretMatch[] {
 
       // Extra validation for AWS Secret Keys to avoid hex-string false positives
       if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value))
+        continue;
+
+      // Suppress non-literal values (template expressions, shell vars, UUIDs,
+      // integrity hashes) for Generic Secret Assignment patterns
+      if (
+        pattern.type === "Generic Secret Assignment" &&
+        isNonLiteralGenericValue(value)
+      )
         continue;
 
       const key = `${startIndex}:${endIndex}`;
@@ -299,3 +345,4 @@ export function redactSecrets(text: string): string {
 
 // Exported for testing only
 export { isPlaceholder as _isPlaceholder };
+export { isNonLiteralGenericValue as _isNonLiteralGenericValue };
