@@ -91,6 +91,10 @@ const IngressBaseSchema = z
     twilioPublicBaseUrl: emptyOrAbsoluteHttpUrl("ingress.twilioPublicBaseUrl")
       .optional()
       .describe("Twilio-specific public-facing base URL for webhook callbacks"),
+    twilioPublicBaseUrlManagedBy: z
+      .literal("velay")
+      .optional()
+      .describe("Marks a Twilio-specific public base URL managed by Velay"),
     webhook: IngressWebhookConfigSchema.default(
       IngressWebhookConfigSchema.parse({}),
     ),
