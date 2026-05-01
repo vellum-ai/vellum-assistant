@@ -54,6 +54,7 @@ struct ImproveExperienceStepView: View {
 
                 Divider()
                     .background(VColor.surfaceBase)
+                    .accessibilityHidden(true)
 
                 // Diagnostics toggle
                 VToggle(
@@ -66,6 +67,7 @@ struct ImproveExperienceStepView: View {
 
                 Divider()
                     .background(VColor.surfaceBase)
+                    .accessibilityHidden(true)
 
                 // Privacy note
                 HStack(spacing: VSpacing.xs) {
@@ -96,7 +98,10 @@ struct ImproveExperienceStepView: View {
                         isChecked: $aiDataConsent,
                         accessibilityLabel: "I agree to the AI Data Sharing Policy"
                     )
-                    aiConsentText
+                    consentText(
+                        markdown: "I agree to the [AI Data Sharing Policy](\(AppURLs.dataSharingDocs.absoluteString))",
+                        fallback: "I agree to the AI Data Sharing Policy"
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -105,7 +110,10 @@ struct ImproveExperienceStepView: View {
                         isChecked: $tosAccepted,
                         accessibilityLabel: "I agree to the Terms of Service and Privacy Policy"
                     )
-                    tosConsentText
+                    consentText(
+                        markdown: "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))",
+                        fallback: "I agree to the Terms of Service and Privacy Policy"
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -183,11 +191,11 @@ struct ImproveExperienceStepView: View {
         .accessibilityAddTraits(.isToggle)
     }
 
-    // MARK: - ToS Consent Text
+    // MARK: - Consent Text
 
-    private var tosConsentText: some View {
+    private func consentText(markdown: String, fallback: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(tosAttributedString)
+            Text(attributedString(from: markdown, fallback: fallback))
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
@@ -198,39 +206,12 @@ struct ImproveExperienceStepView: View {
         }
     }
 
-    private var tosAttributedString: AttributedString {
-        let markdown = "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))"
+    private func attributedString(from markdown: String, fallback: String) -> AttributedString {
         // Use `try?` with a plain-text fallback so a markdown parse failure
         // (e.g. unexpected interpolated content from VELLUM_DOCS_BASE_URL) degrades
         // gracefully instead of crashing the onboarding flow.
         guard var str = try? AttributedString(markdown: markdown) else {
-            return AttributedString("I agree to the Terms of Service and Privacy Policy")
-        }
-        for run in str.runs where run.link != nil {
-            str[run.range].underlineStyle = .single
-        }
-        return str
-    }
-
-    // MARK: - AI Data Sharing Consent Text
-
-    private var aiConsentText: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(aiConsentAttributedString)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentSecondary)
-                .tint(VColor.primaryBase)
-                .environment(\.openURL, OpenURLAction { url in
-                    NSWorkspace.shared.open(url)
-                    return .handled
-                })
-        }
-    }
-
-    private var aiConsentAttributedString: AttributedString {
-        let markdown = "I agree to the [AI Data Sharing Policy](\(AppURLs.dataSharingDocs.absoluteString))"
-        guard var str = try? AttributedString(markdown: markdown) else {
-            return AttributedString("I agree to the AI Data Sharing Policy")
+            return AttributedString(fallback)
         }
         for run in str.runs where run.link != nil {
             str[run.range].underlineStyle = .single
