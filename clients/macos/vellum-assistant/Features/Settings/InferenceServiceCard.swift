@@ -65,9 +65,13 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when at least one key-required provider has a configured API key.
-    private var hasAnyProviderKey: Bool {
-        providerKeyStatuses.values.contains(true)
+    /// True when the user has at least one usable provider — either a keyless
+    /// provider (e.g. Ollama) exists in the catalog, or a key-required
+    /// provider has a configured API key.
+    private var hasUsableProvider: Bool {
+        let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
+        let hasConfiguredKey = providerKeyStatuses.values.contains(true)
+        return hasKeylessProvider || hasConfiguredKey
     }
 
     /// True when changing inference mode/provider would invalidate the current
@@ -139,7 +143,7 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if hasAnyProviderKey {
+                    if hasUsableProvider {
                         apiKeysSection
                         activeProfilePicker
                         secondaryActionsRow
