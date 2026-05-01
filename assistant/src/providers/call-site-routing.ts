@@ -19,6 +19,7 @@
  * stable identity.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type {
@@ -32,15 +33,20 @@ import type {
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
 
-  // Tracks the provider currently executing a sendMessage call so that
-  // `name` reflects the *actual* transport during streaming. This lets
-  // emitLlmCallStartedIfNeeded (called on the first text_delta, before the
-  // response completes) label the trace event with the correct provider
-  // instead of always returning the default provider's name.
-  private _routedProviderName: string | null = null;
+  // Per-call async context that tracks which provider is currently executing.
+  // Using AsyncLocalStorage instead of a plain instance field means concurrent
+  // sendMessage calls (e.g. the main agent turn and a title-generation call
+  // both in-flight at the same time on the same provider instance) each see
+  // their own value — no clobbering, no premature clear.
+  //
+  // During sendMessage, emitLlmCallStartedIfNeeded reads provider.name on the
+  // first text_delta (before the response completes). The getter below returns
+  // the async-context value so streaming trace events carry the routed
+  // provider's name, not the default's.
+  private readonly _activeProviderContext = new AsyncLocalStorage<string>();
 
   get name(): string {
-    return this._routedProviderName ?? this.defaultProvider.name;
+    return this._activeProviderContext.getStore() ?? this.defaultProvider.name;
   }
 
   constructor(
@@ -58,8 +64,8 @@ export class CallSiteRoutingProvider implements Provider {
   ): Promise<ProviderResponse> {
     const target = this.selectProvider(options);
     const isRouted = target !== this.defaultProvider;
-    if (isRouted) this._routedProviderName = target.name;
-    try {
+
+    const doSend = async (): Promise<ProviderResponse> => {
       const response = await target.sendMessage(
         messages,
         tools,
@@ -73,9 +79,14 @@ export class CallSiteRoutingProvider implements Provider {
         return { ...response, actualProvider: target.name };
       }
       return response;
-    } finally {
-      if (isRouted) this._routedProviderName = null;
-    }
+    };
+
+    // Run inside the async context so that any code reading provider.name
+    // during streaming (e.g. emitLlmCallStartedIfNeeded on text_delta) sees
+    // the routed provider's name for this specific call, not the default.
+    return isRouted
+      ? this._activeProviderContext.run(target.name, doSend)
+      : doSend();
   }
 
   /**

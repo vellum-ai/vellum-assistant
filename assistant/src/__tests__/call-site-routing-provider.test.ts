@@ -310,13 +310,13 @@ describe("CallSiteRoutingProvider", () => {
     });
 
     const defaultProvider = makeProvider("anthropic", () => {});
-    let nameDuringCall: string | null = null;
+    const namesDuringCall: string[] = [];
 
     const altProvider: Provider = {
       name: "openai",
       async sendMessage() {
         // Simulate reading provider.name mid-stream (as handleTextDelta does).
-        nameDuringCall = wrapped.name;
+        namesDuringCall.push(wrapped.name);
         return makeResponse("openai");
       },
     };
@@ -330,7 +330,75 @@ describe("CallSiteRoutingProvider", () => {
     await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
       config: { callSite: "memoryRetrieval" },
     });
-    expect(nameDuringCall).toBe("openai"); // mid-call → routed provider
-    expect(wrapped.name).toBe("anthropic"); // after call → reverted
+    expect(namesDuringCall).toEqual(["openai"]); // mid-call → routed provider
+    expect(wrapped.name).toBe("anthropic"); // after call → reverted to default
+  });
+
+  test("concurrent sendMessage calls each see their own provider name (no clobbering)", async () => {
+    // Regression: if _routedProviderName were a plain instance field, concurrent
+    // calls (e.g. main turn + title-gen both in-flight) would clobber each
+    // other. AsyncLocalStorage gives each call its own async-context slot.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+        conversationTitle: { provider: "fireworks", model: "qwen3-235b" },
+      },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+    const nameSeenByOpenAI: string[] = [];
+    const nameSeenByFireworks: string[] = [];
+
+    // Shared resolve handles so we can interleave the two calls:
+    // openAI starts → google starts → openAI resolves → google resolves
+    let resolveOpenAI!: () => void;
+    let resolveGoogle!: () => void;
+
+    const openAIProvider: Provider = {
+      name: "openai",
+      async sendMessage() {
+        // Yield so google call can start before we complete.
+        await new Promise<void>((r) => { resolveOpenAI = r; });
+        nameSeenByOpenAI.push(wrapped.name);
+        return makeResponse("openai");
+      },
+    };
+
+    const fireworksProvider: Provider = {
+      name: "fireworks",
+      async sendMessage() {
+        await new Promise<void>((r) => { resolveGoogle = r; });
+        nameSeenByFireworks.push(wrapped.name);
+        return makeResponse("fireworks");
+      },
+    };
+
+    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) => {
+      if (name === "openai") return openAIProvider;
+      if (name === "fireworks") return fireworksProvider;
+      return undefined;
+    });
+
+    // Start both calls concurrently (do not await yet).
+    const callA = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },   // → openai
+    });
+    const callB = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "conversationTitle" },   // → google
+    });
+
+    // Let both reach their suspension point, then resolve in order.
+    await Promise.resolve(); // flush microtasks so both calls are in-flight
+    resolveOpenAI();
+    resolveGoogle();
+
+    await Promise.all([callA, callB]);
+
+    // Each call must have seen its own provider, not the other's.
+    expect(nameSeenByOpenAI).toEqual(["openai"]);
+    expect(nameSeenByFireworks).toEqual(["fireworks"]);
+    // And the idle name reverts to the default.
+    expect(wrapped.name).toBe("anthropic");
   });
 });
