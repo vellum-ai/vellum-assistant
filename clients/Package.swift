@@ -90,7 +90,6 @@ let package = Package(
                 .process("Resources/vellum-edit-animator.js"),
                 .copy("Resources/editor"),
                 .process("Resources/initial-avatar.png"),
-                .process("Resources/vellum-app-icon.png"),
                 .process("Resources/welcome-characters.png")
             ],
             swiftSettings: [

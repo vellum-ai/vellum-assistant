@@ -19,9 +19,8 @@ struct OnboardingFlowView: View {
     @State private var completionDelayTask: Task<Void, Never>?
     @State private var isShowingPreChat = false
 
-    private static let appIcon: NSImage? = {
-        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
-        return NSImage(contentsOfFile: path)
+    private static let appIcon: NSImage = {
+        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     private var managedSignInEnabled: Bool {
@@ -90,15 +89,13 @@ struct OnboardingFlowView: View {
                         // Step 0 only: top inset + app icon
                         Color.clear.frame(height: 80)
 
-                        if let nsImage = Self.appIcon {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
-                                .padding(.bottom, 78)
-                        }
+                        Image(nsImage: Self.appIcon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
+                            .padding(.bottom, 78)
                     } else {
                         // Steps 1–3: top inset only (no icon)
                         Color.clear.frame(height: VSpacing.xxxl)

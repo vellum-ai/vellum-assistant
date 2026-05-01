@@ -15,23 +15,20 @@ struct AssistantPickerView: View {
 
     @State private var connectingId: String?
 
-    private static let appIcon: NSImage? = {
-        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
-        return NSImage(contentsOfFile: path)
+    private static let appIcon: NSImage = {
+        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 60)
 
-            if let nsImage = Self.appIcon {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 72, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding(.bottom, VSpacing.lg)
-            }
+            Image(nsImage: Self.appIcon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .padding(.bottom, VSpacing.lg)
 
             Text("Choose an Assistant")
                 .font(VFont.displayLarge)
