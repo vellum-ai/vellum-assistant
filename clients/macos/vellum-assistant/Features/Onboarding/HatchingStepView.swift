@@ -89,6 +89,17 @@ struct HatchingStepView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
         .onAppear {
+            // Apple Guideline 5.1.2(i): AI Data Sharing consent must be explicitly
+            // checked by the user. If either consent flag is missing, bounce back
+            // to the privacy step (step 3) instead of starting the hatch.
+            let tosOk = UserDefaults.standard.bool(forKey: "tosAccepted")
+            let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
+            guard tosOk && aiOk else {
+                state.isHatching = false
+                state.currentStep = 3
+                return
+            }
+
             // Eagerly initialize avatar traits so computed getters don't
             // mutate @Observable state during body evaluation.
             if state.hatchAvatarBodyShape == nil {
