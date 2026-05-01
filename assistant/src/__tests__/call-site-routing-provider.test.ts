@@ -296,4 +296,41 @@ describe("CallSiteRoutingProvider", () => {
     expect(wrapped.name).toBe("anthropic");
     expect(wrapped.tokenEstimationProvider).toBe("anthropic");
   });
+
+  test("name getter reflects the routed provider during sendMessage and reverts after", async () => {
+    // Regression: emitLlmCallStartedIfNeeded fires on the first text_delta,
+    // *during* the sendMessage call (before the response completes). It reads
+    // provider.name directly — if that's always the default name the trace
+    // event says "LLM call to anthropic" even when the call went to openai.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+      },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+    let nameDuringCall: string | null = null;
+
+    const altProvider: Provider = {
+      name: "openai",
+      async sendMessage() {
+        // Simulate reading provider.name mid-stream (as handleTextDelta does).
+        nameDuringCall = wrapped.name;
+        return makeResponse("openai");
+      },
+    };
+
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      (name) => (name === "openai" ? altProvider : undefined),
+    );
+
+    expect(wrapped.name).toBe("anthropic"); // idle → default
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+    expect(nameDuringCall).toBe("openai"); // mid-call → routed provider
+    expect(wrapped.name).toBe("anthropic"); // after call → reverted
+  });
 });
