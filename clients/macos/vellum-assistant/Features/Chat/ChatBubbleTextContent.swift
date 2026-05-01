@@ -8,8 +8,7 @@ extension ChatBubble {
     /// For large messages (>500 chars) with a segment cache miss, renders plain text
     /// immediately and parses rich formatting asynchronously to avoid blocking scroll.
     ///
-    /// When the text contains inline `<thinking>...</thinking>` tags (and the
-    /// `show-thinking-blocks` feature flag is enabled for assistant messages),
+    /// When the text contains inline `<thinking>...</thinking>` tags,
     /// the tagged sections are lifted into collapsible `ThinkingBlockView`s
     /// rendered alongside text bubbles for the remaining content. This keeps
     /// the transformation entirely at the presentation layer — no changes to
@@ -17,8 +16,7 @@ extension ChatBubble {
     @ViewBuilder
     func textBubble(for segmentText: String, textGroupIndex: Int? = nil) -> some View {
         if !isUser,
-           containsInlineThinkingTag(segmentText),
-           MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+           containsInlineThinkingTag(segmentText) {
             let chunks = parseInlineThinkingTags(segmentText)
             // Use a stable key prefix that doesn't change as segmentText grows
             // during streaming. The previous hash-based key caused thinking

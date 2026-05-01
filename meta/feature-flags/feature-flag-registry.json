@@ -10,14 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -114,35 +106,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "ces-credential-backend",
-      "scope": "assistant",
-      "key": "ces-credential-backend",
-      "label": "CES Credential Backend",
-      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-billing",
       "scope": "client",
       "key": "settings-billing",
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
-      "defaultEnabled": true
-    },
-    {
-      "id": "referral-codes",
-      "scope": "client",
-      "key": "referral-codes",
-      "label": "Referral Codes",
-      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-      "defaultEnabled": true
-    },
-    {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": true
     },
     {
@@ -186,14 +154,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "show-thinking-blocks",
-      "scope": "client",
-      "key": "show-thinking-blocks",
-      "label": "Show Thinking Blocks",
-      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": true
-    },
-    {
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
@@ -224,14 +184,6 @@
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
-    },
-    {
-      "id": "backward-releases",
-      "scope": "assistant",
-      "key": "backward-releases",
-      "label": "Backward Releases",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
     },
     {
       "id": "voice-mode",
@@ -342,7 +294,7 @@
       "scope": "client",
       "key": "message-height-cache",
       "label": "Message Height Cache",
-      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
+      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned \u2014 the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout \u2014 every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
       "defaultEnabled": true
     },
     {
