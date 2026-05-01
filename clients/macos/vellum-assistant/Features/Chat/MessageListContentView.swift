@@ -473,13 +473,18 @@ private struct PinnedLatestTurnSection: View {
         // equals visual order: anchor at top, response below, spacer
         // fills remaining viewport, sentinel marks the latest edge.
         //
-        // `.frame(minHeight:)` (not a fixed `containerRelativeFrame` on
-        // the VStack) gives the section a viewport-sized floor while
-        // letting it grow when anchor + response exceeds the viewport.
-        // Without the floor, the `Spacer` below cannot keep the anchor
-        // pinned to the visual top while a short response is streaming.
-        // Without growth, a tall assistant response is capped at the
-        // viewport and the newest content becomes unreachable by scroll.
+        // `TopAlignedMinHeightLayout` gives the section a viewport-sized
+        // floor while letting it grow when anchor + response exceeds the
+        // viewport. Without the floor, the `Spacer` below cannot keep the
+        // anchor pinned to the visual top while a short response streams.
+        // Without growth, a tall response is capped at the viewport and
+        // the newest content becomes unreachable by scroll.
+        //
+        // `.frame(minHeight:alignment: .top)` achieves the same sizing
+        // but creates `_FlexFrameLayout`, whose `placeSubviews` queries
+        // `explicitAlignment` on every descendant — O(n × depth) cascade.
+        // `TopAlignedMinHeightLayout` returns `nil` from
+        // `explicitAlignment`, stopping the cascade in O(1).
         VStack(alignment: .leading, spacing: 0) {
             contentView.transcriptRow(
                 row: anchorRow,
@@ -495,7 +500,7 @@ private struct PinnedLatestTurnSection: View {
 
             contentView.latestEdgeSentinel(isFlipped: false)
         }
-        .frame(minHeight: viewportMinHeight, alignment: .top)
+        .topAlignedMinHeight(viewportMinHeight)
         .background(viewportMinHeightProbe)
         .flipped()
     }
