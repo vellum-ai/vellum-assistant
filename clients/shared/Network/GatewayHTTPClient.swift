@@ -160,7 +160,7 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 60.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func postMultipart(path: String, parts: [MultipartPart], timeout: TimeInterval = 60, unprefixed: Bool = false) async throws -> Response {
+    public static func postMultipart(path: String, parts: [MultipartPart], timeout: TimeInterval = 60) async throws -> Response {
         let boundary = UUID().uuidString
         var body = Data()
 
@@ -185,7 +185,7 @@ public enum GatewayHTTPClient {
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
-        return try await executeWithRetry(path: path, method: "POST", timeout: timeout, unprefixed: unprefixed) { request in
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             request.httpBody = body
         }
@@ -344,8 +344,8 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func patch(path: String, body: Data? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
-        return try await executeWithRetry(path: path, method: "PATCH", timeout: timeout, unprefixed: unprefixed) { request in
+    public static func patch(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        return try await executeWithRetry(path: path, method: "PATCH", timeout: timeout) { request in
             request.httpBody = body
         }
     }
@@ -358,9 +358,9 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func patch(path: String, json: [String: Any], timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
+    public static func patch(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await patch(path: path, body: body, timeout: timeout, unprefixed: unprefixed)
+        return try await patch(path: path, body: body, timeout: timeout)
     }
 
     /// Performs an authenticated PUT request against the gateway.
@@ -375,8 +375,8 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func put(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
-        return try await executeWithRetry(path: path, params: params, method: "PUT", timeout: timeout, unprefixed: unprefixed) { request in
+    public static func put(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "PUT", timeout: timeout) { request in
             request.httpBody = body
             if let contentType {
                 request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -397,9 +397,9 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func put(path: String, json: [String: Any], timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
+    public static func put(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await put(path: path, body: body, timeout: timeout, unprefixed: unprefixed)
+        return try await put(path: path, body: body, timeout: timeout)
     }
 
     /// Performs an authenticated DELETE request against the gateway.
@@ -453,9 +453,9 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A ``DownloadResponse`` with the local file URL and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func download(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> DownloadResponse {
+    public static func download(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> DownloadResponse {
         let connection = try resolveConnection()
-        let request = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: connection, unprefixed: unprefixed)
+        let request = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: connection)
         let response = try await executeDownload(request)
 
         guard response.statusCode == 401, !connection.isManaged else {
@@ -470,7 +470,7 @@ public enum GatewayHTTPClient {
         try? FileManager.default.removeItem(at: response.fileURL)
 
         let freshConnection = try resolveConnection()
-        let retryRequest = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: freshConnection, unprefixed: unprefixed)
+        let retryRequest = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: freshConnection)
         return try await executeDownload(retryRequest)
     }
 
@@ -488,9 +488,9 @@ public enum GatewayHTTPClient {
     ///     in `AsyncBytes`).
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared, unprefixed: Bool = false) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection, unprefixed: unprefixed)
+        var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
@@ -517,9 +517,9 @@ public enum GatewayHTTPClient {
     ///     in `AsyncBytes`).
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared, unprefixed: Bool = false) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection, unprefixed: unprefixed)
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
@@ -551,9 +551,9 @@ public enum GatewayHTTPClient {
     /// - Throws: `ClientError` if the request cannot be constructed,
     ///   `URLError(.userAuthenticationRequired)` if credential refresh fails,
     ///   or network errors from `URLSession`.
-    public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared, unprefixed: Bool = false) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection, unprefixed: unprefixed)
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
@@ -582,7 +582,7 @@ public enum GatewayHTTPClient {
 
         // Rebuild with fresh credentials from the credential store.
         let freshConnection = try resolveConnection()
-        var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection, unprefixed: unprefixed)
+        var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         retryRequest.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         retryRequest.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
@@ -838,9 +838,9 @@ public enum GatewayHTTPClient {
     ///   - params: Optional query parameters.
     /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
     /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
-    public static func buildURL(path: String, params: [String: String]? = nil, unprefixed: Bool = false) throws -> URL {
+    public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
         let connection = try resolveConnection()
-        return try constructURL(path: path, params: params, connection: connection, unprefixed: unprefixed)
+        return try constructURL(path: path, params: params, connection: connection)
     }
 
     // MARK: - WebSocket Helpers
