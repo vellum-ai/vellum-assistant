@@ -26,10 +26,6 @@ import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import {
-  isCesCredentialBackendEnabled,
-  isCesToolsEnabled,
-} from "../credential-execution/feature-gates.js";
-import {
   type CesProcessManager,
   CesUnavailableError,
   createCesProcessManager,
@@ -157,17 +153,6 @@ export interface CesStartupResult {
 async function startCesProcess(
   config: AssistantConfig,
 ): Promise<CesStartupResult> {
-  const shouldStartCes =
-    isCesToolsEnabled(config) || isCesCredentialBackendEnabled(config);
-  if (!shouldStartCes) {
-    return {
-      client: undefined,
-      processManager: undefined,
-      clientPromise: undefined,
-      abortController: undefined,
-    };
-  }
-
   const pm = createCesProcessManager({ assistantConfig: config });
   const abortController = new AbortController();
   let clientRef: CesClient | undefined;
@@ -524,86 +509,78 @@ export async function runDaemon(): Promise<void> {
     // bootstrap connection, so startup must happen at the process level.
     const cesStartupPromise = startCesProcess(config);
 
-    // When the credential backend flag is enabled, CES startup must complete
-    // BEFORE provider initialization so credential reads can go through CES.
-    // Block with a 20-second timeout — fall back to direct credential store
-    // on timeout.
-    if (isCesCredentialBackendEnabled(config)) {
-      const cesResult = await cesStartupPromise;
-      // startCesProcess() returns immediately — the actual handshake runs
-      // inside clientPromise. Await it (with a 20s timeout) so the CES client
-      // is available before provider initialization.
-      if (cesResult.clientPromise) {
-        const client = await awaitCesClientWithTimeout(
-          cesResult.clientPromise,
-          {
-            timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
-            onTimeout: () => {
-              log.warn(
-                "CES handshake timed out after 20s — falling back to direct credential store",
-              );
-            },
-          },
-        );
-        if (client) {
-          setCesClient(client);
-        }
+    // CES startup must complete BEFORE provider initialization so credential
+    // reads can go through CES. Block with a 20-second timeout — fall back to
+    // direct credential store on timeout.
+    const cesResult = await cesStartupPromise;
+    // startCesProcess() returns immediately — the actual handshake runs
+    // inside clientPromise. Await it (with a 20s timeout) so the CES client
+    // is available before provider initialization.
+    if (cesResult.clientPromise) {
+      const client = await awaitCesClientWithTimeout(cesResult.clientPromise, {
+        timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
+        onTimeout: () => {
+          log.warn(
+            "CES handshake timed out after 20s — falling back to direct credential store",
+          );
+        },
+      });
+      if (client) {
+        setCesClient(client);
       }
+    }
 
-      // Register CES reconnection callback so the credential layer can
-      // re-establish the connection when the transport dies, instead of
-      // falling back to the encrypted file store.
-      if (cesResult.processManager) {
-        const pm = cesResult.processManager;
+    // Register CES reconnection callback so the credential layer can
+    // re-establish the connection when the transport dies, instead of
+    // falling back to the encrypted file store.
+    if (cesResult.processManager) {
+      const pm = cesResult.processManager;
 
-        // Snapshot the managed-proxy context and assistant ID at CES startup
-        // so the reconnect closure below never calls back into
-        // `resolveManagedProxyContext()`. That function reads the assistant
-        // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
-        // has resolved the backend to CES RPC — routes the read through CES
-        // itself. During a reconnect the old transport is dead and a new
-        // one is being set up by this very closure, so the nested credential
-        // read recursively awaits its own in-flight reconnection and
-        // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
-        // 45-second stall delays every CES restart and causes dependent
-        // credential reads (e.g. Meet's STT provider resolution) to return
-        // `undefined` during the window. API key rotation uses the
-        // `updateAssistantApiKey` RPC on the live client, not a reconnect,
-        // so caching at startup is safe.
-        const startupProxyCtx = await resolveManagedProxyContext();
-        const startupAssistantId = getPlatformAssistantId();
+      // Snapshot the managed-proxy context and assistant ID at CES startup
+      // so the reconnect closure below never calls back into
+      // `resolveManagedProxyContext()`. That function reads the assistant
+      // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
+      // has resolved the backend to CES RPC — routes the read through CES
+      // itself. During a reconnect the old transport is dead and a new
+      // one is being set up by this very closure, so the nested credential
+      // read recursively awaits its own in-flight reconnection and
+      // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
+      // 45-second stall delays every CES restart and causes dependent
+      // credential reads (e.g. Meet's STT provider resolution) to return
+      // `undefined` during the window. API key rotation uses the
+      // `updateAssistantApiKey` RPC on the live client, not a reconnect,
+      // so caching at startup is safe.
+      const startupProxyCtx = await resolveManagedProxyContext();
+      const startupAssistantId = getPlatformAssistantId();
 
-        setCesReconnect(async () => {
-          try {
-            await pm.stop();
-            const transport = await pm.start();
-            const newClient = createCesClient(transport);
-            const { accepted, reason } = await newClient.handshake({
-              ...(startupProxyCtx.assistantApiKey
-                ? { assistantApiKey: startupProxyCtx.assistantApiKey }
-                : {}),
-              ...(startupAssistantId
-                ? { assistantId: startupAssistantId }
-                : {}),
-            });
-            if (accepted) {
-              log.info("CES reconnection handshake accepted");
-              return newClient;
-            }
-            log.warn({ reason }, "CES reconnection handshake rejected");
-            newClient.close();
-            await pm.stop().catch(() => {});
-            return undefined;
-          } catch (err) {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "CES reconnection attempt failed",
-            );
-            await pm.stop().catch(() => {});
-            return undefined;
+      setCesReconnect(async () => {
+        try {
+          await pm.stop();
+          const transport = await pm.start();
+          const newClient = createCesClient(transport);
+          const { accepted, reason } = await newClient.handshake({
+            ...(startupProxyCtx.assistantApiKey
+              ? { assistantApiKey: startupProxyCtx.assistantApiKey }
+              : {}),
+            ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
+          });
+          if (accepted) {
+            log.info("CES reconnection handshake accepted");
+            return newClient;
           }
-        });
-      }
+          log.warn({ reason }, "CES reconnection handshake rejected");
+          newClient.close();
+          await pm.stop().catch(() => {});
+          return undefined;
+        } catch (err) {
+          log.warn(
+            { error: err instanceof Error ? err.message : String(err) },
+            "CES reconnection attempt failed",
+          );
+          await pm.stop().catch(() => {});
+          return undefined;
+        }
+      });
     }
 
     // Populate the registry with user plugins from `~/.vellum/plugins/*`

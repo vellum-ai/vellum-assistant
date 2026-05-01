@@ -194,7 +194,6 @@ final class ChatActionHandler {
             guard !vm.isCancelling else { break }
             guard !vm.isLoadingHistory else { break }
             guard !vm.isWorkspaceRefinementInFlight else { break }
-            guard MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") else { break }
             vm.thinkingDeltaBuffer += delta.thinking
             vm.scheduleThinkingFlush()
 
