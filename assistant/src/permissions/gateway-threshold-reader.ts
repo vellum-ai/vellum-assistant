@@ -61,6 +61,16 @@ function mapExecutionContextToField(
   return "autonomous";
 }
 
+function resolveExecutionContextThreshold(
+  executionContext: ExecutionContext,
+  globalThresholds: GlobalThresholds,
+): string {
+  if (executionContext === "headless") {
+    return "none";
+  }
+  return globalThresholds[mapExecutionContextToField(executionContext)];
+}
+
 function isValidThreshold(value: string): value is Threshold {
   return (
     value === "none" ||
@@ -135,13 +145,15 @@ export async function getAutoApproveThreshold(
   // Fetch global thresholds (with 30s cache)
   try {
     const global = await fetchGlobalThresholds();
-    const field = mapExecutionContextToField(ctx);
-    const value = global[field];
+    const value = resolveExecutionContextThreshold(ctx, global);
     if (isValidThreshold(value)) {
       return value;
     }
     // Unexpected value from gateway — default to "none" (Strict).
-    log.warn({ field, value }, "Gateway returned unexpected threshold value, defaulting to none");
+    log.warn(
+      { executionContext: ctx, value },
+      "Gateway returned unexpected threshold value, defaulting to none",
+    );
     return "none";
   } catch (err) {
     // Gateway unreachable — default to "none" (Strict) so no tools are

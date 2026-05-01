@@ -74,7 +74,11 @@ describe("ask rule", () => {
   const askRule = makeRule({ decision: "ask" });
 
   test("ask at Low risk", () => {
-    const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule, autoApproveUpTo: "none" });
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      matchedRule: askRule,
+      autoApproveUpTo: "none",
+    });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("ask rule");
     expect(result.matchedRule).toBe(askRule);
@@ -1007,8 +1011,8 @@ describe("resolveThreshold", () => {
       expect(resolveThreshold(perContext, "background")).toBe("medium");
     });
 
-    test("returns autonomous threshold for headless context", () => {
-      expect(resolveThreshold(perContext, "headless")).toBe("medium");
+    test("returns strict threshold for headless context", () => {
+      expect(resolveThreshold(perContext, "headless")).toBe("none");
     });
 
     test("defaults to conversation when executionContext is omitted", () => {
@@ -1227,9 +1231,9 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
       expect(convThreshold).toBe("medium");
     });
 
-    test("undefined config → low threshold for headless", () => {
+    test("undefined config → none threshold for headless", () => {
       const hlThreshold = resolveThreshold(undefined, "headless");
-      expect(hlThreshold).toBe("low");
+      expect(hlThreshold).toBe("none");
     });
 
     test("undefined config + no context → medium (conversation default)", () => {
