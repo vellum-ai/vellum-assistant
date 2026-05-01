@@ -2536,7 +2536,13 @@ export async function runAgentLoopImpl(
         content: redactSecrets(result.content),
         is_error: result.isError,
         ...(result.contentBlocks
-          ? { contentBlocks: result.contentBlocks }
+          ? {
+              contentBlocks: result.contentBlocks.map((block) =>
+                block.type === "text"
+                  ? { ...block, text: redactSecrets(block.text) }
+                  : block,
+              ),
+            }
           : {}),
       }));
       const toolResultMetadata = {
