@@ -112,15 +112,16 @@ struct SettingsPanel: View {
             // this synchronously via `isCurrentAssistantManaged` which is set
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
-            let visibleTabs = SettingsTab.sidebarTopTabs(
+            var visibleTabs = SettingsTab.sidebarTopTabs(
                 soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false
             )
+            if developerEnabled { visibleTabs.append(.developer) }
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else if Self.deferredDeepLinkTabs.contains(pending) {
-                // Tab may become visible once feature flags load (e.g. .developer).
+                // Tab may become visible once feature flags load (e.g. .compactionPlayground).
                 // Preserve it for deferred evaluation in loadFeatureFlags().
                 _deferredDeepLinkTab = State(initialValue: pending)
             }
