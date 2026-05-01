@@ -2237,7 +2237,7 @@ public final class SettingsStore: ObservableObject {
     /// Fetches provider routing sources from the daemon debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             providerRoutingSources = [:]
             return
         }
