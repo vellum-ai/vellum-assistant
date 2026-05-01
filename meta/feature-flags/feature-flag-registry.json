@@ -122,14 +122,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "settings-billing",
-      "scope": "client",
-      "key": "settings-billing",
-      "label": "Billing Settings Tab",
-      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
-      "defaultEnabled": true
-    },
-    {
       "id": "referral-codes",
       "scope": "client",
       "key": "referral-codes",
