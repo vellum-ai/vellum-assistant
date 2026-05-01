@@ -155,7 +155,7 @@ extension MainWindowView {
             ACPSessionsPanel(
                 store: acpSessionStore,
                 activeConversationId: conversationManager.activeConversationId?.uuidString,
-                onClose: { windowState.navigateBackOrDismiss() }
+                onClose: { windowState.hideRightSlot(.acpSessions) }
             )
         }
     }
