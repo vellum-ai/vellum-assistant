@@ -78,6 +78,9 @@ public enum HistoryReconstructionService {
                     toolCall.riskLevel = tc.riskLevel
                     toolCall.riskReason = tc.riskReason
                     toolCall.matchedTrustRuleId = tc.matchedTrustRuleId
+                    toolCall.approvalMode = tc.approvalMode
+                    toolCall.approvalReason = tc.approvalReason
+                    toolCall.riskThreshold = tc.riskThreshold
                     let input = tc.input
                     let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
                     if estimatedSize > 10_000 {

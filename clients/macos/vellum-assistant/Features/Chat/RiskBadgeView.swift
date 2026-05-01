@@ -14,6 +14,7 @@ import VellumAssistantShared
 struct RiskBadgeView: View {
     let riskLevel: String
     var hasExistingRule: Bool = false
+    var provenanceText: String? = nil
     var onTap: (() -> Void)? = nil
 
     var body: some View {
@@ -40,8 +41,11 @@ struct RiskBadgeView: View {
     // MARK: - Display
 
     private var displayLabel: String {
-        guard !riskLevel.isEmpty else { return "Unknown" }
-        return riskLevel.prefix(1).uppercased() + riskLevel.dropFirst()
+        let base = riskLevel.isEmpty ? "Unknown" : riskLevel.prefix(1).uppercased() + riskLevel.dropFirst()
+        if let provenance = provenanceText {
+            return "\(base) \(provenance)"
+        }
+        return base
     }
 
     // MARK: - Color Mapping
