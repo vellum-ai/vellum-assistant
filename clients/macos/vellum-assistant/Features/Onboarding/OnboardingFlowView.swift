@@ -344,6 +344,20 @@ struct OnboardingFlowView: View {
     /// `activateManagedAssistant()` surface in the same view via the shared
     /// `hatchFailed` / `hatchFailureReason` path that the health-poll uses.
     private func performManagedBootstrap() async {
+        // Apple Guideline 5.1.2(i): AI Data Sharing consent must be explicitly
+        // checked by the user. Bootstrap can be triggered via the auth-change
+        // path (line ~251) which doesn't route through onboarding step 3, so
+        // we re-check consent here as the load-bearing enforcement point.
+        // The HatchingStepView gate remains as defense-in-depth for non-managed
+        // (CLI) hatch flows.
+        let tosOk = UserDefaults.standard.bool(forKey: "tosAccepted")
+        let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
+        guard tosOk && aiOk else {
+            log.info("Managed bootstrap aborted: AI Data Sharing consent missing — bouncing to privacy step")
+            state.bounceToConsentStep()
+            return
+        }
+
         log.info("Beginning managed assistant bootstrap")
         state.hasExistingManagedAssistant = false
         state.hatchFailed = false

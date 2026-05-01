@@ -219,6 +219,10 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
+        // Apple Guideline 5.1.2(i): clear AI Data Sharing consent so it must be
+        // explicitly re-checked on the next onboarding pass after a retry.
+        UserDefaults.standard.set(false, forKey: "aiDataConsent")
+
         // Clear API key for whichever provider was selected during onboarding
         let providerToDelete = selectedProvider
         if selectedProvider != "anthropic" {
@@ -250,6 +254,40 @@ final class OnboardingState {
         // Return to welcome screen and persist the reset
         currentStep = 0
         if shouldPersist { persist() }
+    }
+
+    /// Bounces the user back to the privacy step (step 3) and clears any
+    /// in-flight hatch state. Used by the consent gates in `HatchingStepView`
+    /// and `performManagedBootstrap` to ensure a clean retry after the user
+    /// re-checks consent. Persists the step write so a force-quit between the
+    /// bounce and the next consent re-check doesn't leave `onboarding.step`
+    /// pointing at the now-aborted hatch step.
+    func bounceToConsentStep() {
+        resetHatchTransientState()
+        currentStep = 3
+        if shouldPersist { persist() }
+    }
+
+    /// Clears the hatch-related transient state shared by `bounceToConsentStep()`
+    /// and `HatchingStepView.goBack()`. Both call sites need the same reset
+    /// before allowing a retry — without it, stale flags like `isManagedHatch`
+    /// can short-circuit `startHatching()` (e.g. skipping the CLI path).
+    /// Does NOT touch `hatchCompleted`, `hasHatched`, avatar traits, ToS/AI
+    /// consent, or any non-hatch credentials — see `resetForRetry()` for the
+    /// full reset.
+    func resetHatchTransientState() {
+        isHatching = false
+        isManagedHatch = false
+        hasExistingManagedAssistant = false
+        hatchFailed = false
+        hatchFailureReason = nil
+        hatchLogLines = []
+        hatchProgressTarget = 0.0
+        hatchProgressDisplay = 0.0
+        hatchStepLabel = nil
+        hatchTotalSteps = 1
+        hatchCurrentStep = 0
+        hatchProcessStarted = false
     }
 
     static func clearPersistedState() {

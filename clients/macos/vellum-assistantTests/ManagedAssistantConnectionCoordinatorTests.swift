@@ -2,6 +2,8 @@ import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 
+private let aiConsentMustNotBeClobberedMessage = "Managed coordinator must NOT clobber AI Data Sharing consent (Apple Guideline 5.1.2(i) — must remain user-controlled)"
+
 @MainActor
 final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
     private var tempDir: URL!
@@ -19,6 +21,10 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         defaultsSuiteName = "ManagedAssistantConnectionCoordinatorTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: defaultsSuiteName)
         defaults.removePersistentDomain(forName: defaultsSuiteName)
+        // Seed `true` so a regression that writes/removes aiDataConsent flips
+        // the AI-consent assertions in tests below. setUp runs after the
+        // per-test UUID suite is created, so each test sees a fresh seed.
+        defaults.set(true, forKey: "aiDataConsent")
     }
 
     override func tearDown() {
@@ -60,6 +66,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), aiConsentMustNotBeClobberedMessage)
         XCTAssertEqual(taggedAssistantId, assistant.id)
 
         let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
@@ -91,6 +98,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: "collectUsageData"))
         XCTAssertFalse(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), aiConsentMustNotBeClobberedMessage)
     }
 
     func testActivateNewManagedAssistantUsesCreatePath() async throws {
