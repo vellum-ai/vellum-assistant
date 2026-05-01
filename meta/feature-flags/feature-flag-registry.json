@@ -82,15 +82,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-managed-sidecar",
-      "scope": "assistant",
-      "key": "ces-managed-sidecar",
-      "label": "CES Managed Sidecar Transport",
-      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
-      "defaultEnabled": true
-    },
-    {
-<<<<<<< HEAD
       "id": "ces-credential-backend",
       "scope": "assistant",
       "key": "ces-credential-backend",
@@ -104,13 +95,14 @@
       "key": "referral-codes",
       "label": "Referral Codes",
       "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-=======
+      "defaultEnabled": true
+    },
+    {
       "id": "settings-billing",
       "scope": "client",
       "key": "settings-billing",
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
->>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {
@@ -154,19 +146,19 @@
       "defaultEnabled": false
     },
     {
-<<<<<<< HEAD
       "id": "show-thinking-blocks",
       "scope": "client",
       "key": "show-thinking-blocks",
       "label": "Show Thinking Blocks",
       "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-=======
+      "defaultEnabled": true
+    },
+    {
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
       "label": "Inline Skill Command Expansion",
       "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
->>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {
