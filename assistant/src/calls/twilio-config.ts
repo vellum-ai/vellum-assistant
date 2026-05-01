@@ -1,8 +1,4 @@
 import { loadConfig } from "../config/loader.js";
-import {
-  getPublicBaseUrl,
-  getTwilioRelayUrl,
-} from "../inbound/public-ingress-urls.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
@@ -14,8 +10,6 @@ export interface TwilioConfig {
   accountSid: string;
   authToken: string;
   phoneNumber: string;
-  webhookBaseUrl: string;
-  wssBaseUrl: string;
 }
 
 /**
@@ -39,19 +33,10 @@ export function resolveTwilioPhoneNumber(): string {
 }
 
 export async function getTwilioConfig(): Promise<TwilioConfig> {
-  const config = loadConfig();
-  const accountSid = config.twilio?.accountSid || "";
+  const accountSid = loadConfig().twilio?.accountSid || "";
   const authToken =
     (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || "";
   const phoneNumber = resolveTwilioPhoneNumber();
-  const webhookBaseUrl = getPublicBaseUrl(config);
-
-  let wssBaseUrl: string;
-  try {
-    wssBaseUrl = getTwilioRelayUrl(config);
-  } catch {
-    wssBaseUrl = "";
-  }
 
   if (!accountSid || !authToken) {
     throw new ConfigError(
@@ -64,5 +49,5 @@ export async function getTwilioConfig(): Promise<TwilioConfig> {
 
   log.debug("Twilio config loaded successfully");
 
-  return { accountSid, authToken, phoneNumber, webhookBaseUrl, wssBaseUrl };
+  return { accountSid, authToken, phoneNumber };
 }

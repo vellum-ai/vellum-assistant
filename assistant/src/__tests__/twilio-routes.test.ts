@@ -209,8 +209,6 @@ mock.module("../calls/twilio-config.js", () => ({
     accountSid: "AC_test",
     authToken: "test-auth-token-for-webhooks",
     phoneNumber: "+15550001111",
-    webhookBaseUrl: "https://test.example.com",
-    wssBaseUrl: "wss://test.example.com",
   }),
   resolveTwilioPhoneNumber: () => readMockTwilioPhoneNumber(),
 }));
