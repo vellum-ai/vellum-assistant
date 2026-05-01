@@ -97,22 +97,32 @@ export function sanitizeWebSocketCloseArgs(
   code?: number,
   reason?: string,
 ): { code: number; reason?: string } | undefined {
-  if (!isValidWebSocketCloseCode(code)) return undefined;
+  const safeCode = toSafeWebSocketCloseCode(code);
+  if (safeCode === undefined) return undefined;
 
   const sanitizedReason =
     typeof reason === "string" ? truncateCloseReason(reason) : undefined;
   return sanitizedReason === undefined
-    ? { code }
-    : { code, reason: sanitizedReason };
+    ? { code: safeCode }
+    : { code: safeCode, reason: sanitizedReason };
 }
 
-function isValidWebSocketCloseCode(code: number | undefined): code is number {
+function toSafeWebSocketCloseCode(
+  code: number | undefined,
+): number | undefined {
+  if (code === 1000) return code;
+  if (typeof code !== "number" || !Number.isInteger(code)) return undefined;
+  if (code >= 3000 && code <= 4999) return code;
+  if (isRemappableProtocolCloseCode(code)) return 3000 + code;
+  return undefined;
+}
+
+function isRemappableProtocolCloseCode(code: number): boolean {
   return (
-    code === 1000 ||
-    (typeof code === "number" &&
-      Number.isInteger(code) &&
-      code >= 3000 &&
-      code <= 4999)
+    code === 1001 ||
+    code === 1002 ||
+    code === 1003 ||
+    (code >= 1007 && code <= 1014)
   );
 }
 
