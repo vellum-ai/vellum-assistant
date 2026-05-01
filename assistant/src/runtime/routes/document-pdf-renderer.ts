@@ -12,15 +12,6 @@ import { marked } from "marked";
 import { importPlaywright } from "../../tools/browser/runtime-check.js";
 
 // ---------------------------------------------------------------------------
-// marked configuration
-// ---------------------------------------------------------------------------
-
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-});
-
-// ---------------------------------------------------------------------------
 // Print template
 // ---------------------------------------------------------------------------
 
@@ -161,7 +152,10 @@ export async function renderMarkdownToPDF(
   title: string,
   markdown: string,
 ): Promise<Buffer> {
-  const innerHtml = marked.parse(markdown) as string;
+  const innerHtml = marked.parse(markdown, {
+    gfm: true,
+    breaks: true,
+  }) as string;
   const fullHtml = wrapInPrintTemplate(title, innerHtml);
 
   const pw = await importPlaywright();
