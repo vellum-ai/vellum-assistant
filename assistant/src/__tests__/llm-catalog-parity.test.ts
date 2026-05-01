@@ -257,6 +257,7 @@ describe("LLM catalog parity: daemon vs client", () => {
       contextWindowTokens: 1048576,
       defaultContextWindowTokens: 200000,
       maxOutputTokens: 65536,
+      longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
   });

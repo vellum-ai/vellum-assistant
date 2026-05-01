@@ -216,15 +216,29 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBe(0.25 + 1.5);
     });
 
-    test("returns priced for gemini-2.5-pro", () => {
+    test("prices gemini-2.5-pro at the low-context tier through 200k input tokens", () => {
       const result = resolvePricing(
         "gemini",
         "gemini-2.5-pro",
-        1_000_000,
+        200_000,
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(1.25 + 10);
+      expect(result.estimatedCostUsd).toBe(0.25 + 10);
+    });
+
+    test("prices gemini-2.5-pro at the high-context tier above 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-2.5-pro",
+        200_001,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (200_001 / 1_000_000) * 2.5 + 15,
+        10,
+      );
     });
 
     test("returns priced for gemini-2.5-flash", () => {
@@ -346,7 +360,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(1.25 + 10);
+      expect(result.estimatedCostUsd).toBe(2.5 + 15);
     });
   });
 
@@ -477,7 +491,7 @@ describe("resolvePricingForUsage", () => {
       ["gemini-3.1-flash-lite-preview", 0.025],
       ["gemini-2.5-flash", 0.03],
       ["gemini-2.5-flash-lite", 0.01],
-      ["gemini-2.5-pro", 0.3125],
+      ["gemini-2.5-pro", 0.625],
     ] as const;
 
     for (const [model, expectedCost] of cases) {

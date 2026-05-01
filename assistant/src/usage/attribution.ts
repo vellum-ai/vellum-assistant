@@ -67,8 +67,11 @@ export function resolveUsageAttribution(
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
   const activeProfile = normalizeProfileId(llm.activeProfile);
-  const callSiteProfile = normalizeProfileId(llm.callSites?.[callSite]?.profile);
+  const callSiteProfile = normalizeProfileId(
+    llm.callSites?.[callSite]?.profile,
+  );
   const profile = resolveAppliedProfile({
+    callSite,
     profiles: llm.profiles ?? {},
     activeProfile,
     overrideProfile,
@@ -88,11 +91,49 @@ export function resolveUsageAttribution(
 }
 
 function resolveAppliedProfile(input: {
+  callSite: LLMCallSite;
   profiles: Record<string, unknown>;
   activeProfile: string | null;
   overrideProfile: string | null;
   callSiteProfile: string | null;
 }): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
+  if (input.callSite === "mainAgent") {
+    if (
+      input.overrideProfile != null &&
+      input.profiles[input.overrideProfile] != null
+    ) {
+      return {
+        appliedProfile: input.overrideProfile,
+        profileSource: "conversation",
+      };
+    }
+
+    if (
+      input.activeProfile != null &&
+      input.profiles[input.activeProfile] != null
+    ) {
+      return {
+        appliedProfile: input.activeProfile,
+        profileSource: "active",
+      };
+    }
+
+    if (
+      input.callSiteProfile != null &&
+      input.profiles[input.callSiteProfile] != null
+    ) {
+      return {
+        appliedProfile: input.callSiteProfile,
+        profileSource: "call_site",
+      };
+    }
+
+    return {
+      appliedProfile: null,
+      profileSource: "default",
+    };
+  }
+
   if (
     input.callSiteProfile != null &&
     input.profiles[input.callSiteProfile] != null

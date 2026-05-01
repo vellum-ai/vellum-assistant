@@ -60,9 +60,10 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
 
     if (readObject(callSites.mainAgent) !== null) return;
 
-    // maxTokens: 32000 matches Opus's maxOutputTokens (see
-    // model-catalog.ts); without it the site would inherit the
-    // default's 64000 and overshoot the model capability.
+    // Historical seed: at the time this migration shipped, Opus's standard
+    // output cap was 32k and this avoided inheriting a too-large default.
+    // The resolver now lets active/conversation profiles override this static
+    // mainAgent default.
     callSites.mainAgent = { model: "claude-opus-4-7", maxTokens: 32000 };
     llm.callSites = callSites;
     config.llm = llm;

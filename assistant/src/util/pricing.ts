@@ -142,6 +142,14 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
       inputPer1M: 1.25,
       outputPer1M: 10,
       cacheReadPer1M: 0.3125,
+      tiers: [
+        {
+          inputTokenThreshold: 200_000,
+          inputPer1M: 2.5,
+          outputPer1M: 15,
+          cacheReadPer1M: 0.625,
+        },
+      ],
     },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },

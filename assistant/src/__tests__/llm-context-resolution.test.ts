@@ -51,7 +51,7 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.isLongContextEnabled).toBe(false);
   });
 
-  test("call-site profile context override beats active profile", () => {
+  test("main agent active profile context override beats call-site profile defaults", () => {
     const llm = LLMSchema.parse({
       default: {
         provider: "openai",
@@ -79,11 +79,39 @@ describe("resolveEffectiveContextWindow", () => {
       callSite: "mainAgent",
     });
 
-    expect(resolved.maxInputTokens).toBe(175000);
+    expect(resolved.maxInputTokens).toBe(150000);
     expect(resolved.compactThreshold).toBe(0.8);
     expect(resolved.summaryBudgetRatio).toBe(0.05);
     expect(resolved.targetBudgetRatio).toBe(0.3);
     expect(resolved.overflowRecovery.maxAttempts).toBe(3);
+  });
+
+  test("non-main call-site profile context override beats active profile", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+      profiles: {
+        active: {
+          contextWindow: { maxInputTokens: 150000 },
+        },
+        site: {
+          contextWindow: { maxInputTokens: 175000 },
+        },
+      },
+      activeProfile: "active",
+      callSites: {
+        memoryExtraction: { profile: "site" },
+      },
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "memoryExtraction",
+    });
+
+    expect(resolved.maxInputTokens).toBe(175000);
   });
 
   test("unknown catalog model falls back safely to the default 200k cap", () => {

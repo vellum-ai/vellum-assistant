@@ -12,12 +12,23 @@ import {
  * call-site overrides, optional per-call profile, an optional ad-hoc override
  * profile, the workspace's active profile, and the required `llm.default`.
  *
- * Merge layers (low → high precedence; later layers override earlier):
+ * Merge layers (low → high precedence; later layers override earlier) for
+ * non-main-agent call sites:
  *   1. `llm.default` fields (required base)
  *   2. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
  *   3. `llm.profiles[opts.overrideProfile]` (per-call ad-hoc override)
  *   4. `llm.profiles[site.profile]` fields (call-site's named profile)
  *   5. `llm.callSites[callSite]` fields (call-site override)
+ *
+ * For `mainAgent`, the selected active/conversation profile is the direct
+ * user intent for the chat loop, so profile layers intentionally sit above
+ * any static `llm.callSites.mainAgent` defaults seeded by migrations or UI
+ * settings:
+ *   1. `llm.default`
+ *   2. `llm.profiles[site.profile]`
+ *   3. `llm.callSites.mainAgent`
+ *   4. `llm.profiles[llm.activeProfile]`
+ *   5. `llm.profiles[opts.overrideProfile]`
  *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
@@ -38,25 +49,48 @@ export function resolveCallSiteConfig(
 ): z.infer<typeof LLMConfigBase> {
   const layers: Mergeable[] = [llm.default as Mergeable];
 
-  // Layer: workspace-wide active profile. Silent fall-through on missing key
-  // — schema validation in LLMSchema.superRefine catches static references.
   const activeFragment =
     llm.activeProfile != null ? llm.profiles?.[llm.activeProfile] : undefined;
-  if (activeFragment != null) {
-    layers.push(profileConfigFragment(activeFragment));
-  }
-
-  // Layer: per-call ad-hoc override (e.g. a chat conversation's pinned
-  // profile). Silent fall-through on missing key keeps the resolver pure.
   const overrideFragment =
     opts.overrideProfile != null
       ? llm.profiles?.[opts.overrideProfile]
       : undefined;
-  if (overrideFragment != null) {
-    layers.push(profileConfigFragment(overrideFragment));
+  const site = llm.callSites?.[callSite];
+
+  if (callSite === "mainAgent") {
+    appendCallSiteLayers(layers, callSite, llm, site);
+    appendProfileLayer(layers, activeFragment);
+    appendProfileLayer(layers, overrideFragment);
+  } else {
+    appendProfileLayer(layers, activeFragment);
+    appendProfileLayer(layers, overrideFragment);
+    appendCallSiteLayers(layers, callSite, llm, site);
   }
 
-  const site = llm.callSites?.[callSite];
+  return finalize(deepMerge(...layers));
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+type Mergeable = Record<string, unknown>;
+
+function appendProfileLayer(
+  layers: Mergeable[],
+  profile: ProfileEntry | undefined,
+): void {
+  if (profile != null) {
+    layers.push(profileConfigFragment(profile));
+  }
+}
+
+function appendCallSiteLayers(
+  layers: Mergeable[],
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  site: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined,
+): void {
   if (site != null) {
     if (site.profile != null) {
       const profileFragment: ProfileEntry | undefined =
@@ -77,15 +111,7 @@ export function resolveCallSiteConfig(
     const { profile: _profile, ...siteFragment } = site;
     layers.push(siteFragment as Mergeable);
   }
-
-  return finalize(deepMerge(...layers));
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-type Mergeable = Record<string, unknown>;
 
 function profileConfigFragment(profile: ProfileEntry): Mergeable {
   const {

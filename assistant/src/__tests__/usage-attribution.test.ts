@@ -29,13 +29,9 @@ function expectResolvedProviderModelMatchesResolver(
     callSite,
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
-  const resolved = resolveCallSiteConfig(
-    callSite,
-    mockLlmConfig as LLMConfig,
-    {
-      ...(overrideProfile != null ? { overrideProfile } : {}),
-    },
-  );
+  const resolved = resolveCallSiteConfig(callSite, mockLlmConfig as LLMConfig, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+  });
 
   expect(snapshot.resolvedProvider).toBe(resolved.provider);
   expect(snapshot.resolvedModel).toBe(resolved.model);
@@ -148,6 +144,40 @@ describe("resolveUsageAttribution", () => {
       resolvedModel: "accounts/fireworks/models/kimi-k2",
     });
     expectResolvedProviderModelMatchesResolver("memoryRetrieval", "pinned");
+  });
+
+  test("attributes mainAgent to conversation profile over call-site profile", () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        active: { provider: "openai", model: "gpt-5.4" },
+        pinned: { provider: "gemini", model: "gemini-2.5-pro" },
+        site: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/kimi-k2p5",
+        },
+      },
+      activeProfile: "active",
+      callSites: {
+        mainAgent: { profile: "site" },
+      },
+    });
+
+    const snapshot = resolveUsageAttribution({
+      callSite: "mainAgent",
+      overrideProfile: "pinned",
+    });
+
+    expect(snapshot).toMatchObject({
+      activeProfile: "active",
+      overrideProfile: "pinned",
+      callSiteProfile: "site",
+      appliedProfile: "pinned",
+      profileSource: "conversation",
+      resolvedProvider: "gemini",
+      resolvedModel: "gemini-2.5-pro",
+    });
+    expectResolvedProviderModelMatchesResolver("mainAgent", "pinned");
   });
 
   test("uses explicit call-site provider and model overrides in resolved metadata", () => {
