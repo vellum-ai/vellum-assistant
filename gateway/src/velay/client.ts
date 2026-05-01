@@ -186,12 +186,6 @@ export class VelayTunnelClient {
       this.scheduleReconnect();
       return;
     }
-    if (!platformAssistantId) {
-      this.connecting = false;
-      log.info("Velay tunnel waiting for platform assistant ID");
-      this.scheduleReconnect();
-      return;
-    }
     const expectedAssistantId = platformAssistantId;
 
     let registerUrl: string;
@@ -249,7 +243,7 @@ export class VelayTunnelClient {
   private async handleMessage(
     data: unknown,
     originWs: WebSocket,
-    platformAssistantId: string,
+    platformAssistantId: string | undefined,
   ): Promise<void> {
     if (this.ws !== originWs || !this.running) return;
 
@@ -279,9 +273,9 @@ export class VelayTunnelClient {
   private async handleRegisteredFrame(
     frame: VelayRegisteredFrame,
     originWs: WebSocket,
-    platformAssistantId: string,
+    platformAssistantId: string | undefined,
   ): Promise<void> {
-    if (frame.assistant_id !== platformAssistantId) {
+    if (platformAssistantId && frame.assistant_id !== platformAssistantId) {
       log.error(
         {
           expectedAssistantId: platformAssistantId,

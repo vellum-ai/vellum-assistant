@@ -221,9 +221,12 @@ describe("VelayTunnelClient", () => {
     await client.stop();
   });
 
-  test("retries without opening a socket when the platform assistant ID is missing", async () => {
+  test("opens a socket and registers when the platform assistant ID is missing", async () => {
     const sockets: FakeWebSocket[] = [];
     const reconnectDelays: number[] = [];
+    writeConfig({
+      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+    });
     const client = makeClient({
       sockets,
       reconnectDelays,
@@ -235,8 +238,24 @@ describe("VelayTunnelClient", () => {
     client.start();
     await flushPromises();
 
-    expect(sockets).toHaveLength(0);
-    expect(reconnectDelays).toEqual([10]);
+    expect(sockets).toHaveLength(1);
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-from-velay",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([]);
+    expect(reconnectDelays).toEqual([]);
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public.example.test/",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
     await client.stop();
   });
 

@@ -164,4 +164,21 @@ describe("Twilio webhook sync config-change triggers", () => {
     expect(isOnlyVelayTwilioIngressChange(event)).toBe(true);
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(false);
   });
+
+  test("syncs when Twilio phone configuration becomes available", () => {
+    const event = makeEvent(["twilio"], {
+      twilio: ["phoneNumber", "accountSid"],
+    });
+
+    expect(isOnlyVelayTwilioIngressChange(event)).toBe(false);
+    expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
+  });
+
+  test("does not sync when unrelated Twilio configuration changes", () => {
+    const event = makeEvent(["twilio"], {
+      twilio: ["assistantPhoneNumbers"],
+    });
+
+    expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(false);
+  });
 });
