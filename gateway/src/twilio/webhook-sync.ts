@@ -4,12 +4,13 @@ import {
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { updatePhoneNumberWebhooks } from "@vellumai/twilio-client";
 
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
+import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
-import { updatePhoneNumberWebhooks } from "./rest.js";
 
 const log = getLogger("twilio-webhook-sync");
 
@@ -77,19 +78,14 @@ export async function syncConfiguredTwilioPhoneNumberWebhooks(
     }
 
     const urls = buildWebhookUrls(baseUrl);
-    const updated = await updatePhoneNumberWebhooks(
+    await updatePhoneNumberWebhooks({
       accountSid,
       authToken,
+      fetchImpl,
       phoneNumber,
-      urls,
-    );
-    if (!updated) {
-      log.warn(
-        { phoneNumber },
-        "Skipping Twilio webhook sync because configured phone number could not be updated",
-      );
-      return;
-    }
+      timeoutMs: 10_000,
+      webhooks: urls,
+    });
 
     log.info(
       {
