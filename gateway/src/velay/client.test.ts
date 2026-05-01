@@ -47,9 +47,36 @@ function makeCredentials(values: Record<string, string | undefined>) {
 }
 
 function makeConfigFileCache(invalidations: { count: number }) {
+  const invalidateCallbacks = new Set<() => void>();
   return {
+    getBoolean: (section: string, key: string) => {
+      let sectionValue: unknown;
+      try {
+        sectionValue = readConfig()[section];
+      } catch {
+        return undefined;
+      }
+      if (
+        !sectionValue ||
+        typeof sectionValue !== "object" ||
+        Array.isArray(sectionValue)
+      ) {
+        return undefined;
+      }
+      const value = (sectionValue as Record<string, unknown>)[key];
+      return typeof value === "boolean" ? value : undefined;
+    },
     invalidate: () => {
       invalidations.count++;
+      for (const callback of invalidateCallbacks) {
+        callback();
+      }
+    },
+    onInvalidate: (callback: () => void) => {
+      invalidateCallbacks.add(callback);
+      return () => {
+        invalidateCallbacks.delete(callback);
+      };
     },
   } as unknown as ConfigFileCache;
 }
@@ -255,6 +282,137 @@ describe("VelayTunnelClient", () => {
       existing: { preserved: true },
     });
     expect(invalidations.count).toBe(1);
+  });
+
+  test("waits without connecting when public ingress is disabled", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile: makeConfigFileCache(invalidations),
+    });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(0);
+    expect(reconnectDelays).toEqual([10]);
+    expect(readConfig()).toEqual({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(1);
+    await client.stop();
+  });
+
+  test("closes without publishing when public ingress is disabled after connecting", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile: makeConfigFileCache(invalidations),
+    });
+
+    client.start();
+    await flushPromises();
+    expect(sockets).toHaveLength(1);
+
+    writeConfig({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "public ingress disabled" },
+    ]);
+    expect(reconnectDelays).toEqual([10]);
+    expect(readConfig()).toEqual({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(0);
+  });
+
+  test("closes and clears a published URL when public ingress is disabled while connected", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    const configFile = makeConfigFileCache(invalidations);
+    writeConfig({
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile,
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    writeConfig({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public.example.test/",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
+    configFile.invalidate();
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "public ingress disabled" },
+    ]);
+    expect(reconnectDelays).toEqual([10]);
+    expect(readConfig()).toEqual({
+      ingress: {
+        enabled: false,
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(3);
   });
 
   test("rejects registration when Velay returns a different assistant ID", async () => {
