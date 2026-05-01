@@ -11,7 +11,7 @@ import {
   type Species,
 } from "../lib/constants";
 import { loadGuardianToken } from "../lib/guardian-token";
-import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
+import { getLocalLanIPv4 } from "../lib/local";
 import { tuiLog } from "../lib/tui-log";
 
 const ANSI = {
@@ -139,11 +139,6 @@ function maybeSwapToLocalhost(url: string): string {
     if (host.toLowerCase().endsWith(".local")) {
       localNames.push(host.toLowerCase().slice(0, -".local".length));
     }
-  }
-
-  const macHost = getMacLocalHostname();
-  if (macHost) {
-    localNames.push(macHost.toLowerCase());
   }
 
   const lanIp = getLocalLanIPv4();
