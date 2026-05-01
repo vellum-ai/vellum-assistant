@@ -55,11 +55,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
