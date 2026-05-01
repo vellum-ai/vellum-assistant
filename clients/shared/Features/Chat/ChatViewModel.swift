@@ -1520,7 +1520,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     // MARK: - Actions
 
     public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
-        guard let conversationId else { return }
         Task {
             await surfaceActionClient.sendSurfaceAction(
                 conversationId: conversationId,
