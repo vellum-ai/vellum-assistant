@@ -42,15 +42,6 @@ export function isCredentialMetadataArchivePath(archivePath: string): boolean {
   return archivePath === CREDENTIAL_METADATA_ARCHIVE_PATH;
 }
 
-export function isCarryForwardRelPath(relPath: string): boolean {
-  return WORKSPACE_PRESERVE_PATHS.includes(relPath);
-}
-
-export interface WorkspacePreserveSkipDirs {
-  topLevelSkipDirs: ReadonlySet<string>;
-  dataSubdirSkipDirs: ReadonlySet<string>;
-}
-
 /**
  * Partition `WORKSPACE_PRESERVE_PATHS` into the two skip sets the buffer
  * importer's selective-clear loop consumes:
@@ -66,7 +57,10 @@ export interface WorkspacePreserveSkipDirs {
  * arbitrary subdirs. If a future preserve-path needs deeper coverage,
  * widen this helper and the buffer importer's walk together.
  */
-export function partitionWorkspacePreserveSkipDirs(): WorkspacePreserveSkipDirs {
+export function partitionWorkspacePreserveSkipDirs(): {
+  topLevelSkipDirs: ReadonlySet<string>;
+  dataSubdirSkipDirs: ReadonlySet<string>;
+} {
   const topLevelSkipDirs = new Set<string>();
   const dataSubdirSkipDirs = new Set<string>();
   for (const rel of WORKSPACE_PRESERVE_PATHS) {
