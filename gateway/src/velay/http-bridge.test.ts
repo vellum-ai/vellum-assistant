@@ -163,6 +163,17 @@ describe("Velay HTTP bridge", () => {
     });
   });
 
+
+  test("rejects non-Twilio paths without contacting the loopback listener", async () => {
+    const response = await bridgeVelayHttpRequest(
+      makeFrame({ path: "/v1/guardian/init" }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status_code).toBe(502);
+  });
+
   test("rejects unsafe absolute paths without contacting the loopback listener", async () => {
     fetchMock = mock(async () => {
       throw new Error("should not fetch");

@@ -6,6 +6,15 @@ import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
+
+const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
+
+export function isAllowedVelayHttpPath(path: string): boolean {
+  return VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
+    path.startsWith(prefix),
+  );
+}
+
 export function isSafeOriginRelativePath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("?") || path.includes("#")) {
@@ -29,7 +38,9 @@ export function buildLoopbackHttpUrl(
   path: string,
   rawQuery?: string,
 ): string | undefined {
-  if (!isSafeOriginRelativePath(path)) return undefined;
+  if (!isSafeOriginRelativePath(path) || !isAllowedVelayHttpPath(path)) {
+    return undefined;
+  }
   return buildUpstreamUrl(
     gatewayLoopbackBaseUrl,
     path,
