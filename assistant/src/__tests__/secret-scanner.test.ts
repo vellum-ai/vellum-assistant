@@ -663,6 +663,17 @@ describe("generic secret non-literal suppression", () => {
       false,
     );
   });
+
+  test("_isNonLiteralGenericValue: dollar-prefixed passwords return false", () => {
+    expect(_isNonLiteralGenericValue("$uperSecret123")).toBe(false);
+    expect(_isNonLiteralGenericValue("$4ltyP4ssw0rd!")).toBe(false);
+    expect(_isNonLiteralGenericValue("$ecretValue!@#")).toBe(false);
+  });
+
+  test("still flags dollar-prefixed passwords after credential keyword", () => {
+    expectMatch("password=$uperSecret123", "Generic Secret Assignment");
+    expectMatch("password=$4ltyP4ssw0rd!", "Generic Secret Assignment");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -232,7 +232,10 @@ function isNonLiteralGenericValue(value: string): boolean {
   if (/^\$\{\{.*\}\}$/s.test(value)) return true;
 
   // Shell / env variable references: $GITHUB_TOKEN, ${DB_PASSWORD}
-  if (/^\$\w/.test(value) || /^\$\{[^}]+\}$/.test(value)) return true;
+  // Requires valid POSIX variable name (letter/underscore start, word chars only)
+  // to avoid suppressing passwords like $uperSecret123 or $4ltyP4ssw0rd!
+  if (/^\$[A-Za-z_]\w*$/.test(value) || /^\$\{[^}]+\}$/.test(value))
+    return true;
 
   // UUIDs: generated identifiers, not credential values
   // (Heroku-style UUID credentials are already handled by their own keyword-gated pattern.)
