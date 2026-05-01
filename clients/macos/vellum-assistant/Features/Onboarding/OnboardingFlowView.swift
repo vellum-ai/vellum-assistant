@@ -23,6 +23,10 @@ struct OnboardingFlowView: View {
         NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
+    }
+
     private var preChatOnboardingEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("onboarding-pre-chat")
     }
@@ -275,13 +279,9 @@ struct OnboardingFlowView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
-                    if preChatOnboardingEnabled {
-                        PreChatOnboardingState.clearPersistedState()
-                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-                            isShowingPreChat = true
-                        }
-                    } else {
-                        onComplete()
+                    PreChatOnboardingState.clearPersistedState()
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        isShowingPreChat = true
                     }
                 }
             }
