@@ -65,6 +65,11 @@ public struct LLMModelEntry: Decodable {
     public let displayName: String
     /// Maximum context window in tokens. Optional — omitted when unknown.
     public let contextWindowTokens: Int?
+    /// Conservative default context budget in tokens. Optional — callers
+    /// should fall back to their schema default when omitted.
+    public let defaultContextWindowTokens: Int?
+    /// Token threshold where the provider may apply long-context pricing.
+    public let longContextPricingThresholdTokens: Int?
     /// Maximum output tokens per response. Optional — omitted when unknown.
     public let maxOutputTokens: Int?
     /// Whether the model supports extended thinking / reasoning.
@@ -82,6 +87,8 @@ public struct LLMModelEntry: Decodable {
         id: String,
         displayName: String,
         contextWindowTokens: Int? = nil,
+        defaultContextWindowTokens: Int? = nil,
+        longContextPricingThresholdTokens: Int? = nil,
         maxOutputTokens: Int? = nil,
         supportsThinking: Bool? = nil,
         supportsCaching: Bool? = nil,
@@ -92,6 +99,8 @@ public struct LLMModelEntry: Decodable {
         self.id = id
         self.displayName = displayName
         self.contextWindowTokens = contextWindowTokens
+        self.defaultContextWindowTokens = defaultContextWindowTokens
+        self.longContextPricingThresholdTokens = longContextPricingThresholdTokens
         self.maxOutputTokens = maxOutputTokens
         self.supportsThinking = supportsThinking
         self.supportsCaching = supportsCaching
@@ -242,24 +251,31 @@ private let fallbackCatalog = LLMProviderCatalog(
                     id: "claude-opus-4-7",
                     displayName: "Claude Opus 4.7",
                     contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "claude-opus-4-6",
                     displayName: "Claude Opus 4.6",
                     contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "claude-sonnet-4-6",
                     displayName: "Claude Sonnet 4.6",
                     contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
                     maxOutputTokens: 64_000
                 ),
                 LLMModelEntry(
                     id: "claude-haiku-4-5-20251001",
                     displayName: "Claude Haiku 4.5",
                     contextWindowTokens: 200_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 64_000
                 ),
             ]
@@ -283,30 +299,35 @@ private let fallbackCatalog = LLMProviderCatalog(
                     id: "gpt-5.5",
                     displayName: "GPT-5.5",
                     contextWindowTokens: 1_050_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "gpt-5.4",
                     displayName: "GPT-5.4",
                     contextWindowTokens: 1_050_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "gpt-5.2",
                     displayName: "GPT-5.2",
                     contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "gpt-5.4-mini",
                     displayName: "GPT-5.4 Mini",
                     contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
                 LLMModelEntry(
                     id: "gpt-5.4-nano",
                     displayName: "GPT-5.4 Nano",
                     contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
                     maxOutputTokens: 128_000
                 ),
             ]

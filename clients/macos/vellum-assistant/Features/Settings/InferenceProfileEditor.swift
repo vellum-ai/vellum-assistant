@@ -4,8 +4,8 @@ import VellumAssistantShared
 /// Form view that edits a single `InferenceProfile` fragment. Mirrors the
 /// daemon's `LLMConfigFragment` shape — see `assistant/src/config/schemas/
 /// llm.ts` — exposing the leaves the macOS UI cares about: provider, model,
-/// maxTokens (maximum output tokens), effort, speed, verbosity, temperature,
-/// and the two `thinking` sub-fields.
+/// maxTokens (maximum output tokens), contextWindow.maxInputTokens, effort,
+/// speed, verbosity, temperature, and the two `thinking` sub-fields.
 ///
 /// State ownership:
 /// - Edits flow through `@Binding var profile`, so the parent (the
@@ -55,6 +55,15 @@ struct InferenceProfileEditor: View {
     /// Keep the slider range positive to match the daemon schema.
     static let minSliderMaxOutputTokens: Int = 1
     static let maxOutputTokensStep: Double = 1_000
+
+    /// Conservative inherited context-window budget for profiles that do
+    /// not opt into a larger/smaller explicit value. Mirrors the daemon's
+    /// current default.
+    static let defaultContextWindowTokens: Int = 200_000
+
+    /// Keep the slider range positive to match the daemon schema.
+    static let minSliderContextWindowTokens: Int = 1
+    static let contextWindowTokensStep: Double = 50_000
 
     /// Tracks whether the user has manually edited the Key field. When
     /// false, the key auto-derives from the Display Name as kebab-case.
@@ -120,6 +129,7 @@ struct InferenceProfileEditor: View {
                     if visibility.maxTokens {
                         maxTokensField
                     }
+                    contextWindowField
                     if visibility.effort {
                         effortField
                     }
@@ -311,6 +321,7 @@ struct InferenceProfileEditor: View {
                             profile.model = nil
                         }
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
+                        Self.clampContextWindowForSelectedModel(&profile)
                     }
                 ),
                 options: store.dynamicProviderIds.map { provider in
@@ -342,6 +353,7 @@ struct InferenceProfileEditor: View {
                     set: { newValue in
                         profile.model = newValue.isEmpty ? nil : newValue
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
+                        Self.clampContextWindowForSelectedModel(&profile)
                     }
                 ),
                 options: models.map { model in
@@ -382,6 +394,56 @@ struct InferenceProfileEditor: View {
             .disabled(limit == nil)
             .help(limit == nil ? "Max output token metadata is unavailable for this model." : "Maximum tokens the model may generate in one response.")
             .accessibilityLabel("Max output tokens")
+            .accessibilityValue(Self.formattedTokenCount(value))
+        }
+    }
+
+    private var contextWindowField: some View {
+        let model = selectedModelEntry
+        let limit = model?.contextWindowTokens
+        let value = Self.contextWindowSliderValue(
+            maxInputTokens: profile.contextWindowMaxInputTokens,
+            model: model
+        )
+        let upperBound = Self.contextWindowSliderUpperBound(value: value, limit: limit)
+
+        return labeled(
+            "Context Window",
+            spacing: VSpacing.sm,
+            accessory: {
+                Spacer(minLength: 0)
+                Text(contextWindowAccessoryText(value: value, model: model))
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        ) {
+            VSlider(
+                value: Binding(
+                    get: {
+                        Double(Self.contextWindowSliderValue(
+                            maxInputTokens: profile.contextWindowMaxInputTokens,
+                            model: model
+                        ))
+                    },
+                    set: { newValue in
+                        guard let limit else { return }
+                        profile.contextWindowMaxInputTokens = Self.clampedContextWindowTokens(
+                            Int(newValue.rounded()),
+                            limit: limit
+                        )
+                    }
+                ),
+                range: Double(Self.minSliderContextWindowTokens)...Double(upperBound),
+                step: Self.contextWindowTokensStep,
+                showTickMarks: true
+            )
+            .disabled(limit == nil)
+            .help(
+                limit == nil
+                    ? "Context window metadata is unavailable for this model."
+                    : "Maximum input tokens the assistant may keep in context."
+            )
+            .accessibilityLabel("Context window")
             .accessibilityValue(Self.formattedTokenCount(value))
         }
     }
@@ -499,7 +561,11 @@ struct InferenceProfileEditor: View {
         Self.maxOutputTokenLimit(provider: profile.provider, model: profile.model)
     }
 
-    static func maxOutputTokenLimit(provider rawProvider: String?, model rawModel: String?) -> Int? {
+    var selectedModelEntry: LLMModelEntry? {
+        Self.modelEntry(provider: profile.provider, model: profile.model)
+    }
+
+    static func modelEntry(provider rawProvider: String?, model rawModel: String?) -> LLMModelEntry? {
         guard
             let provider = rawProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
             !provider.isEmpty,
@@ -508,7 +574,11 @@ struct InferenceProfileEditor: View {
         else {
             return nil
         }
-        return LLMProviderRegistry.model(provider: provider, id: model)?.maxOutputTokens
+        return LLMProviderRegistry.model(provider: provider, id: model)
+    }
+
+    static func maxOutputTokenLimit(provider rawProvider: String?, model rawModel: String?) -> Int? {
+        modelEntry(provider: rawProvider, model: rawModel)?.maxOutputTokens
     }
 
     static func maxOutputSliderValue(maxTokens: Int?, limit: Int?) -> Int {
@@ -535,6 +605,42 @@ struct InferenceProfileEditor: View {
         profile.maxTokens = clampedMaxOutputTokens(current, limit: limit)
     }
 
+    static func contextWindowTokenLimit(provider rawProvider: String?, model rawModel: String?) -> Int? {
+        modelEntry(provider: rawProvider, model: rawModel)?.contextWindowTokens
+    }
+
+    static func effectiveDefaultContextWindowTokens(model: LLMModelEntry?) -> Int {
+        let defaultTokens = max(model?.defaultContextWindowTokens ?? defaultContextWindowTokens, 1)
+        guard let limit = model?.contextWindowTokens else {
+            return defaultTokens
+        }
+        return clampedContextWindowTokens(defaultTokens, limit: limit)
+    }
+
+    static func contextWindowSliderValue(maxInputTokens: Int?, model: LLMModelEntry?) -> Int {
+        let value = max(maxInputTokens ?? effectiveDefaultContextWindowTokens(model: model), 1)
+        guard let limit = model?.contextWindowTokens else { return value }
+        return clampedContextWindowTokens(value, limit: limit)
+    }
+
+    static func contextWindowSliderUpperBound(value: Int, limit: Int?) -> Int {
+        max(minSliderContextWindowTokens, limit ?? max(value, defaultContextWindowTokens))
+    }
+
+    static func clampedContextWindowTokens(_ value: Int, limit: Int) -> Int {
+        min(max(value, 1), limit)
+    }
+
+    static func clampContextWindowForSelectedModel(_ profile: inout InferenceProfile) {
+        guard
+            let current = profile.contextWindowMaxInputTokens,
+            let limit = contextWindowTokenLimit(provider: profile.provider, model: profile.model)
+        else {
+            return
+        }
+        profile.contextWindowMaxInputTokens = clampedContextWindowTokens(current, limit: limit)
+    }
+
     static func formattedTokenCount(_ tokens: Int) -> String {
         guard tokens >= 1_000 else { return "\(tokens)" }
         return "\(Int((Double(tokens) / 1_000).rounded()))K"
@@ -548,9 +654,22 @@ struct InferenceProfileEditor: View {
         return "\(valueText) / \(Self.formattedTokenCount(limit)) max"
     }
 
+    private func contextWindowAccessoryText(value: Int, model: LLMModelEntry?) -> String {
+        let valueText = Self.formattedTokenCount(value)
+        guard let limit = model?.contextWindowTokens else {
+            return "\(valueText) · catalog limit unavailable"
+        }
+        var text = "\(valueText) / \(Self.formattedTokenCount(limit)) max"
+        if let threshold = model?.longContextPricingThresholdTokens, value > threshold {
+            text += " · long-context pricing"
+        }
+        return text
+    }
+
     private func saveVisibleProfile() {
         var visibleProfile = parameterVisibility.sanitized(profile)
         Self.clampMaxOutputTokensForSelectedModel(&visibleProfile)
+        Self.clampContextWindowForSelectedModel(&visibleProfile)
         profile = visibleProfile
         onSave()
     }
