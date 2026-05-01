@@ -21,6 +21,7 @@ import {
 } from "./protocol.js";
 
 const MAX_PENDING_MESSAGES = 100;
+const textFrameDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 type PendingMessage = string | Uint8Array;
 
@@ -293,7 +294,7 @@ function decodeVelayMessage(
   if (bytes === undefined) return undefined;
 
   if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.text) {
-    return new TextDecoder().decode(bytes);
+    return textFrameDecoder.decode(bytes);
   }
   if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.binary) {
     return bytes;

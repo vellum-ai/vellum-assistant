@@ -7,60 +7,10 @@ import {
   type VelayFrame,
   type VelayWebSocketOpenFrame,
 } from "./protocol.js";
+import { FakeWebSocket } from "./test-fake-websocket.js";
 import { VelayWebSocketBridge } from "./websocket-bridge.js";
 
-const WS_CONNECTING = WebSocket.CONNECTING;
 const WS_OPEN = WebSocket.OPEN;
-const WS_CLOSED = WebSocket.CLOSED;
-
-type Listener = (event?: unknown) => void;
-
-class FakeWebSocket {
-  static CONNECTING = WS_CONNECTING;
-  static OPEN = WS_OPEN;
-  static CLOSING = 2;
-  static CLOSED = WS_CLOSED;
-
-  binaryType: BinaryType = "blob";
-  readyState: number = WS_CONNECTING;
-  sent: (string | Uint8Array)[] = [];
-  closes: { code?: number; reason?: string }[] = [];
-  private readonly listeners = new Map<string, Listener[]>();
-
-  addEventListener(type: string, listener: Listener): void {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  send(message: string | Uint8Array): void {
-    this.sent.push(message);
-  }
-
-  close(code?: number, reason?: string): void {
-    if (
-      code !== undefined &&
-      code !== 1000 &&
-      (!Number.isInteger(code) || code < 3000 || code > 4999)
-    ) {
-      throw new Error("invalid close code");
-    }
-    if (
-      reason !== undefined &&
-      new TextEncoder().encode(reason).byteLength > 123
-    ) {
-      throw new Error("invalid close reason");
-    }
-    this.readyState = WS_CLOSED;
-    this.closes.push({ code, reason });
-  }
-
-  emit(type: string, event: unknown = {}): void {
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
-    }
-  }
-}
 
 const OriginalWebSocket = globalThis.WebSocket;
 let fakeSocket: FakeWebSocket;
@@ -69,7 +19,7 @@ let bridge: VelayWebSocketBridge;
 let WebSocketMock: ReturnType<typeof mock>;
 
 beforeEach(() => {
-  fakeSocket = new FakeWebSocket();
+  fakeSocket = new FakeWebSocket("", undefined, { validateReason: true });
   sentFrames = [];
   WebSocketMock = mock(() => fakeSocket);
   Object.assign(WebSocketMock, FakeWebSocket);
@@ -177,6 +127,21 @@ describe("VelayWebSocketBridge", () => {
     });
 
     expect(fakeSocket.sent).toEqual(['{"event":"start"}']);
+  });
+
+  test("preserves leading UTF-8 BOM bytes in Velay text frames", () => {
+    bridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+
+    bridge.message({
+      type: VELAY_FRAME_TYPES.websocketMessage,
+      connection_id: "conn-123",
+      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+      body_base64: base64(new Uint8Array([0xef, 0xbb, 0xbf, 0x68, 0x69])),
+    });
+
+    expect(fakeSocket.sent).toEqual(["\ufeffhi"]);
   });
 
   test("forwards local text frames back to Velay as websocket_message frames", async () => {
