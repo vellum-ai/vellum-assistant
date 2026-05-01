@@ -26,7 +26,6 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { resolveEffectiveContextWindow } from "../../config/llm-context-resolution.js";
 import { getConfig } from "../../config/loader.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
@@ -36,9 +35,8 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
-  classifySlash,
+  buildSlashContextForContent,
   resolveSlash,
-  type SlashContext,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import {
@@ -74,7 +72,6 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
-  getConversationOverrideProfile,
   getLastAssistantTimestampBefore,
   getMessages,
   getMessagesPaginated,
@@ -1712,29 +1709,14 @@ export async function handleSendMessage(
 
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
-  const slashContext: SlashContext | undefined =
-    classifySlash(rawContent) === "passthrough"
-      ? undefined
-      : (() => {
-          const config = getConfig();
-          const contextWindow = resolveEffectiveContextWindow({
-            llm: config.llm,
-            callSite: "mainAgent",
-            overrideProfile: getConversationOverrideProfile(
-              mapping.conversationId,
-            ),
-          });
-          return {
-            messageCount: conversation.getMessages().length,
-            inputTokens: conversation.usageStats.inputTokens,
-            outputTokens: conversation.usageStats.outputTokens,
-            maxInputTokens: contextWindow.maxInputTokens,
-            model: contextWindow.model,
-            provider: contextWindow.provider,
-            estimatedCost: conversation.usageStats.estimatedCost,
-            userMessageInterface: sourceInterface,
-          };
-        })();
+  const slashContext = buildSlashContextForContent(rawContent, {
+    conversationId: mapping.conversationId,
+    messageCount: conversation.getMessages().length,
+    inputTokens: conversation.usageStats.inputTokens,
+    outputTokens: conversation.usageStats.outputTokens,
+    estimatedCost: conversation.usageStats.estimatedCost,
+    userMessageInterface: sourceInterface,
+  });
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {

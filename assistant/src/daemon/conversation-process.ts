@@ -18,14 +18,11 @@ import {
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
-import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
-import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
-  getConversationOverrideProfile,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -43,6 +40,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
+  buildSlashContextForContent,
   classifySlash,
   resolveSlash,
   type SlashContext,
@@ -243,27 +241,18 @@ function resolveQueuedTurnInterfaceContext(
 
 /** Build a SlashContext from the current conversation state and config. */
 function buildSlashContext(
+  content: string,
   conversation: ProcessConversationContext,
-): SlashContext {
-  const config = getConfig();
-  const contextWindow = resolveEffectiveContextWindow({
-    llm: config.llm,
-    callSite: "mainAgent",
-    overrideProfile: getConversationOverrideProfile(
-      conversation.conversationId,
-    ),
-  });
+): SlashContext | undefined {
   const turnInterface = conversation.getTurnInterfaceContext();
-  return {
+  return buildSlashContextForContent(content, {
+    conversationId: conversation.conversationId,
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: contextWindow.maxInputTokens,
-    model: contextWindow.model,
-    provider: contextWindow.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
-  };
+  });
 }
 
 /**
@@ -464,9 +453,7 @@ async function drainSingleMessage(
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
     next.content,
-    classifySlash(next.content) === "passthrough"
-      ? undefined
-      : buildSlashContext(conversation),
+    buildSlashContext(next.content, conversation),
   );
 
   // Unknown slash — persist the exchange and continue draining.
@@ -951,9 +938,7 @@ async function drainBatch(
 
     const qmSlash = await resolveSlash(
       qm.content,
-      classifySlash(qm.content) === "passthrough"
-        ? undefined
-        : buildSlashContext(conversation),
+      buildSlashContext(qm.content, conversation),
     );
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
@@ -1352,9 +1337,7 @@ export async function processMessage(
   // Resolve slash commands before persistence
   const slashResult = await resolveSlash(
     content,
-    classifySlash(content) === "passthrough"
-      ? undefined
-      : buildSlashContext(conversation),
+    buildSlashContext(content, conversation),
   );
 
   // Unknown slash command — persist the exchange (user + assistant) so the

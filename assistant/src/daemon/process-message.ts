@@ -17,8 +17,6 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
-import { getConfig } from "../config/loader.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
@@ -26,7 +24,6 @@ import {
 import {
   addMessage,
   getConversation,
-  getConversationOverrideProfile,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -40,9 +37,8 @@ import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
-  classifySlash,
+  buildSlashContextForContent,
   resolveSlash,
-  type SlashContext,
 } from "./conversation-slash.js";
 import {
   getOrCreateConversation as getOrCreateActiveConversation,
@@ -231,27 +227,14 @@ export async function processMessage(
   );
 
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
-  const slashContext: SlashContext | undefined =
-    classifySlash(content) === "passthrough"
-      ? undefined
-      : (() => {
-          const config = getConfig();
-          const contextWindow = resolveEffectiveContextWindow({
-            llm: config.llm,
-            callSite: "mainAgent",
-            overrideProfile: getConversationOverrideProfile(conversationId),
-          });
-          return {
-            messageCount: conversation.getMessages().length,
-            inputTokens: conversation.usageStats.inputTokens,
-            outputTokens: conversation.usageStats.outputTokens,
-            maxInputTokens: contextWindow.maxInputTokens,
-            model: contextWindow.model,
-            provider: contextWindow.provider,
-            estimatedCost: conversation.usageStats.estimatedCost,
-            userMessageInterface: serverInterfaceCtx?.userMessageInterface,
-          };
-        })();
+  const slashContext = buildSlashContextForContent(content, {
+    conversationId,
+    messageCount: conversation.getMessages().length,
+    inputTokens: conversation.usageStats.inputTokens,
+    outputTokens: conversation.usageStats.outputTokens,
+    estimatedCost: conversation.usageStats.estimatedCost,
+    userMessageInterface: serverInterfaceCtx?.userMessageInterface,
+  });
   const slashResult = await resolveSlash(content, slashContext);
 
   const slackMeta = buildSlackMetaForPersistence({

@@ -41,6 +41,8 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
+import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
+import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
@@ -435,10 +437,18 @@ export async function wakeAgentForOpportunity(
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
     // `runAgentLoopImpl` entirely and execute under workspace defaults,
-    // silently violating the user's pinned preference. Read before
-    // `markProcessing(true)` so a thrown DB read can't strand the
+    // silently violating the user's pinned preference. Resolve the effective
+    // context budget here as well because wakes bypass the normal user-turn
+    // path that computes it for tool-result truncation. Read before
+    // `markProcessing(true)` so a thrown DB/config read can't strand the
     // processing flag.
     const overrideProfile = getConversationOverrideProfile(conversationId);
+    const config = getConfig();
+    const effectiveContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite: "mainAgent",
+      overrideProfile,
+    });
 
     // Mark processing for the duration of the run so a concurrent user
     // send is queued by `enqueueMessage()` rather than spawning a second
@@ -468,6 +478,7 @@ export async function wakeAgentForOpportunity(
           "mainAgent",
           undefined, // turnContext
           overrideProfile,
+          effectiveContextWindow.maxInputTokens,
         );
       } catch (err) {
         // Capture the error for post-finally logging, then short-circuit
