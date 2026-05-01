@@ -2,6 +2,10 @@ import type { Command } from "commander";
 import { z } from "zod";
 
 import {
+  clearPublicBaseUrlManagedBy,
+  configKeySetsPublicBaseUrl,
+} from "../../config/ingress-ownership.js";
+import {
   getNestedValue,
   loadRawConfig,
   saveRawConfig,
@@ -9,10 +13,6 @@ import {
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import {
-  clearTwilioPublicBaseUrlManagedBy,
-  configKeySetsTwilioPublicBaseUrl,
-} from "../../config/twilio-ingress-ownership.js";
 import { log } from "../logger.js";
 import { requirePlatformConnection } from "./oauth/shared.js";
 
@@ -106,8 +106,8 @@ Examples:
 
         const raw = loadRawConfig();
         setNestedValue(raw, key, parsed);
-        if (configKeySetsTwilioPublicBaseUrl(key)) {
-          clearTwilioPublicBaseUrlManagedBy(raw);
+        if (configKeySetsPublicBaseUrl(key)) {
+          clearPublicBaseUrlManagedBy(raw);
         }
         saveRawConfig(raw);
         log.info(`Set ${key} = ${JSON.stringify(parsed)}`);

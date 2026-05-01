@@ -62,19 +62,22 @@ describe("normalizeHttpPublicBaseUrl", () => {
 });
 
 describe("Twilio ingress helpers", () => {
-  test("resolves Twilio-specific base URL before generic fallback", () => {
+  test("resolves public base URL with fallback", () => {
     expect(
       resolveTwilioPublicBaseUrl({
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: " https://twilio.example.test/twilio/ ",
+        publicBaseUrl: " https://twilio.example.test/twilio/ ",
       }),
     ).toBe("https://twilio.example.test/twilio");
     expect(
       resolveTwilioPublicBaseUrl({
-        publicBaseUrl: "https://generic.example.test/",
-        twilioPublicBaseUrl: " ",
+        publicBaseUrl: " ",
       }),
-    ).toBe("https://generic.example.test");
+    ).toBeUndefined();
+    expect(
+      resolveTwilioPublicBaseUrl({
+        publicBaseUrl: " ",
+      }, "https://fallback.example.test/"),
+    ).toBe("https://fallback.example.test");
     expect(
       resolveTwilioPublicBaseUrl({}, "https://fallback.example.test/"),
     ).toBe("https://fallback.example.test");

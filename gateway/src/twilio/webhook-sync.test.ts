@@ -46,7 +46,6 @@ function makeCaches(opts: {
   authToken?: string;
   ingressEnabled?: boolean;
   publicBaseUrl?: string;
-  twilioPublicBaseUrl?: string;
 }): { credentials: CredentialCache; configFile: ConfigFileCache } {
   const credentialValues = new Map<string, string | undefined>([
     [credentialKey("twilio", "account_sid"), opts.accountSidCredential],
@@ -59,7 +58,6 @@ function makeCaches(opts: {
     },
     ingress: {
       publicBaseUrl: opts.publicBaseUrl,
-      twilioPublicBaseUrl: opts.twilioPublicBaseUrl,
     },
   };
 
@@ -163,7 +161,7 @@ function mockTwilioLookupAndUpdate(): void {
 }
 
 describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
-  test("syncs phone webhooks to twilioPublicBaseUrl when configured", async () => {
+  test("syncs phone webhooks to publicBaseUrl when configured", async () => {
     mockTwilioLookupAndUpdate();
 
     await syncConfiguredTwilioPhoneNumberWebhooks(
@@ -171,8 +169,7 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
         phoneNumber: PHONE_NUMBER,
         accountSid: ACCOUNT_SID,
         authToken: AUTH_TOKEN,
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: " https://velay.example.test/twilio/ ",
+        publicBaseUrl: " https://velay.example.test/twilio/ ",
       }),
     );
 
@@ -195,7 +192,7 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
     });
   });
 
-  test("falls back to generic publicBaseUrl when Twilio-specific URL is cleared", async () => {
+  test("syncs phone webhooks using publicBaseUrl", async () => {
     mockTwilioLookupAndUpdate();
 
     await syncConfiguredTwilioPhoneNumberWebhooks(
@@ -204,7 +201,6 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
         accountSid: ACCOUNT_SID,
         authToken: AUTH_TOKEN,
         publicBaseUrl: "https://generic.example.test/",
-        twilioPublicBaseUrl: " ",
       }),
     );
 
@@ -259,7 +255,6 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
         authToken: AUTH_TOKEN,
         ingressEnabled: false,
         publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: "https://velay.example.test/twilio",
       }),
     );
 

@@ -1,11 +1,6 @@
 import type { OutgoingHttpHeaders } from "node:http";
 
 import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
-import {
-  TWILIO_PUBLIC_BASE_URL_FIELD,
-  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
-  VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER,
-} from "@vellumai/service-contracts/twilio-ingress";
 
 import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
@@ -136,7 +131,7 @@ export class VelayTunnelClient {
   }
 
   private async startAsync(): Promise<void> {
-    await clearManagedTwilioPublicBaseUrl(this.options.configFile);
+    await clearManagedPublicBaseUrl(this.options.configFile);
     await this.connect();
   }
 
@@ -310,7 +305,7 @@ export class VelayTunnelClient {
       return;
     }
 
-    await writeManagedTwilioPublicBaseUrl(publicUrl, this.options.configFile);
+    await writeManagedPublicBaseUrl(publicUrl, this.options.configFile);
     this.publishedTwilioPublicBaseUrl = publicUrl;
     this.reconnectAttempt = 0;
     log.info({ publicUrl }, "Velay tunnel registered");
@@ -358,7 +353,7 @@ export class VelayTunnelClient {
     if (!publicUrl) return;
     this.publishedTwilioPublicBaseUrl = undefined;
     try {
-      await clearManagedTwilioPublicBaseUrl(this.options.configFile, publicUrl);
+      await clearManagedPublicBaseUrl(this.options.configFile, publicUrl);
     } catch (err) {
       log.error({ err }, "Failed to clear Velay Twilio public URL");
     }
@@ -426,7 +421,7 @@ export function createVelayTunnelClient(
   },
 ): VelayTunnelClient | undefined {
   if (!config.velayBaseUrl) {
-    void clearManagedTwilioPublicBaseUrl(deps.configFile).catch((err) => {
+    void clearManagedPublicBaseUrl(deps.configFile).catch((err) => {
       log.error({ err }, "Failed to clear disabled Velay Twilio public URL");
     });
     return undefined;
@@ -467,7 +462,9 @@ async function mutateGatewayConfigFile(
   }
 }
 
-async function writeManagedTwilioPublicBaseUrl(
+const VELAY_MANAGED_BY = "velay";
+
+async function writeManagedPublicBaseUrl(
   publicUrl: string,
   configFile: ConfigFileCache,
 ): Promise<void> {
@@ -477,23 +474,21 @@ async function writeManagedTwilioPublicBaseUrl(
     (data) => {
       const ingress = getMutableIngress(data);
       if (
-        ingress[TWILIO_PUBLIC_BASE_URL_FIELD] === publicUrl &&
-        ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] ===
-          VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
+        ingress.publicBaseUrl === publicUrl &&
+        ingress.publicBaseUrlManagedBy === VELAY_MANAGED_BY
       ) {
         return false;
       }
 
-      ingress[TWILIO_PUBLIC_BASE_URL_FIELD] = publicUrl;
-      ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] =
-        VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER;
+      ingress.publicBaseUrl = publicUrl;
+      ingress.publicBaseUrlManagedBy = VELAY_MANAGED_BY;
       data.ingress = ingress;
       return true;
     },
   );
 }
 
-async function clearManagedTwilioPublicBaseUrl(
+async function clearManagedPublicBaseUrl(
   configFile: ConfigFileCache,
   expectedPublicUrl?: string,
 ): Promise<void> {
@@ -510,23 +505,20 @@ async function clearManagedTwilioPublicBaseUrl(
       }
 
       const ingress = { ...(data.ingress as Record<string, unknown>) };
-      if (
-        ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] !==
-        VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
-      ) {
+      if (ingress.publicBaseUrlManagedBy !== VELAY_MANAGED_BY) {
         return false;
       }
       if (
         expectedPublicUrl !== undefined &&
-        ingress[TWILIO_PUBLIC_BASE_URL_FIELD] !== expectedPublicUrl
+        ingress.publicBaseUrl !== expectedPublicUrl
       ) {
-        delete ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD];
+        delete ingress.publicBaseUrlManagedBy;
         data.ingress = ingress;
         return true;
       }
 
-      delete ingress[TWILIO_PUBLIC_BASE_URL_FIELD];
-      delete ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD];
+      delete ingress.publicBaseUrl;
+      delete ingress.publicBaseUrlManagedBy;
       data.ingress = ingress;
       return true;
     },

@@ -49,7 +49,7 @@ export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResu
     const msg = err instanceof Error ? err.message : String(err);
     return fail(
       msg ||
-        "Outbound voice calls require public ingress to be enabled and a Twilio public base URL (ingress.twilioPublicBaseUrl or ingress.publicBaseUrl).",
+        "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl).",
     );
   }
 

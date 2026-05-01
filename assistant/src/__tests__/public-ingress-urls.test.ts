@@ -44,28 +44,37 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("IngressConfigSchema", () => {
-  test("accepts a Twilio-specific absolute HTTP(S) public base URL", () => {
+  test("accepts an absolute HTTP(S) public base URL", () => {
     const result = IngressConfigSchema.parse({
-      twilioPublicBaseUrl: "https://twilio.example.com",
+      publicBaseUrl: "https://example.com",
     });
 
-    expect(result.twilioPublicBaseUrl).toBe("https://twilio.example.com");
+    expect(result.publicBaseUrl).toBe("https://example.com");
   });
 
-  test("accepts an empty Twilio-specific public base URL", () => {
+  test("accepts an empty public base URL", () => {
     const result = IngressConfigSchema.parse({
-      twilioPublicBaseUrl: "",
+      publicBaseUrl: "",
     });
 
-    expect(result.twilioPublicBaseUrl).toBe("");
+    expect(result.publicBaseUrl).toBe("");
   });
 
-  test("rejects a relative Twilio-specific public base URL", () => {
+  test("rejects a relative public base URL", () => {
     expect(() =>
       IngressConfigSchema.parse({
-        twilioPublicBaseUrl: "/webhooks/twilio",
+        publicBaseUrl: "/webhooks/twilio",
       }),
-    ).toThrow(/ingress\.twilioPublicBaseUrl must be an absolute URL/);
+    ).toThrow(/ingress\.publicBaseUrl must be an absolute URL/);
+  });
+
+  test("accepts publicBaseUrlManagedBy", () => {
+    const result = IngressConfigSchema.parse({
+      publicBaseUrl: "https://example.com",
+      publicBaseUrlManagedBy: "velay",
+    });
+
+    expect(result.publicBaseUrlManagedBy).toBe("velay");
   });
 });
 
@@ -192,7 +201,7 @@ describe("getPublicBaseUrl", () => {
 // Twilio-specific public base URL selection
 // ---------------------------------------------------------------------------
 
-describe("Twilio-specific public base URL selection", () => {
+describe("Twilio URL builders use publicBaseUrl", () => {
   beforeEach(() => {
     setIngressPublicBaseUrl(undefined);
   });
@@ -201,64 +210,27 @@ describe("Twilio-specific public base URL selection", () => {
     setIngressPublicBaseUrl(undefined);
   });
 
-  test("Twilio URL builders prefer ingress.twilioPublicBaseUrl", () => {
+  test("Twilio URL builders use ingress.publicBaseUrl", () => {
     const config = {
       ingress: {
-        publicBaseUrl: "https://generic.example.com",
-        twilioPublicBaseUrl: "  https://twilio.example.com///  ",
+        publicBaseUrl: "  https://example.com///  ",
       },
     };
 
     expect(getTwilioVoiceWebhookUrl(config, "session-123")).toBe(
-      "https://twilio.example.com/webhooks/twilio/voice?callSessionId=session-123",
+      "https://example.com/webhooks/twilio/voice?callSessionId=session-123",
     );
     expect(getTwilioStatusCallbackUrl(config)).toBe(
-      "https://twilio.example.com/webhooks/twilio/status",
+      "https://example.com/webhooks/twilio/status",
     );
     expect(getTwilioConnectActionUrl(config)).toBe(
-      "https://twilio.example.com/webhooks/twilio/connect-action",
+      "https://example.com/webhooks/twilio/connect-action",
     );
     expect(getTwilioRelayUrl(config)).toBe(
-      "wss://twilio.example.com/webhooks/twilio/relay",
+      "wss://example.com/webhooks/twilio/relay",
     );
     expect(getTwilioMediaStreamUrl(config)).toBe(
-      "wss://twilio.example.com/webhooks/twilio/media-stream",
-    );
-  });
-
-  test("Twilio public base resolver accepts twilioPublicBaseUrl without generic publicBaseUrl", () => {
-    const result = getTwilioPublicBaseUrl({
-      ingress: {
-        enabled: true,
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "  https://twilio-only.example.com///  ",
-      },
-    });
-
-    expect(result).toBe("https://twilio-only.example.com");
-  });
-
-  test("Twilio URL builders fall back to ingress.publicBaseUrl", () => {
-    const config = {
-      ingress: {
-        publicBaseUrl: "https://generic.example.com",
-      },
-    };
-
-    expect(getTwilioVoiceWebhookUrl(config)).toBe(
-      "https://generic.example.com/webhooks/twilio/voice",
-    );
-    expect(getTwilioStatusCallbackUrl(config)).toBe(
-      "https://generic.example.com/webhooks/twilio/status",
-    );
-    expect(getTwilioConnectActionUrl(config)).toBe(
-      "https://generic.example.com/webhooks/twilio/connect-action",
-    );
-    expect(getTwilioRelayUrl(config)).toBe(
-      "wss://generic.example.com/webhooks/twilio/relay",
-    );
-    expect(getTwilioMediaStreamUrl(config)).toBe(
-      "wss://generic.example.com/webhooks/twilio/media-stream",
+      "wss://example.com/webhooks/twilio/media-stream",
     );
   });
 
@@ -267,25 +239,25 @@ describe("Twilio-specific public base URL selection", () => {
 
     expect(
       getTwilioStatusCallbackUrl({
-        ingress: { twilioPublicBaseUrl: "" },
+        ingress: { publicBaseUrl: "" },
       }),
     ).toBe("https://ingress-env.example.com/webhooks/twilio/status");
   });
 
-  test("non-Twilio URL builders ignore ingress.twilioPublicBaseUrl", () => {
+  test("all URL builders share the same publicBaseUrl", () => {
     const config = {
       ingress: {
-        publicBaseUrl: "https://generic.example.com",
-        twilioPublicBaseUrl: "https://twilio.example.com",
+        publicBaseUrl: "https://example.com",
       },
     };
 
-    expect(getPublicBaseUrl(config)).toBe("https://generic.example.com");
+    expect(getPublicBaseUrl(config)).toBe("https://example.com");
+    expect(getTwilioPublicBaseUrl(config)).toBe("https://example.com");
     expect(getOAuthCallbackUrl(config)).toBe(
-      "https://generic.example.com/webhooks/oauth/callback",
+      "https://example.com/webhooks/oauth/callback",
     );
     expect(getTelegramWebhookUrl(config)).toBe(
-      "https://generic.example.com/webhooks/telegram",
+      "https://example.com/webhooks/telegram",
     );
   });
 });

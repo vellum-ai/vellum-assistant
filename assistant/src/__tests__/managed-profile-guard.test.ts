@@ -170,26 +170,24 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  test("clears stale Velay ownership when manually patching Twilio public URL", () => {
+  test("clears stale Velay ownership when manually patching public base URL", () => {
     rawConfig = {
       ingress: {
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     };
 
     const result = patchRoute.handler({
       body: {
-        ingress: { twilioPublicBaseUrl: "https://manual.example.test" },
+        ingress: { publicBaseUrl: "https://manual.example.test" },
       },
     });
 
     expect(result).toEqual({ ok: true });
     expect(savedRaw).toEqual({
       ingress: {
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: "https://manual.example.test",
+        publicBaseUrl: "https://manual.example.test",
       },
     });
   });

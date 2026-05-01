@@ -259,12 +259,11 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSaveRawConfigCalls).toHaveLength(1);
   });
 
-  test("config set ingress.twilioPublicBaseUrl clears stale Velay ownership", async () => {
+  test("config set ingress.publicBaseUrl clears stale Velay ownership", async () => {
     mockLoadRawConfig = () => ({
       ingress: {
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
 
@@ -273,7 +272,7 @@ describe("config set — platform connection guard for service mode paths", () =
       "assistant",
       "config",
       "set",
-      "ingress.twilioPublicBaseUrl",
+      "ingress.publicBaseUrl",
       "https://manual.example.test",
     ]);
 
@@ -281,8 +280,7 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSaveRawConfigCalls).toHaveLength(1);
     expect(mockSaveRawConfigCalls[0]).toEqual({
       ingress: {
-        publicBaseUrl: "https://generic.example.test",
-        twilioPublicBaseUrl: "https://manual.example.test",
+        publicBaseUrl: "https://manual.example.test",
       },
     });
   });

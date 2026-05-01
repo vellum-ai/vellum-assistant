@@ -7,7 +7,7 @@ import {
   type ConfigChangeEvent,
 } from "../config-file-watcher.js";
 import {
-  isOnlyVelayTwilioIngressChange,
+  isOnlyVelayPublicBaseUrlChange,
   shouldSyncTwilioPhoneWebhooksAfterConfigChange,
 } from "../twilio/webhook-sync-trigger.js";
 import { testWorkspaceDir } from "./test-preload.js";
@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe("ConfigFileWatcher", () => {
-  test("reports shallow ingress fields changed by Velay-managed Twilio URL writes", () => {
+  test("reports shallow ingress fields changed by Velay-managed URL writes", () => {
     writeConfig({
       ingress: {
         publicBaseUrl: "https://public.example.test",
@@ -65,9 +65,8 @@ describe("ConfigFileWatcher", () => {
     pollOnce(watcher);
     writeConfig({
       ingress: {
-        publicBaseUrl: "https://public.example.test",
-        twilioPublicBaseUrl: "https://velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     pollOnce(watcher);
@@ -75,7 +74,7 @@ describe("ConfigFileWatcher", () => {
     expect(events).toHaveLength(2);
     expect(events[1].changedKeys).toEqual(new Set(["ingress"]));
     expect(events[1].changedFields.get("ingress")).toEqual(
-      new Set(["twilioPublicBaseUrl", "twilioPublicBaseUrlManagedBy"]),
+      new Set(["publicBaseUrl", "publicBaseUrlManagedBy"]),
     );
   });
 
@@ -96,8 +95,8 @@ describe("ConfigFileWatcher", () => {
         runtimeProxyRequireAuth: false,
       },
       ingress: {
-        twilioPublicBaseUrl: "https://velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     pollOnce(watcher);
@@ -105,16 +104,15 @@ describe("ConfigFileWatcher", () => {
     expect(events).toHaveLength(2);
     expect(events[1].changedKeys).toEqual(new Set(["ingress"]));
     expect(events[1].changedFields.get("ingress")).toEqual(
-      new Set(["twilioPublicBaseUrl", "twilioPublicBaseUrlManagedBy"]),
+      new Set(["publicBaseUrl", "publicBaseUrlManagedBy"]),
     );
   });
 
-  test("distinguishes public ingress URL changes from Twilio-only changes", () => {
+  test("detects public base URL changes", () => {
     writeConfig({
       ingress: {
         publicBaseUrl: "https://old-public.example.test",
-        twilioPublicBaseUrl: "https://velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     const events: ConfigChangeEvent[] = [];
@@ -126,8 +124,7 @@ describe("ConfigFileWatcher", () => {
     writeConfig({
       ingress: {
         publicBaseUrl: "https://new-public.example.test",
-        twilioPublicBaseUrl: "https://velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     pollOnce(watcher);
@@ -143,25 +140,25 @@ describe("Twilio webhook sync config-change triggers", () => {
   test("syncs when generic public ingress changes without a Twilio override", () => {
     const event = makeEvent(["ingress"], { ingress: ["publicBaseUrl"] });
 
-    expect(isOnlyVelayTwilioIngressChange(event)).toBe(false);
+    expect(isOnlyVelayPublicBaseUrlChange(event)).toBe(false);
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
   });
 
   test("syncs when the Twilio-specific public ingress changes", () => {
     const event = makeEvent(["ingress"], {
-      ingress: ["twilioPublicBaseUrl", "twilioPublicBaseUrlManagedBy"],
+      ingress: ["publicBaseUrl", "publicBaseUrlManagedBy"],
     });
 
-    expect(isOnlyVelayTwilioIngressChange(event)).toBe(true);
+    expect(isOnlyVelayPublicBaseUrlChange(event)).toBe(true);
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
   });
 
   test("does not sync when only the Velay manager marker changes", () => {
     const event = makeEvent(["ingress"], {
-      ingress: ["twilioPublicBaseUrlManagedBy"],
+      ingress: ["publicBaseUrlManagedBy"],
     });
 
-    expect(isOnlyVelayTwilioIngressChange(event)).toBe(true);
+    expect(isOnlyVelayPublicBaseUrlChange(event)).toBe(true);
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(false);
   });
 
@@ -170,7 +167,7 @@ describe("Twilio webhook sync config-change triggers", () => {
       twilio: ["phoneNumber", "accountSid"],
     });
 
-    expect(isOnlyVelayTwilioIngressChange(event)).toBe(false);
+    expect(isOnlyVelayPublicBaseUrlChange(event)).toBe(false);
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
   });
 

@@ -53,8 +53,7 @@ describe("twilio-config", () => {
   test("uses Twilio-specific public base URL when generic ingress is empty", async () => {
     mockLoadConfigResult = {
       ingress: {
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "  https://twilio.example.com///  ",
+        publicBaseUrl: "  https://twilio.example.com///  ",
       },
       twilio: {
         accountSid: "AC_test_sid",

@@ -310,8 +310,7 @@ describe("ChannelReadinessService", () => {
     mockTwilioPhoneNumber = "+15550123";
     mockRawConfig = {
       ingress: {
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "https://twilio.example.com",
+        publicBaseUrl: "https://twilio.example.com",
       },
     };
 
@@ -331,8 +330,7 @@ describe("ChannelReadinessService", () => {
     mockTwilioPhoneNumber = "+15550123";
     mockRawConfig = {
       ingress: {
-        publicBaseUrl: "https://ngrok.example.com",
-        twilioPublicBaseUrl: "   ",
+        publicBaseUrl: "   ",
       },
     };
 
@@ -352,8 +350,7 @@ describe("ChannelReadinessService", () => {
     mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
     mockRawConfig = {
       ingress: {
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "https://twilio.example.com",
+        publicBaseUrl: "https://twilio.example.com",
       },
     };
 

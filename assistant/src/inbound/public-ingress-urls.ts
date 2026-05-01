@@ -34,7 +34,6 @@ import {
   buildTwilioStatusWebhookUrl,
   buildTwilioVoiceWebhookUrl,
   normalizePublicBaseUrl,
-  resolveTwilioPublicBaseUrl,
 } from "@vellumai/service-contracts/twilio-ingress";
 
 import { getIngressPublicBaseUrl } from "../config/env.js";
@@ -43,7 +42,6 @@ export interface IngressConfig {
   ingress?: {
     enabled?: boolean;
     publicBaseUrl?: string;
-    twilioPublicBaseUrl?: string;
   };
 }
 
@@ -81,18 +79,12 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   );
 }
 
+/**
+ * Resolve the public base URL used for Twilio webhook callbacks.
+ * Uses the same `publicBaseUrl` as all other channels.
+ */
 export function getTwilioPublicBaseUrl(config: IngressConfig): string {
-  assertPublicIngressEnabled(config);
-
-  const baseUrl = resolveTwilioPublicBaseUrl(
-    config.ingress,
-    getIngressPublicBaseUrl(),
-  );
-  if (baseUrl) return baseUrl;
-
-  throw new Error(
-    "No Twilio public base URL configured. Set ingress.twilioPublicBaseUrl or ingress.publicBaseUrl in config.",
-  );
+  return getPublicBaseUrl(config);
 }
 
 /**

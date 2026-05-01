@@ -45,7 +45,6 @@ describe("Twilio validation middleware", () => {
     mockConfig = {
       ingress: {
         publicBaseUrl: "https://generic.example.com",
-        twilioPublicBaseUrl: "",
       },
     };
   });
@@ -53,8 +52,7 @@ describe("Twilio validation middleware", () => {
   test("validates signatures against Twilio-specific public ingress first", async () => {
     mockConfig = {
       ingress: {
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "  https://twilio.example.com///  ",
+        publicBaseUrl: "  https://twilio.example.com///  ",
       },
     };
     const req = new Request(

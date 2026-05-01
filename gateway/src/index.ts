@@ -152,7 +152,7 @@ import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { syncConfiguredTwilioPhoneNumberWebhooks } from "./twilio/webhook-sync.js";
 import {
-  isOnlyVelayTwilioIngressChange,
+  isOnlyVelayPublicBaseUrlChange,
   shouldSyncTwilioPhoneWebhooksAfterConfigChange,
 } from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
@@ -1962,11 +1962,11 @@ async function main() {
     configFileCache.invalidate();
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
-    const onlyVelayTwilioIngressChanged = isOnlyVelayTwilioIngressChange(event);
+    const onlyVelayPublicBaseUrlChanged = isOnlyVelayPublicBaseUrlChange(event);
 
     if (
       event.changedKeys.has("ingress") &&
-      !onlyVelayTwilioIngressChanged &&
+      !onlyVelayPublicBaseUrlChanged &&
       isTelegramConfigured()
     ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -1990,7 +1990,7 @@ async function main() {
     // the platform callback route points at the new self-hosted URL.
     if (
       event.changedKeys.has("ingress") &&
-      !onlyVelayTwilioIngressChanged &&
+      !onlyVelayPublicBaseUrlChanged &&
       vellumReady
     ) {
       registerEmailCallbackRoute({

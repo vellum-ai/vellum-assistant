@@ -1,7 +1,6 @@
 import {
   buildTwilioPhoneNumberWebhookUrls,
   resolveTwilioPublicBaseUrl,
-  TWILIO_PUBLIC_BASE_URL_FIELD,
 } from "@vellumai/service-contracts/twilio-ingress";
 import { updatePhoneNumberWebhooks } from "@vellumai/twilio-client";
 
@@ -27,10 +26,6 @@ function resolveEffectiveTwilioBaseUrl(
 
   return resolveTwilioPublicBaseUrl({
     publicBaseUrl: configFile.getString("ingress", "publicBaseUrl"),
-    [TWILIO_PUBLIC_BASE_URL_FIELD]: configFile.getString(
-      "ingress",
-      TWILIO_PUBLIC_BASE_URL_FIELD,
-    ),
   });
 }
 

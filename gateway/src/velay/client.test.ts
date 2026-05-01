@@ -262,9 +262,8 @@ describe("VelayTunnelClient", () => {
     expect(reconnectDelays).toEqual([]);
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public.example.test/",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public.example.test/",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     await client.stop();
@@ -305,9 +304,8 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public.example.test/",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public.example.test/",
+        publicBaseUrlManagedBy: "velay",
       },
       existing: { preserved: true },
     });
@@ -321,9 +319,8 @@ describe("VelayTunnelClient", () => {
     writeConfig({
       ingress: {
         enabled: false,
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     const client = makeClient({
@@ -340,7 +337,6 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         enabled: false,
-        publicBaseUrl: "https://ngrok.example.test",
       },
     });
     expect(invalidations.count).toBe(1);
@@ -424,9 +420,8 @@ describe("VelayTunnelClient", () => {
     writeConfig({
       ingress: {
         enabled: false,
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public.example.test/",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public.example.test/",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     configFile.invalidate();
@@ -439,7 +434,6 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         enabled: false,
-        publicBaseUrl: "https://ngrok.example.test",
       },
     });
     expect(invalidations.count).toBe(3);
@@ -526,7 +520,7 @@ describe("VelayTunnelClient", () => {
     expect(reconnectDelays).toEqual([10, 20, 10]);
   });
 
-  test("writes only ingress.twilioPublicBaseUrl when publishing a Velay URL", async () => {
+  test("writes only ingress.publicBaseUrl when publishing a Velay URL", async () => {
     const sockets: FakeWebSocket[] = [];
     writeConfig({
       ingress: {
@@ -551,10 +545,9 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
         otherIngressSetting: "keep-me",
-        twilioPublicBaseUrl: "https://velay-public.example.test/",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public.example.test/",
+        publicBaseUrlManagedBy: "velay",
       },
       gateway: {
         runtimeProxyRequireAuth: false,
@@ -581,9 +574,8 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public.example.test/twilio",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public.example.test/twilio",
+        publicBaseUrlManagedBy: "velay",
       },
     });
   });
@@ -654,9 +646,7 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
 
     expect(readConfig()).toEqual({
-      ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-      },
+      ingress: {},
     });
     expect(invalidations.count).toBe(2);
     expect(reconnectDelays).toEqual([10]);
@@ -695,9 +685,7 @@ describe("VelayTunnelClient", () => {
 
     expect(reconnectDelays).toEqual([10]);
     expect(readConfig()).toEqual({
-      ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-      },
+      ingress: {},
     });
   });
 
@@ -725,9 +713,8 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
     writeConfig({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public-2.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://velay-public-2.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
 
@@ -737,8 +724,7 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public-2.example.test",
+        publicBaseUrl: "https://velay-public-2.example.test",
       },
     });
     expect(invalidations.count).toBe(2);
@@ -753,8 +739,7 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public-2.example.test",
+        publicBaseUrl: "https://velay-public-2.example.test",
       },
     });
     expect(invalidations.count).toBe(2);
@@ -765,9 +750,8 @@ describe("VelayTunnelClient", () => {
     const invalidations = { count: 0 };
     writeConfig({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
     const client = makeClient({
@@ -780,9 +764,7 @@ describe("VelayTunnelClient", () => {
 
     expect(sockets).toHaveLength(1);
     expect(readConfig()).toEqual({
-      ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-      },
+      ingress: {},
     });
     expect(invalidations.count).toBe(1);
     await client.stop();
@@ -792,9 +774,8 @@ describe("VelayTunnelClient", () => {
     const invalidations = { count: 0 };
     writeConfig({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
 
@@ -807,16 +788,13 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
 
     expect(readConfig()).toEqual({
-      ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-      },
+      ingress: {},
     });
     expect(invalidations.count).toBe(1);
 
     writeConfig({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://manual.example.test",
+        publicBaseUrl: "https://manual.example.test",
       },
     });
 
@@ -830,8 +808,7 @@ describe("VelayTunnelClient", () => {
 
     expect(readConfig()).toEqual({
       ingress: {
-        publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://manual.example.test",
+        publicBaseUrl: "https://manual.example.test",
       },
     });
     expect(invalidations.count).toBe(1);

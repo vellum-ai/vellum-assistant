@@ -34,12 +34,11 @@ describe("voice ingress preflight", () => {
     }
   });
 
-  test("accepts Twilio-specific public base URL when generic ingress URL is absent", async () => {
+  test("accepts public base URL for Twilio when configured", async () => {
     mockLoadConfig = () => ({
       ingress: {
         enabled: true,
-        publicBaseUrl: "",
-        twilioPublicBaseUrl: "https://twilio.example.com/",
+        publicBaseUrl: "https://twilio.example.com/",
       },
     });
 
@@ -50,9 +49,6 @@ describe("voice ingress preflight", () => {
       expect(result.publicBaseUrl).toBe("https://twilio.example.com");
       expect(result.ingressConfig.ingress?.publicBaseUrl).toBe(
         "https://twilio.example.com",
-      );
-      expect(result.ingressConfig.ingress?.twilioPublicBaseUrl).toBe(
-        "https://twilio.example.com/",
       );
     }
   });

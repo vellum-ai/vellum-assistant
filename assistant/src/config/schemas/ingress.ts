@@ -1,8 +1,3 @@
-import {
-  TWILIO_PUBLIC_BASE_URL_FIELD,
-  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
-  VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER,
-} from "@vellumai/service-contracts/twilio-ingress";
 import { z } from "zod";
 
 function emptyOrAbsoluteHttpUrl(fieldPath: string) {
@@ -93,15 +88,12 @@ const IngressBaseSchema = z
       .describe(
         "Public-facing base URL for the ingress server (used in webhook callbacks)",
       ),
-    [TWILIO_PUBLIC_BASE_URL_FIELD]: emptyOrAbsoluteHttpUrl(
-      `ingress.${TWILIO_PUBLIC_BASE_URL_FIELD}`,
-    )
+    publicBaseUrlManagedBy: z
+      .string()
       .optional()
-      .describe("Twilio-specific public-facing base URL for webhook callbacks"),
-    [TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD]: z
-      .literal(VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER)
-      .optional()
-      .describe("Marks a Twilio-specific public base URL managed by Velay"),
+      .describe(
+        "Marks who manages publicBaseUrl (e.g. 'velay'). Cleared when the user sets the URL manually.",
+      ),
     webhook: IngressWebhookConfigSchema.default(
       IngressWebhookConfigSchema.parse({}),
     ),

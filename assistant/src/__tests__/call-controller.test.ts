@@ -41,7 +41,6 @@ mock.module("../config/loader.js", () => {
     ingress: {
       enabled: true,
       publicBaseUrl: "https://generic.example.com",
-      twilioPublicBaseUrl: "",
     },
     services: {
       tts: {
@@ -474,7 +473,6 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "elevenlabs";
     cfg.services.tts.providers["fish-audio"].referenceId = "";
     cfg.ingress.publicBaseUrl = "https://generic.example.com";
-    cfg.ingress.twilioPublicBaseUrl = "";
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
   });
@@ -2539,10 +2537,9 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("synthesized provider: play URL uses Twilio-specific public base URL", async () => {
+  test("synthesized provider: play URL uses public base URL", async () => {
     const cfg = loadConfig();
-    cfg.ingress.publicBaseUrl = "https://generic.example.com";
-    cfg.ingress.twilioPublicBaseUrl = "https://twilio.example.com/";
+    cfg.ingress.publicBaseUrl = "https://twilio.example.com/";
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 

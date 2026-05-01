@@ -8,8 +8,7 @@ describe("sanitizeConfigForTransfer", () => {
       ingress: {
         publicBaseUrl: "https://example.com",
         enabled: true,
-        twilioPublicBaseUrl: "https://velay-public.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrlManagedBy: "velay",
         webhook: { path: "/hook" },
       },
       daemon: { port: 3000, logLevel: "debug" },
@@ -33,8 +32,7 @@ describe("sanitizeConfigForTransfer", () => {
 
     expect(result.ingress.publicBaseUrl).toBe("");
     expect(result.ingress.enabled).toBeUndefined();
-    expect(result.ingress.twilioPublicBaseUrl).toBeUndefined();
-    expect(result.ingress.twilioPublicBaseUrlManagedBy).toBeUndefined();
+    expect(result.ingress.publicBaseUrlManagedBy).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
     expect(result.hostBrowser).toEqual({
@@ -139,13 +137,12 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.skills.load.builtIn).toBe(true);
   });
 
-  test("strips Velay-managed Twilio ingress state during transfer", () => {
+  test("strips Velay-managed ingress state during transfer", () => {
     const input = {
       ingress: {
-        publicBaseUrl: "https://old.url",
+        publicBaseUrl: "https://velay-public.example.test",
         enabled: true,
-        twilioPublicBaseUrl: "https://velay-public.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrlManagedBy: "velay",
         webhook: { path: "/webhook" },
       },
     };
@@ -161,10 +158,9 @@ describe("sanitizeConfigForTransfer", () => {
   test("preserves nested ingress fields other than environment-specific URL state", () => {
     const input = {
       ingress: {
-        publicBaseUrl: "https://old.url",
+        publicBaseUrl: "https://velay-public.example.test",
         enabled: false,
-        twilioPublicBaseUrl: "https://velay-public.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
+        publicBaseUrlManagedBy: "velay",
         webhook: { path: "/webhook", secret: "abc" },
         rateLimit: { max: 50, window: 60 },
       },
@@ -176,8 +172,7 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.rateLimit).toEqual({ max: 50, window: 60 });
     expect(result.ingress.publicBaseUrl).toBe("");
     expect(result.ingress.enabled).toBeUndefined();
-    expect(result.ingress.twilioPublicBaseUrl).toBeUndefined();
-    expect(result.ingress.twilioPublicBaseUrlManagedBy).toBeUndefined();
+    expect(result.ingress.publicBaseUrlManagedBy).toBeUndefined();
   });
 
   test("handles config missing some target fields", () => {
