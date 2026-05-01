@@ -143,6 +143,10 @@ enum APIKeyManager {
     private struct SecretReadResult {
         let found: Bool
         let masked: String?
+        /// True when the result was produced by a network/auth error rather than
+        /// a successful (not-found) response. Callers that need to distinguish
+        /// "key absent" from "fetch failed" should check this field.
+        var isNetworkError: Bool = false
     }
 
     /// Calls `secrets/read` (without `reveal`) and returns existence + masked value.
@@ -161,8 +165,19 @@ enum APIKeyManager {
             return SecretReadResult(found: found, masked: masked)
         } catch {
             apiKeyLog.error("readSecret(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
-            return SecretReadResult(found: false, masked: nil)
+            return SecretReadResult(found: false, masked: nil, isNetworkError: true)
         }
+    }
+
+    /// Check whether the assistant's secret store has a key for `provider`.
+    /// Returns `true` (key present), `false` (key absent), or `nil` (fetch failed —
+    /// status unknown). Use this instead of `hasKey` when a fetch error should not
+    /// be treated as "no key" — for example, before an auto-reset that would
+    /// overwrite the user's intentional mode selection.
+    static func keyStatus(for provider: String) async -> Bool? {
+        let result = await readSecret(for: provider)
+        if result.isNetworkError { return nil }
+        return result.found
     }
 
     /// Check whether the assistant's secret store has a key for `provider`.

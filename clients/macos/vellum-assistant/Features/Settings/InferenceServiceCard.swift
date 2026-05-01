@@ -53,7 +53,10 @@ struct InferenceServiceCard: View {
     @State private var showAPIKeysSheet = false
     /// Per-provider key-exists status. Loaded async on appear and refreshed
     /// after the API keys sheet is dismissed.
-    @State private var providerKeyStatuses: [String: Bool] = [:]
+    /// Tri-state key status per provider: `true` = key present, `false` = key absent,
+    /// `nil` = not yet loaded or fetch failed. `nil` is treated as "unknown" so a
+    /// transient daemon error never triggers the auto-reset to managed mode.
+    @State private var providerKeyStatuses: [String: Bool?] = [:]
     /// Monotonically increasing counter bumped every time the API keys
     /// sheet is dismissed. Drives `.task(id:)` to re-fetch key statuses
     /// without a manual onChange handler.
@@ -70,7 +73,7 @@ struct InferenceServiceCard: View {
     /// provider has a configured API key.
     private var hasUsableProvider: Bool {
         let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
-        let hasConfiguredKey = providerKeyStatuses.values.contains(true)
+        let hasConfiguredKey = providerKeyStatuses.values.contains(true as Bool?)
         return hasKeylessProvider || hasConfiguredKey
     }
 
@@ -184,8 +187,12 @@ struct InferenceServiceCard: View {
             guard !Task.isCancelled else { return }
             let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
             let isManagedCapable = store.isManagedCapable(draftProvider)
-            let hasConfiguredKey = providerKeyStatuses[draftProvider] == true
-            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && !hasConfiguredKey {
+            // Only auto-reset when key status is definitively false (absent).
+            // nil = not loaded or fetch failed → skip to avoid false positives
+            // from transient daemon errors silently overriding the user's choice.
+            let hasConfiguredKey = providerKeyStatuses[draftProvider] == .some(true)
+            let keyStatusKnown = providerKeyStatuses[draftProvider] != nil
+            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && keyStatusKnown && !hasConfiguredKey {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -349,7 +356,7 @@ struct InferenceServiceCard: View {
     /// "API Keys" action button lives in the consolidated `secondaryActionsRow`.
     private var apiKeysSection: some View {
         let configuredProviders = store.providerCatalog
-            .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == true }
+            .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == .some(true) }
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Keys")
@@ -394,7 +401,7 @@ struct InferenceServiceCard: View {
     /// Fetches the key-exists status for every key-required provider.
     private func loadProviderKeyStatuses() async {
         for provider in store.providerCatalog where provider.apiKeyPlaceholder != nil {
-            providerKeyStatuses[provider.id] = await APIKeyManager.hasKey(for: provider.id)
+            providerKeyStatuses[provider.id] = await APIKeyManager.keyStatus(for: provider.id)
         }
     }
 
