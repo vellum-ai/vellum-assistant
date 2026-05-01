@@ -198,6 +198,15 @@ function readConfiguredIngressUrls(
   };
 }
 
+function isPublicIngressDisabled(
+  configFile: ConfigFileCache | undefined,
+): boolean {
+  if (!configFile || typeof configFile.getBoolean !== "function") {
+    return false;
+  }
+  return configFile.getBoolean("ingress", "enabled", { force: true }) === false;
+}
+
 /**
  * Validate an incoming Twilio webhook request:
  * - Enforces POST method
@@ -224,6 +233,14 @@ export async function validateTwilioWebhookRequest(
   if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
     log.warn({ contentLength }, "Twilio webhook payload too large");
     return Response.json({ error: "Payload too large" }, { status: 413 });
+  }
+
+  if (isPublicIngressDisabled(caches?.configFile)) {
+    log.warn(
+      { webhookKind: inferWebhookKind(req.url) },
+      "Twilio webhook rejected because public ingress is disabled",
+    );
+    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Resolve the auth token from cache

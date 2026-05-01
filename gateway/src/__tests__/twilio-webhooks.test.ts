@@ -146,11 +146,17 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 function makeCaches(
   opts: {
     authToken?: string;
+    ingressEnabled?: boolean;
     ingressUrl?: string;
     twilioIngressUrl?: string;
   } = {},
 ) {
-  const { authToken = AUTH_TOKEN, ingressUrl, twilioIngressUrl } = opts;
+  const {
+    authToken = AUTH_TOKEN,
+    ingressEnabled,
+    ingressUrl,
+    twilioIngressUrl,
+  } = opts;
   const credentials = {
     get: async (key: string, _opts?: { force?: boolean }) => {
       if (key === credentialKey("twilio", "auth_token")) return authToken;
@@ -164,6 +170,10 @@ function makeCaches(
       if (section === "ingress" && key === "twilioPublicBaseUrl") {
         return twilioIngressUrl;
       }
+      return undefined;
+    },
+    getBoolean: (section: string, key: string) => {
+      if (section === "ingress" && key === "enabled") return ingressEnabled;
       return undefined;
     },
     getRecord: () => undefined,
@@ -257,6 +267,20 @@ describe("Twilio voice webhook", () => {
     });
     const res = await handler(req);
     expect(res.status).toBe(403);
+  });
+
+  test("rejects while public ingress is disabled", async () => {
+    const handler = createTwilioVoiceWebhookHandler(
+      makeConfig(),
+      makeCaches({ ingressEnabled: false }),
+    );
+    const url = "http://localhost:7830/webhooks/twilio/voice";
+    const req = buildSignedRequest(url, { From: "+15550100" }, AUTH_TOKEN);
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("forwards valid signed request to runtime and returns response", async () => {
