@@ -181,6 +181,7 @@ struct InferenceServiceCard: View {
         }
         .task(id: apiKeysRefreshToken) {
             await loadProviderKeyStatuses()
+            guard !Task.isCancelled else { return }
             let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
             let isManagedCapable = store.isManagedCapable(draftProvider)
             let hasConfiguredKey = providerKeyStatuses[draftProvider] == true
