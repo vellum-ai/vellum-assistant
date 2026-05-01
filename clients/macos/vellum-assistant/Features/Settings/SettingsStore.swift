@@ -1372,7 +1372,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard let assistantId = cachedAssistantId else { return }
+        guard cachedAssistantId != nil else { return }
         Task {
             do {
                 let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
@@ -1409,7 +1409,7 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1461,7 +1461,7 @@ public final class SettingsStore: ObservableObject {
     func clearSlackChannelConfig() {
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1505,7 +1505,7 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             twilioError = "No connected assistant"
             return
         }
