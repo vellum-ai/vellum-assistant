@@ -12,6 +12,7 @@ import {
 } from "../http/routes/config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { bridgeVelayHttpRequest } from "./http-bridge.js";
+import { closeWebSocket } from "./bridge-utils.js";
 import {
   VELAY_FRAME_TYPES,
   VELAY_TUNNEL_SUBPROTOCOL,
@@ -28,6 +29,7 @@ const BASE_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER = "velay";
+const VELAY_POLICY_CLOSE_CODE = 4008;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -125,7 +127,7 @@ export class VelayTunnelClient {
   }
 
   private async startAsync(): Promise<void> {
-    await clearManagedTwilioPublicBaseUrl(this.options.configFile);
+    await clearStaleVelayTwilioPublicBaseUrlMarker(this.options.configFile);
     await this.connect();
   }
 
@@ -267,25 +269,31 @@ export class VelayTunnelClient {
         },
         "Velay registered assistant ID mismatch",
       );
-      this.disconnectActiveWebSocket(originWs, 1008, "assistant ID mismatch");
+      this.disconnectActiveWebSocket(
+        originWs,
+        VELAY_POLICY_CLOSE_CODE,
+        "assistant ID mismatch",
+      );
       return;
     }
 
-    if (!isEmptyOrAbsoluteHttpUrl(frame.public_url)) {
+    const publicUrl = normalizeRegisteredPublicUrl(frame.public_url);
+    if (!publicUrl) {
       log.error(
         { publicUrl: frame.public_url },
         "Velay registered invalid Twilio public URL",
       );
-      this.disconnectActiveWebSocket(originWs, 1008, "invalid public URL");
+      this.disconnectActiveWebSocket(
+        originWs,
+        VELAY_POLICY_CLOSE_CODE,
+        "invalid public URL",
+      );
       return;
     }
 
-    await writeManagedTwilioPublicBaseUrl(
-      frame.public_url,
-      this.options.configFile,
-    );
-    this.publishedTwilioPublicBaseUrl = frame.public_url;
-    log.info({ publicUrl: frame.public_url }, "Velay tunnel registered");
+    await writeManagedTwilioPublicBaseUrl(publicUrl, this.options.configFile);
+    this.publishedTwilioPublicBaseUrl = publicUrl;
+    log.info({ publicUrl }, "Velay tunnel registered");
   }
 
   private async handleHttpRequestFrame(
@@ -374,9 +382,14 @@ export function createVelayTunnelClient(
   },
 ): VelayTunnelClient | undefined {
   if (!config.velayBaseUrl) {
-    void clearManagedTwilioPublicBaseUrl(deps.configFile).catch((err) => {
-      log.error({ err }, "Failed to clear disabled Velay Twilio public URL");
-    });
+    void clearStaleVelayTwilioPublicBaseUrlMarker(deps.configFile).catch(
+      (err) => {
+        log.error(
+          { err },
+          "Failed to clear disabled Velay Twilio public URL marker",
+        );
+      },
+    );
     return undefined;
   }
   return new VelayTunnelClient({
@@ -455,6 +468,36 @@ async function writeManagedTwilioPublicBaseUrl(
   );
 }
 
+async function clearStaleVelayTwilioPublicBaseUrlMarker(
+  configFile: ConfigFileCache,
+): Promise<void> {
+  return mutateConfigFile(
+    configFile,
+    "Cannot clear Velay public URL marker because config.json is malformed",
+    (data) => {
+      if (
+        !data.ingress ||
+        typeof data.ingress !== "object" ||
+        Array.isArray(data.ingress)
+      ) {
+        return false;
+      }
+
+      const ingress = { ...(data.ingress as Record<string, unknown>) };
+      if (
+        ingress.twilioPublicBaseUrlManagedBy !==
+        VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
+      ) {
+        return false;
+      }
+
+      delete ingress.twilioPublicBaseUrlManagedBy;
+      data.ingress = ingress;
+      return true;
+    },
+  );
+}
+
 async function clearManagedTwilioPublicBaseUrl(
   configFile: ConfigFileCache,
   expectedPublicUrl?: string,
@@ -482,7 +525,9 @@ async function clearManagedTwilioPublicBaseUrl(
         expectedPublicUrl !== undefined &&
         ingress.twilioPublicBaseUrl !== expectedPublicUrl
       ) {
-        return false;
+        delete ingress.twilioPublicBaseUrlManagedBy;
+        data.ingress = ingress;
+        return true;
       }
 
       delete ingress.twilioPublicBaseUrl;
@@ -503,8 +548,20 @@ function getMutableIngress(
     : {};
 }
 
-function isEmptyOrAbsoluteHttpUrl(value: string): boolean {
-  return value === "" || /^https?:\/\//i.test(value);
+function normalizeRegisteredPublicUrl(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+    if (!url.hostname) return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function buildRegisterWebSocketUrl(baseUrl: string): string {
@@ -624,13 +681,4 @@ function isVelayHeaders(value: unknown): value is Record<string, string[]> {
       Array.isArray(headerValues) &&
       headerValues.every((headerValue) => typeof headerValue === "string"),
   );
-}
-
-function closeWebSocket(ws: WebSocket, code?: number, reason?: string): void {
-  if (
-    ws.readyState === WebSocket.CONNECTING ||
-    ws.readyState === WebSocket.OPEN
-  ) {
-    ws.close(code, reason);
-  }
 }

@@ -62,6 +62,13 @@ class FakeWebSocket {
   }
 
   close(code?: number, reason?: string): void {
+    if (
+      code !== undefined &&
+      code !== 1000 &&
+      (!Number.isInteger(code) || code < 3000 || code > 4999)
+    ) {
+      throw new Error("invalid close code");
+    }
     this.readyState = WS_CLOSED;
     this.closes.push({ code, reason });
   }
@@ -296,7 +303,7 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrl: "https://velay-public.example.test/",
         twilioPublicBaseUrlManagedBy: "velay",
       },
       existing: { preserved: true },
@@ -322,7 +329,7 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
 
     expect(sockets[0].closes).toEqual([
-      { code: 1008, reason: "assistant ID mismatch" },
+      { code: 4008, reason: "assistant ID mismatch" },
     ]);
     expect(readConfig()).toEqual({
       ingress: { publicBaseUrl: "https://ngrok.example.test" },
@@ -356,7 +363,7 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         otherIngressSetting: "keep-me",
-        twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrl: "https://velay-public.example.test/",
         twilioPublicBaseUrlManagedBy: "velay",
       },
       gateway: {
@@ -365,18 +372,12 @@ describe("VelayTunnelClient", () => {
     });
   });
 
-  test("rejects registration with an invalid public URL", async () => {
+  test("normalizes a valid registered public URL before publishing", async () => {
     const sockets: FakeWebSocket[] = [];
-    const reconnectDelays: number[] = [];
-    const invalidations = { count: 0 };
     writeConfig({
       ingress: { publicBaseUrl: "https://ngrok.example.test" },
     });
-    const client = makeClient({
-      sockets,
-      reconnectDelays,
-      configFile: makeConfigFileCache(invalidations),
-    });
+    const client = makeClient({ sockets });
 
     client.start();
     await flushPromises();
@@ -384,18 +385,53 @@ describe("VelayTunnelClient", () => {
     sendFrame(sockets[0], {
       type: VELAY_FRAME_TYPES.registered,
       assistant_id: "asst-123",
-      public_url: "notaurl",
+      public_url: "  HTTPS://VELAY-PUBLIC.EXAMPLE.TEST/twilio/../twilio  ",
     });
     await flushPromises();
 
-    expect(sockets[0].closes).toEqual([
-      { code: 1008, reason: "invalid public URL" },
-    ]);
     expect(readConfig()).toEqual({
-      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public.example.test/twilio",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
     });
-    expect(invalidations.count).toBe(0);
-    expect(reconnectDelays).toEqual([10]);
+  });
+
+  test("rejects registration with an invalid public URL", async () => {
+    for (const publicUrl of ["", "notaurl", "https://", "ftp://example.test"]) {
+      const sockets: FakeWebSocket[] = [];
+      const reconnectDelays: number[] = [];
+      const invalidations = { count: 0 };
+      writeConfig({
+        ingress: { publicBaseUrl: "https://ngrok.example.test" },
+      });
+      const client = makeClient({
+        sockets,
+        reconnectDelays,
+        configFile: makeConfigFileCache(invalidations),
+      });
+
+      client.start();
+      await flushPromises();
+      sockets[0].readyState = WS_OPEN;
+      sendFrame(sockets[0], {
+        type: VELAY_FRAME_TYPES.registered,
+        assistant_id: "asst-123",
+        public_url: publicUrl,
+      });
+      await flushPromises();
+
+      expect(sockets[0].closes).toEqual([
+        { code: 4008, reason: "invalid public URL" },
+      ]);
+      expect(readConfig()).toEqual({
+        ingress: { publicBaseUrl: "https://ngrok.example.test" },
+      });
+      expect(invalidations.count).toBe(0);
+      expect(reconnectDelays).toEqual([10]);
+      await client.stop();
+    }
   });
 
   test("clears the published Twilio public URL when the tunnel disconnects", async () => {
@@ -438,12 +474,16 @@ describe("VelayTunnelClient", () => {
 
   test("does not clear a newer Twilio public URL on stale tunnel close", async () => {
     const sockets: FakeWebSocket[] = [];
+    const invalidations = { count: 0 };
     writeConfig({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
       },
     });
-    const client = makeClient({ sockets });
+    const client = makeClient({
+      sockets,
+      configFile: makeConfigFileCache(invalidations),
+    });
 
     client.start();
     await flushPromises();
@@ -470,12 +510,12 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public-2.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
       },
     });
+    expect(invalidations.count).toBe(2);
   });
 
-  test("clears stale managed Velay URL on startup before connecting", async () => {
+  test("clears stale Velay marker on startup before connecting", async () => {
     const sockets: FakeWebSocket[] = [];
     const invalidations = { count: 0 };
     writeConfig({
@@ -497,13 +537,14 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
       },
     });
     expect(invalidations.count).toBe(1);
     await client.stop();
   });
 
-  test("disabled Velay cleanup clears managed URL and preserves manual URL", async () => {
+  test("disabled Velay cleanup clears stale marker and preserves Twilio URL", async () => {
     const invalidations = { count: 0 };
     writeConfig({
       ingress: {
@@ -524,6 +565,7 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
       },
     });
     expect(invalidations.count).toBe(1);
