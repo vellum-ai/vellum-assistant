@@ -150,6 +150,7 @@ import { fetchImpl } from "./fetch.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
+import { syncConfiguredTwilioPhoneNumberWebhooks } from "./twilio/webhook-sync.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import {
@@ -1966,6 +1967,7 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     const onlyVelayTwilioIngressChanged = isOnlyVelayTwilioIngressChange(event);
+    const ingressFields = event.changedFields.get("ingress");
 
     if (
       event.changedKeys.has("ingress") &&
@@ -1976,6 +1978,21 @@ async function main() {
         log.error(
           { err },
           "Failed to reconcile Telegram webhook after ingress URL change",
+        );
+      });
+    }
+
+    if (
+      onlyVelayTwilioIngressChanged &&
+      ingressFields?.has(TWILIO_PUBLIC_BASE_URL_FIELD)
+    ) {
+      syncConfiguredTwilioPhoneNumberWebhooks({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.warn(
+          { err },
+          "Twilio webhook sync failed after Velay ingress URL change",
         );
       });
     }
