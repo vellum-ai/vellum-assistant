@@ -662,6 +662,45 @@ describe("VelayTunnelClient", () => {
     expect(reconnectDelays).toEqual([10]);
   });
 
+  test("waits for disconnect cleanup before scheduling reconnect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile: makeConfigFileCache({ count: 0 }),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+
+    expect(reconnectDelays).toEqual([]);
+
+    await flushPromises();
+
+    expect(reconnectDelays).toEqual([10]);
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+  });
+
   test("preserves a newer Twilio public URL and clears stale Velay ownership on stale tunnel close", async () => {
     const sockets: FakeWebSocket[] = [];
     const invalidations = { count: 0 };

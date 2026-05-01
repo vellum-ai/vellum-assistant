@@ -175,9 +175,11 @@ export function sanitizeWebSocketCloseArgs(
 function toSafeWebSocketCloseCode(
   code: number | undefined,
 ): number | undefined {
-  if (code === 1000) return code;
   if (typeof code !== "number" || !Number.isInteger(code)) return undefined;
+  if (code === 1000) return code;
   if (code >= 3000 && code <= 4999) return code;
+  // WebSocket close events can report these RFC 6455 codes, but the
+  // JavaScript close() API only portably accepts 1000 or 3000-4999.
   if (isRemappableProtocolCloseCode(code)) return 3000 + code;
   return undefined;
 }

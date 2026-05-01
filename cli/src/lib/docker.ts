@@ -779,6 +779,9 @@ export function serviceDockerRunArgs(opts: {
       ...(process.env.VELLUM_PLATFORM_URL
         ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
         : []),
+      ...(process.env.VELAY_BASE_URL
+        ? ["-e", `VELAY_BASE_URL=${process.env.VELAY_BASE_URL}`]
+        : []),
       imageTags.gateway,
     ],
     "credential-executor": () => [
