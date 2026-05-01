@@ -1,3 +1,7 @@
+import { Buffer } from "node:buffer";
+
+import { z } from "zod";
+
 export const VELAY_TUNNEL_SUBPROTOCOL = "velay-tunnel-v1";
 
 export const VELAY_FRAME_TYPES = {
@@ -92,3 +96,80 @@ export type VelayWebSocketInboundFrame =
   | VelayWebSocketOpenFrame
   | VelayWebSocketMessageFrame
   | VelayWebSocketCloseFrame;
+
+const headersSchema = z.record(z.string(), z.array(z.string()));
+
+const registeredFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.registered),
+  assistant_id: z.string(),
+  public_url: z.string(),
+});
+
+const httpRequestFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.httpRequest),
+  request_id: z.string(),
+  method: z.string(),
+  path: z.string(),
+  raw_query: z.string().optional(),
+  headers: headersSchema,
+  body_base64: z.string().optional(),
+});
+
+const websocketOpenFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.websocketOpen),
+  connection_id: z.string(),
+  path: z.string(),
+  raw_query: z.string().optional(),
+  headers: headersSchema,
+  subprotocol: z.string().optional(),
+});
+
+const websocketMessageFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.websocketMessage),
+  connection_id: z.string(),
+  message_type: z.custom<VelayWebSocketMessageType>(
+    (value) => typeof value === "string",
+  ),
+  body_base64: z.string().optional(),
+});
+
+const websocketCloseFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.websocketClose),
+  connection_id: z.string(),
+  code: z.number().optional(),
+  reason: z.string().optional(),
+});
+
+const inboundFrameSchema = z.discriminatedUnion("type", [
+  registeredFrameSchema,
+  httpRequestFrameSchema,
+  websocketOpenFrameSchema,
+  websocketMessageFrameSchema,
+  websocketCloseFrameSchema,
+]);
+
+export function parseVelayFrame(data: unknown): VelayFrame | undefined {
+  const raw = decodeWebSocketData(data);
+  if (raw === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+
+  const result = inboundFrameSchema.safeParse(parsed);
+  return result.success ? result.data : undefined;
+}
+
+function decodeWebSocketData(data: unknown): string | undefined {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString(
+      "utf8",
+    );
+  }
+  return undefined;
+}

@@ -14,6 +14,10 @@ import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import {
+  FakeWebSocket,
+  makeFakeWebSocketConstructor,
+} from "./test-fake-websocket.js";
+import {
   VELAY_FRAME_TYPES,
   VELAY_TUNNEL_SUBPROTOCOL,
   VELAY_WEBSOCKET_MESSAGE_TYPES,
@@ -33,66 +37,8 @@ mock.module("../credential-reader.js", () => ({
 const { VelayTunnelClient, createVelayTunnelClient } =
   await import("./client.js");
 
-const WS_CONNECTING = WebSocket.CONNECTING;
 const WS_OPEN = WebSocket.OPEN;
 const WS_CLOSED = WebSocket.CLOSED;
-
-type Listener = (event?: unknown) => void;
-
-class FakeWebSocket {
-  binaryType: BinaryType = "blob";
-  readyState: number = WS_CONNECTING;
-  sent: string[] = [];
-  closes: { code?: number; reason?: string }[] = [];
-  private readonly listeners = new Map<string, Listener[]>();
-
-  constructor(
-    readonly url: string,
-    readonly options: unknown,
-  ) {}
-
-  addEventListener(type: string, listener: Listener): void {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  send(message: string): void {
-    this.sent.push(message);
-  }
-
-  close(code?: number, reason?: string): void {
-    if (
-      code !== undefined &&
-      code !== 1000 &&
-      (!Number.isInteger(code) || code < 3000 || code > 4999)
-    ) {
-      throw new Error("invalid close code");
-    }
-    this.readyState = WS_CLOSED;
-    this.closes.push({ code, reason });
-  }
-
-  emit(type: string, event: unknown = {}): void {
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
-    }
-  }
-}
-
-function makeWebSocketConstructor(created: FakeWebSocket[]) {
-  return function FakeWebSocketConstructor(
-    this: unknown,
-    url: string,
-    options: unknown,
-  ) {
-    const ws = new FakeWebSocket(url, options);
-    created.push(ws);
-    return ws;
-  } as unknown as {
-    new (url: string | URL, options?: unknown): WebSocket;
-  };
-}
 
 function makeCredentials(values: Record<string, string | undefined>) {
   return {
@@ -183,7 +129,7 @@ function makeClient(
         [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
       }),
     configFile: overrides.configFile ?? makeConfigFileCache({ count: 0 }),
-    webSocketConstructor: makeWebSocketConstructor(sockets),
+    webSocketConstructor: makeFakeWebSocketConstructor(sockets),
     httpBridge: overrides.httpBridge,
     webSocketBridgeFactory:
       overrides.websocketFrames === undefined
@@ -472,7 +418,7 @@ describe("VelayTunnelClient", () => {
     expect(reconnectDelays).toEqual([10]);
   });
 
-  test("does not clear a newer Twilio public URL on stale tunnel close", async () => {
+  test("preserves a newer Twilio public URL and clears stale Velay ownership on stale tunnel close", async () => {
     const sockets: FakeWebSocket[] = [];
     const invalidations = { count: 0 };
     writeConfig({
@@ -510,10 +456,25 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public-2.example.test",
-        twilioPublicBaseUrlManagedBy: "velay",
       },
     });
-    expect(invalidations.count).toBe(1);
+    expect(invalidations.count).toBe(2);
+
+    expect(
+      createVelayTunnelClient(makeConfig(), {
+        credentials: makeCredentials({}),
+        configFile: makeConfigFileCache(invalidations),
+      }),
+    ).toBeUndefined();
+    await flushPromises();
+
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://velay-public-2.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(2);
   });
 
   test("clears stale Velay-managed Twilio public URL on startup before connecting", async () => {
@@ -623,7 +584,7 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
 
     expect(httpBridge).toHaveBeenCalledTimes(1);
-    expect(sockets[0].sent.map((raw) => JSON.parse(raw))).toEqual([
+    expect(sockets[0].sent.map((raw) => JSON.parse(raw as string))).toEqual([
       {
         type: VELAY_FRAME_TYPES.httpResponse,
         request_id: "req-123",
@@ -669,7 +630,7 @@ describe("VelayTunnelClient", () => {
         [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
       }),
       configFile: makeConfigFileCache({ count: 0 }),
-      webSocketConstructor: makeWebSocketConstructor(sockets),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
       webSocketBridgeFactory: () =>
         ({
           handleFrame: () => {},
