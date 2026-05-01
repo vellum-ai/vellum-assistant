@@ -163,6 +163,8 @@ final class PlatformMigrationClientPollJobStatusTests: XCTestCase {
 private final class ObservedRequest: @unchecked Sendable {
     var url: URL?
     var method: String?
+    var body: Data?
+    var sessionTokenHeader: String?
 }
 
 @MainActor
@@ -191,14 +193,14 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
 
     func testRequestSignedUploadUrlPostsToUnifiedEndpointWithOperationUpload() async throws {
         let observed = ObservedRequest()
-        let captureBody = CapturedBody()
         JobStatusURLProtocol.requestHandler = { request in
             observed.url = request.url
             observed.method = request.httpMethod
+            observed.sessionTokenHeader = request.value(forHTTPHeaderField: "X-Session-Token")
             if let stream = request.httpBodyStream {
-                captureBody.data = Self.readAll(from: stream)
+                observed.body = Self.readAll(from: stream)
             } else {
-                captureBody.data = request.httpBody
+                observed.body = request.httpBody
             }
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -218,8 +220,9 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
             "Expected URL to end with unified signed-url path; got \(url.absoluteString)"
         )
         XCTAssertEqual(observed.method, "POST")
+        XCTAssertEqual(observed.sessionTokenHeader, "test-session-token")
 
-        let bodyData = try XCTUnwrap(captureBody.data)
+        let bodyData = try XCTUnwrap(observed.body)
         let bodyJson = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
         )
@@ -231,53 +234,38 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
         XCTAssertEqual(resp.expiresAt, "2026-05-01T00:00:00Z")
     }
 
-    func testRequestSignedUploadUrlMaps503ToSignedUrlsNotAvailable() async {
-        JobStatusURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 503,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (response, Data(#"{"detail":"GCS not configured"}"#.utf8))
-        }
-
-        do {
-            _ = try await PlatformMigrationClient.requestSignedUploadUrl()
-            XCTFail("Expected signedUrlsNotAvailable to be thrown")
-        } catch let error as PlatformMigrationClient.PlatformMigrationError {
-            if case .signedUrlsNotAvailable = error {
-                // expected
-            } else {
-                XCTFail("Expected .signedUrlsNotAvailable, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error type: \(error)")
+    func testRequestSignedUploadUrlMapsUnavailableStatusesToSignedUrlsNotAvailable() async {
+        for statusCode in [404, 503] {
+            await assertMapsToSignedUrlsNotAvailable(statusCode: statusCode)
         }
     }
 
-    func testRequestSignedUploadUrlMaps404ToSignedUrlsNotAvailable() async {
+    private func assertMapsToSignedUrlsNotAvailable(
+        statusCode: Int,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) async {
         JobStatusURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
-                statusCode: 404,
+                statusCode: statusCode,
                 httpVersion: nil,
                 headerFields: nil
             )!
-            return (response, Data(#"{"detail":"not found"}"#.utf8))
+            return (response, Data(#"{"detail":"unavailable"}"#.utf8))
         }
 
         do {
             _ = try await PlatformMigrationClient.requestSignedUploadUrl()
-            XCTFail("Expected signedUrlsNotAvailable to be thrown")
+            XCTFail("Expected signedUrlsNotAvailable for status \(statusCode)", file: file, line: line)
         } catch let error as PlatformMigrationClient.PlatformMigrationError {
             if case .signedUrlsNotAvailable = error {
                 // expected
             } else {
-                XCTFail("Expected .signedUrlsNotAvailable, got \(error)")
+                XCTFail("Expected .signedUrlsNotAvailable for status \(statusCode), got \(error)", file: file, line: line)
             }
         } catch {
-            XCTFail("Unexpected error type: \(error)")
+            XCTFail("Unexpected error type for status \(statusCode): \(error)", file: file, line: line)
         }
     }
 
@@ -294,8 +282,4 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
         }
         return data
     }
-}
-
-private final class CapturedBody: @unchecked Sendable {
-    var data: Data?
 }
