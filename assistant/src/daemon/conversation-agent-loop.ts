@@ -175,6 +175,7 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
+import { isDiskSpacePressure } from "./disk-space-guard.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -477,6 +478,8 @@ export interface AgentLoopConversationContext {
   currentTurnTrustContext?: TrustContext;
   /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
   currentTurnChannelCapabilities?: ChannelCapabilities;
+  /** Per-turn snapshot of disk pressure state, frozen at turn start. */
+  currentTurnDiskPressure?: boolean;
   /**
    * Per-turn snapshot of the resolved inference-profile override. Read by
    * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
@@ -573,6 +576,36 @@ export interface AgentLoopConversationContext {
   drainQueue(reason: QueueDrainReason): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
+}
+
+// ── Disk pressure context injection ──────────────────────────────────
+
+export const DISK_PRESSURE_PREFIX =
+  "<disk_pressure_warning>\n" +
+  "DISK SPACE CRITICAL (95%+ used). " +
+  "You MUST start your response with a warning about disk space and offer to help fix it. " +
+  "Do NOT skip the warning. The user's message follows:\n" +
+  "</disk_pressure_warning>\n\n";
+
+/**
+ * Prepends a disk-pressure warning to the last user message so the LLM
+ * sees it before the user's actual content. Called after every
+ * `applyRuntimeInjections` site so the constraint survives overflow-recovery
+ * re-injections.
+ */
+export function applyDiskPressureContext(messages: Message[]): Message[] {
+  const tail = messages[messages.length - 1];
+  if (!tail || tail.role !== "user") return messages;
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...tail,
+      content: [
+        { type: "text" as const, text: DISK_PRESSURE_PREFIX },
+        ...tail.content,
+      ],
+    },
+  ];
 }
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
@@ -735,6 +768,38 @@ export async function runAgentLoopImpl(
   });
 
   try {
+    // Disk pressure gate — blocks background tasks when disk usage is critical.
+    // User-initiated messages (mainAgent) are allowed through; the system
+    // prompt and user message context injection restrict the assistant to
+    // disk-cleanup guidance only. Background tasks are blocked entirely to
+    // prevent further disk consumption.
+    let diskPressureActive = false;
+    if (isDiskSpacePressure()) {
+      if (turnCallSite !== "mainAgent") {
+        rlog.info(
+          { callSite: turnCallSite },
+          "Blocking background task due to disk pressure",
+        );
+        onEvent({
+          type: "error",
+          conversationId: ctx.conversationId,
+          code: "DISK_SPACE_CRITICAL",
+          message:
+            "Disk usage has reached 95%. All background tasks are suspended. " +
+            "Please free up disk space or issue a manual override at POST /v1/disk-lock/override " +
+            'with { "confirmation": "I understand the risks" } to resume normal operation.',
+          category: "disk_space_locked",
+        });
+        return;
+      }
+
+      // User message — allow through with restricted context so the
+      // assistant can help diagnose and resolve the disk space issue.
+      diskPressureActive = true;
+    }
+    // Snapshot for the system prompt callback so it reads the same state.
+    ctx.currentTurnDiskPressure = diskPressureActive;
+
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
     // response), so internal turns (subagent notifications, lifecycle
@@ -1461,6 +1526,10 @@ export async function runAgentLoopImpl(
     });
     runMessages = injection.messages;
 
+    if (diskPressureActive) {
+      runMessages = applyDiskPressureContext(runMessages);
+    }
+
     // Persist injected blocks in message metadata so they survive conversation
     // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
     // Only the first call site persists — the overflow-recovery re-entry sites
@@ -2046,6 +2115,9 @@ export async function runAgentLoopImpl(
         turnContext: buildPluginTurnContext(ctx, reqId),
       });
       runMessages = injection.messages;
+      if (diskPressureActive) {
+        runMessages = applyDiskPressureContext(runMessages);
+      }
       if (isTrustedActor && currentInjectionMode !== "minimal") {
         ctx.graphMemory.retrackCachedNodes();
       }
@@ -2297,6 +2369,9 @@ export async function runAgentLoopImpl(
           turnContext: buildPluginTurnContext(ctx, reqId),
         });
         runMessages = injection.messages;
+        if (diskPressureActive) {
+          runMessages = applyDiskPressureContext(runMessages);
+        }
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
         }
@@ -2459,6 +2534,9 @@ export async function runAgentLoopImpl(
             turnContext: buildPluginTurnContext(ctx, reqId),
           });
           runMessages = injection.messages;
+          if (diskPressureActive) {
+            runMessages = applyDiskPressureContext(runMessages);
+          }
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
           }

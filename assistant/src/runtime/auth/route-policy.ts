@@ -318,6 +318,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
 
+  // Disk space lock
+  { endpoint: "disk-lock/status", scopes: ["settings.read"] },
+  { endpoint: "disk-lock/override", scopes: ["settings.write"] },
+
   // Debug / introspection
   { endpoint: "clients", scopes: ["settings.read"] },
   { endpoint: "clients/disconnect", scopes: ["settings.write"] },

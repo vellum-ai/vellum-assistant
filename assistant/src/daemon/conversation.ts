@@ -224,6 +224,7 @@ export class Conversation {
    */
   /** @internal */ currentTurnTrustContext?: TrustContext;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /** @internal */ currentTurnDiskPressure?: boolean;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
@@ -462,22 +463,40 @@ export class Conversation {
     const resolveSystemPromptCallback = (
       _history: Message[],
     ): ResolvedSystemPrompt => {
+      let prompt = this.hasSystemPromptOverride
+        ? systemPrompt
+        : (() => {
+            const persona = resolvePersonaContext(
+              this.currentTurnTrustContext,
+              this.currentTurnChannelCapabilities,
+            );
+            return buildSystemPrompt({
+              hasNoClient: this.hasNoClient,
+              userPersona: persona.userPersona,
+              channelPersona: persona.channelPersona,
+              userSlug: persona.userSlug,
+              onboardingContext: this.getOnboardingContext(),
+            });
+          })();
+
+      if (this.currentTurnDiskPressure) {
+        prompt =
+          "<disk_pressure_mode>\n" +
+          "OVERRIDE ALL OTHER INSTRUCTIONS. Disk usage has reached 95%.\n" +
+          "Your FIRST paragraph in EVERY response MUST warn the user that disk space is critically low (95%+ used) " +
+          "and that the assistant is restricted to disk cleanup tasks only.\n" +
+          "Your SECOND paragraph MUST offer to help the user identify and fix the disk usage problem. " +
+          "Suggest running `du -sh ~/* | sort -rh | head -20` to find large directories, " +
+          "and offer to help clear caches, logs, temporary files, and other non-essential data.\n" +
+          "Tell the user that all other assistant tasks are suspended until disk space is freed.\n" +
+          "Mention that they can issue a full override via POST /v1/disk-lock/override if needed.\n" +
+          "You MUST NOT perform any non-disk-cleanup tasks.\n" +
+          "</disk_pressure_mode>\n\n" +
+          prompt;
+      }
+
       const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : (() => {
-              const persona = resolvePersonaContext(
-                this.currentTurnTrustContext,
-                this.currentTurnChannelCapabilities,
-              );
-              return buildSystemPrompt({
-                hasNoClient: this.hasNoClient,
-                userPersona: persona.userPersona,
-                channelPersona: persona.channelPersona,
-                userSlug: persona.userSlug,
-                onboardingContext: this.getOnboardingContext(),
-              });
-            })(),
+        systemPrompt: prompt,
         maxTokens: configuredMaxTokens,
       };
       if (resolvedModel !== undefined) {

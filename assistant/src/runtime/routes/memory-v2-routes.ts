@@ -159,7 +159,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackfill,
     summary: "Enqueue a memory v2 backfill job",
     description:
-      "Enqueues one of four operator-triggered backfill jobs (migrate, rebuild-edges, reembed, activation-recompute) against the memory jobs queue.",
+      "Enqueues one of three operator-triggered backfill jobs (migrate, reembed, activation-recompute) against the memory jobs queue.",
     tags: ["memory"],
     requestBody: MemoryV2BackfillParams,
   },

@@ -113,6 +113,7 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import { startDiskSpaceGuard } from "./disk-space-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
@@ -645,6 +646,8 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    startDiskSpaceGuard();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake

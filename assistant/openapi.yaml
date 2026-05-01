@@ -4392,6 +4392,96 @@ paths:
                 - transcription
                 - context
               additionalProperties: false
+  /v1/disk-lock/override:
+    post:
+      operationId: disklock_override_post
+      summary: Override disk lock
+      description:
+        Manually override the disk-space lock so the assistant can resume unrestricted operation despite high disk
+        usage. Requires a confirmation phrase in the request body. The override persists until disk usage drops below
+        the threshold or the assistant restarts.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locked:
+                    type: boolean
+                  overrideActive:
+                    type: boolean
+                  effectivelyLocked:
+                    type: boolean
+                  diskUsagePercent:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  threshold:
+                    type: number
+                required:
+                  - locked
+                  - overrideActive
+                  - effectivelyLocked
+                  - diskUsagePercent
+                  - threshold
+                additionalProperties: false
+        "400":
+          description: Incorrect confirmation phrase.
+        "409":
+          description: Disk is not currently locked or override is already active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation:
+                  type: string
+                  description: The confirmation phrase the user must type to acknowledge the risk.
+              required:
+                - confirmation
+              additionalProperties: false
+  /v1/disk-lock/status:
+    get:
+      operationId: disklock_status_get
+      summary: Disk lock status
+      description:
+        "Returns the current disk-space lock state: whether the assistant is locked, whether an override is active,
+        and the current disk usage percentage."
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locked:
+                    type: boolean
+                  overrideActive:
+                    type: boolean
+                  effectivelyLocked:
+                    type: boolean
+                  diskUsagePercent:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  threshold:
+                    type: number
+                required:
+                  - locked
+                  - overrideActive
+                  - effectivelyLocked
+                  - diskUsagePercent
+                  - threshold
+                additionalProperties: false
   /v1/documents:
     get:
       operationId: documents_get
@@ -6692,8 +6782,8 @@ paths:
       operationId: memory_v2_backfill_post
       summary: Enqueue a memory v2 backfill job
       description:
-        Enqueues one of four operator-triggered backfill jobs (migrate, rebuild-edges, reembed,
-        activation-recompute) against the memory jobs queue.
+        Enqueues one of three operator-triggered backfill jobs (migrate, reembed, activation-recompute) against the
+        memory jobs queue.
       tags:
         - memory
       responses:
