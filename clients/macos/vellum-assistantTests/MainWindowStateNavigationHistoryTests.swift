@@ -1,8 +1,45 @@
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class MainWindowStateNavigationHistoryTests: XCTestCase {
+    private var layoutConfigBackup: Data?
+    private var layoutConfigExisted = false
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let url = Self.layoutConfigURL()
+        layoutConfigExisted = FileManager.default.fileExists(atPath: url.path)
+        if layoutConfigExisted {
+            layoutConfigBackup = try Data(contentsOf: url)
+        }
+    }
+
+    override func tearDownWithError() throws {
+        let url = Self.layoutConfigURL()
+        if layoutConfigExisted, let data = layoutConfigBackup {
+            try data.write(to: url, options: .atomic)
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+        layoutConfigBackup = nil
+        layoutConfigExisted = false
+        try super.tearDownWithError()
+    }
+
+    /// Mirrors `LayoutConfigStore.configURL` — keep this in sync if the
+    /// production path changes. Hard-coded so tests do not reach into the
+    /// production enum's `private` static.
+    private static func layoutConfigURL() -> URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        return appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("layout-config.json")
+    }
 
     func testBackForwardAcrossConversationPanelApp() {
         let state = MainWindowState()
@@ -161,5 +198,56 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.inspectorMessageId)
         XCTAssertEqual(state.selection, .conversation(convId))
         XCTAssertEqual(state.navigationHistory.backStack, backStackBefore)
+    }
+
+    func testHideRightSlotForACPSessionsPreservesSelection() {
+        let state = MainWindowState()
+        let conversationId = UUID()
+        state.selection = .conversation(conversationId)
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.acpSessions),
+            width: 512,
+            visible: true
+        )
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.selection, .conversation(conversationId))
+        XCTAssertEqual(state.layoutConfig.right.content, .native(.acpSessions))
+        XCTAssertEqual(state.layoutConfig.right.width, 512)
+        XCTAssertFalse(state.layoutConfig.right.visible)
+        XCTAssertFalse(LayoutConfigStore.load().right.visible)
+    }
+
+    func testHideRightSlotForACPSessionsDoesNotPopBackStack() {
+        let state = MainWindowState()
+        let conversationId = UUID()
+        state.selection = .conversation(conversationId)
+        state.selection = .panel(.settings)
+        let backStackBefore = state.navigationHistory.backStack
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.acpSessions),
+            width: 400,
+            visible: true
+        )
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.navigationHistory.backStack, backStackBefore)
+        XCTAssertEqual(state.selection, .panel(.settings))
+    }
+
+    func testHideRightSlotMismatchedPanelLeavesRightSlotUnchanged() {
+        let state = MainWindowState()
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.settings),
+            width: 360,
+            visible: true
+        )
+        let rightSlotBefore = state.layoutConfig.right
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.layoutConfig.right, rightSlotBefore)
     }
 }
