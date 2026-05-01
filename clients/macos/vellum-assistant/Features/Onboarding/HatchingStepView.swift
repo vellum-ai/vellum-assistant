@@ -29,9 +29,6 @@ struct HatchingStepView: View {
     private var hatchColor: AvatarColor {
         state.hatchAvatarColor ?? .allCases[0]
     }
-    private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
-    }
     @State private var showFooterCharacters = false
     @State private var completionTask: Task<Void, Never>?
     @State private var healthCheckTask: Task<Void, Never>?
@@ -601,7 +598,7 @@ struct HatchingStepView: View {
         if !state.selectedModel.isEmpty {
             configValues["llm.default.model"] = state.selectedModel
         }
-        if managedSignInEnabled && !state.skippedAuth {
+        if !state.skippedAuth {
             configValues["services.inference.mode"] = "managed"
             configValues["services.image-generation.mode"] = "managed"
             configValues["services.web-search.mode"] = "managed"

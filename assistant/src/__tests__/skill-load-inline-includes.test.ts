@@ -16,8 +16,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
 // ── Test directory ────────────────────────────────────────────────────────────
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -173,10 +171,6 @@ describe("skill_load inline command expansion for included skills", () => {
       ) => mockRunInlineCommand(command, workingDir),
     }));
 
-    // Enable the feature flag
-    _setOverridesForTesting({
-      "inline-skill-commands": true,
-    });
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
@@ -511,42 +505,6 @@ describe("skill_load inline command expansion for included skills", () => {
 
       // Root body intact
       expect(result.content).toContain("Root body.");
-    });
-  });
-
-  // ── Feature flag off for child inline commands ────────────────────────
-
-  describe("feature flag disabled for included skills", () => {
-    test("skill_load returns error when child has inline commands and flag is off", async () => {
-      _setOverridesForTesting({
-        "inline-skill-commands": false,
-      });
-
-      writeSkill(
-        "child-flag-off",
-        "Flag Off Child",
-        "Child with inline cmds",
-        "Data: !`echo hello`",
-      );
-      writeSkill(
-        "parent-flag-off",
-        "Parent Flag Off",
-        "Parent for flag-off test",
-        "Root content.",
-        { includes: ["child-flag-off"] },
-      );
-
-      const result = await executeSkillLoad({ skill: "parent-flag-off" });
-      // Fail closed: the entire skill_load must error when any included child
-      // has inline commands and the feature flag is off, matching the root
-      // skill behavior and the documented fail-closed contract.
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("child-flag-off");
-      expect(result.content).toContain(
-        "inline-skill-commands feature flag is disabled",
-      );
-      // Runner should not be called
-      expect(runInlineCommandCalls).toHaveLength(0);
     });
   });
 

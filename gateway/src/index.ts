@@ -157,10 +157,7 @@ import {
 } from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
-import {
-  featureFlagRoutes,
-  getMergedFeatureFlags,
-} from "./ipc/feature-flag-handlers.js";
+import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
@@ -1907,12 +1904,7 @@ async function main() {
         );
       });
 
-      // Sync avatar to Slack bot profile on credential change (including
-      // initial startup). Gated behind channel-avatar-sync feature flag.
-      // Known limitation: if the flag is toggled off without a credential
-      // change, the syncer stays registered until the next credential
-      // change triggers this callback.
-      if (slackReady && getMergedFeatureFlags()["channel-avatar-sync"]) {
+      if (slackReady) {
         avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
         avatarChannelSyncer.syncToChannel("slack").catch((err) => {
           log.warn({ err }, "Initial Slack avatar sync failed");
