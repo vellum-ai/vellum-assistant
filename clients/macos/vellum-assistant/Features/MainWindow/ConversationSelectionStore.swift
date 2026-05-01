@@ -201,23 +201,16 @@ final class ConversationSelectionStore {
 
     // MARK: - Active Conversation Cache
 
-    /// Cached active conversation model, updated explicitly when the selection
-    /// changes or when the list store's conversations array mutates. Stored
-    /// rather than computed so that views reading this property track only the
-    /// `activeConversation` stored property — not `listStore.conversations`.
-    /// This breaks the cross-store observation dependency that previously caused
-    /// every `conversations` mutation (seen/unseen flips, pagination appends,
-    /// heartbeat timestamps) to invalidate TopBarView and other toolbar views.
-    /// Writes are equality-guarded so mutations that don't affect the active
-    /// conversation produce no observation notification.
+    /// The active conversation model, if one is selected and exists in the list.
+    ///
+    /// Stored rather than computed so that views track only this property — not
+    /// `listStore.conversations`. Synchronized by ``refreshActiveConversation()``
+    /// and writes in ``performActivation(for:)`` / ``performDeactivation()``.
     private(set) var activeConversation: ConversationModel?
 
-    /// Refresh the cached ``activeConversation`` from `listStore.conversations`.
-    /// Called when the conversations array mutates (title change, conversationId
-    /// backfill, seen/unseen flip, pagination append) so the cached model stays
-    /// current. The equality guard (`!=`) ensures no observation notification
-    /// fires when the active conversation's fields are unchanged — which is the
-    /// common case for mutations targeting other conversations.
+    /// Synchronize ``activeConversation`` with the current conversations array.
+    /// The equality guard skips the write when the active conversation's fields
+    /// are unchanged, avoiding unnecessary observation notifications.
     func refreshActiveConversation() {
         guard let activeConversationId else {
             if activeConversation != nil { activeConversation = nil }
