@@ -1216,8 +1216,18 @@ struct ToolCallStepDetailRow: View {
         guard let matchedId = toolCall.matchedTrustRuleId else {
             throw TrustRuleClientError.notFound
         }
-        let rules = try await Self.trustRuleClient.listRules(tool: toolCall.toolName)
-        guard let rule = rules.first(where: { $0.id == matchedId }) else {
+        // First try: user-relevant rules (user_defined + user-modified defaults).
+        // This covers the common case and is a fast, targeted query.
+        let userRules = try await Self.trustRuleClient.listRules(tool: toolCall.toolName)
+        if let rule = userRules.first(where: { $0.id == matchedId }) {
+            return rule
+        }
+        // Fallback: the matched rule may be an unmodified default rule, which the
+        // userRelevantOnly filter excludes. Fetch default rules explicitly so the
+        // modal opens in edit mode rather than incorrectly opening in create mode
+        // (which would fail with a UNIQUE constraint when the user saves).
+        let defaultRules = try await Self.trustRuleClient.listRules(origin: "default", tool: toolCall.toolName)
+        guard let rule = defaultRules.first(where: { $0.id == matchedId }) else {
             throw TrustRuleClientError.notFound
         }
         return rule
