@@ -124,12 +124,15 @@ const websocketOpenFrameSchema = z.object({
   subprotocol: z.string().optional(),
 });
 
+const websocketMessageTypeSchema = z.enum([
+  VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+  VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
+]);
+
 const websocketMessageFrameSchema = z.object({
   type: z.literal(VELAY_FRAME_TYPES.websocketMessage),
   connection_id: z.string(),
-  message_type: z.custom<VelayWebSocketMessageType>(
-    (value) => typeof value === "string",
-  ),
+  message_type: websocketMessageTypeSchema,
   body_base64: z.string().optional(),
 });
 
