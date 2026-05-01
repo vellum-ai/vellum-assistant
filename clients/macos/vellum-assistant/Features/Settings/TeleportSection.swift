@@ -370,7 +370,7 @@ struct TeleportSection: View {
 
         // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
         try await PlatformMigrationClient.uploadToSignedUrl(
             uploadInfo.uploadUrl,
             bundleData: bundleData,
@@ -545,7 +545,7 @@ struct TeleportSection: View {
 
         // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
         try await PlatformMigrationClient.uploadToSignedUrl(
             uploadInfo.uploadUrl,
             bundleData: bundleData,
@@ -622,7 +622,7 @@ struct TeleportSection: View {
     ///
     /// Always fetches orgs from the API and validates any persisted value.
     /// Persists the resolved org ID to UserDefaults so downstream callers
-    /// (e.g. `PlatformMigrationClient.requestUploadUrl()`) can read it.
+    /// (e.g. `PlatformMigrationClient.requestSignedUploadUrl()`) can read it.
     private func resolveOrganizationId() async throws -> String {
         let orgs = try await AuthService.shared.getOrganizations()
         let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")

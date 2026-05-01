@@ -412,7 +412,7 @@ struct AssistantTransferSection: View {
     /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
     private func importBundleToManaged(bundleData: Data) async throws {
         // Step 1: Request a signed upload URL from the platform
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
 
         // Step 2: Upload bundle directly to GCS via signed URL
         try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)

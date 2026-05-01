@@ -164,3 +164,138 @@ private final class ObservedRequest: @unchecked Sendable {
     var url: URL?
     var method: String?
 }
+
+@MainActor
+final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
+    private var previousToken: String?
+
+    override func setUp() {
+        super.setUp()
+        JobStatusURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(JobStatusURLProtocol.self)
+        previousToken = SessionTokenManager.getToken()
+        SessionTokenManager.setToken("test-session-token")
+    }
+
+    override func tearDown() {
+        URLProtocol.unregisterClass(JobStatusURLProtocol.self)
+        JobStatusURLProtocol.requestHandler = nil
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
+        super.tearDown()
+    }
+
+    func testRequestSignedUploadUrlPostsToUnifiedEndpointWithOperationUpload() async throws {
+        let observed = ObservedRequest()
+        let captureBody = CapturedBody()
+        JobStatusURLProtocol.requestHandler = { request in
+            observed.url = request.url
+            observed.method = request.httpMethod
+            if let stream = request.httpBodyStream {
+                captureBody.data = Self.readAll(from: stream)
+            } else {
+                captureBody.data = request.httpBody
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 201,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"url":"https://storage.googleapis.com/signed-put?x=1","bundle_key":"uploads/org-123/abc.vbundle","expires_at":"2026-05-01T00:00:00Z"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let resp = try await PlatformMigrationClient.requestSignedUploadUrl()
+
+        let url = try XCTUnwrap(observed.url)
+        XCTAssertTrue(
+            url.absoluteString.hasSuffix("/v1/migrations/signed-url/"),
+            "Expected URL to end with unified signed-url path; got \(url.absoluteString)"
+        )
+        XCTAssertEqual(observed.method, "POST")
+
+        let bodyData = try XCTUnwrap(captureBody.data)
+        let bodyJson = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
+        )
+        XCTAssertEqual(bodyJson["operation"] as? String, "upload")
+        XCTAssertNil(bodyJson["bundle_key"], "upload requests must omit bundle_key")
+
+        XCTAssertEqual(resp.uploadUrl, "https://storage.googleapis.com/signed-put?x=1")
+        XCTAssertEqual(resp.bundleKey, "uploads/org-123/abc.vbundle")
+        XCTAssertEqual(resp.expiresAt, "2026-05-01T00:00:00Z")
+    }
+
+    func testRequestSignedUploadUrlMaps503ToSignedUrlsNotAvailable() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 503,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"GCS not configured"}"#.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedUploadUrl()
+            XCTFail("Expected signedUrlsNotAvailable to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .signedUrlsNotAvailable = error {
+                // expected
+            } else {
+                XCTFail("Expected .signedUrlsNotAvailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testRequestSignedUploadUrlMaps404ToSignedUrlsNotAvailable() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"not found"}"#.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedUploadUrl()
+            XCTFail("Expected signedUrlsNotAvailable to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .signedUrlsNotAvailable = error {
+                // expected
+            } else {
+                XCTFail("Expected .signedUrlsNotAvailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    private static func readAll(from stream: InputStream) -> Data {
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: 4096)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+}
+
+private final class CapturedBody: @unchecked Sendable {
+    var data: Data?
+}
