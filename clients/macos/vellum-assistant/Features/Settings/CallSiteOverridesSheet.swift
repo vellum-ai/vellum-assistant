@@ -36,7 +36,11 @@ struct CallSiteOverridesSheet: View {
     /// Snapshot of provider IDs and per-provider model IDs at sheet open.
     /// Captured once so each row sees the same catalog without each row
     /// re-querying the store on every render.
-    private var providerIds: [String] { store.dynamicProviderIds }
+    private var providerIds: [String] {
+        store.inferenceMode == "managed"
+            ? store.managedCapableProviders.map(\.id)
+            : store.dynamicProviderIds
+    }
 
     private var availableModels: [String: [String]] {
         var byProvider: [String: [String]] = [:]
