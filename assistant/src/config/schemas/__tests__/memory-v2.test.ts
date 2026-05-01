@@ -22,6 +22,7 @@ describe("MemoryV2ConfigSchema", () => {
       sparse_weight: 0.3,
       consolidation_interval_hours: 4,
       max_page_chars: 5000,
+      consolidation_prompt_path: null,
     });
   });
 

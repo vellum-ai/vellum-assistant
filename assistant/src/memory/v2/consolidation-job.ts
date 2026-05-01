@@ -66,7 +66,7 @@ import {
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
-import { renderConsolidationPrompt } from "./prompts/consolidation.js";
+import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
 
@@ -155,7 +155,10 @@ export async function memoryV2ConsolidateJob(
     try {
       const result = await wakeAgentForOpportunity({
         conversationId: conversation.id,
-        hint: renderConsolidationPrompt(cutoff),
+        hint: resolveConsolidationPrompt(
+          config.memory.v2.consolidation_prompt_path,
+          cutoff,
+        ),
         source: WAKE_SOURCE,
         trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       });

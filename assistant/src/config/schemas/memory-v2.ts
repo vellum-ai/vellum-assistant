@@ -139,6 +139,15 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Soft upper bound on concept-page body length — pages exceeding this are flagged for split during consolidation",
       ),
+    consolidation_prompt_path: z
+      .string({
+        error: "memory.v2.consolidation_prompt_path must be a string",
+      })
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional path to a file whose contents replace the bundled consolidation prompt. Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The loaded contents may include `{{CUTOFF}}`, which is substituted with the run's ISO-8601 cutoff timestamp. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
+      ),
   })
   .describe(
     "Memory v2 — concept-page activation model with hourly LLM-driven consolidation",

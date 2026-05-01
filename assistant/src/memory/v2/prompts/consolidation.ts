@@ -16,6 +16,15 @@
  * the convention established for the sweep prompt.
  */
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
+
+import { getLogger } from "../../../util/logger.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
+
+const log = getLogger("memory-v2-consolidate-prompt");
+
 /** Sentinel substituted with the cutoff timestamp at runtime. */
 export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
 
@@ -196,4 +205,57 @@ This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgme
  */
 export function renderConsolidationPrompt(cutoff: string): string {
   return CONSOLIDATION_PROMPT.replaceAll(CUTOFF_PLACEHOLDER, cutoff);
+}
+
+/**
+ * Load the consolidation prompt template, optionally overridden from the file
+ * referenced by `memory.v2.consolidation_prompt_path`, then substitute
+ * `{{CUTOFF}}`. Path-resolution rules are documented on the schema field.
+ *
+ * Failure handling is intentionally permissive — missing file, read error, or
+ * empty/whitespace-only body all log a warning and fall back to the bundled
+ * prompt. Consolidation must never break because of a bad override: the
+ * daemon's startup philosophy is "log and recover."
+ */
+export function resolveConsolidationPrompt(
+  overridePath: string | null,
+  cutoff: string,
+): string {
+  if (overridePath === null) return renderConsolidationPrompt(cutoff);
+
+  const resolvedPath = resolveOverridePath(overridePath);
+  let contents: string;
+  try {
+    contents = readFileSync(resolvedPath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    log.warn(
+      { configuredPath: overridePath, resolvedPath, code, fallback: "bundled" },
+      "consolidation prompt override unreadable; using bundled prompt",
+    );
+    return renderConsolidationPrompt(cutoff);
+  }
+
+  if (contents.trim().length === 0) {
+    log.warn(
+      {
+        configuredPath: overridePath,
+        resolvedPath,
+        reason: "empty_override",
+        fallback: "bundled",
+      },
+      "consolidation prompt override is empty; using bundled prompt",
+    );
+    return renderConsolidationPrompt(cutoff);
+  }
+
+  return contents.replaceAll(CUTOFF_PLACEHOLDER, cutoff);
+}
+
+function resolveOverridePath(overridePath: string): string {
+  if (overridePath.startsWith("~/")) {
+    return join(homedir(), overridePath.slice(2));
+  }
+  if (isAbsolute(overridePath)) return overridePath;
+  return join(getWorkspaceDir(), overridePath);
 }

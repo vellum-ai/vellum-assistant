@@ -136,10 +136,13 @@ const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
 // `isAssistantFeatureFlagEnabled` ignores the `config` argument it receives
-// (resolution is purely from the overrides + registry caches), so we hand
-// the handler a minimal stand-in instead of materializing the full default
-// config.
-const CONFIG = {} as Parameters<typeof memoryV2ConsolidateJob>[1];
+// (resolution is purely from the overrides + registry caches), and the
+// resolver only reads `config.memory.v2.consolidation_prompt_path` — so a
+// minimal stand-in covers both call sites without materializing the full
+// default config.
+const CONFIG = {
+  memory: { v2: { consolidation_prompt_path: null } },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
   return {
@@ -277,6 +280,24 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
     // Cutoff is an ISO-8601 timestamp — check the year prefix matches the
     // current year so we know the substitution actually happened.
     expect(hint).toContain(`${new Date().getFullYear()}`);
+  });
+
+  test("honors memory.v2.consolidation_prompt_path override when set", async () => {
+    writeFileSync(
+      join(tmpWorkspace, "custom-prompt.md"),
+      "CUSTOM CONSOLIDATION at {{CUTOFF}}\n",
+    );
+    const overrideConfig = {
+      memory: { v2: { consolidation_prompt_path: "custom-prompt.md" } },
+    } as Parameters<typeof memoryV2ConsolidateJob>[1];
+
+    const result = await memoryV2ConsolidateJob(makeJob(), overrideConfig);
+
+    expect(result.kind).toBe("invoked");
+    const hint = wakeLastArgs?.hint as string;
+    expect(hint).toMatch(/^CUSTOM CONSOLIDATION at \d{4}-/);
+    expect(hint).not.toContain("You are running memory consolidation");
+    expect(hint).not.toContain(CUTOFF_PLACEHOLDER);
   });
 
   test("enqueues the memory_v2_reembed follow-up job on success", async () => {
