@@ -1,8 +1,3 @@
-import {
-  normalizePublicBaseUrl,
-  resolveTwilioPublicBaseUrl,
-} from "@vellumai/service-contracts/twilio-ingress";
-
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
@@ -24,35 +19,31 @@ import type {
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
 
-function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
+function hasIngressConfigured(): boolean {
   try {
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const effectiveBaseUrl = options.twilio
-      ? (resolveTwilioPublicBaseUrl(ingress) ?? "")
-      : (normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "");
+    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
     const enabled =
       (ingress.enabled as boolean | undefined) ??
-      (effectiveBaseUrl ? true : false);
-    return enabled && effectiveBaseUrl.trim().length > 0;
+      (publicBaseUrl ? true : false);
+    return enabled && publicBaseUrl.length > 0;
   } catch {
     return false;
   }
 }
 
-function hasWebhookRoutingConfigured(
-  allowManagedCallbacks = false,
-  options: { twilio?: boolean } = {},
-): {
+function hasWebhookRoutingConfigured(allowManagedCallbacks = false): {
   configured: boolean;
   usesManagedCallbacks: boolean;
 } {
-  const ingressConfigured = hasIngressConfigured(options);
+  const ingressConfigured = hasIngressConfigured();
   if (ingressConfigured) {
     return { configured: true, usesManagedCallbacks: false };
   }
 
-  const usesManagedCallbacks = allowManagedCallbacks && getIsPlatform();
+  const usesManagedCallbacks =
+    allowManagedCallbacks && getIsPlatform();
   return {
     configured: usesManagedCallbacks,
     usesManagedCallbacks,
@@ -88,29 +79,19 @@ async function checkCredential(
 }
 
 /** Check that public ingress is configured and enabled. */
-function checkIngress(
-  allowManagedCallbacks = false,
-  options: { twilio?: boolean } = {},
-): ReadinessCheckResult {
+function checkIngress(allowManagedCallbacks = false): ReadinessCheckResult {
   const { configured, usesManagedCallbacks } = hasWebhookRoutingConfigured(
     allowManagedCallbacks,
-    options,
   );
   return check(
     "ingress",
     configured,
     usesManagedCallbacks
       ? "Managed platform callback routing is configured"
-      : options.twilio
-        ? "Twilio public ingress URL is configured"
-        : "Public ingress URL is configured",
+      : "Public ingress URL is configured",
     allowManagedCallbacks
-      ? options.twilio
-        ? "No Twilio public ingress URL or managed callback route is configured"
-        : "No public ingress URL or managed callback route is configured"
-      : options.twilio
-        ? "Twilio public ingress URL is not configured or disabled"
-        : "Public ingress URL is not configured or disabled",
+      ? "No public ingress URL or managed callback route is configured"
+      : "Public ingress URL is not configured or disabled",
   );
 }
 
@@ -121,7 +102,7 @@ const voiceProbe: ChannelProbe = {
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
-    const ingress = checkIngress(true, { twilio: true });
+    const ingress = checkIngress(true);
 
     return [
       check(

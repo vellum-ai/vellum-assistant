@@ -15,7 +15,7 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getTwilioPublicBaseUrl } from "../inbound/public-ingress-urls.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
@@ -102,7 +102,7 @@ async function synthesizeAndPlay(
     const storeFormat = outputFormat ? "pcm" : format;
     handle = createStreamingEntry(storeFormat);
     const config = loadConfig();
-    const baseUrl = getTwilioPublicBaseUrl(config);
+    const baseUrl = getPublicBaseUrl(config);
     const url = `${baseUrl}/v1/audio/${handle.audioId}`;
     const sendPlayUrlOnce = (): void => {
       if (playUrlSent) return;

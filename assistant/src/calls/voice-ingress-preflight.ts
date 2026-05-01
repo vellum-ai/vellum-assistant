@@ -1,7 +1,7 @@
 import { getIsPlatform } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getTwilioPublicBaseUrl } from "../inbound/public-ingress-urls.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 
 const SERVICE_UNAVAILABLE_STATUS = 503 as const;
 
@@ -44,12 +44,12 @@ export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResu
 
   let publicBaseUrl: string;
   try {
-    publicBaseUrl = getTwilioPublicBaseUrl(ingressConfig);
+    publicBaseUrl = getPublicBaseUrl(ingressConfig);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return fail(
       msg ||
-        "Outbound voice calls require public ingress to be enabled and a Twilio public base URL (ingress.twilioPublicBaseUrl or ingress.publicBaseUrl).",
+        "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl).",
     );
   }
 
