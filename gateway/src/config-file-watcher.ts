@@ -18,6 +18,11 @@ export type ConfigChangeEvent = {
   data: Record<string, unknown>;
   /** Top-level keys whose serialized value changed since the last poll. */
   changedKeys: Set<string>;
+  /**
+   * Shallow object fields that changed for changed top-level object keys.
+   * Non-object replacements are represented by the top-level key only.
+   */
+  changedFields: Map<string, Set<string>>;
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
@@ -46,6 +51,7 @@ export class ConfigFileWatcher {
   private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
+  private lastValues: Map<string, unknown> = new Map();
   private callback: ConfigChangeCallback;
   private configPath: string;
 
@@ -137,6 +143,7 @@ export class ConfigFileWatcher {
     const data = readConfigFile(this.configPath);
 
     const changedKeys = new Set<string>();
+    const changedFields = new Map<string, Set<string>>();
 
     // Detect changed or added keys
     const allKeys = new Set([
@@ -150,10 +157,19 @@ export class ConfigFileWatcher {
 
       if (newVal !== oldVal) {
         changedKeys.add(key);
+        const fieldChanges = diffObjectFields(
+          this.lastValues.get(key),
+          key in data ? data[key] : undefined,
+        );
+        if (fieldChanges.size > 0) {
+          changedFields.set(key, fieldChanges);
+        }
         if (newVal !== undefined) {
           this.lastSerialized.set(key, newVal);
+          this.lastValues.set(key, data[key]);
         } else {
           this.lastSerialized.delete(key);
+          this.lastValues.delete(key);
         }
       }
     }
@@ -162,6 +178,34 @@ export class ConfigFileWatcher {
 
     log.info({ changedKeys: [...changedKeys] }, "Config file changed");
 
-    this.callback({ data, changedKeys });
+    this.callback({ data, changedKeys, changedFields });
   }
+}
+
+function diffObjectFields(oldValue: unknown, newValue: unknown): Set<string> {
+  if (!isPlainRecord(oldValue) && !isPlainRecord(newValue)) {
+    return new Set();
+  }
+
+  const oldRecord = isPlainRecord(oldValue) ? oldValue : {};
+  const newRecord = isPlainRecord(newValue) ? newValue : {};
+  const changed = new Set<string>();
+  const allKeys = new Set([
+    ...Object.keys(oldRecord),
+    ...Object.keys(newRecord),
+  ]);
+  for (const key of allKeys) {
+    const oldSerialized =
+      key in oldRecord ? JSON.stringify(oldRecord[key]) : undefined;
+    const newSerialized =
+      key in newRecord ? JSON.stringify(newRecord[key]) : undefined;
+    if (oldSerialized !== newSerialized) {
+      changed.add(key);
+    }
+  }
+  return changed;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
