@@ -2323,7 +2323,7 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [extract-version]
+    needs: [extract-version, ci-assistant]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

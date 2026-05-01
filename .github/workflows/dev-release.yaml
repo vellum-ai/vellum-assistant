@@ -1172,9 +1172,10 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [compute-version]
+    needs: [compute-version, ci-assistant]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: dev
     steps:
       - name: Generate GitHub App token
         id: app-token
