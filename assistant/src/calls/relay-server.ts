@@ -14,10 +14,6 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import {
-  touchContactInteraction,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
@@ -615,13 +611,6 @@ export class RelayConnection {
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
       case "verification":
-        if (
-          resolved.actorTrust.memberRecord &&
-          (resolved.actorTrust.trustClass === "guardian" ||
-            resolved.actorTrust.trustClass === "trusted_contact")
-        ) {
-          touchContactInteraction(resolved.actorTrust.memberRecord.channel.id);
-        }
         if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
           this.controller.setTrustContext(
             toTrustContext(resolved.actorTrust, msg.from),
@@ -631,15 +620,6 @@ export class RelayConnection {
         return;
       case "normal_call":
         if (outcome.isInbound) {
-          if (
-            resolved.actorTrust.memberRecord &&
-            (resolved.actorTrust.trustClass === "guardian" ||
-              resolved.actorTrust.trustClass === "trusted_contact")
-          ) {
-            touchContactInteraction(
-              resolved.actorTrust.memberRecord.channel.id,
-            );
-          }
           if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
             this.controller.setTrustContext(
               toTrustContext(resolved.actorTrust, msg.from),
@@ -796,8 +776,6 @@ export class RelayConnection {
   private continueCallAfterTrustedContactActivation(params: {
     assistantId: string;
     fromNumber: string;
-    callerName?: string;
-    skipMemberActivation?: boolean;
     activationReason?:
       | "invite_redeemed"
       | "access_approved"
@@ -805,25 +783,10 @@ export class RelayConnection {
     friendName?: string;
     guardianName?: string;
   }): void {
-    const { assistantId, fromNumber, callerName } = params;
+    const { assistantId, fromNumber } = params;
 
-    if (!params.skipMemberActivation) {
-      try {
-        upsertContactChannel({
-          sourceChannel: "phone",
-          externalUserId: fromNumber,
-          externalChatId: fromNumber,
-          displayName: callerName,
-          status: "active",
-          policy: "allow",
-        });
-      } catch (err) {
-        log.error(
-          { err, callSessionId: this.callSessionId },
-          "Failed to activate voice caller as trusted contact",
-        );
-      }
-    }
+    // Contact activation is handled by the gateway — the assistant no
+    // longer writes contact/channel records on inbound voice calls.
 
     const updatedTrust = resolveActorTrust({
       assistantId,
@@ -1411,7 +1374,6 @@ export class RelayConnection {
     this.continueCallAfterTrustedContactActivation({
       assistantId,
       fromNumber,
-      callerName: callerName ?? undefined,
       activationReason: "access_approved",
     });
 
@@ -1594,8 +1556,6 @@ export class RelayConnection {
       this.continueCallAfterTrustedContactActivation({
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
-        callerName: this.inviteRedemptionFriendName ?? undefined,
-        skipMemberActivation: true,
         activationReason: "invite_redeemed",
         friendName: this.inviteRedemptionFriendName ?? undefined,
         guardianName: this.inviteRedemptionGuardianName ?? undefined,
