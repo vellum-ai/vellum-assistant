@@ -11,9 +11,6 @@ private let panelCoordinatorLog = Logger(
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
-    fileprivate static let conversationStartersFeatureFlagKey =
-        "conversation-starters"
-
     // MARK: - Config-Driven Slot Rendering
 
     @ViewBuilder
@@ -650,7 +647,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
+                        showInspectButton: true,
                         onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
@@ -699,12 +696,8 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
-            let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
-                Self.conversationStartersFeatureFlagKey
-            )
-            let showInspectButton = assistantFeatureFlagStore.isEnabled(
-                "settings-developer-nav"
-            )
+            let conversationStartersEnabled = true
+            let showInspectButton = true
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
                 "message-tts"
             )

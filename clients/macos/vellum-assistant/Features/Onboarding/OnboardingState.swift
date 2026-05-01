@@ -112,8 +112,7 @@ final class OnboardingState {
     var hatchTotalSteps: Int = 1
     var hatchCurrentStep: Int = 0
 
-    /// Pre-chat onboarding context collected after hatching when the
-    /// `onboarding-pre-chat` feature flag is enabled. Threaded through
+    /// Pre-chat onboarding context collected after hatching. Threaded through
     /// AppDelegate → ConversationManager → ChatViewModel so the first
     /// message POST includes it for assistant personalization.
     var preChatContext: PreChatOnboardingContext?

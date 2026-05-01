@@ -106,7 +106,7 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                             case 0:
-                                if managedSignInEnabled && authManager.isAuthenticated {
+                                if authManager.isAuthenticated {
                                     // Already authenticated — show a brief loading
                                     // state while the .task advances to Setup.
                                     HStack(spacing: VSpacing.sm) {
@@ -119,9 +119,9 @@ struct OnboardingFlowView: View {
                                 } else {
                                     WakeUpStepView(
                                         state: state,
-                                        authManager: managedSignInEnabled ? authManager : nil,
+                                        authManager: authManager,
                                         isAdvancing: isAdvancingFromWakeUp,
-                                        managedSignInEnabled: managedSignInEnabled,
+                                        managedSignInEnabled: true,
                                         onStartWithAPIKey: {
                                             guard !isAdvancingFromWakeUp else { return }
                                             isAdvancingFromWakeUp = true
@@ -197,14 +197,14 @@ struct OnboardingFlowView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
-            if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
+            if authManager.isAuthenticated && state.currentStep == 0 {
                 await continueManagedOnboardingAfterAuthentication()
             }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
                 isAdvancingFromWakeUp = false
-                if managedSignInEnabled && authManager.isAuthenticated {
+                if authManager.isAuthenticated {
                     Task {
                         await continueManagedOnboardingAfterAuthentication()
                     }
@@ -219,7 +219,7 @@ struct OnboardingFlowView: View {
             log.info(
                 "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
             )
-            if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
+            if !isAuthenticated && state.currentStep > 0 {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
                 completionDelayTask?.cancel()
                 didCallComplete = false
@@ -242,7 +242,7 @@ struct OnboardingFlowView: View {
             }
             if isAuthenticated {
                 if let assistant = currentAssistant {
-                    if assistant.isManaged && managedSignInEnabled && state.currentStep == 0 {
+                    if assistant.isManaged && state.currentStep == 0 {
                         log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); advancing to hosting selector")
                         state.advance()
                     } else if assistant.isManaged {
@@ -258,7 +258,7 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
-                    if managedSignInEnabled && state.currentStep == 0 {
+                    if state.currentStep == 0 {
                         Task {
                             await continueManagedOnboardingAfterAuthentication()
                         }
@@ -279,13 +279,9 @@ struct OnboardingFlowView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
-                    if preChatOnboardingEnabled {
-                        PreChatOnboardingState.clearPersistedState()
-                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-                            isShowingPreChat = true
-                        }
-                    } else {
-                        onComplete()
+                    PreChatOnboardingState.clearPersistedState()
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        isShowingPreChat = true
                     }
                 }
             }
@@ -308,7 +304,6 @@ struct OnboardingFlowView: View {
 
     private func continueManagedOnboardingAfterAuthentication() async {
         guard managedBootstrapEnabled,
-              managedSignInEnabled,
               authManager.isAuthenticated,
               state.currentStep == 0,
               !isResolvingAssociatedManagedAssistant else {
