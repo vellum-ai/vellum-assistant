@@ -2,6 +2,14 @@ process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
 
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import {
   loadOrCreateSigningKey,
@@ -456,15 +464,15 @@ async function main() {
       handler: (req) => handleTelegramWebhook(req),
     },
     {
-      path: "/webhooks/twilio/voice",
+      path: TWILIO_VOICE_WEBHOOK_PATH,
       handler: (req) => handleTwilioVoiceWebhook(req),
     },
     {
-      path: "/webhooks/twilio/status",
+      path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
     },
     {
-      path: "/webhooks/twilio/connect-action",
+      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
       handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
@@ -1456,15 +1464,15 @@ async function main() {
       // ── Pre-router: WebSocket upgrades ──
       // Bun's WS upgrade needs `server.upgrade()` which doesn't return
       // a Response, so these can't go through the route table.
-      if (url.pathname === "/webhooks/twilio/relay") {
+      if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }
 
       if (
-        url.pathname === "/webhooks/twilio/media-stream" ||
-        url.pathname.startsWith("/webhooks/twilio/media-stream/")
+        url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
+        url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
       ) {
         const upgradeResult = handleTwilioMediaWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;

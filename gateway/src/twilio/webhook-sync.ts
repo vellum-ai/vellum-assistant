@@ -1,5 +1,6 @@
 import {
   normalizePublicBaseUrl,
+  TWILIO_PUBLIC_BASE_URL_FIELD,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -41,7 +42,7 @@ function resolveEffectiveTwilioBaseUrl(
   configFile: ConfigFileCache,
 ): string | undefined {
   const twilioBaseUrl = normalizePublicBaseUrl(
-    configFile.getString("ingress", "twilioPublicBaseUrl"),
+    configFile.getString("ingress", TWILIO_PUBLIC_BASE_URL_FIELD),
   );
   if (twilioBaseUrl) return twilioBaseUrl;
 
