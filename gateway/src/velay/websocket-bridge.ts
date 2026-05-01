@@ -1,12 +1,11 @@
-import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
-import { buildUpstreamUrl } from "@vellumai/assistant-client";
 
 import {
+  binaryLikeToBytes,
+  buildLoopbackWebSocketUrl,
   closeWebSocket,
-  formatRawQuery,
-  isBase64,
-  isSafeOriginRelativePath,
+  decodeBase64Bytes,
+  encodeBase64,
   websocketHeadersFromVelay,
 } from "./bridge-utils.js";
 import {
@@ -70,7 +69,11 @@ export class VelayWebSocketBridge {
   open(frame: VelayWebSocketOpenFrame): void {
     this.closeExisting(frame.connection_id);
 
-    const url = buildLoopbackWebSocketUrl(this.gatewayLoopbackBaseUrl, frame);
+    const url = buildLoopbackWebSocketUrl(
+      this.gatewayLoopbackBaseUrl,
+      frame.path,
+      frame.raw_query,
+    );
     if (!url) {
       this.sendOpenError(frame.connection_id, "Invalid WebSocket path");
       return;
@@ -283,40 +286,17 @@ export class VelayWebSocketBridge {
   }
 }
 
-function buildLoopbackWebSocketUrl(
-  gatewayLoopbackBaseUrl: string,
-  frame: VelayWebSocketOpenFrame,
-): string | undefined {
-  if (!isSafeOriginRelativePath(frame.path)) return undefined;
-
-  const httpUrl = buildUpstreamUrl(
-    gatewayLoopbackBaseUrl,
-    frame.path,
-    formatRawQuery(frame.raw_query),
-  );
-
-  try {
-    const url = new URL(httpUrl);
-    if (url.protocol === "http:") url.protocol = "ws:";
-    if (url.protocol === "https:") url.protocol = "wss:";
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") return undefined;
-    return url.toString();
-  } catch {
-    return undefined;
-  }
-}
-
 function decodeVelayMessage(
   frame: VelayWebSocketMessageFrame,
 ): PendingMessage | undefined {
-  if (!isBase64(frame.body_base64 ?? "")) return undefined;
+  const bytes = decodeBase64Bytes(frame.body_base64 ?? "");
+  if (bytes === undefined) return undefined;
 
-  const bytes = Buffer.from(frame.body_base64 ?? "", "base64");
   if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.text) {
-    return bytes.toString("utf8");
+    return new TextDecoder().decode(bytes);
   }
   if (frame.message_type === VELAY_WEBSOCKET_MESSAGE_TYPES.binary) {
-    return new Uint8Array(bytes);
+    return bytes;
   }
   return undefined;
 }
@@ -330,7 +310,7 @@ async function encodeLocalMessage(
       type: VELAY_FRAME_TYPES.websocketMessage,
       connection_id: connectionId,
       message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
-      body_base64: Buffer.from(data).toString("base64"),
+      body_base64: encodeBase64(data),
     };
   }
 
@@ -338,15 +318,6 @@ async function encodeLocalMessage(
     type: VELAY_FRAME_TYPES.websocketMessage,
     connection_id: connectionId,
     message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
-    body_base64: Buffer.from(await binaryToBytes(data)).toString("base64"),
+    body_base64: encodeBase64(await binaryLikeToBytes(data)),
   };
-}
-
-async function binaryToBytes(data: unknown): Promise<Uint8Array> {
-  if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  }
-  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
-  return Buffer.from(String(data));
 }
