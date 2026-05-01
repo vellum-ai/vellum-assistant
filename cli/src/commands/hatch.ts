@@ -32,7 +32,7 @@ export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
-  vellum: 2 * 60 * 1000,
+  vellum: 5 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
 };
 const DEFAULT_SPECIES: Species = "vellum";

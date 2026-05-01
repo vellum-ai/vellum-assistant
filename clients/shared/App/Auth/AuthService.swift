@@ -362,7 +362,7 @@ public final class AuthService {
             method: "POST",
             organizationId: organizationId,
             body: bodyData,
-            timeoutInterval: 30
+            timeoutInterval: 300
         )
 
         if response.statusCode == 401 {
