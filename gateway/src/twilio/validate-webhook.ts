@@ -17,6 +17,7 @@ const log = getLogger("twilio-validate");
 type TwilioWebhookKind = "voice" | "status" | "connect-action" | "unknown";
 
 type SignatureUrlCandidateSource =
+  | "platform_proxy"
   | "configured_ingress"
   | "forwarded_headers"
   | "raw_request";
@@ -91,6 +92,15 @@ function buildSignatureUrlCandidateDetails(
     if (!normalized) return;
     addCandidate(`${normalized}${pathAndQuery}`, source);
   };
+
+  // Platform callback proxy injects the original public URL that the
+  // provider signed against. Use it as-is (not base + path) since the
+  // platform path includes the /v1/gateway/callbacks/{id}/ prefix that
+  // the gateway never sees.
+  addCandidate(
+    req.headers.get("x-vellum-ingress-url") ?? undefined,
+    "platform_proxy",
+  );
 
   addBase(resolved.ingressUrl, "configured_ingress");
 
