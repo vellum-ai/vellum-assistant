@@ -93,6 +93,33 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
     }
 
+    func testActivateNewManagedAssistantUsesCreatePath() async throws {
+        let assistant = PlatformAssistant(id: "managed-new", name: "New")
+        let bootstrapService = MockManagedAssistantBootstrapService(
+            outcome: .createdNew(assistant)
+        )
+
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            bootstrapService: bootstrapService,
+            userDefaults: defaults,
+            runtimeURLProvider: { "https://platform.example.com" },
+            updateAssistantTag: { _ in },
+            lockfilePath: lockfilePath,
+            dateProvider: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
+
+        let result = try await coordinator.activateNewManagedAssistant()
+
+        XCTAssertEqual(result.assistant.id, assistant.id)
+        XCTAssertFalse(result.reusedExisting)
+        XCTAssertEqual(bootstrapService.ensureCallCount, 0)
+        XCTAssertEqual(bootstrapService.createCallCount, 1)
+        XCTAssertEqual(defaults.string(forKey: "connectedOrganizationId"), nil)
+        let lockfileData = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let lockfileJson = try JSONSerialization.jsonObject(with: lockfileData) as? [String: Any]
+        XCTAssertEqual(lockfileJson?["activeAssistant"] as? String, assistant.id)
+    }
+
     func testActivateManagedAssistantRePopulatesOrgIdAfterCleared() async throws {
         // Simulate performSwitchAssistant clearing the org ID
         defaults.removeObject(forKey: "connectedOrganizationId")
@@ -158,6 +185,8 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
 private final class MockManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {
     private let outcome: ManagedBootstrapOutcome?
     private let onEnsureManagedAssistant: (() -> Void)?
+    private(set) var ensureCallCount = 0
+    private(set) var createCallCount = 0
 
     init(
         outcome: ManagedBootstrapOutcome? = nil,
@@ -172,9 +201,22 @@ private final class MockManagedAssistantBootstrapService: ManagedAssistantBootst
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome {
+        ensureCallCount += 1
         onEnsureManagedAssistant?()
         guard let outcome else {
             fatalError("ensureManagedAssistant called without a configured outcome")
+        }
+        return outcome
+    }
+
+    func createManagedAssistant(
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> ManagedBootstrapOutcome {
+        createCallCount += 1
+        guard let outcome else {
+            fatalError("createManagedAssistant called without a configured outcome")
         }
         return outcome
     }

@@ -8,6 +8,12 @@ protocol ManagedAssistantBootstrapProviding {
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome
+
+    func createManagedAssistant(
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> ManagedBootstrapOutcome
 }
 
 extension ManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {}
@@ -114,6 +120,21 @@ final class ManagedAssistantConnectionCoordinator {
 
     func activateManagedAssistant() async throws -> ManagedAssistantConnectionResult {
         let outcome = try await bootstrapService.ensureManagedAssistant(
+            name: nil,
+            description: nil,
+            anthropicApiKey: nil
+        )
+        return try persistManagedAssistant(
+            outcome.assistant,
+            reusedExisting: outcome.reusedExisting
+        )
+    }
+
+    /// Create and activate an additional managed assistant for the current
+    /// account. Used by explicit "new assistant" UX where reusing the
+    /// currently selected assistant would be incorrect.
+    func activateNewManagedAssistant() async throws -> ManagedAssistantConnectionResult {
+        let outcome = try await bootstrapService.createManagedAssistant(
             name: nil,
             description: nil,
             anthropicApiKey: nil

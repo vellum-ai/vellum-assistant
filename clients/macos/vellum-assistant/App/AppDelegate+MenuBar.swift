@@ -916,7 +916,8 @@ extension AppDelegate {
         }
         let result = try await AuthService.shared.hatchAssistant(
             organizationId: organizationId,
-            name: name
+            name: name,
+            mode: .create
         )
         let platformAssistant: PlatformAssistant
         switch result {

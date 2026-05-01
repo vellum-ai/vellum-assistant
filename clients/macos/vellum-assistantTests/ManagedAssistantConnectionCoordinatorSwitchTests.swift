@@ -245,4 +245,12 @@ private final class MockBootstrap: ManagedAssistantBootstrapProviding {
     ) async throws -> ManagedBootstrapOutcome {
         outcome
     }
+
+    func createManagedAssistant(
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> ManagedBootstrapOutcome {
+        outcome
+    }
 }

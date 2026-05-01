@@ -363,7 +363,13 @@ struct OnboardingFlowView: View {
         state.isHatching = true
 
         do {
-            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            let coordinator = ManagedAssistantConnectionCoordinator()
+            let activation: ManagedAssistantConnectionResult
+            if state.isRehatch {
+                activation = try await coordinator.activateNewManagedAssistant()
+            } else {
+                activation = try await coordinator.activateManagedAssistant()
+            }
             let assistant = activation.assistant
             state.hasExistingManagedAssistant = activation.reusedExisting
 

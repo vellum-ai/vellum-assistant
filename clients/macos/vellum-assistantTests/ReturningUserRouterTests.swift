@@ -252,7 +252,8 @@ private final class MockAuthService: ManagedAssistantBootstrapAuthServicing {
     }
     func hatchAssistant(
         organizationId: String, name: String?, description: String?,
-        anthropicApiKey: String?
+        anthropicApiKey: String?,
+        mode: HatchAssistantMode
     ) async throws -> HatchAssistantResult {
         fatalError("Not used by ReturningUserRouter")
     }
