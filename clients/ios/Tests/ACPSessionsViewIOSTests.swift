@@ -129,6 +129,105 @@ final class ACPSessionsViewIOSTests: XCTestCase {
         XCTAssertEqual(store.sessions["acp-1"]?.state.status, .cancelled)
     }
 
+    // MARK: - Client flag gating
+
+    func test_iosRootNavigationView_readsCodingAgentsPanelFromSharedClientFlagManager() {
+        let enabledManager = MacOSClientFeatureFlagManager(
+            environment: ["VELLUM_FLAG_CODING_AGENTS_PANEL": "1"]
+        )
+        let disabledManager = MacOSClientFeatureFlagManager(
+            environment: ["VELLUM_FLAG_CODING_AGENTS_PANEL": "0"]
+        )
+
+        XCTAssertTrue(IOSRootNavigationView.isCodingAgentsPanelEnabled(flagManager: enabledManager))
+        XCTAssertFalse(IOSRootNavigationView.isCodingAgentsPanelEnabled(flagManager: disabledManager))
+    }
+
+    func test_disabledCodingAgentsPanel_doesNotAutoPresentFromSelectedSessionId() {
+        XCTAssertFalse(
+            IOSRootNavigationView.resolvedACPSessionsPresentation(
+                isCodingAgentsPanelEnabled: false,
+                selectedSessionId: "acp-hidden",
+                isCurrentlyPresented: false
+            )
+        )
+    }
+
+    func test_disabledCodingAgentsPanel_closesOpenSheet() {
+        XCTAssertFalse(
+            IOSRootNavigationView.resolvedACPSessionsPresentation(
+                isCodingAgentsPanelEnabled: false,
+                selectedSessionId: nil,
+                isCurrentlyPresented: true
+            )
+        )
+    }
+
+    func test_enabledCodingAgentsPanel_autoPresentsFromSelectedSessionId() {
+        XCTAssertTrue(
+            IOSRootNavigationView.resolvedACPSessionsPresentation(
+                isCodingAgentsPanelEnabled: true,
+                selectedSessionId: "acp-visible",
+                isCurrentlyPresented: false
+            )
+        )
+    }
+
+    func test_enabledCodingAgentsPanel_preservesManualSheetPresentation() {
+        XCTAssertTrue(
+            IOSRootNavigationView.resolvedACPSessionsPresentation(
+                isCodingAgentsPanelEnabled: true,
+                selectedSessionId: nil,
+                isCurrentlyPresented: true
+            )
+        )
+    }
+
+    func test_disabledCodingAgentsPanel_hidesRootToolbarEntryPoint() {
+        let action = IOSRootNavigationView.codingAgentsPanelAction(
+            isEnabled: false,
+            action: {}
+        )
+
+        XCTAssertNil(action)
+    }
+
+    func test_enabledCodingAgentsPanel_exposesRootToolbarEntryPoint() {
+        let action = IOSRootNavigationView.codingAgentsPanelAction(
+            isEnabled: true,
+            action: {}
+        )
+
+        XCTAssertNotNil(action)
+    }
+
+    func test_conversationToolbarsHideCodingAgentsEntryPointWhenDisabled() {
+        XCTAssertFalse(
+            ConversationListView.shouldShowACPSessionsToolbarButton(
+                isCodingAgentsPanelEnabled: false,
+                onShowACPSessions: {}
+            )
+        )
+    }
+
+    func test_conversationToolbarsShowCodingAgentsEntryPointWhenEnabledAndActionExists() {
+        XCTAssertTrue(
+            ConversationListView.shouldShowACPSessionsToolbarButton(
+                isCodingAgentsPanelEnabled: true,
+                onShowACPSessions: {}
+            )
+        )
+    }
+
+    func test_conversationToolbarsHideCodingAgentsEntryPointWithoutAction() {
+        XCTAssertFalse(
+            ConversationListView.shouldShowACPSessionsToolbarButton(
+                isCodingAgentsPanelEnabled: true,
+                onShowACPSessions: nil
+            )
+        )
+    }
+
     // MARK: - Helpers
 
     /// Inserts a synthetic ACP session into the store via the same
