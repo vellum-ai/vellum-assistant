@@ -16,7 +16,6 @@ final class InferenceServiceCardTests: XCTestCase {
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
     private var authManager: AuthManager!
-    private var apiKeyTextBox: ApiKeyTextBox!
 
     override func setUp() {
         super.setUp()
@@ -30,7 +29,6 @@ final class InferenceServiceCardTests: XCTestCase {
         store = fixture.store
         mockSettingsClient = fixture.mockClient
         authManager = AuthManager()
-        apiKeyTextBox = ApiKeyTextBox()
         // Seed three built-in profiles so the Active Profile dropdown has
         // real options in tests. Inlined rather than reusing
         // `SettingsTestFixture.builtInProfilesPayload` because the card's
@@ -61,28 +59,15 @@ final class InferenceServiceCardTests: XCTestCase {
         store = nil
         mockSettingsClient = nil
         authManager = nil
-        apiKeyTextBox = nil
         super.tearDown()
     }
 
     // MARK: - Helpers
 
-    /// Reference-typed shim so a `@Binding<String>` constructed from get/set
-    /// closures can mutate state across calls. Mirrors the pattern in
-    /// `InferenceProfileEditorTests` so we don't need a rendered view tree.
-    @MainActor
-    private final class ApiKeyTextBox {
-        var text: String = ""
-    }
-
     private func makeCard() -> InferenceServiceCard {
         InferenceServiceCard(
             store: store,
             authManager: authManager,
-            apiKeyText: Binding(
-                get: { self.apiKeyTextBox.text },
-                set: { self.apiKeyTextBox.text = $0 }
-            ),
             showToast: { _, _ in }
         )
     }

@@ -7,8 +7,7 @@ import VellumAssistantShared
 /// and expands inline to reveal an `APIKeyTextField` for entry. Keys are
 /// validated and persisted individually via `store.saveInferenceAPIKey()`.
 ///
-/// Opened from the "Manage API Keys..." button on `InferenceServiceCard`
-/// when the inference-profiles feature flag is enabled.
+/// Opened from the "API Keys" button on `InferenceServiceCard`.
 @MainActor
 struct APIKeysSheet: View {
     @ObservedObject var store: SettingsStore
