@@ -26,8 +26,47 @@ let configWriteChain: Promise<void> = Promise.resolve();
  * Enqueue a write operation onto the shared config write chain.
  * The callback runs only after all previously enqueued writes have finished.
  */
-export function enqueueConfigWrite(fn: () => void): void {
-  configWriteChain = configWriteChain.then(fn);
+export function enqueueConfigWrite(
+  fn: () => void | Promise<void>,
+): Promise<void> {
+  const run = configWriteChain.then(fn);
+  configWriteChain = run.catch(() => {});
+  return run;
+}
+
+export type ConfigMutationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: "malformed"; detail: string };
+
+export function mutateConfigFile<T>(
+  mutate: (data: Record<string, unknown>) => T,
+  options?: {
+    shouldWrite?: (value: T) => boolean;
+    onWritten?: () => void;
+  },
+): Promise<ConfigMutationResult<T>> {
+  let mutationResult: ConfigMutationResult<T> | undefined;
+
+  return enqueueConfigWrite(() => {
+    const result = readConfigFile();
+    if (!result.ok) {
+      mutationResult = result;
+      return;
+    }
+
+    const value = mutate(result.data);
+    const shouldWrite = options?.shouldWrite?.(value) ?? true;
+    if (shouldWrite) {
+      writeConfigFileAtomic(result.data);
+      options?.onWritten?.();
+    }
+    mutationResult = { ok: true, value };
+  }).then(() => {
+    if (!mutationResult) {
+      throw new Error("Config mutation did not produce a result");
+    }
+    return mutationResult;
+  });
 }
 
 export function getConfigPath(): string {
