@@ -61,7 +61,8 @@ type ThresholdConfig =
  * Resolve a threshold config to a scalar threshold for the given execution
  * context.
  *
- * - Scalar string → returned as-is for all contexts
+ * - Scalar string → returned as-is for non-headless contexts
+
  * - Object with per-context overrides → returns the value for the context
  *   (`background` resolves to the `autonomous` field; `headless` always
  *   resolves to `"none"` regardless of configured thresholds)
