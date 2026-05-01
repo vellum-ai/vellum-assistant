@@ -257,6 +257,33 @@ final class OnboardingState {
         if shouldPersist { persist() }
     }
 
+    /// Bounces the user back to the privacy step (step 3) and clears any
+    /// in-flight hatch state. Used by the consent gates in `HatchingStepView`
+    /// and `performManagedBootstrap` to ensure a clean retry after the user
+    /// re-checks consent. Persists the step write so a force-quit between the
+    /// bounce and the next consent re-check doesn't leave `onboarding.step`
+    /// pointing at the now-aborted hatch step.
+    func bounceToConsentStep() {
+        // Mirror HatchingStepView.goBack()'s reset pattern so a subsequent
+        // retry with a different hosting mode doesn't get short-circuited by
+        // stale hatch state (e.g. isManagedHatch=true causing startHatching()
+        // to skip the CLI path).
+        isHatching = false
+        isManagedHatch = false
+        hasExistingManagedAssistant = false
+        hatchFailed = false
+        hatchFailureReason = nil
+        hatchLogLines = []
+        hatchProgressTarget = 0.0
+        hatchProgressDisplay = 0.0
+        hatchStepLabel = nil
+        hatchTotalSteps = 1
+        hatchCurrentStep = 0
+        hatchProcessStarted = false
+        currentStep = 3
+        if shouldPersist { persist() }
+    }
+
     static func clearPersistedState() {
         for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry", "onboarding.selectedHostingMode", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
             UserDefaults.standard.removeObject(forKey: key)

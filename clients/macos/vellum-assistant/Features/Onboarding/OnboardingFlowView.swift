@@ -359,8 +359,7 @@ struct OnboardingFlowView: View {
         let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
         guard tosOk && aiOk else {
             log.info("Managed bootstrap aborted: AI Data Sharing consent missing — bouncing to privacy step")
-            state.isHatching = false
-            state.currentStep = 3
+            state.bounceToConsentStep()
             return
         }
 
