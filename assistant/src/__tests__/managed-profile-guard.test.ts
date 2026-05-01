@@ -141,28 +141,28 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
 // ---------------------------------------------------------------------------
 
 describe("PATCH /v1/config — managed profile deletion guard", () => {
-  test("rejects deletion of quality-optimized via null with descriptive message", () => {
-    expect(() =>
+  test("rejects deletion of quality-optimized via null with descriptive message", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { "quality-optimized": null } } },
       }),
-    ).toThrow('Cannot delete managed profile "quality-optimized".');
+    ).rejects.toThrow('Cannot delete managed profile "quality-optimized".');
   });
 
-  test("rejects deletion of balanced via null", () => {
-    expect(() =>
+  test("rejects deletion of balanced via null", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { balanced: null } } },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("rejects deletion of cost-optimized via null", () => {
-    expect(() =>
+  test("rejects deletion of cost-optimized via null", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { "cost-optimized": null } } },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("allows deletion of a user-defined profile via null", async () => {
@@ -215,11 +215,11 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  test("rejects nulling the entire profiles map", () => {
-    expect(() =>
+  test("rejects nulling the entire profiles map", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: null } },
       }),
-    ).toThrow("Cannot null llm.profiles");
+    ).rejects.toThrow("Cannot null llm.profiles");
   });
 });

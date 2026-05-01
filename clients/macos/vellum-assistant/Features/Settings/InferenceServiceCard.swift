@@ -210,7 +210,7 @@ struct InferenceServiceCard: View {
 
             // The task(id: apiKeysRefreshToken) block handles the "logged-in +
             // your-own + no key configured" auto-reset using daemon-sourced
-            // key statuses. Bump the token here so the task fires on appear.
+            // key statuses. The task fires automatically on initial appearance.
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),

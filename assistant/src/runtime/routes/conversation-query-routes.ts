@@ -46,6 +46,7 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
+import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "../../daemon/handlers/shared.js";
 import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import {
@@ -339,19 +340,49 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
   rejectManagedProfileDeletion(body as Record<string, unknown>);
+
+  const raw = loadRawConfig();
+  const patch = body as Record<string, unknown>;
+  deepMergeOverwrite(raw, patch);
+
+  // Suppress the file-watcher callback for the duration of the debounce
+  // window. Without this, the ConfigWatcher detects the config.json write
+  // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
+  // second time — starting with providers.clear() which races with the
+  // explicit reinit below. The watcher also fires onConversationEvict(),
+  // which would evict all cached conversations on every PATCH. Mirror the
+  // suppress/reset pattern used in setModel (config-model.ts).
+  const configWatcher = getConfigWatcher();
+  const wasSuppressed = configWatcher.suppressConfigReload;
+  configWatcher.suppressConfigReload = true;
   try {
-    const raw = loadRawConfig();
-    const patch = body as Record<string, unknown>;
-    deepMergeOverwrite(raw, patch);
     saveRawConfig(raw);
-    clearEmbeddingBackendCache();
-    invalidateConfigCache();
-    await initializeProviders(getConfig());
-    return { ok: true };
   } catch (err) {
+    configWatcher.suppressConfigReload = wasSuppressed;
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to patch config: ${message}`);
   }
+  configWatcher.timers.schedule(
+    "__suppress_reset__",
+    () => {
+      configWatcher.suppressConfigReload = false;
+    },
+    CONFIG_RELOAD_DEBOUNCE_MS,
+  );
+
+  clearEmbeddingBackendCache();
+  invalidateConfigCache();
+  // Reinitialize providers so the live registry reflects the new config
+  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
+  // a provider reinit failure doesn't mask the successful config save.
+  try {
+    await initializeProviders(getConfig());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, `handlePatchConfig: provider reinit failed: ${message}`);
+  }
+  configWatcher.updateFingerprint();
+  return { ok: true };
 }
 
 function handleReplaceInferenceProfile({
