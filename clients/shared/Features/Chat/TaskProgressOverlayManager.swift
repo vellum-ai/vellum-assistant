@@ -166,10 +166,12 @@ private struct TaskProgressOverlayView: View {
                     Button {
                         manager.close()
                     } label: {
-                        VIconView(.x, size: 10)
+                        VIconView(.arrowDownToLine, size: 10)
                             .foregroundStyle(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
+                    .help("Dock inline")
+                    .accessibilityLabel("Dock inline")
                     .padding(.top, VSpacing.sm)
                     .padding(.trailing, VSpacing.sm)
                 }
