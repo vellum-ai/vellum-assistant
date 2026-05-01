@@ -161,6 +161,7 @@ final class DocumentManager {
 
     func exportToPDF() {
         guard let surfaceId = surfaceId else { return }
+        save()
         let titleForFile = title
         Task {
             guard let pdfData = await documentClient.exportDocumentPDF(surfaceId: surfaceId) else {
