@@ -16,9 +16,9 @@ afterEach(() => {
   _setOverridesForTesting({});
 });
 
-const DECLARED_FLAG_ID = "sounds";
+const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
-const DECLARED_SKILL_ID = "sounds";
+const DECLARED_SKILL_ID = "email-channel";
 const APP_BUILDER_MULTIFILE_FLAG_KEY = "app-builder-multifile";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,14 +91,14 @@ describe("skillFlagKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
-  test("returns true when no flag overrides (registry default is true)", () => {
+  test("returns false when no flag overrides (registry default is false)", () => {
     const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
         config,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("returns true when skill key is explicitly true", () => {
@@ -144,8 +144,10 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // sounds defaults to true in the registry
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
+    // email-channel defaults to false in the registry
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
   test("respects persisted overrides for undeclared keys", () => {
@@ -209,14 +211,13 @@ describe("resolveSkillStates with feature flags", () => {
     expect(ids).toContain("browser");
   });
 
-  test("declared flag key defaults to registry value (true)", () => {
+  test("declared flag key defaults to registry value (false)", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // sounds registry default is true, so it passes through
-    expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
+    // email-channel registry default is false, so it is filtered out
+    expect(resolved.length).toBe(0);
   });
 
   test("skill without featureFlag is never flag-gated", () => {
@@ -272,7 +273,7 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // sounds and deploy explicitly false; browser explicitly true
+    // email-channel and deploy explicitly false; browser explicitly true
     expect(ids).toEqual(["browser"]);
   });
 });
@@ -282,15 +283,14 @@ describe("resolveSkillStates with feature flags", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveSkillStates with frontmatter featureFlag", () => {
-  test("skill with featureFlag (defaultEnabled: true) is included when no config override", () => {
-    // sounds has defaultEnabled: true in the registry
+  test("skill with featureFlag (defaultEnabled: false) is excluded when no config override", () => {
+    // email-channel has defaultEnabled: false in the registry
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // No override, registry default is true → passes through
-    expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
+    // No override, registry default is false → filtered out
+    expect(resolved.length).toBe(0);
   });
 
   test("skill with featureFlag is included when override enables it", () => {

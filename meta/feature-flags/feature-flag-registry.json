@@ -218,14 +218,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "sounds",
-      "scope": "assistant",
-      "key": "sounds",
-      "label": "Sounds",
-      "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
-      "defaultEnabled": true
-    },
-    {
       "id": "message-tts",
       "scope": "assistant",
       "key": "message-tts",
