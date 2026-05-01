@@ -8,6 +8,7 @@ public protocol DocumentClientProtocol {
     func fetchList(conversationId: String?) async -> DocumentListResponse?
     func fetchDocument(surfaceId: String) async -> DocumentLoadResponse?
     func saveDocument(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) async -> DocumentSaveResponse?
+    func exportDocumentPDF(surfaceId: String) async -> Data?
 }
 
 /// Gateway-backed implementation of ``DocumentClientProtocol``.
@@ -102,6 +103,23 @@ public struct DocumentClient: DocumentClientProtocol {
             )
         } catch {
             log.error("saveDocument error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func exportDocumentPDF(surfaceId: String) async -> Data? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/documents/\(surfaceId)/pdf",
+                timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("exportDocumentPDF failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return response.data
+        } catch {
+            log.error("exportDocumentPDF error: \(error.localizedDescription)")
             return nil
         }
     }
