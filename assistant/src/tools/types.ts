@@ -141,6 +141,10 @@ export interface ToolExecutedEvent {
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
   matchedTrustRuleId?: string;
+  /** How the approval decision was reached. Copied from PermissionDecision for analytics consumers. */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */
+  approvalReason?: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;

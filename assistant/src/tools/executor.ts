@@ -406,6 +406,8 @@ export class ToolExecutor {
         requestId: context.requestId,
         riskLevel,
         matchedTrustRuleId: permMatchedTrustRuleId,
+        approvalMode: permApprovalMode,
+        approvalReason: permApprovalReason,
         decision,
         durationMs,
         result: safeResult,

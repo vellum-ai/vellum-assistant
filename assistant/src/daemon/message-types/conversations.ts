@@ -350,7 +350,10 @@ export interface HistoryResponseToolCall {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
+  /**
+   * @deprecated Use `approvalMode` and `approvalReason` instead.
+   * Kept for backward compatibility during the migration window.
+   */
   autoApproved?: boolean;
   /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
   approvalMode?: string;
