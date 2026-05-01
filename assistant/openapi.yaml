@@ -4520,6 +4520,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/documents/{id}/pdf:
+    get:
+      operationId: documents_by_id_pdf_get
+      summary: Export a document as PDF
+      description: Render a document to PDF and return the binary content.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/events:
     get:
       operationId: events_get

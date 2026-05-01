@@ -335,7 +335,7 @@ export const ROUTES: RouteDefinition[] = [
           .replace(/[^a-zA-Z0-9_-]/g, "-")
           .replace(/-+/g, "-")
           .replace(/^-|-$/g, "") || "document";
-      return new RouteResponse(pdfBuffer, {
+      return new RouteResponse(new Uint8Array(pdfBuffer), {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}.pdf"`,
         "Content-Length": String(pdfBuffer.length),
