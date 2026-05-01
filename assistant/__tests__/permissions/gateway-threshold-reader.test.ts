@@ -97,8 +97,8 @@ describe("getAutoApproveThreshold", () => {
 
     _clearGlobalCacheForTesting();
 
-    // headless also maps to autonomous
-    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("low");
+    // headless remains strict regardless of autonomous global setting
+    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("none");
   });
 
   test("returns conversation override when it exists", async () => {
@@ -159,9 +159,7 @@ describe("getAutoApproveThreshold", () => {
     _clearGlobalCacheForTesting();
 
     // background → "none" (maps to autonomous, which defaults to "none")
-    expect(await getAutoApproveThreshold(undefined, "background")).toBe(
-      "none",
-    );
+    expect(await getAutoApproveThreshold(undefined, "background")).toBe("none");
 
     _clearGlobalCacheForTesting();
 
@@ -213,9 +211,9 @@ describe("getAutoApproveThreshold", () => {
     expect(second).toBe("low");
     expect(fetchCount).toBe(1); // Still 1, cache hit
 
-    // Third call — still cached
+    // Third call — headless always returns "none" regardless of cache
     const third = await getAutoApproveThreshold(undefined, "headless");
-    expect(third).toBe("low");
+    expect(third).toBe("none");
     expect(fetchCount).toBe(1); // Still 1
 
     // After clearing cache, should re-fetch

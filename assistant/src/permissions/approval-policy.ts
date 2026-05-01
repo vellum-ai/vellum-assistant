@@ -49,7 +49,7 @@ const CONTEXT_DEFAULTS: Record<
 > = {
   conversation: "medium",
   background: "low",
-  headless: "low",
+  headless: "none",
 };
 
 type ThresholdScalar = "none" | "low" | "medium" | "high";
@@ -61,9 +61,11 @@ type ThresholdConfig =
  * Resolve a threshold config to a scalar threshold for the given execution
  * context.
  *
- * - Scalar string → returned as-is for all contexts
+ * - Scalar string → returned as-is for non-headless contexts
+
  * - Object with per-context overrides → returns the value for the context
- *   (`background` and `headless` both resolve to the `autonomous` field)
+ *   (`background` resolves to the `autonomous` field; `headless` always
+ *   resolves to `"none"` regardless of configured thresholds)
  *
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
@@ -71,6 +73,7 @@ export function resolveThreshold(
   configValue: ThresholdConfig | undefined,
   executionContext?: ExecutionContext,
 ): ThresholdScalar {
+  if (executionContext === "headless") return "none";
   if (configValue == null) {
     return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
   }
