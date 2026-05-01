@@ -43,7 +43,7 @@ public struct ConversationUnreadClient: ConversationUnreadClientProtocol {
         }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/conversations/unread",
+            path: "conversations/unread",
             json: body,
             timeout: 10
         )

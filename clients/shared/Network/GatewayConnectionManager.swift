@@ -357,12 +357,7 @@ public final class GatewayConnectionManager {
     }
 
     private func performHealthCheck() async throws {
-        let healthPath: String
-        #if os(macOS)
-        healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
-        #else
-        healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
-        #endif
+        let healthPath = "health"
 
         // Run the HTTP GET + JSON decode off the main actor. `GatewayHTTPClient`
         // is nonisolated but, when called from a `@MainActor` context, its
@@ -385,7 +380,8 @@ public final class GatewayConnectionManager {
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
                 timeout: 10,
-                quiet: true
+                quiet: true,
+                unprefixed: true
             )
             let version: String? = response.isSuccess
                 ? (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version

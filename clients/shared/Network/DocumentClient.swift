@@ -20,7 +20,7 @@ public struct DocumentClient: DocumentClientProtocol {
             if let conversationId { params["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/documents",
+                path: "documents",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -52,7 +52,7 @@ public struct DocumentClient: DocumentClientProtocol {
     public func fetchDocument(surfaceId: String) async -> DocumentLoadResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/documents/\(surfaceId)", timeout: 10
+                path: "documents/\(surfaceId)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchDocument failed (HTTP \(response.statusCode))")
@@ -87,7 +87,7 @@ public struct DocumentClient: DocumentClientProtocol {
                 "wordCount": wordCount,
             ]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/documents", json: body, timeout: 10
+                path: "documents", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("saveDocument failed (HTTP \(response.statusCode))")

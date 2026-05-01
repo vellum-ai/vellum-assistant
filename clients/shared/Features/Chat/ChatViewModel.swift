@@ -52,7 +52,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
     func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse? {
         guard let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/conversation-starters",
+            path: "conversation-starters",
             params: ["limit": String(limit)]
         ), response.isSuccess else { return nil }
         return try? JSONDecoder().decode(ConversationStartersResponse.self, from: response.data)
@@ -60,7 +60,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
     func deleteConversationStarter(id: String) async -> Bool {
         guard let response = try? await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/conversation-starters/\(Self.pathEscape(id))"
+            path: "conversation-starters/\(Self.pathEscape(id))"
         ) else { return false }
         return response.isSuccess || response.statusCode == 404
     }
@@ -97,7 +97,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
 
     public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
+            path: "surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
@@ -111,7 +111,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
     /// reconstructing a `UiSurfaceShowMessage` to re-open ephemeral surfaces.
     public func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
+            path: "surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface content \(surfaceId) failed (HTTP \(statusCode))")

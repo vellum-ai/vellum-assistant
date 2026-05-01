@@ -1324,7 +1324,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.post(path: "secrets", body: bodyData)
+            }
         }
     }
 
@@ -1336,7 +1338,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.delete(path: "secrets", body: bodyData)
+            }
         }
         return true
     }
@@ -1372,7 +1376,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.statusCode == 200, let config {
@@ -1417,7 +1421,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     body: bodyData,
                     timeout: 10
                 )
@@ -1464,7 +1468,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.isSuccess {
@@ -1506,7 +1510,7 @@ public final class SettingsStore: ObservableObject {
             return
         }
 
-        let gatewayPath = "assistants/\(assistantId)/\(path)"
+        let gatewayPath = path
         let bodyData: Data?
         if let body {
             bodyData = try? JSONSerialization.data(withJSONObject: body)
@@ -2240,7 +2244,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/debug",
+                    path: "debug",
                     timeout: 10
                 )
                 guard response.isSuccess else { return }
@@ -2404,7 +2408,7 @@ public final class SettingsStore: ObservableObject {
             do {
                 let (decoded, response): (OAuthProvidersListResponse?, _) =
                     try await GatewayHTTPClient.get(
-                        path: "assistants/{assistantId}/oauth/providers",
+                        path: "oauth/providers",
                         params: ["supports_managed_mode": "true"],
                         timeout: 10
                     )
@@ -2809,7 +2813,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/oauth/apps",
+                    path: "oauth/apps",
                     params: ["provider_key": providerKey],
                     timeout: 10
                 )
@@ -2842,7 +2846,7 @@ public final class SettingsStore: ObservableObject {
     func fetchYourOwnOAuthConnections(appId: String) async {
         do {
             let (decoded, response): (YourOwnOAuthConnectionsResponse?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/oauth/apps/\(appId)/connections",
+                path: "oauth/apps/\(appId)/connections",
                 timeout: 10
             )
             if response.isSuccess, let decoded {
@@ -2863,7 +2867,7 @@ public final class SettingsStore: ObservableObject {
         let secretKey = "client" + "_secret"
         body[secretKey] = clientSecret
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
             if response.isSuccess {
                 self.fetchYourOwnOAuthApps(providerKey: providerKey)
             } else {
@@ -2885,7 +2889,7 @@ public final class SettingsStore: ObservableObject {
     func deleteYourOwnOAuthApp(id: String, providerKey: String) async {
         yourOwnOAuthError[providerKey] = nil
         do {
-            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/apps/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
             if response.isSuccess {
                 self.yourOwnOAuthApps[providerKey]?.removeAll { $0.id == id }
                 self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
@@ -2909,7 +2913,7 @@ public final class SettingsStore: ObservableObject {
         let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         do {
-            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/connections/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
             if response.isSuccess {
                 await self.fetchYourOwnOAuthConnections(appId: appId)
             } else {
@@ -2940,7 +2944,7 @@ public final class SettingsStore: ObservableObject {
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         Task {
             do {
-                let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
                 guard response.isSuccess else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],

@@ -47,7 +47,7 @@ public struct BtwClient: BtwClientProtocol {
         defer { session.invalidateAndCancel() }
 
         let (bytes, response) = try await GatewayHTTPClient.streamPostWithRetry(
-            path: "assistants/{assistantId}/btw",
+            path: "btw",
             body: bodyData,
             timeout: 120,
             session: session

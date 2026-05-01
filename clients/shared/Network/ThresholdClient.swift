@@ -110,7 +110,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
 
     public func getGlobalThresholds() async throws -> GlobalThresholds {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/permissions/thresholds", timeout: 10
+            path: "permissions/thresholds", timeout: 10
         )
         guard response.isSuccess else {
             log.error("getGlobalThresholds failed (HTTP \(response.statusCode))")
@@ -126,7 +126,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
             "headless": thresholds.headless,
         ]
         let response = try await GatewayHTTPClient.put(
-            path: "assistants/{assistantId}/permissions/thresholds", json: body, timeout: 10
+            path: "permissions/thresholds", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("setGlobalThresholds failed (HTTP \(response.statusCode))")
@@ -136,7 +136,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
 
     public func getConversationOverride(conversationId: String) async throws -> String? {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/permissions/thresholds/conversations/\(conversationId)", timeout: 10
+            path: "permissions/thresholds/conversations/\(conversationId)", timeout: 10
         )
         if response.statusCode == 404 {
             return nil
@@ -152,7 +152,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
     public func setConversationOverride(conversationId: String, threshold: String) async throws {
         let body: [String: Any] = ["threshold": threshold]
         let response = try await GatewayHTTPClient.put(
-            path: "assistants/{assistantId}/permissions/thresholds/conversations/\(conversationId)", json: body, timeout: 10
+            path: "permissions/thresholds/conversations/\(conversationId)", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("setConversationOverride failed (HTTP \(response.statusCode))")
@@ -162,7 +162,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
 
     public func deleteConversationOverride(conversationId: String) async throws {
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/permissions/thresholds/conversations/\(conversationId)", timeout: 10
+            path: "permissions/thresholds/conversations/\(conversationId)", timeout: 10
         )
         guard response.isSuccess else {
             log.error("deleteConversationOverride failed (HTTP \(response.statusCode))")

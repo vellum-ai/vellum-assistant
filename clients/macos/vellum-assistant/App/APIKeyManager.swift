@@ -154,7 +154,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+                path: "secrets/read", json: body, timeout: 5
             )
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -210,7 +210,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider, "value": key]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                path: "secrets", json: body, timeout: 5
             )
             if response.isSuccess {
                 return SetKeyResult(success: true, error: nil, isTransient: false)
@@ -239,7 +239,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider]
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                path: "secrets", json: body, timeout: 5
             )
             return response.isSuccess
         } catch {
@@ -274,7 +274,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+                path: "secrets/read", json: body, timeout: 5
             )
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -306,7 +306,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)", "value": value]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                path: "secrets", json: body, timeout: 5
             )
             if response.isSuccess {
                 return SetKeyResult(success: true, error: nil, isTransient: false)
@@ -329,7 +329,7 @@ enum APIKeyManager {
         do {
             let body: [String: Any] = ["type": "credential", "name": "\(service):\(field)"]
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                path: "secrets", json: body, timeout: 5
             )
             return response.isSuccess
         } catch {

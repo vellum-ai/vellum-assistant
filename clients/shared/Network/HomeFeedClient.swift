@@ -96,7 +96,7 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/home/feed",
+                path: "home/feed",
                 params: ["timeAwaySeconds": String(seconds)],
                 timeout: 10
             )
@@ -125,7 +125,7 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/home/feed/\(Self.pathEscape(itemId))",
+                path: "home/feed/\(Self.pathEscape(itemId))",
                 json: ["status": status.rawValue],
                 timeout: 10
             )
@@ -154,7 +154,7 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/home/feed/\(Self.pathEscape(itemId))/actions/\(Self.pathEscape(actionId))",
+                path: "home/feed/\(Self.pathEscape(itemId))/actions/\(Self.pathEscape(actionId))",
                 json: [:],
                 timeout: 10
             )

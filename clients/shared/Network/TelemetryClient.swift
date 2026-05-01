@@ -18,7 +18,7 @@ public struct TelemetryClient: TelemetryClientProtocol {
         let body: [String: Any] = ["event_name": eventName]
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/telemetry/lifecycle",
+                path: "telemetry/lifecycle",
                 json: body,
                 timeout: 10
             )

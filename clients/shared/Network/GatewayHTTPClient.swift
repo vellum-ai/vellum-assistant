@@ -14,8 +14,12 @@ public enum MultipartPart {
 /// Consolidates URL construction, auth headers, org-id injection, and
 /// request execution so callers can simply write:
 ///
-///     let response = try await GatewayHTTPClient.get(path: "health")
-///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+///     let response = try await GatewayHTTPClient.get(path: "health", unprefixed: true)
+///     let response = try await GatewayHTTPClient.post(path: "restart")
+///
+/// All paths are automatically prepended with `assistants/{assistantId}/` unless
+/// the caller passes `unprefixed: true` (for routes that operate outside assistant
+/// scope, e.g. `health`, `guardian/*`, `secrets`).
 public enum GatewayHTTPClient {
     private static let sseAcceptHeader = "text/event-stream, application/json"
 
@@ -66,8 +70,8 @@ public enum GatewayHTTPClient {
     ///   - quiet: When `true`, suppresses HTTP request/response logging for this request.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, quiet: Bool = false) async throws -> Response {
-        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout, quiet: quiet)
+    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, quiet: Bool = false, unprefixed: Bool = false) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout, quiet: quiet, unprefixed: unprefixed)
     }
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.
@@ -90,9 +94,10 @@ public enum GatewayHTTPClient {
         path: String,
         params: [String: String]? = nil,
         timeout: TimeInterval = 30,
+        unprefixed: Bool = false,
         configure: ((_ decoder: JSONDecoder) -> Void)? = nil
     ) async throws -> (T?, Response) {
-        let response = try await get(path: path, params: params, timeout: timeout)
+        let response = try await get(path: path, params: params, timeout: timeout, unprefixed: unprefixed)
         guard response.isSuccess else { return (nil, response) }
         let decoder = JSONDecoder()
         configure?(decoder)
@@ -110,8 +115,8 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func post(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, params: params, method: "POST", timeout: timeout) { request in
+    public static func post(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "POST", timeout: timeout, unprefixed: unprefixed) { request in
             request.httpBody = body
             if let contentType {
                 request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -130,9 +135,9 @@ public enum GatewayHTTPClient {
     ///     the credential refresh endpoint to prevent recursive refresh loops.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, skipRetry: Bool = false) async throws -> Response {
+    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, skipRetry: Bool = false, unprefixed: Bool = false) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await executeWithRetry(path: path, method: "POST", timeout: timeout, skipRetry: skipRetry) { request in
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout, skipRetry: skipRetry, unprefixed: unprefixed) { request in
             request.httpBody = body
             if let extraHeaders {
                 for (key, value) in extraHeaders {
@@ -212,10 +217,11 @@ public enum GatewayHTTPClient {
         params: [String: String]? = nil,
         contentType: String? = nil,
         timeout: TimeInterval = 30,
+        unprefixed: Bool = false,
         onProgress: @escaping @MainActor (Double) -> Void
     ) async throws -> Response {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: connection)
+        var request = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: connection, unprefixed: unprefixed)
         request.httpBody = body
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -228,7 +234,7 @@ public enum GatewayHTTPClient {
         if result.statusCode == 401, !connection.isManaged {
             if await refreshBearerCredentials(connection: connection) {
                 let freshConnection = try resolveConnection()
-                var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection)
+                var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection, unprefixed: unprefixed)
                 retryRequest.httpBody = body
                 if let contentType {
                     retryRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -399,13 +405,13 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/secrets"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"secrets"`).
     ///   - body: Optional HTTP body data.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func delete(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, method: "DELETE", timeout: timeout) { request in
+    public static func delete(path: String, body: Data? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
+        return try await executeWithRetry(path: path, method: "DELETE", timeout: timeout, unprefixed: unprefixed) { request in
             request.httpBody = body
         }
     }
@@ -418,9 +424,9 @@ public enum GatewayHTTPClient {
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func delete(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
+    public static func delete(path: String, json: [String: Any], timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await delete(path: path, body: body, timeout: timeout)
+        return try await delete(path: path, body: body, timeout: timeout, unprefixed: unprefixed)
     }
 
     /// Result of an authenticated download-to-disk request.
@@ -828,9 +834,9 @@ public enum GatewayHTTPClient {
     /// ``post(path:body:timeout:)``.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/workspace/file/content"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"workspace/file/content"`).
     ///   - params: Optional query parameters.
-    /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
+    /// - Returns: The fully-qualified URL.
     /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
     public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
         let connection = try resolveConnection()
@@ -852,7 +858,7 @@ public enum GatewayHTTPClient {
     ///   - params: Additional query parameters to include in the URL.
     /// - Returns: A `URLRequest` configured for a WebSocket upgrade with auth.
     /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
-    public static func buildWebSocketRequest(path: String, params: [String: String]? = nil) throws -> URLRequest {
+    public static func buildWebSocketRequest(path: String, params: [String: String]? = nil, unprefixed: Bool = false) throws -> URLRequest {
         let connection = try resolveConnection()
 
         // Merge auth token into query params — WebSocket upgrades cannot carry
@@ -867,7 +873,7 @@ public enum GatewayHTTPClient {
             }
         }
 
-        let httpURL = try constructURL(path: path, params: mergedParams, connection: connection)
+        let httpURL = try constructURL(path: path, params: mergedParams, connection: connection, unprefixed: unprefixed)
 
         // Convert http(s) scheme to ws(s) for the WebSocket transport.
         guard var components = URLComponents(url: httpURL, resolvingAgainstBaseURL: false) else {
@@ -902,9 +908,17 @@ public enum GatewayHTTPClient {
     private static func constructURL(
         path: String,
         params: [String: String]?,
-        connection: ConnectionInfo
+        connection: ConnectionInfo,
+        unprefixed: Bool = false
     ) throws -> URL {
-        var resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
+        var resolvedPath = path
+
+        // Auto-prepend the assistant scope unless the caller explicitly opts out.
+        if !unprefixed && !resolvedPath.hasPrefix("assistants/") {
+            resolvedPath = "assistants/{assistantId}/\(resolvedPath)"
+        }
+
+        resolvedPath = resolvedPath.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
         // QR-mode connections have an empty assistantId — collapse the empty scope
         // prefix so e.g. "assistants//trace-events" falls back to "trace-events".
         if connection.assistantId.isEmpty {
@@ -947,9 +961,10 @@ public enum GatewayHTTPClient {
         params: [String: String]?,
         method: String,
         timeout: TimeInterval,
-        connection: ConnectionInfo
+        connection: ConnectionInfo,
+        unprefixed: Bool = false
     ) throws -> URLRequest {
-        let url = try constructURL(path: path, params: params, connection: connection)
+        let url = try constructURL(path: path, params: params, connection: connection, unprefixed: unprefixed)
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -1025,10 +1040,11 @@ public enum GatewayHTTPClient {
         timeout: TimeInterval,
         quiet: Bool = false,
         skipRetry: Bool = false,
+        unprefixed: Bool = false,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: connection)
+        var request = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: connection, unprefixed: unprefixed)
         configure?(&request)
         let response = try await execute(request, quiet: quiet)
 
@@ -1042,7 +1058,7 @@ public enum GatewayHTTPClient {
 
         // Rebuild with fresh credentials from the credential store.
         let freshConnection = try resolveConnection()
-        var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection)
+        var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection, unprefixed: unprefixed)
         configure?(&retryRequest)
         return try await execute(retryRequest, quiet: quiet)
     }

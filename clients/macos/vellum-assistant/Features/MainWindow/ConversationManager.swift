@@ -23,7 +23,7 @@ struct ConversationClient: ConversationClientProtocol {
 
     func deleteConversation(_ conversationId: String) async {
         let response = try? await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
+            path: "conversations/\(conversationId)", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
@@ -32,7 +32,7 @@ struct ConversationClient: ConversationClientProtocol {
 
     func archiveConversation(_ conversationId: String) async {
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/conversations/\(conversationId)/archive", timeout: 10
+            path: "conversations/\(conversationId)/archive", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Archive conversation \(conversationId) failed (HTTP \(statusCode))")
@@ -41,7 +41,7 @@ struct ConversationClient: ConversationClientProtocol {
 
     func unarchiveConversation(_ conversationId: String) async {
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/conversations/\(conversationId)/unarchive", timeout: 10
+            path: "conversations/\(conversationId)/unarchive", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Unarchive conversation \(conversationId) failed (HTTP \(statusCode))")

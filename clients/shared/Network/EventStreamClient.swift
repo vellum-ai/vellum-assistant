@@ -397,7 +397,7 @@ public final class EventStreamClient {
             do {
                 await self.sseHandshakeDiagnostics.reset()
                 let (bytes, response) = try await GatewayHTTPClient.stream(
-                    path: "assistants/{assistantId}/events",
+                    path: "events",
                     timeout: .infinity,
                     session: session
                 )

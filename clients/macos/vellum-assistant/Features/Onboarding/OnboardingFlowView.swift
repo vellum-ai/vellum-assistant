@@ -418,7 +418,7 @@ struct OnboardingFlowView: View {
         while clock.now < deadline {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/health",
+                    path: "health",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {

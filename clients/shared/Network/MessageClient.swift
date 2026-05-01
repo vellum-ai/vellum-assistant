@@ -92,7 +92,7 @@ public struct MessageClient: MessageClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/attachments",
+                path: "attachments",
                 json: body,
                 timeout: 60
             )
@@ -139,7 +139,7 @@ public struct MessageClient: MessageClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.postMultipart(
-                path: "assistants/{assistantId}/attachments",
+                path: "attachments",
                 parts: parts,
                 timeout: 60
             )
@@ -233,7 +233,7 @@ public struct MessageClient: MessageClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/messages",
+                path: "messages",
                 json: body,
                 timeout: 30
             )

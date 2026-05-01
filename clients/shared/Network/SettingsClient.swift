@@ -63,7 +63,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchVercelConfig() async -> VercelApiConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "integrations/vercel/config", timeout: 10
+                path: "integrations/vercel/config", timeout: 10, unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("fetchVercelConfig failed (HTTP \(response.statusCode))")
@@ -81,7 +81,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body: [String: Any] = ["type": "vercel_api_config", "action": "set", "apiToken": apiToken]
             let response = try await GatewayHTTPClient.post(
-                path: "integrations/vercel/config", json: body, timeout: 10
+                path: "integrations/vercel/config", json: body, timeout: 10, unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("saveVercelConfig failed (HTTP \(response.statusCode))")
@@ -99,7 +99,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body: [String: Any] = ["type": "vercel_api_config", "action": "delete"]
             let response = try await GatewayHTTPClient.post(
-                path: "integrations/vercel/config", json: body, timeout: 10
+                path: "integrations/vercel/config", json: body, timeout: 10, unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("deleteVercelConfig failed (HTTP \(response.statusCode))")
@@ -116,7 +116,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchModelInfo() async -> ModelInfoMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/model", timeout: 10
+                path: "model", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchModelInfo failed (HTTP \(response.statusCode))")
@@ -135,7 +135,7 @@ public struct SettingsClient: SettingsClientProtocol {
             var body: [String: Any] = ["modelId": model]
             if let provider { body["provider"] = provider }
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/model", json: body, timeout: 10
+                path: "model", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setModel failed (HTTP \(response.statusCode))")
@@ -152,7 +152,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
         do {
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/model/image-gen", json: ["modelId": modelId], timeout: 10
+                path: "model/image-gen", json: ["modelId": modelId], timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setImageGenModel failed (HTTP \(response.statusCode))")
@@ -169,7 +169,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/config/embeddings", timeout: 10
+                path: "config/embeddings", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchEmbeddingConfig failed (HTTP \(response.statusCode))")
@@ -187,7 +187,7 @@ public struct SettingsClient: SettingsClientProtocol {
             var body: [String: Any] = ["provider": provider]
             if let model { body["model"] = model }
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/config/embeddings", json: body, timeout: 10
+                path: "config/embeddings", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setEmbeddingConfig failed (HTTP \(response.statusCode))")
@@ -203,7 +203,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/integrations/telegram/config", timeout: 10
+                path: "integrations/telegram/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchTelegramConfig failed (HTTP \(response.statusCode))")
@@ -232,11 +232,11 @@ public struct SettingsClient: SettingsClientProtocol {
             let response: GatewayHTTPClient.Response
             if method == "DELETE" {
                 response = try await GatewayHTTPClient.delete(
-                    path: "assistants/{assistantId}/integrations/telegram/config", timeout: 10
+                    path: "integrations/telegram/config", timeout: 10
                 )
             } else {
                 response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/integrations/telegram/config", json: body, timeout: 10
+                    path: "integrations/telegram/config", json: body, timeout: 10
                 )
             }
             guard response.isSuccess else {
@@ -257,7 +257,7 @@ public struct SettingsClient: SettingsClientProtocol {
             if let webhookUrl { body["webhookUrl"] = webhookUrl }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/integrations/slack/config", json: body, timeout: 10
+                path: "integrations/slack/config", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setSlackWebhookConfig failed (HTTP \(response.statusCode))")
@@ -275,7 +275,8 @@ public struct SettingsClient: SettingsClientProtocol {
             let response = try await GatewayHTTPClient.get(
                 path: "channel-verification-sessions/status",
                 params: ["channel": channel],
-                timeout: 10
+                timeout: 10,
+                unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("fetchChannelVerificationStatus(\(channel, privacy: .public)) failed (HTTP \(response.statusCode))")
@@ -313,19 +314,19 @@ public struct SettingsClient: SettingsClientProtocol {
             switch action {
             case "cancel_session":
                 response = try await GatewayHTTPClient.delete(
-                    path: "assistants/{assistantId}/channel-verification-sessions", json: body, timeout: 10
+                    path: "channel-verification-sessions", json: body, timeout: 10
                 )
             case "revoke":
                 response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/channel-verification-sessions/revoke", json: body, timeout: 10
+                    path: "channel-verification-sessions/revoke", json: body, timeout: 10
                 )
             case "resend_session":
                 response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/channel-verification-sessions/resend", json: body, timeout: 10
+                    path: "channel-verification-sessions/resend", json: body, timeout: 10
                 )
             default:
                 response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/channel-verification-sessions", json: body, timeout: 10
+                    path: "channel-verification-sessions", json: body, timeout: 10
                 )
             }
 
@@ -369,7 +370,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body = try JSONEncoder().encode(config)
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/settings/voice",
+                path: "settings/voice",
                 body: body,
                 timeout: 10
             )
@@ -388,7 +389,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body = try JSONEncoder().encode(request)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/oauth/start",
+                path: "oauth/start",
                 body: body,
                 timeout: 10
             )
@@ -411,7 +412,7 @@ public struct SettingsClient: SettingsClientProtocol {
                 "platform": platform
             ]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/device-token",
+                path: "device-token",
                 json: body,
                 timeout: 10
             )
@@ -429,7 +430,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchIngressConfig() async -> IngressConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/integrations/ingress/config",
+                path: "integrations/ingress/config",
                 timeout: 10
             )
             guard response.isSuccess else {
@@ -450,7 +451,7 @@ public struct SettingsClient: SettingsClientProtocol {
             if let publicBaseUrl { body["publicBaseUrl"] = publicBaseUrl }
             if let enabled { body["enabled"] = enabled }
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/integrations/ingress/config",
+                path: "integrations/ingress/config",
                 json: body,
                 timeout: 10
             )
@@ -469,7 +470,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchSuggestion(conversationId: String, requestId: String) async -> SuggestionResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/suggestion",
+                path: "suggestion",
                 params: ["conversationKey": conversationId],
                 timeout: 15
             )
@@ -493,7 +494,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchPlatformConfig() async -> PlatformConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/config/platform", timeout: 10
+                path: "config/platform", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchPlatformConfig failed (HTTP \(response.statusCode))")
@@ -511,7 +512,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body: [String: Any] = ["baseUrl": baseUrl]
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/config/platform", json: body, timeout: 10
+                path: "config/platform", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setPlatformConfig failed (HTTP \(response.statusCode))")
@@ -528,7 +529,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func patchConfig(_ partial: [String: Any]) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/config", json: partial, timeout: 10
+                path: "config", json: partial, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("patchConfig failed (HTTP \(response.statusCode))")
@@ -545,7 +546,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let encodedName = Self.encodePath(name)
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/config/llm/profiles/\(encodedName)",
+                path: "config/llm/profiles/\(encodedName)",
                 json: fragment,
                 timeout: 10
             )
@@ -563,7 +564,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchConfig() async -> [String: Any]? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/config", timeout: 10
+                path: "config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchConfig failed (HTTP \(response.statusCode))")
@@ -585,7 +586,7 @@ public struct SettingsClient: SettingsClientProtocol {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+                path: "secrets/read", json: body, timeout: 5
             )
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -604,7 +605,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/config/llm/call-sites", timeout: 10
+                path: "config/llm/call-sites", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchCallSiteCatalog failed (HTTP \(response.statusCode))")
