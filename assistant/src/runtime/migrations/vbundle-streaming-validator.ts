@@ -285,14 +285,37 @@ export function verifySymlinkEntry(input: {
     );
   }
 
+  // Absolute targets escape the archive root unconditionally — and would
+  // bypass the resolution check below because `posix.join("workspace",
+  // "/etc/passwd")` normalizes the leading `/` away and returns
+  // `"workspace/etc/passwd"`. Reject these explicitly before resolution so
+  // a symlink with target `/etc/passwd` cannot be imported as a real
+  // host-filesystem symlink.
+  if (expectedEntry.linkTarget.startsWith("/")) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "symlink_target_escapes_archive",
+      `Symlink ${archivePath} has absolute target ${JSON.stringify(
+        expectedEntry.linkTarget,
+      )}, which escapes the archive root`,
+      archivePath,
+    );
+  }
+
   // Path traversal: resolve the symlink target relative to the symlink's own
   // directory inside the archive. If the resolved path escapes the archive
   // root (begins with `..` or equals `..`), the target points outside the
-  // bundle — refuse to import.
+  // bundle — refuse to import. Also reject a resolved path that is itself
+  // absolute as defense-in-depth (dirname could in theory yield an absolute
+  // path; cheap to guard).
   const resolved = posix.normalize(
     posix.join(posix.dirname(archivePath), expectedEntry.linkTarget),
   );
-  if (resolved === ".." || resolved.startsWith("../")) {
+  if (
+    resolved === ".." ||
+    resolved.startsWith("../") ||
+    resolved.startsWith("/")
+  ) {
     entry.body.resume();
     throw new StreamingValidationError(
       "symlink_target_escapes_archive",

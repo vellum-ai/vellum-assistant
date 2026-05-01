@@ -250,6 +250,37 @@ describe("verifySymlinkEntry — path traversal", () => {
     expect(err?.archivePath).toBe("workspace/foo.md");
   });
 
+  test("verifySymlinkEntry rejects absolute symlink targets", () => {
+    // Regression: `posix.join("workspace", "/etc/passwd")` normalizes the
+    // leading slash away and returns `"workspace/etc/passwd"`, so without
+    // an explicit absolute-target guard an attacker could ship a manifest
+    // with `link_target: "/etc/passwd"` that passes the `..` traversal
+    // check and is later realized by `fs.symlink("/etc/passwd", ...)`.
+    const absoluteTarget = "/etc/passwd";
+    const entry = makeSymlinkEntry({
+      name: "workspace/skills/foo.md",
+      linkname: absoluteTarget,
+    });
+
+    let err: StreamingValidationError | null = null;
+    try {
+      verifySymlinkEntry({
+        entry,
+        expectedEntry: {
+          sha256: sha256Hex(absoluteTarget),
+          size: 0,
+          linkTarget: absoluteTarget,
+        },
+      });
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("symlink_target_escapes_archive");
+    expect(err?.archivePath).toBe("workspace/skills/foo.md");
+  });
+
   test("rejects a target that escapes the archive root from a top-level symlink", () => {
     // Symlink at "foo.md" (no parent dir inside the archive); a `..` target
     // resolves above the archive root.
