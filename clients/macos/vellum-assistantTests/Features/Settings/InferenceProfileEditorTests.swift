@@ -270,6 +270,21 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
     }
 
+    func testUnknownModelStillShowsDisabledMaxOutputControl() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-vintage-1900",
+            isKnownModel: false,
+            modelEntry: nil
+        )
+
+        XCTAssertTrue(visibility.maxTokens)
+        XCTAssertNil(InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-vintage-1900"
+        ))
+    }
+
     func testOpenRouterReasoningModelsShowEffortAndThinking() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "openrouter",
@@ -356,6 +371,69 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(sanitized.temperature, .unset)
         XCTAssertNil(sanitized.thinkingEnabled)
         XCTAssertNil(sanitized.thinkingStreamThinking)
+    }
+
+    func testGPT55MaxOutputSliderLimitIs128K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(limit, 128_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            128_000
+        )
+        XCTAssertEqual(InferenceProfileEditor.formattedTokenCount(128_000), "128K")
+    }
+
+    func testSonnet46MaxOutputSliderLimitIs64K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertEqual(limit, 64_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            64_000
+        )
+        XCTAssertEqual(InferenceProfileEditor.formattedTokenCount(64_000), "64K")
+    }
+
+    func testHaiku45MaxOutputSliderLimitIs64K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001"
+        )
+
+        XCTAssertEqual(limit, 64_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            64_000
+        )
+    }
+
+    func testSwitchingToLowerOutputModelClampsExistingMaxTokens() {
+        var profile = InferenceProfile(
+            name: "high-output",
+            provider: "openai",
+            model: "gpt-5.5",
+            maxTokens: 128_000
+        )
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderValue(
+                maxTokens: profile.maxTokens,
+                limit: InferenceProfileEditor.maxOutputTokenLimit(provider: profile.provider, model: profile.model)
+            ),
+            128_000
+        )
+
+        profile.provider = "anthropic"
+        profile.model = "claude-sonnet-4-6"
+        InferenceProfileEditor.clampMaxOutputTokensForSelectedModel(&profile)
+
+        XCTAssertEqual(profile.maxTokens, 64_000)
     }
 
     func testContextWindowMaxInputTokensRoundTripsThroughProfileJSON() {

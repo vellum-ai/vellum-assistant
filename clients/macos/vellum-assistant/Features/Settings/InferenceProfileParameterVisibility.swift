@@ -2,6 +2,8 @@ import Foundation
 import VellumAssistantShared
 
 struct InferenceProfileParameterVisibility: Equatable {
+    /// `maxTokens` is the provider request's maximum output token budget;
+    /// it is intentionally separate from `contextWindow.maxInputTokens`.
     var maxTokens: Bool
     var effort: Bool
     var speed: Bool
@@ -21,7 +23,7 @@ struct InferenceProfileParameterVisibility: Equatable {
     static func resolve(
         provider rawProvider: String?,
         model rawModel: String?,
-        isKnownModel: Bool,
+        isKnownModel _: Bool,
         modelEntry: LLMModelEntry?
     ) -> InferenceProfileParameterVisibility {
         guard
@@ -34,7 +36,6 @@ struct InferenceProfileParameterVisibility: Equatable {
         }
 
         let modelId = model.lowercased()
-        let modelIsKnown = isKnownModel || modelEntry != nil
         let usesAnthropicWire = provider == "anthropic" || (provider == "openrouter" && modelId.hasPrefix("anthropic/"))
         let supportsThinking = modelSupportsThinking(
             provider: provider,
@@ -43,7 +44,7 @@ struct InferenceProfileParameterVisibility: Equatable {
         )
 
         return InferenceProfileParameterVisibility(
-            maxTokens: modelIsKnown,
+            maxTokens: true,
             effort: supportsEffort(
                 provider: provider,
                 modelId: modelId,

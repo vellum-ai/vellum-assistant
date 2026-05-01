@@ -683,6 +683,12 @@ struct InferenceProfilesSheet: View {
         if visibility.effort, let effort = profile.effort, !effort.isEmpty {
             pieces.append("\(effort) effort")
         }
+        if visibility.maxTokens, let maxTokens = profile.maxTokens {
+            pieces.append("\(InferenceProfileEditor.formattedTokenCount(maxTokens)) output")
+        }
+        if let contextMax = profile.contextWindowMaxInputTokens {
+            pieces.append("\(InferenceProfileEditor.formattedTokenCount(contextMax)) context")
+        }
         if visibility.thinking, let thinkingEnabled = profile.thinkingEnabled {
             pieces.append("thinking \(thinkingEnabled ? "on" : "off")")
         }

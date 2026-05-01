@@ -4,8 +4,8 @@ import VellumAssistantShared
 /// Form view that edits a single `InferenceProfile` fragment. Mirrors the
 /// daemon's `LLMConfigFragment` shape — see `assistant/src/config/schemas/
 /// llm.ts` — exposing the leaves the macOS UI cares about: provider, model,
-/// maxTokens, effort, speed, verbosity, temperature, and the two `thinking`
-/// sub-fields.
+/// maxTokens (maximum output tokens), effort, speed, verbosity, temperature,
+/// and the two `thinking` sub-fields.
 ///
 /// State ownership:
 /// - Edits flow through `@Binding var profile`, so the parent (the
@@ -47,10 +47,14 @@ struct InferenceProfileEditor: View {
     /// the slider position matches what the toggle-on path will write.
     private static let defaultTemperatureWhenSet: Double = 0.7
 
-    /// Live-edited maxTokens text. Kept as a string so partial input
-    /// (empty field, mid-typing) doesn't immediately clobber the binding
-    /// with `0`. Synced into `profile.maxTokens` on every change.
-    @State private var maxTokensText: String = ""
+    /// Schema default for `llm.default.maxTokens`. Profiles that omit
+    /// `maxTokens` inherit this through the resolver, so the slider displays
+    /// it as the default position without writing a profile override.
+    static let defaultMaxOutputTokens: Int = 64_000
+
+    /// Keep the slider range positive to match the daemon schema.
+    static let minSliderMaxOutputTokens: Int = 1
+    static let maxOutputTokensStep: Double = 1_000
 
     /// Tracks whether the user has manually edited the Key field. When
     /// false, the key auto-derives from the Display Name as kebab-case.
@@ -140,7 +144,6 @@ struct InferenceProfileEditor: View {
         }
         .background(VColor.surfaceLift)
         .onAppear {
-            syncMaxTokensFromBinding()
             // Only treat the key as user-owned for edits and views of
             // existing profiles. Creates and duplicates keep the key
             // auto-derived from Display Name so renaming stays in sync.
@@ -148,7 +151,6 @@ struct InferenceProfileEditor: View {
                 isKeyDirty = true
             }
         }
-        .onChange(of: profile.maxTokens) { _, _ in syncMaxTokensFromBinding() }
     }
 
     // MARK: - Toolbar
@@ -308,6 +310,7 @@ struct InferenceProfileEditor: View {
                         } else {
                             profile.model = nil
                         }
+                        Self.clampMaxOutputTokensForSelectedModel(&profile)
                     }
                 ),
                 options: store.dynamicProviderIds.map { provider in
@@ -338,6 +341,7 @@ struct InferenceProfileEditor: View {
                     get: { profile.model ?? "" },
                     set: { newValue in
                         profile.model = newValue.isEmpty ? nil : newValue
+                        Self.clampMaxOutputTokensForSelectedModel(&profile)
                     }
                 ),
                 options: models.map { model in
@@ -349,20 +353,36 @@ struct InferenceProfileEditor: View {
     }
 
     private var maxTokensField: some View {
-        labeled("Max Tokens") {
-            VTextField(
-                placeholder: "e.g. 16000",
-                text: Binding(
-                    get: { maxTokensText },
+        let limit = selectedModelMaxOutputTokens
+        let value = Self.maxOutputSliderValue(maxTokens: profile.maxTokens, limit: limit)
+        let upperBound = Self.maxOutputSliderUpperBound(value: value, limit: limit)
+
+        return labeled(
+            "Max Output Tokens",
+            spacing: VSpacing.sm,
+            accessory: {
+                Spacer(minLength: 0)
+                Text(maxOutputTokensAccessoryText(value: value, limit: limit))
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        ) {
+            VSlider(
+                value: Binding(
+                    get: { Double(Self.maxOutputSliderValue(maxTokens: profile.maxTokens, limit: limit)) },
                     set: { newValue in
-                        // Strip non-digit characters so paste-from-clipboard
-                        // stays sane.
-                        let digits = newValue.filter { $0.isNumber }
-                        maxTokensText = digits
-                        profile.maxTokens = digits.isEmpty ? nil : Int(digits)
+                        guard let limit else { return }
+                        profile.maxTokens = Self.clampedMaxOutputTokens(Int(newValue.rounded()), limit: limit)
                     }
-                )
+                ),
+                range: Double(Self.minSliderMaxOutputTokens)...Double(upperBound),
+                step: Self.maxOutputTokensStep,
+                showTickMarks: true
             )
+            .disabled(limit == nil)
+            .help(limit == nil ? "Max output token metadata is unavailable for this model." : "Maximum tokens the model may generate in one response.")
+            .accessibilityLabel("Max output tokens")
+            .accessibilityValue(Self.formattedTokenCount(value))
         }
     }
 
@@ -475,15 +495,63 @@ struct InferenceProfileEditor: View {
 
     // MARK: - Helpers
 
-    /// Pull `profile.maxTokens` into the text-field shadow state. Called on
-    /// appear and whenever the binding changes externally (e.g. parent
-    /// resets the draft after a Save) so the field reflects the live value.
-    private func syncMaxTokensFromBinding() {
-        maxTokensText = profile.maxTokens.map(String.init) ?? ""
+    var selectedModelMaxOutputTokens: Int? {
+        Self.maxOutputTokenLimit(provider: profile.provider, model: profile.model)
+    }
+
+    static func maxOutputTokenLimit(provider rawProvider: String?, model rawModel: String?) -> Int? {
+        guard
+            let provider = rawProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !provider.isEmpty,
+            let model = rawModel?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !model.isEmpty
+        else {
+            return nil
+        }
+        return LLMProviderRegistry.model(provider: provider, id: model)?.maxOutputTokens
+    }
+
+    static func maxOutputSliderValue(maxTokens: Int?, limit: Int?) -> Int {
+        let value = max(maxTokens ?? defaultMaxOutputTokens, 1)
+        guard let limit else { return value }
+        return clampedMaxOutputTokens(value, limit: limit)
+    }
+
+    static func maxOutputSliderUpperBound(value: Int, limit: Int?) -> Int {
+        max(minSliderMaxOutputTokens, limit ?? max(value, defaultMaxOutputTokens))
+    }
+
+    static func clampedMaxOutputTokens(_ value: Int, limit: Int) -> Int {
+        min(max(value, 1), limit)
+    }
+
+    static func clampMaxOutputTokensForSelectedModel(_ profile: inout InferenceProfile) {
+        guard
+            let current = profile.maxTokens,
+            let limit = maxOutputTokenLimit(provider: profile.provider, model: profile.model)
+        else {
+            return
+        }
+        profile.maxTokens = clampedMaxOutputTokens(current, limit: limit)
+    }
+
+    static func formattedTokenCount(_ tokens: Int) -> String {
+        guard tokens >= 1_000 else { return "\(tokens)" }
+        return "\(Int((Double(tokens) / 1_000).rounded()))K"
+    }
+
+    private func maxOutputTokensAccessoryText(value: Int, limit: Int?) -> String {
+        let valueText = Self.formattedTokenCount(value)
+        guard let limit else {
+            return "\(valueText) · catalog limit unavailable"
+        }
+        return "\(valueText) / \(Self.formattedTokenCount(limit)) max"
     }
 
     private func saveVisibleProfile() {
-        profile = parameterVisibility.sanitized(profile)
+        var visibleProfile = parameterVisibility.sanitized(profile)
+        Self.clampMaxOutputTokensForSelectedModel(&visibleProfile)
+        profile = visibleProfile
         onSave()
     }
 }
