@@ -220,6 +220,10 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
+        // Apple Guideline 5.1.2(i): clear AI Data Sharing consent so it must be
+        // explicitly re-checked on the next onboarding pass after a retry.
+        UserDefaults.standard.set(false, forKey: "aiDataConsent")
+
         // Clear API key for whichever provider was selected during onboarding
         let providerToDelete = selectedProvider
         if selectedProvider != "anthropic" {

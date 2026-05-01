@@ -60,6 +60,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertFalse(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT auto-accept AI Data Sharing consent (Apple Guideline 5.1.2(i))")
         XCTAssertEqual(taggedAssistantId, assistant.id)
 
         let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
@@ -91,6 +92,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: "collectUsageData"))
         XCTAssertFalse(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertFalse(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT auto-accept AI Data Sharing consent (Apple Guideline 5.1.2(i))")
     }
 
     func testActivateManagedAssistantRePopulatesOrgIdAfterCleared() async throws {
