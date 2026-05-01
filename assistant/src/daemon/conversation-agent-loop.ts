@@ -24,7 +24,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -2619,34 +2618,29 @@ export async function runAgentLoopImpl(
 
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
-    if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
-      try {
-        const conv = getConversation(ctx.conversationId);
-        if (conv) {
-          const convDir = getResolvedConversationDirPath(
-            ctx.conversationId,
-            conv.createdAt,
-          );
-          const { messages: derefMessages, dereferencedCount } =
-            derefToolResultReReads(restoredHistory);
-          const { messages: truncatedMessages, truncatedCount } =
-            postTurnTruncateToolResults(derefMessages, {
-              conversationDir: convDir,
-            });
-          if (truncatedCount > 0 || dereferencedCount > 0) {
-            rlog.info(
-              { truncatedCount, dereferencedCount },
-              "Post-turn tool result truncation applied",
-            );
-          }
-          restoredHistory = truncatedMessages;
-        }
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Post-turn tool result truncation failed (non-fatal)",
+    try {
+      const conv = getConversation(ctx.conversationId);
+      if (conv) {
+        const convDir = getResolvedConversationDirPath(
+          ctx.conversationId,
+          conv.createdAt,
         );
+        const { messages: derefMessages, dereferencedCount } =
+          derefToolResultReReads(restoredHistory);
+        const { messages: truncatedMessages, truncatedCount } =
+          postTurnTruncateToolResults(derefMessages, {
+            conversationDir: convDir,
+          });
+        if (truncatedCount > 0 || dereferencedCount > 0) {
+          rlog.info(
+            { truncatedCount, dereferencedCount },
+            "Post-turn tool result truncation applied",
+          );
+        }
+        restoredHistory = truncatedMessages;
       }
+    } catch (err) {
+      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
     }
 
     // Persist injections in history: runtime-injected context stays on
