@@ -397,19 +397,16 @@ struct InferenceProfileEditor: View {
                     .accessibilityLabel("Max output tokens")
                     .accessibilityValue(Self.formattedTokenCount(value))
                 } else {
-                    VTextField(
-                        placeholder: String(Self.defaultMaxOutputTokens),
-                        text: Binding(
-                            get: { profile.maxTokens.map(String.init) ?? "" },
-                            set: { newValue in
-                                profile.maxTokens = Self.manualMaxOutputTokensValue(newValue)
-                            }
-                        ),
-                        maxWidth: 160,
-                        size: .small
+                    VSlider(
+                        value: .constant(Double(value)),
+                        range: Double(Self.minSliderMaxOutputTokens)...Double(upperBound),
+                        step: Self.maxOutputTokensStep,
+                        showTickMarks: true
                     )
+                    .disabled(true)
                     .help("Max output token metadata is unavailable for this model.")
-                    Spacer(minLength: 0)
+                    .accessibilityLabel("Max output tokens")
+                    .accessibilityValue(Self.formattedTokenCount(value))
                 }
                 VButton(
                     label: "Inherit",
@@ -618,14 +615,6 @@ struct InferenceProfileEditor: View {
 
     static func clampedMaxOutputTokens(_ value: Int, limit: Int) -> Int {
         min(max(value, 1), limit)
-    }
-
-    static func manualMaxOutputTokensValue(_ rawValue: String) -> Int? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let value = Int(trimmed) else {
-            return nil
-        }
-        return max(value, minSliderMaxOutputTokens)
     }
 
     static func clearingMaxOutputTokensOverride(_ profile: InferenceProfile) -> InferenceProfile {

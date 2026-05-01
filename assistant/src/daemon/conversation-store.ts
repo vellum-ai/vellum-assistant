@@ -241,8 +241,7 @@ export async function getOrCreateConversation(
 
       const systemPrompt =
         storedOptions?.systemPromptOverride ?? buildSystemPrompt();
-      const maxTokens =
-        storedOptions?.maxResponseTokens ?? config.llm.default.maxTokens;
+      const maxTokens = storedOptions?.maxResponseTokens;
 
       const sharedCesClient = _cesClientPromise
         ? await _cesClientPromise

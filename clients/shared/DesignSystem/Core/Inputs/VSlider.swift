@@ -58,8 +58,7 @@ public struct VSlider: View {
                         let newFraction = (drag.location.x - thumbSize / 2) / trackWidth
                         let clampedFraction = min(max(newFraction, 0), 1)
                         let rawValue = range.lowerBound + clampedFraction * (range.upperBound - range.lowerBound)
-                        let snapped = round(rawValue / step) * step
-                        value = min(max(snapped, range.lowerBound), range.upperBound)
+                        value = Self.snappedValue(rawValue, in: range, step: step)
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -115,10 +114,7 @@ public struct VSlider: View {
     // MARK: - Tick Marks
 
     private func tickMarksView(trackWidth: CGFloat, fraction: Double) -> some View {
-        // Build tick values as multiples of step within the range
-        let firstTick = ceil(range.lowerBound / step) * step
-        let lastTick = floor(range.upperBound / step) * step
-        let tickValues = stride(from: firstTick, through: lastTick, by: step).map { $0 }
+        let tickValues = Self.tickValues(in: range, step: step)
         let maxTicks = 20
         let tickStep = tickValues.count > maxTicks ? tickValues.count / maxTicks : 1
         let rangeSpan = range.upperBound - range.lowerBound
@@ -140,5 +136,24 @@ public struct VSlider: View {
                 }
             }
         }
+    }
+
+    static func snappedValue(_ rawValue: Double, in range: ClosedRange<Double>, step: Double) -> Double {
+        let clampedRawValue = min(max(rawValue, range.lowerBound), range.upperBound)
+        guard step > 0, range.upperBound > range.lowerBound else {
+            return clampedRawValue
+        }
+        let stepsFromLowerBound = ((clampedRawValue - range.lowerBound) / step).rounded()
+        let snapped = range.lowerBound + stepsFromLowerBound * step
+        return min(max(snapped, range.lowerBound), range.upperBound)
+    }
+
+    static func tickValues(in range: ClosedRange<Double>, step: Double) -> [Double] {
+        guard step > 0, range.upperBound >= range.lowerBound else {
+            return []
+        }
+        let span = range.upperBound - range.lowerBound
+        let stepCount = Int(floor(span / step))
+        return (0...stepCount).map { range.lowerBound + Double($0) * step }
     }
 }

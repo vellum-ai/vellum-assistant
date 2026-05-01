@@ -185,10 +185,10 @@ public struct LLMProviderEntry: Decodable {
 
 /// Top-level schema for `llm-provider-catalog.json`.
 ///
-/// The JSON file is expected to live at `meta/llm-provider-catalog.json`
-/// and be copied into `Contents/Resources` by `build.sh` once the later
-/// PRs in the LLM catalog plan land. Until then, this registry always
-/// returns the fallback data.
+/// The JSON file is generated from `meta/llm-provider-catalog.json` and
+/// copied into `Contents/Resources` by the client build. The hard-coded
+/// fallback below keeps startup resilient when the bundled resource is
+/// missing, unreadable, or corrupt.
 public struct LLMProviderCatalog: Decodable {
     public let version: Int
     public let providers: [LLMProviderEntry]
@@ -479,10 +479,9 @@ private let fallbackCatalog = LLMProviderCatalog(
 // MARK: - Loader
 
 /// Cached catalog loaded once per process lifetime.
-/// The bundled `llm-provider-catalog.json` (when present in later PRs)
-/// is immutable at runtime, so reading it more than once is unnecessary
-/// I/O. Swift guarantees thread-safe lazy initialization of static
-/// properties.
+/// The bundled `llm-provider-catalog.json` is immutable at runtime, so
+/// reading it more than once is unnecessary I/O. Swift guarantees
+/// thread-safe lazy initialization of static properties.
 private let _cachedLLMProviderCatalog: LLMProviderCatalog = {
     guard let url = Bundle.main.url(forResource: "llm-provider-catalog", withExtension: "json") else {
         log.warning("llm-provider-catalog.json not found in bundle — using fallback catalog")

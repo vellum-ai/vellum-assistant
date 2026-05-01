@@ -15,7 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
   InterfaceId,
@@ -352,7 +352,7 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number,
+    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
     memoryPolicy?: ConversationMemoryPolicy,
@@ -478,8 +478,10 @@ export class Conversation {
                 onboardingContext: this.getOnboardingContext(),
               });
             })(),
-        maxTokens: configuredMaxTokens,
       };
+      if (configuredMaxTokens !== undefined) {
+        resolved.maxTokens = configuredMaxTokens;
+      }
       if (resolvedModel !== undefined) {
         resolved.model = resolvedModel;
       }
@@ -498,18 +500,22 @@ export class Conversation {
       initialContextWindow,
     );
 
+    const agentLoopConfig: Partial<AgentLoopConfig> = {
+      thinking: llmDefault.thinking,
+      effort: llmDefault.effort,
+      ...(fastModeEnabled && resolvedSpeed === "fast"
+        ? { speed: resolvedSpeed }
+        : {}),
+      ...(cacheTtl ? { cacheTtl } : {}),
+    };
+    if (configuredMaxTokens !== undefined) {
+      agentLoopConfig.maxTokens = configuredMaxTokens;
+    }
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      {
-        maxTokens,
-        thinking: llmDefault.thinking,
-        effort: llmDefault.effort,
-        ...(fastModeEnabled && resolvedSpeed === "fast"
-          ? { speed: resolvedSpeed }
-          : {}),
-        ...(cacheTtl ? { cacheTtl } : {}),
-      },
+      agentLoopConfig,
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,

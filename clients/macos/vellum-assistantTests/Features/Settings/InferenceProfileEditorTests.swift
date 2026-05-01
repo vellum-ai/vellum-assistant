@@ -285,7 +285,7 @@ final class InferenceProfileEditorTests: XCTestCase {
         ))
     }
 
-    func testCatalogModelWithoutStaticOutputMetadataCanUseManualMaxTokens() {
+    func testCatalogModelWithoutStaticOutputMetadataKeepsMaxTokensReadOnly() {
         let (editor, _) = makeEditor(profile: InferenceProfile(
             name: "gemini-preview",
             provider: "gemini",
@@ -299,8 +299,12 @@ final class InferenceProfileEditorTests: XCTestCase {
             model: "gemini-3.1-pro-preview"
         ))
         XCTAssertEqual(
-            InferenceProfileEditor.manualMaxOutputTokensValue("128000"),
-            128_000
+            InferenceProfileEditor.maxOutputSliderValue(maxTokens: 96_000, limit: nil),
+            96_000
+        )
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 96_000, limit: nil),
+            96_000
         )
     }
 
