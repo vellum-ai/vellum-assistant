@@ -2,11 +2,6 @@ process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
 
-import {
-  TWILIO_PUBLIC_BASE_URL_FIELD,
-  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
-} from "@vellumai/service-contracts/twilio-ingress";
-
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import {
   loadOrCreateSigningKey,
@@ -15,10 +10,7 @@ import {
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
 import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
-import {
-  ConfigFileWatcher,
-  type ConfigChangeEvent,
-} from "./config-file-watcher.js";
+import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
 import { loadConfig } from "./config.js";
@@ -151,6 +143,10 @@ import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { syncConfiguredTwilioPhoneNumberWebhooks } from "./twilio/webhook-sync.js";
+import {
+  isOnlyVelayTwilioIngressChange,
+  shouldSyncTwilioPhoneWebhooksAfterConfigChange,
+} from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import {
@@ -205,23 +201,6 @@ function detectCredentialChanges(
     changed.add(service);
   }
   return changed;
-}
-
-function isOnlyVelayTwilioIngressChange(event: ConfigChangeEvent): boolean {
-  if (event.changedKeys.size !== 1 || !event.changedKeys.has("ingress")) {
-    return false;
-  }
-
-  const ingressFields = event.changedFields.get("ingress");
-  if (!ingressFields || ingressFields.size === 0) {
-    return false;
-  }
-
-  return [...ingressFields].every(
-    (field) =>
-      field === TWILIO_PUBLIC_BASE_URL_FIELD ||
-      field === TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
-  );
 }
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
@@ -1967,7 +1946,6 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     const onlyVelayTwilioIngressChanged = isOnlyVelayTwilioIngressChange(event);
-    const ingressFields = event.changedFields.get("ingress");
 
     if (
       event.changedKeys.has("ingress") &&
@@ -1982,17 +1960,14 @@ async function main() {
       });
     }
 
-    if (
-      onlyVelayTwilioIngressChanged &&
-      ingressFields?.has(TWILIO_PUBLIC_BASE_URL_FIELD)
-    ) {
+    if (shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)) {
       syncConfiguredTwilioPhoneNumberWebhooks({
         credentials: credentialCache,
         configFile: configFileCache,
       }).catch((err) => {
         log.warn(
           { err },
-          "Twilio webhook sync failed after Velay ingress URL change",
+          "Twilio webhook sync failed after ingress URL change",
         );
       });
     }

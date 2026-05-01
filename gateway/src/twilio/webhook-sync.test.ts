@@ -22,11 +22,13 @@ afterEach(() => {
 function makeCaches(opts: {
   phoneNumber?: string;
   accountSid?: string;
+  accountSidCredential?: string;
   authToken?: string;
   publicBaseUrl?: string;
   twilioPublicBaseUrl?: string;
 }): { credentials: CredentialCache; configFile: ConfigFileCache } {
   const credentialValues = new Map<string, string | undefined>([
+    [credentialKey("twilio", "account_sid"), opts.accountSidCredential],
     [credentialKey("twilio", "auth_token"), opts.authToken],
   ]);
   const configValues: Record<string, Record<string, string | undefined>> = {
@@ -130,6 +132,25 @@ describe("syncConfiguredTwilioPhoneNumberWebhooks", () => {
     expect(body.get("StatusCallback")).toBe(
       "https://generic.example.test/webhooks/twilio/status",
     );
+  });
+
+  test("uses credential-store account SID before legacy config fallback", async () => {
+    mockTwilioLookupAndUpdate();
+
+    await syncConfiguredTwilioPhoneNumberWebhooks(
+      makeCaches({
+        phoneNumber: PHONE_NUMBER,
+        accountSid: "AC_CONFIG_STALE",
+        accountSidCredential: ACCOUNT_SID,
+        authToken: AUTH_TOKEN,
+        publicBaseUrl: "https://generic.example.test/",
+      }),
+    );
+
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain(`/Accounts/${ACCOUNT_SID}/`);
+    expect(calls[1].path).toContain(`/Accounts/${ACCOUNT_SID}/`);
   });
 
   test("skips without Twilio REST calls when required inputs are missing", async () => {

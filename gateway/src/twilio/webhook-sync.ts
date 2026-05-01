@@ -1,4 +1,8 @@
-import { normalizePublicBaseUrl } from "@vellumai/service-contracts/twilio-ingress";
+import {
+  normalizePublicBaseUrl,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
@@ -7,9 +11,6 @@ import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("twilio-webhook-sync");
-
-const TWILIO_VOICE_PATH = "/webhooks/twilio/voice";
-const TWILIO_STATUS_PATH = "/webhooks/twilio/status";
 
 export type TwilioWebhookSyncCaches = {
   credentials: CredentialCache;
@@ -31,8 +32,8 @@ function buildWebhookUrls(baseUrl: string): {
   statusCallbackUrl: string;
 } {
   return {
-    voiceUrl: `${baseUrl}${TWILIO_VOICE_PATH}`,
-    statusCallbackUrl: `${baseUrl}${TWILIO_STATUS_PATH}`,
+    voiceUrl: `${baseUrl}${TWILIO_VOICE_WEBHOOK_PATH}`,
+    statusCallbackUrl: `${baseUrl}${TWILIO_STATUS_WEBHOOK_PATH}`,
   };
 }
 
@@ -134,9 +135,12 @@ export async function syncConfiguredTwilioPhoneNumberWebhooks(
     const phoneNumber = caches.configFile
       .getString("twilio", "phoneNumber")
       ?.trim();
-    const accountSid = caches.configFile
-      .getString("twilio", "accountSid")
-      ?.trim();
+    const accountSidFromCredentials = (
+      await caches.credentials.get(credentialKey("twilio", "account_sid"))
+    )?.trim();
+    const accountSid =
+      accountSidFromCredentials ||
+      caches.configFile.getString("twilio", "accountSid")?.trim();
     const authToken = (
       await caches.credentials.get(credentialKey("twilio", "auth_token"))
     )?.trim();
