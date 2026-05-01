@@ -5,7 +5,6 @@
  * - manifest.json: metadata with schema_version, checksums, and bundle info
  * - workspace/: the entire workspace directory tree (new format), OR
  *   data/db/assistant.db + config/settings.json (old format)
- * - trust/trust.json: trust rules (optional)
  *
  * Validation steps:
  * 1. Archive structure: valid gzip tar with required entries
