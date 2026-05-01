@@ -41,7 +41,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
     );
   });
 
-  test("removes exact seeded mainAgent override and moves missing activeProfile to quality", () => {
+  test("removes exact seeded mainAgent override and sets balanced when activeProfile is missing", () => {
     writeConfig({
       llm: {
         callSites: {
@@ -58,7 +58,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
         callSites: Record<string, unknown>;
       };
     };
-    expect(config.llm.activeProfile).toBe("quality-optimized");
+    expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.callSites.mainAgent).toBeUndefined();
   });
 
