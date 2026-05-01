@@ -10,14 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -114,14 +106,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "ces-credential-backend",
-      "scope": "assistant",
-      "key": "ces-credential-backend",
-      "label": "CES Credential Backend",
-      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-billing",
       "scope": "client",
       "key": "settings-billing",
@@ -130,27 +114,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "referral-codes",
-      "scope": "client",
-      "key": "referral-codes",
-      "label": "Referral Codes",
-      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-      "defaultEnabled": true
-    },
-    {
       "id": "managed-sign-in",
       "scope": "client",
       "key": "managed-sign-in",
       "label": "Managed Sign In",
       "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": true
-    },
-    {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": true
     },
     {
@@ -194,11 +162,19 @@
       "defaultEnabled": false
     },
     {
+<<<<<<< HEAD
       "id": "show-thinking-blocks",
       "scope": "client",
       "key": "show-thinking-blocks",
       "label": "Show Thinking Blocks",
       "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
+=======
+      "id": "inline-skill-commands",
+      "scope": "assistant",
+      "key": "inline-skill-commands",
+      "label": "Inline Skill Command Expansion",
+      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
+>>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {
@@ -224,14 +200,6 @@
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
-    },
-    {
-      "id": "backward-releases",
-      "scope": "assistant",
-      "key": "backward-releases",
-      "label": "Backward Releases",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
     },
     {
       "id": "voice-mode",
