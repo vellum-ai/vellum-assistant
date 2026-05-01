@@ -30,14 +30,23 @@ import type {
 } from "./types.js";
 
 export class CallSiteRoutingProvider implements Provider {
-  public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+
+  // Tracks the provider currently executing a sendMessage call so that
+  // `name` reflects the *actual* transport during streaming. This lets
+  // emitLlmCallStartedIfNeeded (called on the first text_delta, before the
+  // response completes) label the trace event with the correct provider
+  // instead of always returning the default provider's name.
+  private _routedProviderName: string | null = null;
+
+  get name(): string {
+    return this._routedProviderName ?? this.defaultProvider.name;
+  }
 
   constructor(
     private readonly defaultProvider: Provider,
     private readonly getProviderByName: (name: string) => Provider | undefined,
   ) {
-    this.name = defaultProvider.name;
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
   }
 
@@ -48,23 +57,25 @@ export class CallSiteRoutingProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const target = this.selectProvider(options);
-    const response = await target.sendMessage(
-      messages,
-      tools,
-      systemPrompt,
-      options,
-    );
-    // When routing to a non-default provider, stamp actualProvider so that
-    // callers (loop.ts, emitUsage, llm_call_finished) attribute the call to
-    // the right provider instead of falling back to the default provider's
-    // name. Without this, a memoryRetrieval call routed to "openai" from an
-    // "anthropic"-default conversation would be logged and billed as
-    // "anthropic", causing wrong provider labels and $0 cost (no pricing
-    // match for e.g. gpt-5.5 under the anthropic catalog).
-    if (target !== this.defaultProvider && response.actualProvider == null) {
-      return { ...response, actualProvider: target.name };
+    const isRouted = target !== this.defaultProvider;
+    if (isRouted) this._routedProviderName = target.name;
+    try {
+      const response = await target.sendMessage(
+        messages,
+        tools,
+        systemPrompt,
+        options,
+      );
+      // Also stamp actualProvider on the response so that handleUsage /
+      // llm_call_finished (which read event.actualProvider, not provider.name)
+      // attribute the call to the right provider.
+      if (isRouted && response.actualProvider == null) {
+        return { ...response, actualProvider: target.name };
+      }
+      return response;
+    } finally {
+      if (isRouted) this._routedProviderName = null;
     }
-    return response;
   }
 
   /**
