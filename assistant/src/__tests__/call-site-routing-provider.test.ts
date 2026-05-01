@@ -194,6 +194,91 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.model).toBe("anthropic");
   });
 
+  test("stamps actualProvider when routing to an alternative provider", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+      },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+    const altProvider = makeProvider("openai", () => {});
+
+    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
+      name === "openai" ? altProvider : undefined,
+    );
+
+    const response = await wrapped.sendMessage(
+      DUMMY_MESSAGES,
+      undefined,
+      undefined,
+      { config: { callSite: "memoryRetrieval" } },
+    );
+
+    // actualProvider must reflect the alternative, not the default, so that
+    // loop.ts / emitUsage / llm_call_finished log and bill the correct
+    // provider (fixes gpt-5.5 showing as "anthropic" with $0 cost).
+    expect(response.actualProvider).toBe("openai");
+  });
+
+  test("does not overwrite actualProvider already set by the alternative provider", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+      },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+    // Simulate a wrapper provider that sets actualProvider itself
+    const altProvider: Provider = {
+      name: "openai",
+      async sendMessage() {
+        return {
+          ...makeResponse("openai"),
+          actualProvider: "openai-via-proxy",
+        };
+      },
+    };
+
+    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
+      name === "openai" ? altProvider : undefined,
+    );
+
+    const response = await wrapped.sendMessage(
+      DUMMY_MESSAGES,
+      undefined,
+      undefined,
+      { config: { callSite: "memoryRetrieval" } },
+    );
+
+    expect(response.actualProvider).toBe("openai-via-proxy");
+  });
+
+  test("does not set actualProvider when routing to the default provider", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      () => undefined,
+    );
+
+    const response = await wrapped.sendMessage(
+      DUMMY_MESSAGES,
+      undefined,
+      undefined,
+      { config: { callSite: "memoryRetrieval" } },
+    );
+
+    // No alternative was resolved — actualProvider should stay unset.
+    expect(response.actualProvider).toBeUndefined();
+  });
+
   test("delegates `name` and `tokenEstimationProvider` to the default provider", () => {
     const defaultProvider: Provider = {
       name: "anthropic",
