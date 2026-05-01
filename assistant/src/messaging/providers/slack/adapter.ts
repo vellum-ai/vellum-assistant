@@ -274,7 +274,10 @@ async function mapSlackMessages(
   channelId: string,
   slackMessages: SlackMessage[],
 ): Promise<Message[]> {
-  const userLabels = await buildMentionUserLabels(auth, slackMessages);
+  const userLabels = await buildMentionUserLabels(
+    auth,
+    slackMessages.map((msg) => msg.text),
+  );
   const messages: Message[] = [];
   for (const msg of slackMessages) {
     const name = await resolveUserName(auth, msg.user ?? "");
@@ -292,11 +295,10 @@ async function mapSlackMessages(
 
 async function buildMentionUserLabels(
   auth: OAuthConnection | string,
-  slackMessages: SlackMessage[],
+  textValues: Iterable<string | undefined>,
 ): Promise<Record<string, string>> {
-  return buildSlackUserLabelMap(
-    slackMessages.map((msg) => msg.text),
-    (userId) => resolveUserName(auth, userId),
+  return buildSlackUserLabelMap(textValues, (userId) =>
+    resolveUserName(auth, userId),
   );
 }
 
@@ -304,9 +306,9 @@ async function mapSearchMatches(
   auth: OAuthConnection | string,
   matches: SlackSearchMatch[],
 ): Promise<Message[]> {
-  const userLabels = await buildSlackUserLabelMap(
+  const userLabels = await buildMentionUserLabels(
+    auth,
     matches.map((match) => match.text),
-    (userId) => resolveUserName(auth, userId),
   );
   return matches.map((match) => mapSearchMatch(match, userLabels));
 }
