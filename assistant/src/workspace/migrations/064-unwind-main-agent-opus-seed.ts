@@ -10,7 +10,7 @@ const DEFAULT_MANAGED_PROFILE = "balanced";
 export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
   id: "064-unwind-main-agent-opus-seed",
   description:
-    "Remove seeded mainAgent Opus model override and select the Opus managed profile",
+    "Remove seeded mainAgent Opus model override and default activeProfile to balanced",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
 
