@@ -107,6 +107,10 @@ struct ConversationListView: View {
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
 
+    private var isCodingAgentsPanelEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
+    }
+
     private var activeConversations: [IOSConversation] {
         sortConversationsForDisplay(
             store.conversations.filter { !$0.isArchived },
@@ -232,7 +236,10 @@ struct ConversationListView: View {
                     .accessibilityLabel("Settings")
                 }
             }
-            if let onShowACPSessions {
+            if Self.shouldShowACPSessionsToolbarButton(
+                isCodingAgentsPanelEnabled: isCodingAgentsPanelEnabled,
+                onShowACPSessions: onShowACPSessions
+            ), let onShowACPSessions {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: onShowACPSessions) {
                         VIconView(.terminal, size: 20)
@@ -582,7 +589,10 @@ struct ConversationListView: View {
                     .accessibilityLabel("Settings")
                 }
             }
-            if let onShowACPSessions {
+            if Self.shouldShowACPSessionsToolbarButton(
+                isCodingAgentsPanelEnabled: isCodingAgentsPanelEnabled,
+                onShowACPSessions: onShowACPSessions
+            ), let onShowACPSessions {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: onShowACPSessions) {
                         VIconView(.terminal, size: 20)
@@ -764,6 +774,13 @@ struct ConversationListView: View {
     private func relativeDate(_ date: Date) -> String {
         DateFormatting.relativeTimestamp(date)
     }
+
+    static func shouldShowACPSessionsToolbarButton(
+        isCodingAgentsPanelEnabled: Bool,
+        onShowACPSessions: (() -> Void)?
+    ) -> Bool {
+        isCodingAgentsPanelEnabled && onShowACPSessions != nil
+    }
 }
 
 // MARK: - ConversationChatView
@@ -786,6 +803,10 @@ struct ConversationChatView: View {
     /// Presents the Coding Agents (ACP sessions) sheet. Non-nil only on compact
     /// size classes; iPad reaches it via the persistent sidebar toolbar.
     var onShowACPSessions: (() -> Void)?
+
+    private var isCodingAgentsPanelEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
+    }
 
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
@@ -836,7 +857,12 @@ struct ConversationChatView: View {
                 }
                 .hideSharedToolbarBackgroundIfAvailable()
             }
-            if horizontalSizeClass == .compact, let onShowACPSessions {
+            if horizontalSizeClass == .compact,
+               ConversationListView.shouldShowACPSessionsToolbarButton(
+                    isCodingAgentsPanelEnabled: isCodingAgentsPanelEnabled,
+                    onShowACPSessions: onShowACPSessions
+               ),
+               let onShowACPSessions {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: onShowACPSessions) {
                         VIconView(.terminal, size: 20)
