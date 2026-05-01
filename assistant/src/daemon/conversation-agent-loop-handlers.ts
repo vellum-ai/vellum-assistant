@@ -43,6 +43,7 @@ import type {
 } from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -803,7 +804,7 @@ export async function handleMessageComplete(
       ([toolUseId, result]) => ({
         type: "tool_result",
         tool_use_id: toolUseId,
-        content: result.content,
+        content: redactSecrets(result.content),
         is_error: result.isError,
         ...(result.contentBlocks
           ? { contentBlocks: result.contentBlocks }
@@ -928,6 +929,17 @@ export async function handleMessageComplete(
       );
     }
   }
+  // Redact known-pattern secrets from assistant text blocks before they are
+  // written to durable storage. Non-text blocks (images, UI surfaces) pass
+  // through unchanged. The live model history retains the original values.
+  const contentForPersistence = contentWithSurfaces.map((block) => {
+    if (block.type === "text") {
+      const tb = block as Extract<ContentBlock, { type: "text" }>;
+      return { ...tb, text: redactSecrets(tb.text) };
+    }
+    return block;
+  });
+
   // Route the assistant-message persistence through the `persistence`
   // pipeline. No `syncToDisk` here — the orchestrator separately invokes
   // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
@@ -940,7 +952,7 @@ export async function handleMessageComplete(
       op: "add",
       conversationId: deps.ctx.conversationId,
       role: "assistant",
-      content: JSON.stringify(contentWithSurfaces),
+      content: JSON.stringify(contentForPersistence),
       metadata: assistantChannelMetadata,
     },
     buildHandlerTurnContext(deps),

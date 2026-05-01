@@ -2,6 +2,7 @@ import {
   recordToolInvocation,
   type ToolInvocationRecord,
 } from "../memory/tool-usage-store.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import type {
   ToolLifecycleEvent,
   ToolLifecycleEventHandler,
@@ -40,7 +41,7 @@ function toInvocationRecord(
         conversationId: event.conversationId,
         toolName: event.toolName,
         input: stringifyInput(event.input),
-        result: event.result.content.slice(0, RESULT_PREVIEW_LIMIT),
+        result: redactSecrets(event.result.content).slice(0, RESULT_PREVIEW_LIMIT),
         decision: event.decision,
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
