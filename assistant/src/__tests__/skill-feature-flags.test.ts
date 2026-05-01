@@ -19,7 +19,6 @@ afterEach(() => {
 const DECLARED_FLAG_ID = "sounds";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const DECLARED_SKILL_ID = "sounds";
-const APP_BUILDER_MULTIFILE_FLAG_KEY = "app-builder-multifile";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -154,13 +153,6 @@ describe("isAssistantFeatureFlagEnabled", () => {
     expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
       false,
     );
-  });
-
-  test("app-builder-multifile defaults to enabled when no override is set", () => {
-    const config = makeConfig();
-    expect(
-      isAssistantFeatureFlagEnabled(APP_BUILDER_MULTIFILE_FLAG_KEY, config),
-    ).toBe(true);
   });
 });
 

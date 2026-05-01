@@ -33,7 +33,6 @@ enum SettingsTab: String {
     }
 
     static func sidebarTopTabs(
-        billingEnabled: Bool = false,
         soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false
@@ -45,7 +44,7 @@ enum SettingsTab: String {
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
-        if billingEnabled { tabs.append(.billing) }
+        tabs.append(.billing)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         tabs.append(.schedules)
@@ -90,11 +89,6 @@ struct SettingsPanel: View {
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
-        // Pre-compute the billing flag so the first render already has the
-        // correct tab list in the sidebar nav.
-        let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
-        _isBillingEnabled = State(initialValue: billingEnabled)
-
         // Pre-compute the sounds flag so deep-link validation below uses
         // the actual config value instead of the @State default (true).
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
@@ -112,24 +106,24 @@ struct SettingsPanel: View {
             // so read connectedOrgId directly from UserDefaults.
             let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
-            // Contacts and developer flags load asynchronously, so default
-            // to false at init time — those tabs aren't visible yet.
-            // Compaction Playground is also deferred until flags load and
+            // Compaction Playground is deferred until flags load and
             // dev mode can be evaluated by the live sidebar visibility helper.
             // Debug tab is gated to managed assistants; `AppDelegate` publishes
             // this synchronously via `isCurrentAssistantManaged` which is set
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
-            let visibleTabs = SettingsTab.sidebarTopTabs(
+            var visibleTabs = SettingsTab.sidebarTopTabs(
                 billingEnabled: canShowBilling,
                 soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false
             )
+            // Developer tab is always visible (no longer feature-flagged).
+            visibleTabs.append(.developer)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else if Self.deferredDeepLinkTabs.contains(pending) {
-                // Tab may become visible once feature flags load (e.g. .developer).
+                // Tab may become visible once feature flags load (e.g. .compactionPlayground).
                 // Preserve it for deferred evaluation in loadFeatureFlags().
                 _deferredDeepLinkTab = State(initialValue: pending)
             }
@@ -155,23 +149,18 @@ struct SettingsPanel: View {
     @State private var deferredDeepLinkTab: SettingsTab?
     @State private var hasLoadedFeatureFlags: Bool = false
     @State private var isBillingEnabled: Bool = false
-    @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
-    @State private var showingDevUnlock: Bool = false
-    @State private var devUnlockText: String = ""
-    @State private var devUnlockMonitor: Any?
     @State private var bootstrapGeneration: Int = 0
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
     private static let billingFeatureFlagKey = "settings-billing"
-    private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
-    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.developer, .compactionPlayground]
+    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -237,7 +226,6 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
@@ -266,16 +254,10 @@ struct SettingsPanel: View {
                 selectVisibleTab(tab)
             }
         }
-        .onChange(of: billingVisible) { _, _ in
-            handleSidebarVisibilityChanged()
-        }
         .onChange(of: isDebugVisible) { _, _ in
             handleSidebarVisibilityChanged()
         }
         .onChange(of: isSoundsEnabled) { _, _ in
-            handleSidebarVisibilityChanged()
-        }
-        .onChange(of: isDeveloperEnabled) { _, _ in
             handleSidebarVisibilityChanged()
         }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
@@ -284,9 +266,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.developerFeatureFlagKey {
-                    isDeveloperEnabled = enabled
-                } else if key == Self.billingFeatureFlagKey {
+                if key == Self.billingFeatureFlagKey {
                     isBillingEnabled = enabled
                 } else if key == Self.compactionPlaygroundFeatureFlagKey {
                     isCompactionPlaygroundEnabled = enabled
@@ -314,56 +294,6 @@ struct SettingsPanel: View {
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
         }
-        .onAppear {
-            devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.modifierFlags.contains(.command),
-                   event.charactersIgnoringModifiers == "d" {
-                    showingDevUnlock = true
-                    devUnlockText = ""
-                    return nil
-                }
-                return event
-            }
-        }
-        .onDisappear {
-            if let monitor = devUnlockMonitor {
-                NSEvent.removeMonitor(monitor)
-                devUnlockMonitor = nil
-            }
-        }
-        .popover(isPresented: $showingDevUnlock) {
-            VStack(spacing: VSpacing.md) {
-                Text("Enter passcode")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                VTextField(
-                    placeholder: "",
-                    text: $devUnlockText,
-                    isSecure: true,
-                    onSubmit: {
-                        if devUnlockText.lowercased() == "dev" {
-                            isDeveloperEnabled = true
-                            showingDevUnlock = false
-                            // Notify listeners (e.g. AssistantFeatureFlagStore) so UI updates globally
-                            NotificationCenter.default.post(
-                                name: .assistantFeatureFlagDidChange,
-                                object: nil,
-                                userInfo: ["key": Self.developerFeatureFlagKey, "enabled": true]
-                            )
-                            // Persist locally (cache) for optimistic UI + PATCH to gateway
-                            AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            Task {
-                                try? await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            }
-                        }
-                        devUnlockText = ""
-                    },
-                    maxWidth: 160,
-                    font: VFont.bodyMediumDefault
-                )
-            }
-            .padding(VSpacing.lg)
-        }
     }
 
     private func scrollToPendingGeneralSection(using scrollProxy: ScrollViewProxy) {
@@ -382,24 +312,16 @@ struct SettingsPanel: View {
     /// All currently visible tabs (top nav + gated bottom nav).
     private var allVisibleTabs: [SettingsTab] {
         var tabs = visibleSidebarTopTabs
-        if isDeveloperEnabled {
-            tabs.append(.developer)
-        }
+        tabs.append(.developer)
         return tabs
     }
 
     private var visibleSidebarTopTabs: [SettingsTab] {
         SettingsTab.sidebarTopTabs(
-            billingEnabled: billingVisible,
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
         )
-    }
-
-    private var billingVisible: Bool {
-        let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
-        return isBillingEnabled && authManager.isAuthenticated && connectedOrgId != nil
     }
 
     /// The Debug tab currently only hosts cloud-hosted assistant tooling
@@ -411,7 +333,7 @@ struct SettingsPanel: View {
     }
 
     private var isCompactionPlaygroundVisible: Bool {
-        isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
+        isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
     }
 
     private var settingsNav: some View {
@@ -422,14 +344,12 @@ struct SettingsPanel: View {
                 }
             }
             Spacer(minLength: VSpacing.sm)
-            if isDeveloperEnabled {
-                VColor.surfaceBase
-                    .frame(height: 1)
-                    .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
-                    .padding(.trailing, VSpacing.md)
-                VNavItem(icon: SettingsTab.developer.icon.rawValue, label: "Developer", isActive: selectedTab == .developer) {
-                    selectVisibleTab(.developer)
-                }
+            VColor.surfaceBase
+                .frame(height: 1)
+                .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
+                .padding(.trailing, VSpacing.md)
+            VNavItem(icon: SettingsTab.developer.icon.rawValue, label: "Developer", isActive: selectedTab == .developer) {
+                selectVisibleTab(.developer)
             }
         }
         .padding(.top, VSpacing.lg)
@@ -725,9 +645,6 @@ struct SettingsPanel: View {
         if connectionManager != nil {
             do {
                 let flags = try await featureFlagClient.getFeatureFlags()
-                if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
-                    isDeveloperEnabled = developerFlag.enabled
-                }
                 if let playgroundFlag = flags.first(where: { $0.key == Self.compactionPlaygroundFeatureFlagKey }) {
                     isCompactionPlaygroundEnabled = playgroundFlag.enabled
                 }
@@ -752,9 +669,6 @@ struct SettingsPanel: View {
             registry: loadFeatureFlagRegistry()
         )
 
-        if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
-            isDeveloperEnabled = developerEnabled
-        }
         if let playgroundEnabled = resolved[Self.compactionPlaygroundFeatureFlagKey] {
             isCompactionPlaygroundEnabled = playgroundEnabled
         }
