@@ -4,6 +4,14 @@ import {
   normalizeHttpPublicBaseUrl,
   normalizePublicBaseUrl,
 } from "../ingress.js";
+import {
+  buildTwilioConnectActionUrl,
+  buildTwilioMediaStreamUrl,
+  buildTwilioPhoneNumberWebhookUrls,
+  buildTwilioRelayUrl,
+  buildTwilioVoiceWebhookUrl,
+  resolveTwilioPublicBaseUrl,
+} from "../twilio-ingress.js";
 
 describe("normalizePublicBaseUrl", () => {
   test("trims whitespace and trailing slashes", () => {
@@ -50,5 +58,47 @@ describe("normalizeHttpPublicBaseUrl", () => {
     expect(
       normalizeHttpPublicBaseUrl("https://example.test/twilio#"),
     ).toBeUndefined();
+  });
+});
+
+describe("Twilio ingress helpers", () => {
+  test("resolves Twilio-specific base URL before generic fallback", () => {
+    expect(
+      resolveTwilioPublicBaseUrl({
+        publicBaseUrl: "https://generic.example.test",
+        twilioPublicBaseUrl: " https://twilio.example.test/twilio/ ",
+      }),
+    ).toBe("https://twilio.example.test/twilio");
+    expect(
+      resolveTwilioPublicBaseUrl({
+        publicBaseUrl: "https://generic.example.test/",
+        twilioPublicBaseUrl: " ",
+      }),
+    ).toBe("https://generic.example.test");
+    expect(
+      resolveTwilioPublicBaseUrl({}, "https://fallback.example.test/"),
+    ).toBe("https://fallback.example.test");
+  });
+
+  test("builds Twilio webhook and WebSocket URLs from one base URL", () => {
+    expect(buildTwilioVoiceWebhookUrl("https://example.test")).toBe(
+      "https://example.test/webhooks/twilio/voice",
+    );
+    expect(buildTwilioVoiceWebhookUrl("https://example.test", "call-123")).toBe(
+      "https://example.test/webhooks/twilio/voice?callSessionId=call-123",
+    );
+    expect(buildTwilioConnectActionUrl("https://example.test")).toBe(
+      "https://example.test/webhooks/twilio/connect-action",
+    );
+    expect(buildTwilioRelayUrl("https://example.test")).toBe(
+      "wss://example.test/webhooks/twilio/relay",
+    );
+    expect(buildTwilioMediaStreamUrl("http://example.test")).toBe(
+      "ws://example.test/webhooks/twilio/media-stream",
+    );
+    expect(buildTwilioPhoneNumberWebhookUrls("https://example.test")).toEqual({
+      statusCallbackUrl: "https://example.test/webhooks/twilio/status",
+      voiceUrl: "https://example.test/webhooks/twilio/voice",
+    });
   });
 });

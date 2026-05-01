@@ -1,8 +1,7 @@
 import {
-  normalizePublicBaseUrl,
+  buildTwilioPhoneNumberWebhookUrls,
+  resolveTwilioPublicBaseUrl,
   TWILIO_PUBLIC_BASE_URL_FIELD,
-  TWILIO_STATUS_WEBHOOK_PATH,
-  TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
 import { updatePhoneNumberWebhooks } from "@vellumai/twilio-client";
 
@@ -19,16 +18,6 @@ export type TwilioWebhookSyncCaches = {
   configFile: ConfigFileCache;
 };
 
-function buildWebhookUrls(baseUrl: string): {
-  voiceUrl: string;
-  statusCallbackUrl: string;
-} {
-  return {
-    voiceUrl: `${baseUrl}${TWILIO_VOICE_WEBHOOK_PATH}`,
-    statusCallbackUrl: `${baseUrl}${TWILIO_STATUS_WEBHOOK_PATH}`,
-  };
-}
-
 function resolveEffectiveTwilioBaseUrl(
   configFile: ConfigFileCache,
 ): string | undefined {
@@ -36,14 +25,13 @@ function resolveEffectiveTwilioBaseUrl(
     return undefined;
   }
 
-  const twilioBaseUrl = normalizePublicBaseUrl(
-    configFile.getString("ingress", TWILIO_PUBLIC_BASE_URL_FIELD),
-  );
-  if (twilioBaseUrl) return twilioBaseUrl;
-
-  return normalizePublicBaseUrl(
-    configFile.getString("ingress", "publicBaseUrl"),
-  );
+  return resolveTwilioPublicBaseUrl({
+    publicBaseUrl: configFile.getString("ingress", "publicBaseUrl"),
+    [TWILIO_PUBLIC_BASE_URL_FIELD]: configFile.getString(
+      "ingress",
+      TWILIO_PUBLIC_BASE_URL_FIELD,
+    ),
+  });
 }
 
 export async function syncConfiguredTwilioPhoneNumberWebhooks(
@@ -77,7 +65,7 @@ export async function syncConfiguredTwilioPhoneNumberWebhooks(
       return;
     }
 
-    const urls = buildWebhookUrls(baseUrl);
+    const urls = buildTwilioPhoneNumberWebhookUrls(baseUrl);
     await updatePhoneNumberWebhooks({
       accountSid,
       authToken,

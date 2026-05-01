@@ -1,4 +1,7 @@
-import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
+import {
+  normalizePublicBaseUrl,
+  resolveTwilioPublicBaseUrl,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
@@ -25,12 +28,9 @@ function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
   try {
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const publicBaseUrl = normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "";
-    const twilioPublicBaseUrl =
-      normalizePublicBaseUrl(ingress.twilioPublicBaseUrl) ?? "";
     const effectiveBaseUrl = options.twilio
-      ? twilioPublicBaseUrl || publicBaseUrl
-      : publicBaseUrl;
+      ? (resolveTwilioPublicBaseUrl(ingress) ?? "")
+      : (normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "");
     const enabled =
       (ingress.enabled as boolean | undefined) ??
       (effectiveBaseUrl ? true : false);
