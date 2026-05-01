@@ -156,10 +156,19 @@ export async function exec(): Promise<void> {
   const cloud = resolveCloud(entry);
 
   if (cloud === "local") {
-    console.error(
-      "Cannot exec into a local assistant — it runs directly on this machine.",
-    );
-    process.exit(1);
+    const child = spawn(command[0], command.slice(1), { stdio: "inherit" });
+    await new Promise<void>((resolve) => {
+      child.on("close", (code) => {
+        process.exitCode = code ?? 0;
+        resolve();
+      });
+      child.on("error", (err) => {
+        console.error(`Error: ${err.message}`);
+        process.exitCode = 1;
+        resolve();
+      });
+    });
+    return;
   }
 
   if (cloud === "apple-container") {
