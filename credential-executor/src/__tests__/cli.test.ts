@@ -36,7 +36,7 @@ function runCli(
   };
 }
 
-describe("ces-cli", () => {
+describe("ces", () => {
   let secDir: string;
   let env: Record<string, string>;
 
@@ -107,7 +107,7 @@ describe("ces-cli", () => {
     const { exitCode, stdout } = runCli([], env);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("CES CLI");
-    expect(stdout).toContain("ces-cli list");
+    expect(stdout).toContain("ces list");
   });
 
   test("--help prints usage", () => {

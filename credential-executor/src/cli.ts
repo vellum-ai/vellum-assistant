@@ -6,10 +6,10 @@
  * without requiring the RPC server, HTTP routes, or a running assistant.
  *
  * Usage:
- *   ces-cli list
- *   ces-cli get <account>
- *   ces-cli set <account> <value>
- *   ces-cli delete <account>
+ *   ces list
+ *   ces get <account>
+ *   ces set <account> <value>
+ *   ces delete <account>
  *
  * Account format: `credential/<service>/<field>` (e.g. `credential/vellum/platform_organization_id`)
  *
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     case "get": {
       const account = args[0];
       if (!account) {
-        console.error("Usage: ces-cli get <account>");
+        console.error("Usage: ces get <account>");
         process.exit(1);
       }
       const value = await backend.get(account);
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       const account = args[0];
       const value = args[1];
       if (!account || value === undefined) {
-        console.error("Usage: ces-cli set <account> <value>");
+        console.error("Usage: ces set <account> <value>");
         process.exit(1);
       }
       const ok = await backend.set(account, value);
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
     case "delete": {
       const account = args[0];
       if (!account) {
-        console.error("Usage: ces-cli delete <account>");
+        console.error("Usage: ces delete <account>");
         process.exit(1);
       }
       const result = await backend.delete(account);
@@ -138,10 +138,10 @@ function printUsage(): void {
   console.log(`CES CLI — credential CRUD for the encrypted key store
 
 Usage:
-  ces-cli list                     List all credential accounts
-  ces-cli get <account>            Get a credential value
-  ces-cli set <account> <value>    Set a credential value
-  ces-cli delete <account>         Delete a credential
+  ces list                     List all credential accounts
+  ces get <account>            Get a credential value
+  ces set <account> <value>    Set a credential value
+  ces delete <account>         Delete a credential
 
 Account format:
   credential/<service>/<field>
