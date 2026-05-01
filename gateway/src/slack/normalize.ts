@@ -392,6 +392,18 @@ function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
     }));
 }
 
+function extractSlackFileMap(
+  files: SlackFile[] | undefined,
+): Map<string, SlackFile> | undefined {
+  if (!files || files.length === 0) return undefined;
+  const downloadableFiles = files.filter(
+    (f) => f.url_private_download || f.url_private,
+  );
+  return downloadableFiles.length
+    ? new Map(downloadableFiles.map((f) => [f.id, f]))
+    : undefined;
+}
+
 export type NormalizedSlackEvent = {
   event: GatewayInboundEvent;
   routing: RouteResult;
@@ -446,13 +458,7 @@ export function normalizeSlackDirectMessage(
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
   const attachments = extractSlackAttachments(event.files);
-  const slackFiles = event.files?.length
-    ? new Map(
-        event.files
-          .filter((f) => f.url_private_download || f.url_private)
-          .map((f) => [f.id, f]),
-      )
-    : undefined;
+  const slackFiles = extractSlackFileMap(event.files);
 
   // Use cache-only lookup to avoid blocking normalization on network calls.
   // A background fetch warms the cache for subsequent messages from this user.
@@ -524,19 +530,13 @@ export function normalizeSlackChannelMessage(
   const content = renderSlackInboundText(
     event.text,
     withBotUserId(botUserId, renderContext),
-    { stripLeadingBotMention: true },
+    { stripLeadingBotMention: true, fallbackStripFirstMention: true },
   );
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
   const attachments = extractSlackAttachments(event.files);
-  const slackFiles = event.files?.length
-    ? new Map(
-        event.files
-          .filter((f) => f.url_private_download || f.url_private)
-          .map((f) => [f.id, f]),
-      )
-    : undefined;
+  const slackFiles = extractSlackFileMap(event.files);
 
   const userInfo =
     botToken && event.user
@@ -609,13 +609,7 @@ export function normalizeSlackAppMention(
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
   const attachments = extractSlackAttachments(event.files);
-  const slackFiles = event.files?.length
-    ? new Map(
-        event.files
-          .filter((f) => f.url_private_download || f.url_private)
-          .map((f) => [f.id, f]),
-      )
-    : undefined;
+  const slackFiles = extractSlackFileMap(event.files);
 
   const userInfo =
     botToken && event.user
