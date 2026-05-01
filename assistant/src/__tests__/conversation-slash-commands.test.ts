@@ -74,13 +74,13 @@ describe("resolveSlash /commands interface-aware help", () => {
     ]);
   });
 
-  test("keeps legacy fallback help when no interface is provided", async () => {
+  test("orders fallback help consistently when no interface is provided", async () => {
     const lines = await resolveCommandsLines(makeSlashContext());
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
-      "/models — List all available models",
       "/context — Show conversation context usage",
+      "/models — List all available models",
       "/status — Show conversation status and context usage",
     ]);
   });

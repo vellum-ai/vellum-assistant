@@ -1,5 +1,7 @@
 import type { InterfaceId } from "../channels/types.js";
+import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
+import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 
@@ -19,6 +21,39 @@ export interface SlashContext {
   provider: string;
   estimatedCost: number;
   userMessageInterface?: InterfaceId;
+}
+
+export interface SlashContextSource {
+  conversationId: string;
+  messageCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  userMessageInterface?: InterfaceId;
+}
+
+export function buildSlashContextForContent(
+  content: string,
+  source: SlashContextSource,
+): SlashContext | undefined {
+  if (classifySlash(content) === "passthrough") return undefined;
+
+  const config = getConfig();
+  const contextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: "mainAgent",
+    overrideProfile: getConversationOverrideProfile(source.conversationId),
+  });
+  return {
+    messageCount: source.messageCount,
+    inputTokens: source.inputTokens,
+    outputTokens: source.outputTokens,
+    maxInputTokens: contextWindow.maxInputTokens,
+    model: contextWindow.model,
+    provider: contextWindow.provider,
+    estimatedCost: source.estimatedCost,
+    userMessageInterface: source.userMessageInterface,
+  };
 }
 
 // ── Deprecated model-switching shortcuts ─────────────────────────────
@@ -107,10 +142,12 @@ function resolveCommandsList(context?: SlashContext): string[] {
   const fallbackLines = [
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
-    "/models — List all available models",
   ];
   if (context) {
     fallbackLines.push("/context — Show conversation context usage");
+  }
+  fallbackLines.push("/models — List all available models");
+  if (context) {
     fallbackLines.push("/status — Show conversation status and context usage");
   }
 

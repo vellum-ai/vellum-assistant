@@ -10,25 +10,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { SlashResolution } from "../daemon/conversation-slash.js";
-
-const resolveSlashMock = mock(
-  (_content: string, _context?: unknown): SlashResolution => ({
-    kind: "passthrough",
-    content: _content,
-  }),
-);
-
 const formatCompactResultMock = mock(
   (result: { maxInputTokens: number }) =>
     `Context Compacted\n\nContext: 10,000 / ${result.maxInputTokens.toLocaleString(
       "en-US",
     )} tokens`,
 );
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  resolveSlash: resolveSlashMock,
-}));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -327,18 +314,12 @@ function makeDeps(
 
 describe("handleSendMessage slash command interception", () => {
   beforeEach(() => {
-    resolveSlashMock.mockClear();
     formatCompactResultMock.mockClear();
     addMessageMock.mockClear();
     ipcCallMock.mockClear();
   });
 
   test("intercepts built-in slash commands (unknown kind) without calling agent loop", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "unknown",
-      message: "Conversation Status\n\nContext: 5%",
-    });
-
     const { conversation, persistUserMessage, runAgentLoop } =
       makeConversation();
     const res = await callHandler(
@@ -356,10 +337,6 @@ describe("handleSendMessage slash command interception", () => {
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBe("persisted-user-id");
 
-    // Slash command was resolved
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-    expect(resolveSlashMock.mock.calls[0][0]).toBe("/context");
-
     // User + assistant messages persisted, but agent loop NOT called
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     const roles = addMessageMock.mock.calls.map((c) => c[1]);
@@ -369,10 +346,6 @@ describe("handleSendMessage slash command interception", () => {
   });
 
   test("handles /compact without calling agent loop and formats the compaction max", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "compact",
-    });
-
     const { conversation, persistUserMessage, runAgentLoop, forceCompact } =
       makeConversation();
     const res = await callHandler(
@@ -392,8 +365,6 @@ describe("handleSendMessage slash command interception", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-    expect(resolveSlashMock.mock.calls[0][0]).toBe("/compact");
     expect(forceCompact).toHaveBeenCalledTimes(1);
     expect(formatCompactResultMock).toHaveBeenCalledWith(
       expect.objectContaining({ maxInputTokens: 150000 }),
@@ -403,11 +374,6 @@ describe("handleSendMessage slash command interception", () => {
   });
 
   test("passes regular messages through to agent loop unchanged", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
-
     const {
       conversation,
       persistUserMessage,
@@ -423,9 +389,6 @@ describe("handleSendMessage slash command interception", () => {
 
     expect(res.status).toBe(202);
 
-    // Slash command was resolved but passed through
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-
     // No skill preactivation
     expect(setPreactivatedSkillIds).not.toHaveBeenCalled();
 
@@ -437,11 +400,6 @@ describe("handleSendMessage slash command interception", () => {
   });
 
   test("passes SlashContext with resolved profile context budget", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "unknown",
-      message: "Conversation Status\n\nContext: 50%",
-    });
-
     const { conversation } = makeConversation();
     await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
@@ -450,27 +408,17 @@ describe("handleSendMessage slash command interception", () => {
       202,
     );
 
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-    const context = resolveSlashMock.mock.calls[0][1] as Record<
-      string,
-      unknown
-    >;
-    expect(context).toMatchObject({
-      inputTokens: 1000,
-      outputTokens: 500,
-      estimatedCost: 0.05,
-      model: "claude-opus-4-7",
-      provider: "anthropic",
-      maxInputTokens: 150000,
-    });
+    const assistantPersist = addMessageMock.mock.calls.find(
+      (call) => call[1] === "assistant",
+    );
+    expect(assistantPersist).toBeDefined();
+    expect(String(assistantPersist?.[2])).toContain("1,000 / 150,000 tokens");
+    expect(String(assistantPersist?.[2])).toContain(
+      "claude-opus-4-7 (anthropic)",
+    );
   });
 
   test("applies riskThreshold override when provided", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
-
     const { conversation } = makeConversation();
     const res = await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
@@ -487,10 +435,6 @@ describe("handleSendMessage slash command interception", () => {
   });
 
   test("returns 500 when riskThreshold IPC fails", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
     ipcCallMock.mockImplementationOnce(async () => undefined);
 
     const { conversation } = makeConversation();

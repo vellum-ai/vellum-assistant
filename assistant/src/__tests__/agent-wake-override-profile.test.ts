@@ -20,7 +20,8 @@
  * asserts that:
  *   1. The wake forwards `overrideProfile` to `agentLoop.run`.
  *   2. The wake forwards `callSite: "mainAgent"` to `agentLoop.run`.
- *   3. With both set, `RetryProvider.normalizeSendMessageOptions` actually
+ *   3. The wake resolves and forwards the effective max input token budget.
+ *   4. With both routing keys set, `RetryProvider.normalizeSendMessageOptions` actually
  *      invokes the resolver and replaces workspace defaults with the
  *      pinned-profile values.
  */
@@ -69,6 +70,7 @@ interface RunArgs {
   callSite: unknown;
   turnContext: unknown;
   overrideProfile: string | undefined;
+  effectiveMaxInputTokens: number | undefined;
 }
 
 function makeTarget(): {
@@ -93,6 +95,7 @@ function makeTarget(): {
         callSite?: unknown,
         turnContext?: unknown,
         overrideProfile?: string,
+        effectiveMaxInputTokens?: number,
       ) => {
         runArgs.push({
           messages: [...messages],
@@ -102,6 +105,7 @@ function makeTarget(): {
           callSite,
           turnContext,
           overrideProfile,
+          effectiveMaxInputTokens,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
         return messages;
@@ -133,6 +137,22 @@ afterEach(() => {
 describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("forwards the conversation's pinned overrideProfile + mainAgent callSite to agentLoop.run", async () => {
     mockOverrideProfile = "frontier";
+    mockLlmConfig = LLMSchema.parse({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        maxTokens: 64000,
+        contextWindow: { maxInputTokens: 200000 },
+      },
+      profiles: {
+        frontier: {
+          contextWindow: { maxInputTokens: 150000 },
+        },
+      },
+      callSites: {
+        mainAgent: {},
+      },
+    }) as Record<string, unknown>;
     const { target, runArgs } = makeTarget();
 
     const result = await wakeAgentForOpportunity(
@@ -155,6 +175,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // short-circuit and silently drop both the call-site config and the
     // pinned override profile.
     expect(runArgs[0]!.callSite).toBe("mainAgent");
+    expect(runArgs[0]!.effectiveMaxInputTokens).toBe(150000);
     // Sanity: the wake-source tag still propagates as requestId.
     expect(runArgs[0]!.requestId).toBe("wake:scheduler");
   });
@@ -179,6 +200,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // maxTokens, effort, etc.). Otherwise the wake silently runs under
     // workspace defaults regardless of any per-call-site configuration.
     expect(runArgs[0]!.callSite).toBe("mainAgent");
+    expect(runArgs[0]!.effectiveMaxInputTokens).toBeGreaterThan(0);
   });
 });
 
