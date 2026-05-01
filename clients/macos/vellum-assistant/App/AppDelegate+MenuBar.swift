@@ -905,10 +905,11 @@ extension AppDelegate {
     }
 
     /// Hatch a new managed assistant against the platform and persist it to
-    /// the lockfile. The organization id is read from UserDefaults —
-    /// matching the path the onboarding flow and TeleportSection use. There
-    /// is no centralized constant for this key yet; see TeleportSection for
-    /// the other call site that reads it directly.
+    /// the lockfile. Only succeeds for newly created assistants (reused ones are rejected).
+    /// After persisting, immediately switches to the newly created assistant.
+    /// The organization id is read from UserDefaults — matching the path the
+    /// onboarding flow and TeleportSection use. There is no centralized constant
+    /// for this key yet; see TeleportSection for the other call site that reads it directly.
     private func hatchAndPersistManagedAssistant(name: String) async throws {
         guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
               !organizationId.isEmpty else {
@@ -918,11 +919,10 @@ extension AppDelegate {
             organizationId: organizationId,
             name: name
         )
-        let platformAssistant: PlatformAssistant
-        switch result {
-        case .reusedExisting(let assistant), .createdNew(let assistant):
-            platformAssistant = assistant
+        guard case .createdNew(let platformAssistant) = result else {
+            throw AssistantSwitcherError.assistantAlreadyExists
         }
+
         let success = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
             runtimeUrl: VellumEnvironment.resolvedPlatformURL,
@@ -941,6 +941,22 @@ extension AppDelegate {
         }
 
         IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
+
+        let target = LockfileAssistant(
+            assistantId: platformAssistant.id,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+            bearerToken: nil,
+            cloud: "vellum",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String,
+            baseDataDir: nil,
+            gatewayPort: nil,
+            instanceDir: nil
+        )
+        performSwitchAssistant(to: target)
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher
@@ -1099,6 +1115,7 @@ enum AssistantSwitcherError: LocalizedError {
     case lockfilePersistenceFailed
     case retireNonActiveNotSupported
     case assistantNotFound(String)
+    case assistantAlreadyExists
 
     var errorDescription: String? {
         switch self {
@@ -1110,6 +1127,8 @@ enum AssistantSwitcherError: LocalizedError {
             return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
         case .assistantNotFound(let id):
             return "Could not find assistant \(id) in the lockfile."
+        case .assistantAlreadyExists:
+            return "An assistant with this name already exists. Use the existing assistant or choose a different name."
         }
     }
 }
