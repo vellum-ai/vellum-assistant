@@ -89,8 +89,11 @@ struct SettingsPanel: View {
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
-        // Pre-compute the sounds flag so deep-link validation below uses
-        // the actual config value instead of the @State default (true).
+        // Pre-compute client flags so deep-link validation below uses
+        // the actual config values instead of the @State defaults.
+        let developerEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
+        _isDeveloperEnabled = State(initialValue: developerEnabled)
+
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
 
@@ -156,7 +159,7 @@ struct SettingsPanel: View {
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
-    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.developer, .compactionPlayground]
+    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,6 +225,7 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
+            isDeveloperEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
@@ -329,11 +333,8 @@ struct SettingsPanel: View {
                                 object: nil,
                                 userInfo: ["key": Self.developerFeatureFlagKey, "enabled": true]
                             )
-                            // Persist locally (cache) for optimistic UI + PATCH to gateway
-                            AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            Task {
-                                try? await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            }
+                            // Persist via client flag manager (UserDefaults)
+                            MacOSClientFeatureFlagManager.shared.setOverride(Self.developerFeatureFlagKey, enabled: true)
                         }
                         devUnlockText = ""
                     },
@@ -698,9 +699,6 @@ struct SettingsPanel: View {
         if connectionManager != nil {
             do {
                 let flags = try await featureFlagClient.getFeatureFlags()
-                if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
-                    isDeveloperEnabled = developerFlag.enabled
-                }
                 if let playgroundFlag = flags.first(where: { $0.key == Self.compactionPlaygroundFeatureFlagKey }) {
                     isCompactionPlaygroundEnabled = playgroundFlag.enabled
                 }
@@ -725,9 +723,6 @@ struct SettingsPanel: View {
             registry: loadFeatureFlagRegistry()
         )
 
-        if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
-            isDeveloperEnabled = developerEnabled
-        }
         if let playgroundEnabled = resolved[Self.compactionPlaygroundFeatureFlagKey] {
             isCompactionPlaygroundEnabled = playgroundEnabled
         }

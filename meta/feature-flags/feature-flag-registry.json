@@ -43,7 +43,7 @@
     },
     {
       "id": "settings-developer-nav",
-      "scope": "assistant",
+      "scope": "client",
       "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
