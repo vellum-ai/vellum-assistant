@@ -33,13 +33,6 @@ import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
 
-// Re-exported so consumers that import these constants from this module
-// (e.g. `vbundle-streaming-importer.ts`) keep compiling. The policy
-// module owns the source of truth.
-export const LEGACY_USER_MD_ARCHIVE_PATH = policy.LEGACY_USER_MD_ARCHIVE_PATH;
-export const CONFIG_ARCHIVE_PATHS = policy.CONFIG_ARCHIVE_PATHS;
-export const WORKSPACE_PRESERVE_PATHS = policy.WORKSPACE_PRESERVE_PATHS;
-
 const log = getLogger("vbundle-importer");
 
 // ---------------------------------------------------------------------------
