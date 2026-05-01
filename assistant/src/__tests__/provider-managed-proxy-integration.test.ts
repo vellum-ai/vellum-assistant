@@ -460,7 +460,7 @@ describe("config mode flip → provider reinit", () => {
     await initializeProviders(makeProvidersConfig("gemini", "gemini-2.5-pro"));
     expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
 
-    // Flip mode but do NOT re-initialize providers (old handlePatchConfig behavior).
+    // Flip mode but do NOT re-initialize providers (simulates skipping reinit).
     setUserKeysFor("gemini");
     // Source stays managed-proxy because initializeProviders was not called.
     expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
