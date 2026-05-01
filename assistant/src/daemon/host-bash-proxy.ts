@@ -1,7 +1,10 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -16,6 +19,7 @@ interface PendingRequest {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   timeoutSec: number;
+  conversationId: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -61,7 +65,7 @@ export class HostBashProxy {
   }
 
   private send(msg: ServerMessage): void {
-    broadcastMessage(msg);
+    broadcastMessage(msg, undefined, { targetCapability: "host_bash" });
   }
 
   request(
@@ -121,7 +125,8 @@ export class HostBashProxy {
               this.send({
                 type: "host_bash_cancel",
                 requestId,
-              } as ServerMessage);
+                conversationId,
+              });
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -137,6 +142,7 @@ export class HostBashProxy {
         reject,
         timer,
         timeoutSec,
+        conversationId,
         detachAbort,
       });
 
@@ -149,9 +155,9 @@ export class HostBashProxy {
           working_dir: input.working_dir,
           timeout_seconds: input.timeout_seconds,
           ...(input.env && Object.keys(input.env).length > 0
-            ? { env: input.env }
-            : {}),
-        } as ServerMessage);
+              ? { env: input.env }
+              : {}),
+          });
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -199,17 +205,18 @@ export class HostBashProxy {
 
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      pendingInteractions.resolve(requestId);
-      try {
-        this.send({
-          type: "host_bash_cancel",
-          requestId,
-        } as ServerMessage);
-      } catch {
-        // Best-effort cancel notification — connection may already be closed.
-      }
+        clearTimeout(entry.timer);
+        entry.detachAbort();
+        pendingInteractions.resolve(requestId);
+        try {
+          this.send({
+            type: "host_bash_cancel",
+            requestId,
+            conversationId: entry.conversationId,
+          });
+        } catch {
+          // Best-effort cancel notification — connection may already be closed.
+        }
       entry.reject(
         new AssistantError(
           "Host bash proxy disposed",

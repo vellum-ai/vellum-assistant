@@ -19,8 +19,6 @@ import {
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
-  shouldExpandTroubleshooting,
-  hasTroubleshootingControls,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
   type ConnectionPhase,
@@ -134,12 +132,6 @@ const localStatus = document.getElementById('local-status') as HTMLParagraphElem
 
 const troubleshootSection = document.getElementById(
   'troubleshoot-section',
-) as HTMLDivElement;
-const troubleshootToggle = document.getElementById(
-  'troubleshoot-toggle',
-) as HTMLButtonElement;
-const troubleshootBody = document.getElementById(
-  'troubleshoot-body',
 ) as HTMLDivElement;
 
 const gatewayUrlInput = document.getElementById(
@@ -286,36 +278,35 @@ function updateHealthDisplay(
 
   // Setup message
   setSetupMessage(phase);
-
-  // Troubleshoot section
-  if (shouldExpandTroubleshooting(health)) {
-    troubleshootBody.style.display = 'block';
-    troubleshootToggle.setAttribute('aria-expanded', 'true');
-  }
-
-  // Show/hide troubleshoot controls
-  if (hasTroubleshootingControls(currentAuthProfile)) {
-    troubleshootSection.style.display = 'block';
-  } else {
-    troubleshootSection.style.display = 'none';
-  }
 }
 
 // ── Main screen mode-specific visibility ────────────────────────────
 
-function applyMainScreenMode(): void {
+function applyMainScreenMode(paired?: boolean): void {
   const signOutBtn = document.getElementById('btn-sign-out') as HTMLButtonElement;
   if (currentMode === 'cloud') {
     selfHostedSettings.style.display = 'none';
+    troubleshootSection.style.display = 'none';
     assistantInfo.style.display = 'flex';
+    connectionAreaEl.style.display = 'block';
     sessionActions.style.display = 'flex';
     signOutBtn.textContent = 'Sign out';
   } else {
     // self-hosted
-    selfHostedSettings.style.display = 'block';
     assistantInfo.style.display = 'none';
     sessionActions.style.display = 'flex';
     signOutBtn.textContent = 'Disconnect';
+    if (paired) {
+      // Already paired — show connected state, hide URL input, show re-pair
+      selfHostedSettings.style.display = 'none';
+      connectionAreaEl.style.display = 'block';
+      troubleshootSection.style.display = 'block';
+    } else {
+      // Not yet paired — show URL input, hide connection status
+      selfHostedSettings.style.display = 'block';
+      connectionAreaEl.style.display = 'none';
+      troubleshootSection.style.display = 'none';
+    }
   }
 }
 
@@ -329,42 +320,55 @@ function loadGatewayUrl(): void {
   });
 }
 
-gatewayUrlSave?.addEventListener('click', () => {
+/**
+ * Save the gateway URL, pair with the gateway, and connect. Used by both
+ * the Pair button and the Re-pair button. On success, transitions to the
+ * connected main screen. On failure, shows the error inline once.
+ */
+function pairAndConnect(): void {
   const url = gatewayUrlInput.value.trim();
   if (!url) return;
   gatewayUrlSave.disabled = true;
-  gatewayUrlSave.textContent = 'Saving\u2026';
-  sendMessage(
-    { type: 'gateway-url-set', gatewayUrl: url },
-    () => {
-      gatewayUrlSave.disabled = false;
-      gatewayUrlSave.textContent = 'Save';
-    },
-  );
-});
+  gatewayUrlSave.textContent = 'Pairing\u2026';
+  localStatus.style.display = 'none';
 
-// Also save on Enter key in the URL input
+  // Step 1: save the URL
+  sendMessage({ type: 'gateway-url-set', gatewayUrl: url }, () => {
+    // Step 2: pair with the gateway
+    sendMessage<{ ok: boolean; error?: string }>(
+      { type: 'self-hosted-pair' },
+      (response) => {
+        if (response?.ok) {
+          // Step 3: connect
+          sendMessage({ type: 'connect' }, () => {});
+          // Hide the gateway URL input and show the connected state
+          selfHostedSettings.style.display = 'none';
+          troubleshootSection.style.display = 'block';
+          gatewayUrlSave.disabled = false;
+          gatewayUrlSave.textContent = 'Pair';
+          refreshStatus();
+          startStatusPoll();
+        } else {
+          gatewayUrlSave.disabled = false;
+          gatewayUrlSave.textContent = 'Pair';
+          localStatus.textContent = response?.error ?? 'Pairing failed';
+          localStatus.style.display = 'block';
+        }
+      },
+    );
+  });
+}
+
+gatewayUrlSave?.addEventListener('click', pairAndConnect);
+
+// Also pair on Enter key in the URL input
 gatewayUrlInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    gatewayUrlSave?.click();
+    pairAndConnect();
   }
 });
 
-// ── Re-pair button ──────────────────────────────────────────────────
-
-btnPairLocal?.addEventListener('click', () => {
-  localStatus.textContent = 'Pairing\u2026';
-  sendMessage<{ ok: boolean; error?: string }>(
-    { type: 'self-hosted-pair' },
-    (response) => {
-      if (response?.ok) {
-        localStatus.textContent = 'Paired successfully';
-      } else {
-        localStatus.textContent = `Pair failed: ${response?.error ?? 'unknown error'}`;
-      }
-    },
-  );
-});
+// (Re-pair button handler is registered below after pairAndConnect is defined.)
 
 // ── Copy debug details ──────────────────────────────────────────────
 
@@ -383,11 +387,8 @@ copyDebugDetailsButton?.addEventListener('click', async () => {
 
 // ── Troubleshoot toggle ─────────────────────────────────────────────
 
-troubleshootToggle?.addEventListener('click', () => {
-  const isExpanded = troubleshootToggle.getAttribute('aria-expanded') === 'true';
-  troubleshootToggle.setAttribute('aria-expanded', String(!isExpanded));
-  troubleshootBody.style.display = isExpanded ? 'none' : 'block';
-});
+// Re-pair button: same flow as initial pair
+btnPairLocal?.addEventListener('click', pairAndConnect);
 
 // ── Activity card → Activity screen ─────────────────────────────────
 
@@ -608,7 +609,9 @@ btnSelfHosted?.addEventListener('click', () => {
   sendMessage({ type: 'set-mode', mode: 'self-hosted' }, () => {});
   applyMainScreenMode();
   showScreen('main');
-  loadMainScreen();
+  // Don't auto-connect — show the gateway URL input and let the user
+  // click Pair to initiate the connection.
+  loadGatewayUrl();
 });
 
 // ── Picker screen handlers ──────────────────────────────────────────
@@ -789,7 +792,8 @@ sendMessage<{
 
   if (response.mode === 'self-hosted') {
     currentMode = 'self-hosted';
-    applyMainScreenMode();
+    // Returning to a previously-paired self-hosted session — show connected state
+    applyMainScreenMode(true);
     showScreen('main');
     loadMainScreen();
   } else if (response.mode === 'cloud') {

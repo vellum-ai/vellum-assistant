@@ -18,6 +18,7 @@ export interface HostBashRequest {
 export interface HostBashCancelRequest {
   type: "host_bash_cancel";
   requestId: string;
+  conversationId: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

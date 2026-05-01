@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
+import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { dirname, join } from "path";
 
 import {
@@ -683,51 +683,18 @@ export async function discoverPublicUrl(
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  // Log the local address source only when we actually use it.
-  if (localResult.source === "hostname") {
-    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
-  } else if (localResult.source === "lan") {
-    console.log(`   Discovered LAN IP: ${localResult.label}`);
-  }
-
   return localResult.url;
 }
 
 /**
- * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost. Does not emit any logs — the caller
- * decides whether to log based on which result is actually used.
+ * Returns the localhost URL for the gateway on the given port.
  */
 function discoverLocalUrl(effectivePort: number): {
   url: string;
-  source: "hostname" | "lan" | "localhost";
-  label?: string;
+  source: "localhost";
 } {
-  // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
-  // the same network can reach the gateway by name.
-  if (platform() === "darwin") {
-    const localHostname = getMacLocalHostname();
-    if (localHostname) {
-      return {
-        url: `http://${localHostname}:${effectivePort}`,
-        source: "hostname",
-        label: localHostname,
-      };
-    }
-  }
-
-  const lanIp = getLocalLanIPv4();
-  if (lanIp) {
-    return {
-      url: `http://${lanIp}:${effectivePort}`,
-      source: "lan",
-      label: lanIp,
-    };
-  }
-
-  // Final fallback to localhost when no LAN address could be discovered.
   return {
-    url: `http://localhost:${effectivePort}`,
+    url: `http://127.0.0.1:${effectivePort}`,
     source: "localhost",
   };
 }
@@ -782,19 +749,6 @@ async function discoverCloudExternalIp(): Promise<string | undefined> {
 
   const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
   return gcpIp ?? awsIp;
-}
-
-/**
- * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
- * or undefined if not running on macOS or the hostname cannot be determined.
- */
-export function getMacLocalHostname(): string | undefined {
-  const host = hostname();
-  if (!host) return undefined;
-  // macOS hostnames already end with .local when Bonjour is active
-  if (host.endsWith(".local")) return host;
-  // Otherwise, append .local — macOS resolves <ComputerName>.local via mDNS
-  return `${host}.local`;
 }
 
 /**
@@ -1177,7 +1131,7 @@ export async function startGateway(
 
   const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
   if (publicUrl) {
-    console.log(`   Public URL: ${publicUrl}`);
+    console.log(`   HTTP URL: ${publicUrl}`);
   }
 
   console.log("🌐 Starting gateway...");
@@ -1230,7 +1184,7 @@ export async function startGateway(
   applyIpcSocketDirOverride(gatewayEnv);
 
   if (publicUrl) {
-    console.log(`   Ingress URL: ${publicUrl}`);
+    console.log(`   HTTP URL: ${publicUrl}`);
   }
 
   let gateway;

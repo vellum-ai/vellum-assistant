@@ -5,7 +5,10 @@ import { dirname } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
-import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -20,6 +23,7 @@ interface PendingTransfer {
   timer: ReturnType<typeof setTimeout>;
   requestId: string;
   transferId: string;
+  conversationId: string;
   direction: "to_host" | "to_sandbox";
   filePath: string;
   overwrite?: boolean;
@@ -94,7 +98,7 @@ export class HostTransferProxy {
   }
 
   private send(msg: ServerMessage): void {
-    broadcastMessage(msg);
+    broadcastMessage(msg, undefined, { targetCapability: "host_file" });
   }
 
   /**
@@ -165,7 +169,8 @@ export class HostTransferProxy {
                   this.send({
                     type: "host_transfer_cancel",
                     requestId,
-                  } as ServerMessage);
+                    conversationId: input.conversationId,
+                  });
                 } catch {
                   // Best-effort cancel notification — connection may already be closed.
                 }
@@ -182,6 +187,7 @@ export class HostTransferProxy {
             timer,
             requestId,
             transferId,
+            conversationId: input.conversationId,
             direction: "to_host",
             filePath: input.destPath,
             sizeBytes,
@@ -203,7 +209,7 @@ export class HostTransferProxy {
               sizeBytes,
               sha256,
               overwrite: input.overwrite,
-            } as ServerMessage);
+            });
           } catch (err) {
             clearTimeout(timer);
             this.pending.delete(requestId);
@@ -285,7 +291,8 @@ export class HostTransferProxy {
               this.send({
                 type: "host_transfer_cancel",
                 requestId,
-              } as ServerMessage);
+                conversationId: input.conversationId,
+              });
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -302,6 +309,7 @@ export class HostTransferProxy {
         timer,
         requestId,
         transferId,
+        conversationId: input.conversationId,
         direction: "to_sandbox",
         filePath: input.destPath,
         overwrite: input.overwrite,
@@ -318,7 +326,7 @@ export class HostTransferProxy {
           direction: "to_sandbox",
           transferId,
           sourcePath: input.sourcePath,
-        } as ServerMessage);
+        });
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -481,7 +489,8 @@ export class HostTransferProxy {
       this.send({
         type: "host_transfer_cancel",
         requestId,
-      } as ServerMessage);
+        conversationId: entry.conversationId,
+      });
     } catch {
       // Best-effort cancel notification — connection may already be closed.
     }
@@ -492,19 +501,30 @@ export class HostTransferProxy {
     return this.transfers.has(transferId);
   }
 
+  /**
+   * Look up the requestId for a given transferId.
+   * Used by route handlers to correlate transfer content endpoints with
+   * pending interactions.
+   */
+  getRequestIdForTransfer(transferId: string): string | null {
+    const entry = this.transfers.get(transferId);
+    return entry?.requestId ?? null;
+  }
+
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-        this.send({
-          type: "host_transfer_cancel",
-          requestId,
-        } as ServerMessage);
-      } catch {
-        // Best-effort cancel notification — connection may already be closed.
-      }
+          this.send({
+            type: "host_transfer_cancel",
+            requestId,
+            conversationId: entry.conversationId,
+          });
+        } catch {
+          // Best-effort cancel notification — connection may already be closed.
+        }
       entry.reject(
         new AssistantError(
           "Host transfer proxy disposed",

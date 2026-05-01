@@ -14,9 +14,6 @@ import type {
 
 import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
-import type { HostBashProxy } from "../daemon/host-bash-proxy.js";
-import type { HostFileProxy } from "../daemon/host-file-proxy.js";
-import type { HostTransferProxy } from "../daemon/host-transfer-proxy.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -245,12 +242,6 @@ export interface ToolContext {
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;
-  /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
-  hostBashProxy?: HostBashProxy;
-  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
-  hostFileProxy?: HostFileProxy;
-  /** Optional proxy for delegating bidirectional file transfers between sandbox and host (managed/cloud-hosted mode). */
-  hostTransferProxy?: HostTransferProxy;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
   isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */

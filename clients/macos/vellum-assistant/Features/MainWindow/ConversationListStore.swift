@@ -284,6 +284,7 @@ final class ConversationListStore {
             if !sidebarGroupEntries.isEmpty { sidebarGroupEntries = [] }
             if !systemSidebarGroupEntries.isEmpty { systemSidebarGroupEntries = [] }
             if !customSidebarGroupEntries.isEmpty { customSidebarGroupEntries = [] }
+            onDerivedPropertiesRecomputed?()
             return
         }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
@@ -337,6 +338,7 @@ final class ConversationListStore {
         }
         groupedConversations = grouped
         recomputeSidebarGroupEntries()
+        onDerivedPropertiesRecomputed?()
     }
 
     /// Derive sidebar group entries from `groupedConversations` and the current
@@ -829,6 +831,11 @@ final class ConversationListStore {
             self.isLoadingMoreConversations = false
         }
     }
+
+    /// Callback invoked after derived properties are recomputed (i.e. on every
+    /// `conversations` or `groups` mutation) so the selection store can refresh
+    /// its cached active conversation. Wired by ConversationManager during init.
+    @ObservationIgnored var onDerivedPropertiesRecomputed: (() -> Void)?
 
     /// Callback invoked after conversations are appended, so the manager
     /// can schedule VM eviction. Wired by ConversationManager during init.

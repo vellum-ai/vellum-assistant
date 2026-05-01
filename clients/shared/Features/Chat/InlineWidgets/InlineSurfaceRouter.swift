@@ -218,7 +218,17 @@ public struct InlineSurfaceRouter: View {
     private var surfaceContent: some View {
         switch surface.data {
         case .card(let data):
-            InlineCardWidget(data: data)
+            #if os(macOS)
+            let onPopOut: (() -> Void)? = (data.template == "task_progress") ? {
+                if let templateData = data.templateData,
+                   let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: data.title) {
+                    TaskProgressOverlayManager.shared.show(data: progressData, surfaceId: surface.id)
+                }
+            } : nil
+            #else
+            let onPopOut: (() -> Void)? = nil
+            #endif
+            InlineCardWidget(data: data, onPopOut: onPopOut)
         case .documentPreview(let data):
             InlineDocumentPreview(data: data) {
                 NotificationCenter.default.post(

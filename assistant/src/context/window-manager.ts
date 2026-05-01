@@ -494,6 +494,7 @@ export class ContextWindowManager {
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
       force: options?.force,
+      previousEstimatedInputTokens,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
@@ -788,6 +789,7 @@ export class ContextWindowManager {
       targetInputTokensOverride?: number;
       conversationOriginChannel?: string;
       force?: boolean;
+      previousEstimatedInputTokens?: number;
     },
   ): { keepFromIndex: number; keepTurns: number } {
     // Slack-originated conversations rely on multi-turn thread context
@@ -869,6 +871,20 @@ export class ContextWindowManager {
       while (lo > 0 && projectedTokensForKeep(lo) > targetTokens) {
         lo--;
       }
+    }
+
+    // The projection's summary-swap and tool_result truncation can make
+    // projectedTokensForKeep(hi) optimistically fit even when the live
+    // conversation is well over target — sending /compact through the
+    // "already fits" skip path as a no-op. Clamp lo so summarization runs.
+    if (
+      opts?.force &&
+      floorIsImplicitDefault &&
+      lo === userTurnStarts.length &&
+      lo > 0 &&
+      (opts?.previousEstimatedInputTokens ?? 0) > targetTokens
+    ) {
+      lo -= 1;
     }
 
     const keepTurns = lo;

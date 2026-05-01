@@ -99,12 +99,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   trustContext?: TrustContext;
   /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
-  /** Optional proxy for delegating host_bash execution to a connected client. */
-  hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
-  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
-  hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
-  /** Optional proxy for delegating bidirectional file transfers between sandbox and host. */
-  hostTransferProxy?: import("./host-transfer-proxy.js").HostTransferProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
@@ -201,9 +195,6 @@ export function createToolExecutor(
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       toolUseId,
-      hostBashProxy: ctx.hostBashProxy,
-      hostFileProxy: ctx.hostFileProxy,
-      hostTransferProxy: ctx.hostTransferProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,

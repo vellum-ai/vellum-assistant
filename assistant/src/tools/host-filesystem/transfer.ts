@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 
+import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
@@ -125,9 +126,9 @@ class HostFileTransferTool implements Tool {
     }
 
     // Managed mode: delegate to the host transfer proxy when available.
-    if (context.hostTransferProxy?.isAvailable()) {
+    if (HostTransferProxy.instance.isAvailable()) {
       if (direction === "to_host") {
-        return context.hostTransferProxy.requestToHost(
+        return HostTransferProxy.instance.requestToHost(
           {
             sourcePath: resolvedSourcePath,
             destPath,
@@ -137,7 +138,7 @@ class HostFileTransferTool implements Tool {
           context.signal,
         );
       }
-      return context.hostTransferProxy.requestToSandbox(
+      return HostTransferProxy.instance.requestToSandbox(
         {
           sourcePath,
           destPath: resolvedDestPath,

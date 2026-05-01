@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { spawnSync } from "child_process";
 
 import cliPkg from "../../package.json";
 
@@ -16,7 +17,10 @@ import {
   startContainers,
   stopContainers,
 } from "../lib/docker";
-import { resolveImageRefs } from "../lib/platform-releases";
+import {
+  fetchLatestStableVersion,
+  resolveImageRefs,
+} from "../lib/platform-releases";
 import {
   authHeaders,
   getPlatformUrl,
@@ -47,6 +51,7 @@ import { compareVersions } from "../lib/version-compat.js";
 interface UpgradeArgs {
   name: string | null;
   version: string | null;
+  latest: boolean;
   prepare: boolean;
   finalize: boolean;
 }
@@ -55,6 +60,7 @@ function parseArgs(): UpgradeArgs {
   const args = process.argv.slice(3);
   let name: string | null = null;
   let version: string | null = null;
+  let latest = false;
   let prepare = false;
   let finalize = false;
 
@@ -73,7 +79,10 @@ function parseArgs(): UpgradeArgs {
       console.log("");
       console.log("Options:");
       console.log(
-        "  --version <version>  Target version to upgrade to (default: latest)",
+        "  --version <version>  Target version to upgrade to (default: CLI version)",
+      );
+      console.log(
+        "  --latest             Upgrade to the latest stable release, updating the CLI first if needed",
       );
       console.log(
         "  --prepare            Run pre-upgrade steps only (backup, notify) without swapping versions",
@@ -84,7 +93,10 @@ function parseArgs(): UpgradeArgs {
       console.log("");
       console.log("Examples:");
       console.log(
-        "  vellum upgrade                              # Upgrade the active assistant to the latest version",
+        "  vellum upgrade                              # Upgrade the active assistant to the CLI's version",
+      );
+      console.log(
+        "  vellum upgrade --latest                     # Upgrade CLI + assistant to the latest stable release",
       );
       console.log(
         "  vellum upgrade my-assistant                  # Upgrade a specific assistant by name",
@@ -102,6 +114,8 @@ function parseArgs(): UpgradeArgs {
       }
       version = next;
       i++;
+    } else if (arg === "--latest") {
+      latest = true;
     } else if (arg === "--prepare") {
       prepare = true;
     } else if (arg === "--finalize") {
@@ -121,7 +135,13 @@ function parseArgs(): UpgradeArgs {
     process.exit(1);
   }
 
-  return { name, version, prepare, finalize };
+  if (latest && version) {
+    console.error("Error: --latest and --version are mutually exclusive.");
+    emitCliError("UNKNOWN", "--latest and --version are mutually exclusive");
+    process.exit(1);
+  }
+
+  return { name, version, latest, prepare, finalize };
 }
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -867,8 +887,80 @@ async function upgradeFinalize(
   );
 }
 
+/**
+ * When `--latest` is passed, resolve the latest stable version from the
+ * platform API.  If the running CLI is older than that version, self-update
+ * the CLI via `bun install -g` and re-exec so the new CLI's upgrade logic
+ * (and its cliPkg.version) drives the rest of the upgrade.
+ *
+ * Returns the resolved latest version string (e.g. "v0.7.0") for callers
+ * that need it.  If the CLI was updated and re-exec'd, this function never
+ * returns — the process is replaced.
+ */
+async function resolveLatestAndMaybeSelfUpdate(
+  name: string | null,
+): Promise<string> {
+  console.log("🔍 Fetching latest stable release...");
+  const latestVersion = await fetchLatestStableVersion();
+  if (!latestVersion) {
+    console.error(
+      "Error: Could not determine the latest stable release from the platform API.",
+    );
+    emitCliError(
+      "UNKNOWN",
+      "Could not determine the latest stable release from the platform API",
+    );
+    process.exit(1);
+  }
+
+  const latestTag = latestVersion.startsWith("v")
+    ? latestVersion
+    : `v${latestVersion}`;
+  const currentTag = cliPkg.version ? `v${cliPkg.version}` : null;
+
+  console.log(`   Latest stable: ${latestTag}`);
+  console.log(`   CLI version:   ${currentTag ?? "unknown"}\n`);
+
+  // Check if the CLI needs updating
+  const cmp = currentTag ? compareVersions(latestTag, currentTag) : null;
+  if (cmp !== null && cmp > 0) {
+    console.log(`🔄 Updating CLI to ${latestTag}...`);
+    const installResult = spawnSync(
+      "bun",
+      ["install", "-g", `vellum@${latestVersion}`],
+      { stdio: "inherit" },
+    );
+    if (installResult.error || installResult.status !== 0) {
+      const detail =
+        installResult.error?.message ?? `exited with code ${installResult.status}`;
+      console.error(`\n❌ CLI self-update failed: ${detail}`);
+      emitCliError("CLI_UPDATE_FAILED", "CLI self-update failed", detail);
+      process.exit(1);
+    }
+    console.log(`✅ CLI updated to ${latestTag}\n`);
+
+    // Re-exec with the updated CLI. Pass --version instead of --latest
+    // to avoid re-fetching and to prevent infinite re-exec loops.
+    const reexecArgs = ["upgrade"];
+    if (name) reexecArgs.push(name);
+    reexecArgs.push("--version", latestTag);
+
+    console.log(`🚀 Re-running upgrade with updated CLI...\n`);
+    const reexecResult = spawnSync("vellum", reexecArgs, {
+      stdio: "inherit",
+    });
+    process.exit(reexecResult.status ?? 1);
+  }
+
+  if (cmp !== null && cmp === 0) {
+    console.log(`✅ CLI is already on the latest version (${latestTag})\n`);
+  }
+
+  return latestTag;
+}
+
 export async function upgrade(): Promise<void> {
-  const { name, version, prepare, finalize } = parseArgs();
+  const { name, version, latest, prepare, finalize } = parseArgs();
   const entry = resolveTargetAssistant(name);
 
   if (prepare) {
@@ -881,16 +973,25 @@ export async function upgrade(): Promise<void> {
     return;
   }
 
+  // When --latest is passed, resolve the target from the platform API and
+  // self-update the CLI if it's behind.  The resolved version is then used
+  // as the explicit target for the rest of the upgrade flow.
+  let effectiveVersion = version;
+  if (latest) {
+    const latestTag = await resolveLatestAndMaybeSelfUpdate(name);
+    effectiveVersion = latestTag;
+  }
+
   const cloud = resolveCloud(entry);
 
   try {
     if (cloud === "docker") {
-      await upgradeDocker(entry, version);
+      await upgradeDocker(entry, effectiveVersion);
       return;
     }
 
     if (cloud === "vellum") {
-      await upgradePlatform(entry, version);
+      await upgradePlatform(entry, effectiveVersion);
       return;
     }
   } catch (err) {

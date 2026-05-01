@@ -558,14 +558,8 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// `nonisolated(unsafe)` so `start()` can warm the lazy initializer from
-    /// a `Task.detached` (the surrounding class is `@MainActor`, which would
-    /// otherwise main-actor-isolate this static). `NSWorkspace.icon(forFile:)`
-    /// is documented as thread-safe and the property is `let`, so reads after
-    /// init are safe from any context.
-    ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
-    private nonisolated(unsafe) static let bundledAppIcon: NSImage = {
+    private static let bundledAppIcon: NSImage = {
         NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 

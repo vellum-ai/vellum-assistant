@@ -336,16 +336,6 @@ extension ChatViewModel {
         flushStreamingBuffer()
         flushPartialOutputBuffer()
 
-        // Show floating overlay for task_progress cards (macOS only)
-        #if os(macOS)
-        if case .card(let cardData) = surface.data,
-           cardData.template == "task_progress",
-           let templateData = cardData.templateData,
-           let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
-            TaskProgressOverlayManager.shared.show(data: progressData, surfaceId: msg.surfaceId)
-        }
-        #endif
-
         // On macOS, dynamic pages with no explicit display mode (or "panel")
         // are routed to the workspace by SurfaceManager. If the dynamic page
         // has a preview, also render a compact preview card inline in chat.

@@ -215,10 +215,7 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import {
-  createGuardianBinding,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -238,6 +235,7 @@ import {
   getGuardianBinding,
 } from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

@@ -185,6 +185,8 @@ Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (
 
 **Why this matters:** With `@Observable`, property-level tracking means a sidebar view reading `conversations` is not invalidated when `activeConversationId` changes (owned by a different store). This eliminates the broad invalidation cascade that previously caused 100+ sidebar row rebuilds on every conversation switch.
 
+**Cross-store observation rule:** Computed properties on one `@Observable` store must not read stored properties from another `@Observable` store — this silently bridges observation dependencies across the isolation boundary, defeating the purpose of the decomposition. If cross-store data is needed, use a cached stored property synchronized via a callback from the source store, with an equality guard (`!=`) to suppress no-op writes. See `ConversationSelectionStore.activeConversation` and `ConversationListStore.onDerivedPropertiesRecomputed` for the reference pattern. ([Observation framework — access tracking](https://developer.apple.com/documentation/observation))
+
 ---
 
 ## Performance and Resource Management

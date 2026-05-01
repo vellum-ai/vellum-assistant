@@ -44,10 +44,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import {
-  createGuardianBinding,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -67,6 +64,7 @@ import {
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-message-handler.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

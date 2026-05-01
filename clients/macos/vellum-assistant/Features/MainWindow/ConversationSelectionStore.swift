@@ -58,6 +58,7 @@ final class ConversationSelectionStore {
         draftViewModel = nil
         draftLocalId = nil
         activeConversationId = conversationId
+        activeConversation = listStore.conversations.first { $0.id == conversationId }
 
         let vm = getOrCreateViewModel(for: conversationId)
         vm?.ensureMessageLoopStarted()
@@ -84,6 +85,7 @@ final class ConversationSelectionStore {
     /// stop channel refresh, and notify observation.
     func performDeactivation() {
         activeConversationId = nil
+        activeConversation = nil
         onActiveViewModelChanged?(nil)
         stopChannelRefresh()
     }
@@ -197,12 +199,27 @@ final class ConversationSelectionStore {
         migrateStorageKeysIfNeeded()
     }
 
-    // MARK: - Computed Properties
+    // MARK: - Active Conversation Cache
 
     /// The active conversation model, if one is selected and exists in the list.
-    var activeConversation: ConversationModel? {
-        guard let activeConversationId else { return nil }
-        return listStore.conversations.first { $0.id == activeConversationId }
+    ///
+    /// Stored rather than computed so that views track only this property — not
+    /// `listStore.conversations`. Synchronized by ``refreshActiveConversation()``
+    /// and writes in ``performActivation(for:)`` / ``performDeactivation()``.
+    private(set) var activeConversation: ConversationModel?
+
+    /// Synchronize ``activeConversation`` with the current conversations array.
+    /// The equality guard skips the write when the active conversation's fields
+    /// are unchanged, avoiding unnecessary observation notifications.
+    func refreshActiveConversation() {
+        guard let activeConversationId else {
+            if activeConversation != nil { activeConversation = nil }
+            return
+        }
+        let updated = listStore.conversations.first { $0.id == activeConversationId }
+        if updated != activeConversation {
+            activeConversation = updated
+        }
     }
 
     /// The ChatViewModel for the active conversation, or the draft ViewModel

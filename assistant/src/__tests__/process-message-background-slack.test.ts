@@ -100,10 +100,6 @@ interface TestConversation {
   setAuthContext: (ctx: unknown) => void;
   ensureActorScopedHistory: () => Promise<void>;
   setChannelCapabilities: () => void;
-  setHostBashProxy: () => void;
-  setHostFileProxy: () => void;
-  setHostTransferProxy: () => void;
-  getHostTransferProxy: () => undefined;
   setHostCuProxy: () => void;
   addPreactivatedSkillId: () => void;
   setCommandIntent: () => void;
@@ -191,10 +187,6 @@ function makeConversation(): TestConversation {
     },
     ensureActorScopedHistory: async () => {},
     setChannelCapabilities: () => {},
-    setHostBashProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     setCommandIntent: () => {},
