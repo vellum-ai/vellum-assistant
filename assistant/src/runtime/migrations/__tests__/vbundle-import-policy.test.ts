@@ -10,7 +10,6 @@ import { describe, expect, test } from "bun:test";
 import {
   CONFIG_ARCHIVE_PATHS,
   CREDENTIAL_METADATA_ARCHIVE_PATH,
-  isCarryForwardRelPath,
   isConfigArchivePath,
   isCredentialMetadataArchivePath,
   isLegacyPersonaArchivePath,
@@ -108,22 +107,6 @@ describe("isCredentialMetadataArchivePath", () => {
       isCredentialMetadataArchivePath("data/credentials/metadata.json"),
     ).toBe(false);
     expect(isCredentialMetadataArchivePath("")).toBe(false);
-  });
-});
-
-describe("isCarryForwardRelPath", () => {
-  test("true for each preserve-path", () => {
-    expect(isCarryForwardRelPath("embedding-models")).toBe(true);
-    expect(isCarryForwardRelPath("deprecated")).toBe(true);
-    expect(isCarryForwardRelPath("data/db")).toBe(true);
-    expect(isCarryForwardRelPath("data/qdrant")).toBe(true);
-  });
-
-  test("false for parents, descendants, unrelated, and empty", () => {
-    expect(isCarryForwardRelPath("data")).toBe(false);
-    expect(isCarryForwardRelPath("data/db/foo")).toBe(false);
-    expect(isCarryForwardRelPath("random")).toBe(false);
-    expect(isCarryForwardRelPath("")).toBe(false);
   });
 });
 
