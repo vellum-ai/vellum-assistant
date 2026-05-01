@@ -54,6 +54,25 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Mock the host-bash-proxy singleton so proxy delegation tests can control it.
+let mockProxyAvailable = false;
+let mockProxyRequestFn: (
+  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string> },
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-bash-proxy.js", () => ({
+  HostBashProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockProxyAvailable,
+        request: mockProxyRequestFn,
+      };
+    },
+  },
+}));
+
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -71,6 +90,8 @@ afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  mockProxyAvailable = false;
+  mockProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_bash tool", () => {
@@ -699,7 +720,7 @@ describe("host_bash — proxy delegation", () => {
     }
   }
 
-  function makeMockProxy(result: ToolExecutionResult) {
+  function setupMockProxy(result: ToolExecutionResult) {
     const calls: Array<{
       input: {
         command: string;
@@ -710,41 +731,24 @@ describe("host_bash — proxy delegation", () => {
       conversationId: string;
     }> = [];
 
-    return {
-      proxy: {
-        isAvailable: () => true,
-        request: async (
-          input: {
-            command: string;
-            working_dir?: string;
-            timeout_seconds?: number;
-            env?: Record<string, string>;
-          },
-          conversationId: string,
-          _signal?: AbortSignal,
-        ) => {
-          calls.push({ input, conversationId });
-          return result;
-        },
-        updateSender: () => {},
-        dispose: () => {},
-        resolve: () => {},
-        hasPendingRequest: () => false,
-      },
-      calls,
+    mockProxyAvailable = true;
+    mockProxyRequestFn = async (input, conversationId) => {
+      calls.push({ input, conversationId });
+      return result;
     };
+
+    return calls;
   }
 
-  test("delegates to proxy when hostBashProxy is available", async () => {
+  test("delegates to proxy when proxy is available", async () => {
     const proxyResult: ToolExecutionResult = {
       content: "proxied output",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     spawnCalls.length = 0;
@@ -768,11 +772,10 @@ describe("host_bash — proxy delegation", () => {
       content: "proxied",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     const result = await hostShellTool.execute({ command: "echo \0evil" }, ctx);
@@ -788,11 +791,10 @@ describe("host_bash — proxy delegation", () => {
       content: "proxied",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     const result = await hostShellTool.execute(
@@ -806,24 +808,12 @@ describe("host_bash — proxy delegation", () => {
   });
 
   test("falls back to local execution when proxy is not available", async () => {
-    const unavailableProxy = {
-      isAvailable: () => false,
-      request: async () => {
-        throw new Error("should not be called");
-      },
-      updateSender: () => {},
-      dispose: () => {},
-      resolve: () => {},
-      hasPendingRequest: () => false,
-    };
-
+    // mockProxyAvailable defaults to false, so isAvailable() returns false
     const dir = mkdtempSync(join(tmpdir(), "host-shell-proxy-fallback-"));
     testDirs.push(dir);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy:
-        unavailableProxy as unknown as ToolContext["hostBashProxy"],
     };
 
     spawnCalls.length = 0;
@@ -872,12 +862,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "trusted_contact", // untrusted actor
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(
@@ -908,12 +897,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(
@@ -947,12 +935,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(

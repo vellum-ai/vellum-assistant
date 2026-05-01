@@ -1,6 +1,9 @@
 import { v4 as uuid } from "uuid";
 
-import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -28,6 +31,7 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
   operation: HostFileInput["operation"];
   path: string;
+  conversationId: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -74,7 +78,7 @@ export class HostFileProxy {
   }
 
   private send(msg: ServerMessage): void {
-    broadcastMessage(msg);
+    broadcastMessage(msg, undefined, { targetCapability: "host_file" });
   }
 
   request(
@@ -119,7 +123,8 @@ export class HostFileProxy {
               this.send({
                 type: "host_file_cancel",
                 requestId,
-              } as ServerMessage);
+                conversationId,
+              });
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -136,6 +141,7 @@ export class HostFileProxy {
         timer,
         operation: input.operation,
         path: input.path,
+        conversationId,
         detachAbort,
       });
 
@@ -145,7 +151,7 @@ export class HostFileProxy {
           type: "host_file_request",
           requestId,
           conversationId,
-        } as ServerMessage);
+        });
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -197,7 +203,8 @@ export class HostFileProxy {
         this.send({
           type: "host_file_cancel",
           requestId,
-        } as ServerMessage);
+          conversationId: entry.conversationId,
+        });
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }

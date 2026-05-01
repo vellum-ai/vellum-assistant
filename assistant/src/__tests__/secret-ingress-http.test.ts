@@ -211,11 +211,7 @@ function makeSendMessageDeps() {
     assistantId: "self",
     trustContext: undefined,
     hasPendingConfirmation: () => false,
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
   } as unknown as import("../daemon/conversation.js").Conversation;

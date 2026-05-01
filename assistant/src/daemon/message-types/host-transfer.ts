@@ -32,6 +32,7 @@ export type HostTransferRequest =
 export interface HostTransferCancelRequest {
   type: "host_transfer_cancel";
   requestId: string;
+  conversationId: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

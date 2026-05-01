@@ -1,14 +1,44 @@
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolContext } from "../types.js";
-import { hostFileTransferTool } from "./transfer.js";
+
+// ---------------------------------------------------------------------------
+// Singleton mock — must precede the tool import so bun's module mock applies.
+// ---------------------------------------------------------------------------
+
+let mockProxyAvailable = false;
+const toSandboxCalls: Array<{ sourcePath: string; destPath: string }> = [];
+const toHostCalls: Array<{ sourcePath: string; destPath: string }> = [];
+
+mock.module("../../daemon/host-transfer-proxy.js", () => ({
+  HostTransferProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockProxyAvailable,
+        requestToSandbox: (args: { sourcePath: string; destPath: string; overwrite?: boolean; conversationId: string }) => {
+          toSandboxCalls.push({ sourcePath: args.sourcePath, destPath: args.destPath });
+          return Promise.resolve({ content: "ok", isError: false });
+        },
+        requestToHost: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
+          toHostCalls.push({ sourcePath: args.sourcePath, destPath: args.destPath });
+          return Promise.resolve({ content: "ok", isError: false });
+        },
+      };
+    },
+  },
+}));
+
+const { hostFileTransferTool } = await import("./transfer.js");
 
 const testDirs: string[] = [];
 
 afterEach(() => {
+  mockProxyAvailable = false;
+  toSandboxCalls.length = 0;
+  toHostCalls.length = 0;
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -25,7 +55,7 @@ function makeContext(workingDir: string): ToolContext {
 }
 
 // ---------------------------------------------------------------------------
-// Local-mode tests (no proxy; context.hostTransferProxy omitted)
+// Local-mode tests (proxy unavailable — falls back to local copy)
 // ---------------------------------------------------------------------------
 
 describe("host_file_transfer local mode", () => {
@@ -176,25 +206,16 @@ describe("host_file_transfer local mode to_host", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Managed-mode tests (mock proxy via context.hostTransferProxy)
+// Managed-mode tests (singleton proxy available)
 // ---------------------------------------------------------------------------
 
 describe("host_file_transfer managed mode", () => {
   test("relative path is pre-resolved before proxy call", async () => {
+    mockProxyAvailable = true;
     const workingDir = makeTempDir();
     const srcDir = makeTempDir();
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
-
-    const calls: Array<{ destPath: string }> = [];
-    const mockProxy = {
-      isAvailable: () => true,
-      requestToSandbox: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
-        calls.push({ destPath: args.destPath });
-        return Promise.resolve({ content: "ok", isError: false });
-      },
-    };
-    const ctx = { ...makeContext(workingDir), hostTransferProxy: mockProxy as any };
 
     await hostFileTransferTool.execute(
       {
@@ -202,26 +223,17 @@ describe("host_file_transfer managed mode", () => {
         dest_path: "relative/file.txt",
         direction: "to_sandbox",
       },
-      ctx,
+      makeContext(workingDir),
     );
 
-    expect(calls.length).toBe(1);
-    expect(calls[0].destPath).toBe(join(workingDir, "relative", "file.txt"));
+    expect(toSandboxCalls.length).toBe(1);
+    expect(toSandboxCalls[0].destPath).toBe(join(workingDir, "relative", "file.txt"));
   });
 
   test("to_host relative source is pre-resolved before proxy call", async () => {
+    mockProxyAvailable = true;
     const workingDir = makeTempDir();
     writeFileSync(join(workingDir, "doc.md"), "content");
-
-    const calls: Array<{ sourcePath: string }> = [];
-    const mockProxy = {
-      isAvailable: () => true,
-      requestToHost: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
-        calls.push({ sourcePath: args.sourcePath });
-        return Promise.resolve({ content: "ok", isError: false });
-      },
-    };
-    const ctx = { ...makeContext(workingDir), hostTransferProxy: mockProxy as any };
 
     await hostFileTransferTool.execute(
       {
@@ -229,28 +241,19 @@ describe("host_file_transfer managed mode", () => {
         dest_path: "/Users/someone/Desktop/doc.md",
         direction: "to_host",
       },
-      ctx,
+      makeContext(workingDir),
     );
 
-    expect(calls.length).toBe(1);
-    expect(calls[0].sourcePath).toBe(join(workingDir, "doc.md"));
+    expect(toHostCalls.length).toBe(1);
+    expect(toHostCalls[0].sourcePath).toBe(join(workingDir, "doc.md"));
   });
 
   test("out-of-bounds path rejected before proxy call", async () => {
+    mockProxyAvailable = true;
     const workingDir = makeTempDir();
     const srcDir = makeTempDir();
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
-
-    const calls: Array<{ destPath: string }> = [];
-    const mockProxy = {
-      isAvailable: () => true,
-      requestToSandbox: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
-        calls.push({ destPath: args.destPath });
-        return Promise.resolve({ content: "ok", isError: false });
-      },
-    };
-    const ctx = { ...makeContext(workingDir), hostTransferProxy: mockProxy as any };
 
     const result = await hostFileTransferTool.execute(
       {
@@ -258,11 +261,11 @@ describe("host_file_transfer managed mode", () => {
         dest_path: "/etc/passwd",
         direction: "to_sandbox",
       },
-      ctx,
+      makeContext(workingDir),
     );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid destination path");
-    expect(calls.length).toBe(0);
+    expect(toSandboxCalls.length).toBe(0);
   });
 });
