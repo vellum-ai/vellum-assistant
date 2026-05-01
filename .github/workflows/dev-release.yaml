@@ -1169,6 +1169,35 @@ jobs:
 
           echo "Updated dev-latest rolling release with ${VERSION}"
 
+  # ── Dispatch iOS release to platform repo ────────────────────────────
+
+  dispatch-ios-release:
+    needs: [compute-version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Dispatch iOS release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/dispatches" \
+            -d "{\"event_type\":\"ios-release\",\"client_payload\":{\"environment\":\"dev\",\"version\":\"$VERSION\"}}"
+          echo "Dispatched ios-release to vellum-assistant-platform (environment=dev, version=$VERSION)"
+
   # ── Slack notification (first failure only) ──────────────────────────
 
   notify-releases:
