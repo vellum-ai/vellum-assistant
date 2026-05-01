@@ -143,6 +143,7 @@ mock.module("../tts/provider-registry.js", () => ({
 // Mock public ingress URLs for synthesized TTS path
 mock.module("../inbound/public-ingress-urls.js", () => ({
   getPublicBaseUrl: () => "https://test.example.com",
+  getTwilioPublicBaseUrl: () => "https://test.example.com",
 }));
 
 // ── Helpers for building mock provider responses ────────────────────
