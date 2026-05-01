@@ -1,4 +1,9 @@
-import { TWILIO_PUBLIC_BASE_URL_FIELD } from "@vellumai/service-contracts/twilio-ingress";
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_PUBLIC_BASE_URL_FIELD,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
@@ -30,15 +35,15 @@ function firstHeaderValue(value: string | null): string | undefined {
 function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
   const pathname = new URL(reqUrl).pathname;
 
-  if (pathname === "/webhooks/twilio/voice") {
+  if (pathname === TWILIO_VOICE_WEBHOOK_PATH) {
     return "voice";
   }
 
-  if (pathname === "/webhooks/twilio/status") {
+  if (pathname === TWILIO_STATUS_WEBHOOK_PATH) {
     return "status";
   }
 
-  if (pathname === "/webhooks/twilio/connect-action") {
+  if (pathname === TWILIO_CONNECT_ACTION_WEBHOOK_PATH) {
     return "connect-action";
   }
 
