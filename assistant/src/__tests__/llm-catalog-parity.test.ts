@@ -181,4 +181,60 @@ describe("LLM catalog parity: daemon vs client", () => {
       ).toBe(true);
     }
   });
+
+  test("every model default context is capped by its context window", () => {
+    const json = loadClientCatalog();
+
+    for (const entry of PROVIDER_CATALOG) {
+      for (const model of entry.models) {
+        expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
+        if (model.contextWindowTokens === undefined) continue;
+        expect(
+          model.defaultContextWindowTokens,
+          `${entry.id}/${model.id} default context exceeds context window`,
+        ).toBeLessThanOrEqual(model.contextWindowTokens);
+      }
+    }
+
+    for (const entry of json.providers) {
+      for (const model of entry.models) {
+        expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
+        if (model.contextWindowTokens === undefined) continue;
+        expect(
+          model.defaultContextWindowTokens,
+          `${entry.id}/${model.id} JSON default context exceeds context window`,
+        ).toBeLessThanOrEqual(model.contextWindowTokens);
+      }
+    }
+  });
+
+  test("sub-200k model defaults are clamped to model context caps", () => {
+    const ollama = PROVIDER_CATALOG.find((entry) => entry.id === "ollama");
+    expect(
+      ollama?.models.find((model) => model.id === "llama3.2"),
+    ).toMatchObject({
+      contextWindowTokens: 128000,
+      defaultContextWindowTokens: 128000,
+    });
+    expect(
+      ollama?.models.find((model) => model.id === "mistral"),
+    ).toMatchObject({
+      contextWindowTokens: 32768,
+      defaultContextWindowTokens: 32768,
+    });
+  });
+
+  test("OpenAI catalog includes GPT-5.5 Pro long-context metadata", () => {
+    const openai = PROVIDER_CATALOG.find((entry) => entry.id === "openai");
+    expect(
+      openai?.models.find((model) => model.id === "gpt-5.5-pro"),
+    ).toMatchObject({
+      displayName: "GPT-5.5 Pro",
+      contextWindowTokens: 1050000,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 128000,
+      longContextPricingThresholdTokens: 272000,
+      longContextMode: "native-model",
+    });
+  });
 });

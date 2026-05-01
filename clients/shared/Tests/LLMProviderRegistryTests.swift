@@ -65,6 +65,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         XCTAssertEqual(openai?.setupMode, .apiKey)
         XCTAssertEqual(openai?.envVar, "OPENAI_API_KEY")
         XCTAssertEqual(openai?.defaultModel, "gpt-5.5")
+        XCTAssertNotNil(openai?.model(withId: "gpt-5.5-pro"))
 
         let ollama = LLMProviderRegistry.provider(id: "ollama")
         XCTAssertNotNil(ollama)
@@ -82,6 +83,35 @@ final class LLMProviderRegistryTests: XCTestCase {
         let model = LLMProviderRegistry.model(provider: "anthropic", id: "claude-opus-4-7")
         XCTAssertNotNil(model)
         XCTAssertEqual(model?.displayName, "Claude Opus 4.7")
+    }
+
+    func testFallbackContextDefaultsDoNotExceedModelLimits() {
+        for provider in LLMProviderRegistry.providers {
+            for model in provider.models {
+                guard
+                    let defaultContextWindowTokens = model.defaultContextWindowTokens,
+                    let contextWindowTokens = model.contextWindowTokens
+                else {
+                    continue
+                }
+
+                XCTAssertLessThanOrEqual(
+                    defaultContextWindowTokens,
+                    contextWindowTokens,
+                    "\(provider.id)/\(model.id) default context exceeds context window"
+                )
+            }
+        }
+    }
+
+    func testOpenAIGPT55ProFallbackMetadataMatchesCatalogContract() {
+        let model = LLMProviderRegistry.model(provider: "openai", id: "gpt-5.5-pro")
+        XCTAssertEqual(model?.displayName, "GPT-5.5 Pro")
+        XCTAssertEqual(model?.contextWindowTokens, 1_050_000)
+        XCTAssertEqual(model?.defaultContextWindowTokens, 200_000)
+        XCTAssertEqual(model?.longContextPricingThresholdTokens, 272_000)
+        XCTAssertEqual(model?.longContextMode, .nativeModel)
+        XCTAssertEqual(model?.maxOutputTokens, 128_000)
     }
 
     func testModelLookupReturnsNilForUnknownModel() {
