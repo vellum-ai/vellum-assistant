@@ -117,10 +117,7 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { HostFileProxy } from "./host-file-proxy.js";
-import { HostTransferProxy } from "./host-transfer-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -206,10 +203,7 @@ export class Conversation {
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
-  /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
-  /** @internal */ hostFileProxy?: HostFileProxy;
-  /** @internal */ hostTransferProxy?: HostTransferProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -675,32 +669,6 @@ export class Conversation {
     return this.sendToClient;
   }
 
-  /**
-   * Mark host proxies as unavailable so tool execution uses local fallback.
-   * Nulls out the singleton references on this conversation — tools check
-   * `ctx.hostBashProxy?.isAvailable()` which short-circuits to falsy when
-   * the field is undefined.
-   */
-  clearProxyAvailability(): void {
-    this.hostBashProxy = undefined;
-    this.hostCuProxy = undefined;
-    this.hostFileProxy = undefined;
-    this.hostTransferProxy = undefined;
-  }
-
-  /**
-   * Restore host proxy availability by re-assigning singleton instances.
-   * Only restores if a real client is connected.
-   */
-  restoreProxyAvailability(): void {
-    if (!this.hasNoClient) {
-      this.hostBashProxy = HostBashProxy.instance;
-      this.hostCuProxy = undefined; // CU is per-conversation; restored via setHostCuProxy
-      this.hostFileProxy = HostFileProxy.instance;
-      this.hostTransferProxy = HostTransferProxy.instance;
-    }
-  }
-
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
   }
@@ -959,22 +927,6 @@ export class Conversation {
     delivery?: "store" | "transient_send",
   ): void {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
-  }
-
-  setHostBashProxy(proxy: HostBashProxy | undefined): void {
-    this.hostBashProxy = proxy;
-  }
-
-  setHostFileProxy(proxy: HostFileProxy | undefined): void {
-    this.hostFileProxy = proxy;
-  }
-
-  setHostTransferProxy(proxy: HostTransferProxy | undefined): void {
-    this.hostTransferProxy = proxy;
-  }
-
-  getHostTransferProxy(): HostTransferProxy | undefined {
-    return this.hostTransferProxy;
   }
 
   setHostCuProxy(proxy: HostCuProxy | undefined): void {

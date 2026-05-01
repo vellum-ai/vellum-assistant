@@ -12,6 +12,7 @@ struct SettingsGeneralTab: View {
     var onSignIn: (() -> Void)?
 
     @State private var showingPairingQR: Bool = false
+    @State private var showingDeleteAccountConfirm: Bool = false
 
     // -- Software Update state --
     @State private var healthz: DaemonHealthz?
@@ -75,6 +76,9 @@ struct SettingsGeneralTab: View {
             }
             SettingsAppearanceTab(store: store)
             uninstallSection
+            if Self.shouldShowDangerZone(isAuthenticated: authManager.currentUser != nil) {
+                dangerZoneSection
+            }
         }
         .onAppear {
             Task { await authManager.checkSession() }
@@ -157,6 +161,22 @@ struct SettingsGeneralTab: View {
                 dockerOperationTimeoutTask = nil
                 dockerOperationTimedOut = false
             }
+        }
+        .sheet(isPresented: $showingDeleteAccountConfirm) {
+            DeleteAccountConfirmView(
+                onDeleted: { _ in
+                    showingDeleteAccountConfirm = false
+                    // The server has destroyed the user; tear down the local
+                    // session via the standard logout path. Platform-assistant
+                    // state cached in this client may briefly throw stale
+                    // references — acceptable since the user can re-pair from
+                    // the bare-metal/local sign-in screen.
+                    AppDelegate.shared?.performLogout()
+                },
+                onCancel: {
+                    showingDeleteAccountConfirm = false
+                }
+            )
         }
     }
 
@@ -373,6 +393,32 @@ struct SettingsGeneralTab: View {
             VButton(label: "Uninstall Vellum", style: .danger) {
                 AppDelegate.shared?.performUninstall()
             }
+        }
+    }
+
+    // MARK: - Danger Zone
+
+    /// Whether to render the Danger Zone (account deletion) section. Gated on
+    /// both the client-side `account-deletion` feature flag (mirroring the
+    /// server-side LaunchDarkly flag in `vellum-assistant-platform`) and a
+    /// signed-in session — without a `currentUser`, the POST would fail with
+    /// notAuthenticated, so we don't expose the destructive button.
+    nonisolated static func shouldShowDangerZone(
+        flagManager: MacOSClientFeatureFlagManager = .shared,
+        isAuthenticated: Bool
+    ) -> Bool {
+        flagManager.isEnabled("account-deletion") && isAuthenticated
+    }
+
+    private var dangerZoneSection: some View {
+        SettingsCard(
+            title: "Danger Zone",
+            subtitle: "Permanently delete your Vellum account."
+        ) {
+            VButton(label: "Delete account", style: .danger) {
+                showingDeleteAccountConfirm = true
+            }
+            .accessibilityLabel("Delete account")
         }
     }
 

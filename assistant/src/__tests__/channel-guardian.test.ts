@@ -63,7 +63,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
 import type {
   ChannelVerificationSessionRequest,
@@ -122,6 +121,7 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

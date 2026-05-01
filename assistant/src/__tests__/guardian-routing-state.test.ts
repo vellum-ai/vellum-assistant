@@ -15,7 +15,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -30,6 +29,7 @@ import {
   handleChannelInbound,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

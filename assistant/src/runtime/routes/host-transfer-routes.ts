@@ -18,21 +18,14 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
  * Find the singleton HostTransferProxy if it owns the given transferId.
- * Returns the proxy and the first matching interaction entry so callers
- * can resolve the pending interaction when appropriate.
+ * Returns the proxy and the matching requestId so callers can resolve
+ * the pending interaction when appropriate.
  */
 function findProxyByTransferId(transferId: string) {
   const proxy = HostTransferProxy.instance;
-  if (!proxy.hasPendingTransfer(transferId)) return null;
-  const interactions = pendingInteractions.getByKind("host_transfer");
-  for (const interaction of interactions) {
-    // The singleton owns the transfer — find the matching interaction
-    // so callers can clean up pendingInteractions.
-    if (proxy.hasPendingTransfer(transferId)) {
-      return { proxy, interaction };
-    }
-  }
-  return null;
+  const requestId = proxy.getRequestIdForTransfer(transferId);
+  if (!requestId) return null;
+  return { proxy, requestId };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +110,7 @@ async function handleTransferContentPut({
   // For to_sandbox transfers there is no separate /v1/host-transfer-result
   // callback — the PUT handler is the terminal event. Always clean up the
   // pending interaction so it doesn't leak.
-  pendingInteractions.resolve(match.interaction.requestId);
+  pendingInteractions.resolve(match.requestId);
 
   if (!result.accepted) {
     throw new BadRequestError(result.error ?? "Transfer content rejected");

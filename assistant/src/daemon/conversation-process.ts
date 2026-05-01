@@ -154,10 +154,6 @@ export interface ProcessConversationContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
-  /** Mark host proxies as unavailable so tool execution uses local fallback. */
-  clearProxyAvailability(): void;
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -429,17 +425,12 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
   }
 
-  // Non-interactive queued messages (channel requests) must not execute tools
-  // via the desktop host proxy. Clear proxy availability so isAvailable()
-  // returns false and tool execution falls back to local.
-  if (next.isInteractive === false) {
-    conversation.clearProxyAvailability();
-  } else {
+  // Preactivate computer-use skill for interactive desktop turns.
+  if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
     }
   }
@@ -871,18 +862,13 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
   }
 
-  // Non-interactive queued messages (channel requests) must not execute tools
-  // via the desktop host proxy. Clear proxy availability so isAvailable()
-  // returns false and tool execution falls back to local. Mirrors the
-  // single-message path exactly — sourced from `head`.
-  if (head.isInteractive === false) {
-    conversation.clearProxyAvailability();
-  } else {
+  // Preactivate computer-use skill for interactive desktop turns.
+  // Mirrors the single-message path exactly — sourced from `head`.
+  if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
     }
   }

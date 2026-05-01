@@ -525,46 +525,6 @@
       display: none;
     }
 
-    .troubleshoot-toggle {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      background: none;
-      border: none;
-      padding: 8px 0;
-      margin-bottom: 0;
-      cursor: pointer;
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--text-3);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      width: auto;
-      flex: none;
-      transition: color 0.15s;
-    }
-
-    .troubleshoot-toggle:hover { color: var(--text-2); }
-
-    .troubleshoot-toggle .chevron {
-      display: inline-block;
-      font-size: 8px;
-      transition: transform 0.2s ease;
-      color: inherit;
-    }
-
-    .troubleshoot-toggle[aria-expanded="true"] .chevron {
-      transform: rotate(90deg);
-    }
-
-    #troubleshoot-body {
-      overflow: hidden;
-    }
-
-    #troubleshoot-body[hidden] {
-      display: none;
-    }
-
     /* ── Advanced settings ────────────────────────────────────────── */
 
     .advanced-setting {
@@ -1043,35 +1003,21 @@
 
     <p id="setup-message" class="setup-message" style="display:none"></p>
 
-    <!-- Self-hosted: gateway URL (hidden for cloud) -->
+    <!-- Self-hosted: gateway URL + pair button (hidden for cloud) -->
     <div id="self-hosted-settings" class="advanced-setting">
       <label for="gateway-url-input">Gateway URL</label>
       <div style="display:flex;gap:6px;align-items:stretch;">
         <input type="text" id="gateway-url-input" placeholder="http://127.0.0.1:7830" value="http://127.0.0.1:7830" style="margin-bottom:0;flex:1;" />
-        <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Save</button>
+        <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Pair</button>
       </div>
       <p class="hint">The HTTP address of your self-hosted assistant gateway.</p>
+      <p class="local-status" id="local-status" style="display:none"></p>
     </div>
 
-    <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
-    <div id="troubleshoot-section">
+    <!-- Re-pair button (shown only after initial pair, hidden initially) -->
+    <div id="troubleshoot-section" style="display:none;">
       <div class="divider"></div>
-
-      <button
-        type="button"
-        class="troubleshoot-toggle"
-        id="troubleshoot-toggle"
-        aria-expanded="false"
-        aria-controls="troubleshoot-body"
-      >
-        <span class="chevron">&#9654;</span>
-        Advanced
-      </button>
-
-      <div id="troubleshoot-body" style="display:none;">
-        <p class="local-status" id="local-status">Not paired</p>
-        <button id="btn-pair-local" type="button">Re-pair with gateway</button>
-      </div>
+      <button id="btn-pair-local" type="button">Re-pair with gateway</button>
     </div>
 
     <!-- Sign out / switch button at bottom -->

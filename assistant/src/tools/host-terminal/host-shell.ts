@@ -20,6 +20,7 @@ import { isAbsolute } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
+import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
@@ -191,7 +192,7 @@ class HostShellTool implements Tool {
 
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
-    if (context.hostBashProxy?.isAvailable()) {
+    if (HostBashProxy.instance.isAvailable()) {
       const rawSec =
         typeof input.timeout_seconds === "number"
           ? input.timeout_seconds
@@ -220,7 +221,7 @@ class HostShellTool implements Tool {
 
         const bgId = generateBackgroundToolId();
         const abortController = new AbortController();
-        const proxyPromise = context.hostBashProxy.request(
+        const proxyPromise = HostBashProxy.instance.request(
           {
             command,
             working_dir: rawWorkingDir as string | undefined,
@@ -266,7 +267,7 @@ class HostShellTool implements Tool {
         };
       }
 
-      return context.hostBashProxy.request(
+      return HostBashProxy.instance.request(
         {
           command,
           working_dir: rawWorkingDir as string | undefined,

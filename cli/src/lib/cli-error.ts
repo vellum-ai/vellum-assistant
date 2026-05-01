@@ -9,6 +9,7 @@
 
 /** Known error categories emitted by CLI commands. */
 export type CliErrorCategory =
+  | "CLI_UPDATE_FAILED"
   | "DOCKER_NOT_RUNNING"
   | "IMAGE_PULL_FAILED"
   | "MISSING_VERSION"

@@ -44,10 +44,7 @@ import {
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
-import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
-import { HostFileProxy } from "../../daemon/host-file-proxy.js";
-import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1391,25 +1388,9 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create each host proxy for interfaces that support the matching
-  // capability. macOS supports all four; the chrome-extension interface only
-  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
-  // fall back to local execution.
-  //
-  // Bash/File/Transfer are singletons — just assign the reference.
-  // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (supportsHostProxy(sourceInterface, "host_bash")) {
-    conversation.setHostBashProxy(HostBashProxy.instance);
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-  }
-  if (supportsHostProxy(sourceInterface, "host_file")) {
-    conversation.setHostFileProxy(HostFileProxy.instance);
-    conversation.setHostTransferProxy(HostTransferProxy.instance);
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostFileProxy(undefined);
-    conversation.setHostTransferProxy(undefined);
-  }
+  // Bash/File/Transfer singletons are globally available via isAvailable() —
+  // no per-conversation gating needed. CU is per-conversation (owns step
+  // count, AX tree history, loop detection).
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());

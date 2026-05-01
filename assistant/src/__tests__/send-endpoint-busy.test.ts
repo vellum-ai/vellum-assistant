@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
@@ -21,6 +20,7 @@ import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../memory/conversation-key-store.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -158,11 +158,7 @@ function makeCompletingConversation(): Conversation {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
@@ -218,11 +214,7 @@ function makeHangingConversation(): Conversation {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
@@ -306,11 +298,7 @@ function makePendingApprovalConversation(
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,

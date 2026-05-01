@@ -45,10 +45,7 @@ import {
   mergeConversationOptions,
 } from "./conversation-store.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
-import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { HostFileProxy } from "./host-file-proxy.js";
-import { HostTransferProxy } from "./host-transfer-proxy.js";
 
 const log = getLogger("process-message");
 
@@ -154,20 +151,7 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
-  // Bash/File/Transfer are singletons — just assign the reference.
   // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (supportsHostProxy(resolvedInterface, "host_bash")) {
-    conversation.setHostBashProxy(HostBashProxy.instance);
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-  }
-  if (supportsHostProxy(resolvedInterface, "host_file")) {
-    conversation.setHostFileProxy(HostFileProxy.instance);
-    conversation.setHostTransferProxy(HostTransferProxy.instance);
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostFileProxy(undefined);
-    conversation.setHostTransferProxy(undefined);
-  }
   if (supportsHostProxy(resolvedInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());

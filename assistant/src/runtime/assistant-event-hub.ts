@@ -438,6 +438,7 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: ServerMessage,
   conversationId?: string,
+  options?: { targetCapability?: HostProxyCapability },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
 
@@ -460,7 +461,7 @@ export function broadcastMessage(
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
   _hubChain = _hubChain
-    .then(() => assistantEventHub.publish(event))
+    .then(() => assistantEventHub.publish(event, options))
     .then(() => {
       // When a conversation title changes, also broadcast an unscoped
       // `conversation_list_invalidated` so every connected client's sidebar

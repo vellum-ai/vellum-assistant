@@ -1,3 +1,4 @@
+import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
@@ -55,8 +56,8 @@ class HostFileWriteTool implements Tool {
 
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
-    if (context.hostFileProxy?.isAvailable()) {
-      return context.hostFileProxy.request(
+    if (HostFileProxy.instance.isAvailable()) {
+      return HostFileProxy.instance.request(
         {
           operation: "write",
           path: rawPath,

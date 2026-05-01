@@ -144,8 +144,6 @@ function createFakeConversation(conversationId: string): Conversation {
       assistantMessageInterface: string;
     } | null,
     messages: [] as Array<unknown>,
-    hostBashProxy: undefined as unknown,
-    hostFileProxy: undefined as unknown,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     memoryPolicy: {
@@ -205,18 +203,7 @@ function createFakeConversation(conversationId: string): Conversation {
     },
     ensureActorScopedHistory: async () => {},
     updateClient: () => {},
-    setHostBashProxy(this: { hostBashProxy: unknown }, proxy: unknown) {
-      this.hostBashProxy = proxy;
-    },
-    setHostFileProxy(this: { hostFileProxy: unknown }, proxy: unknown) {
-      this.hostFileProxy = proxy;
-    },
-    setHostTransferProxy(this: { hostTransferProxy: unknown }, proxy: unknown) {
-      this.hostTransferProxy = proxy;
-    },
-    getHostTransferProxy() {
-      return undefined;
-    },
+
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;
     },

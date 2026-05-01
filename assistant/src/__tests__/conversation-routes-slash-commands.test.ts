@@ -258,11 +258,7 @@ function makeConversation() {
     assistantId: "self",
     trustContext: undefined,
     hasPendingConfirmation: () => false,
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     usageStats: {

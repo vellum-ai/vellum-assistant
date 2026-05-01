@@ -204,11 +204,7 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     setTrustContext: () => {},
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     emitConfirmationStateChanged: () => {},

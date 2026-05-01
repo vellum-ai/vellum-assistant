@@ -56,6 +56,7 @@ describe("HostTransfer message types", () => {
     const msg: HostTransferCancelRequest = {
       type: "host_transfer_cancel",
       requestId: "req-3",
+      conversationId: "conv-1",
     };
     const _sm: ServerMessage = msg;
     expect(_sm.type).toBe("host_transfer_cancel");

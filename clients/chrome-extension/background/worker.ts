@@ -59,7 +59,7 @@ import {
 } from "./relay-connection.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
 import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
-import { appendEvent, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
+import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -382,22 +382,6 @@ async function resolveHostBrowserTarget(
   if (activeTab?.id === undefined) {
     throw new Error("No active tab available to resolve host_browser target");
   }
-  // chrome.debugger cannot attach to privileged URLs (chrome://, edge://,
-  // devtools://, chrome-extension://, etc.). When the active tab is on such
-  // a URL, create a new about:blank tab in the same window so the debugger
-  // can attach and subsequent Page.navigate will work.
-  const activeUrl = activeTab.url ?? activeTab.pendingUrl ?? '';
-  if (/^(chrome|edge|devtools|chrome-extension|brave):\/\//i.test(activeUrl)) {
-    const newTab = await chrome.tabs.create({
-      url: 'about:blank',
-      active: true,
-      windowId: activeTab.windowId,
-    });
-    if (newTab.id === undefined) {
-      throw new Error("Failed to create a new tab for navigation (active tab was on a privileged URL)");
-    }
-    return { tabId: newTab.id };
-  }
   return { tabId: activeTab.id };
 }
 
@@ -525,6 +509,23 @@ function dispatchHostBrowserSessionInvalidated(
 const hostBrowserDispatcher: HostBrowserDispatcher =
   createHostBrowserDispatcher({
     resolveTarget: resolveHostBrowserTarget,
+    async createTab() {
+      const [activeTab] = await chrome.tabs.query({
+        active: true,
+        lastFocusedWindow: true,
+      });
+      const newTab = await chrome.tabs.create({
+        url: 'about:blank',
+        active: true,
+        windowId: activeTab?.windowId,
+      });
+      if (newTab.id === undefined) {
+        throw new Error(
+          'Failed to create a new tab for navigation (active tab was on a privileged URL)',
+        );
+      }
+      return { tabId: newTab.id };
+    },
     postResult: dispatchHostBrowserResult,
     forwardCdpEvent: dispatchHostBrowserEvent,
     forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
@@ -1400,6 +1401,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       shouldConnect = false;
       disconnect();
       setConnectionHealth("paused");
+      clearEventLog();
       await setAutoConnect(false);
       await clearSession();
       await clearSelectedAssistant();
@@ -1414,6 +1416,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       shouldConnect = false;
       disconnect();
       setConnectionHealth("paused");
+      clearEventLog();
       await setAutoConnect(false);
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
@@ -1439,6 +1442,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     (async () => {
       const assistantId = message.assistantId as string;
       const assistantName = message.assistantName as string;
+      // Clear activity from the previous assistant so it doesn't carry over.
+      clearEventLog();
       await storeSelectedAssistant({ id: assistantId, name: assistantName });
       sendResponseFn({ ok: true });
     })().catch((err) =>

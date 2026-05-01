@@ -16,7 +16,10 @@ import { v4 as uuid } from "uuid";
 import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
-import { assistantEventHub, broadcastMessage } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -63,6 +66,7 @@ interface PendingRequest {
   resolve: (result: ToolExecutionResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  conversationId: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -127,7 +131,7 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   private send(msg: ServerMessage): void {
-    broadcastMessage(msg);
+    broadcastMessage(msg, undefined, { targetCapability: "host_cu" });
   }
 
   // ---------------------------------------------------------------------------
@@ -184,7 +188,8 @@ export class HostCuProxy {
               this.send({
                 type: "host_cu_cancel",
                 requestId,
-              } as ServerMessage);
+                conversationId,
+              });
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -195,7 +200,7 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+      this.pending.set(requestId, { resolve, reject, timer, conversationId, detachAbort });
 
       try {
         this.send({
@@ -206,7 +211,7 @@ export class HostCuProxy {
           input,
           stepNumber,
           reasoning,
-        } as ServerMessage);
+        });
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -413,7 +418,8 @@ export class HostCuProxy {
         this.send({
           type: "host_cu_cancel",
           requestId,
-        } as ServerMessage);
+          conversationId: entry.conversationId,
+        });
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }
