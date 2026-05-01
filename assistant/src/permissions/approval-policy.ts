@@ -62,10 +62,12 @@ type ThresholdConfig =
  * context.
  *
  * - Scalar string → returned as-is for non-headless contexts
-
  * - Object with per-context overrides → returns the value for the context
- *   (`background` resolves to the `autonomous` field; `headless` always
- *   resolves to `"none"` regardless of configured thresholds)
+ *   (`background` resolves to the `autonomous` field)
+ * - Headless context always returns `"none"` regardless of `configValue` —
+ *   this function handles the legacy `{ conversation, autonomous }` config
+ *   shape which has no headless key. Headless is configurable only via the
+ *   gateway settings UI path (see gateway-threshold-reader.ts).
  *
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
