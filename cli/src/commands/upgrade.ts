@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 import cliPkg from "../../package.json";
 
@@ -925,12 +925,14 @@ async function resolveLatestAndMaybeSelfUpdate(
   const cmp = currentTag ? compareVersions(latestTag, currentTag) : null;
   if (cmp !== null && cmp > 0) {
     console.log(`🔄 Updating CLI to ${latestTag}...`);
-    try {
-      execSync(`bun install -g vellum@${latestVersion}`, {
-        stdio: "inherit",
-      });
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+    const installResult = spawnSync(
+      "bun",
+      ["install", "-g", `vellum@${latestVersion}`],
+      { stdio: "inherit" },
+    );
+    if (installResult.error || installResult.status !== 0) {
+      const detail =
+        installResult.error?.message ?? `exited with code ${installResult.status}`;
       console.error(`\n❌ CLI self-update failed: ${detail}`);
       emitCliError("CLI_UPDATE_FAILED", "CLI self-update failed", detail);
       process.exit(1);
@@ -939,18 +941,15 @@ async function resolveLatestAndMaybeSelfUpdate(
 
     // Re-exec with the updated CLI. Pass --version instead of --latest
     // to avoid re-fetching and to prevent infinite re-exec loops.
-    const reexecArgs = ["vellum", "upgrade"];
+    const reexecArgs = ["upgrade"];
     if (name) reexecArgs.push(name);
     reexecArgs.push("--version", latestTag);
 
     console.log(`🚀 Re-running upgrade with updated CLI...\n`);
-    try {
-      execSync(reexecArgs.join(" "), { stdio: "inherit" });
-    } catch {
-      // The child process already printed its own errors
-      process.exit(1);
-    }
-    process.exit(0);
+    const reexecResult = spawnSync("vellum", reexecArgs, {
+      stdio: "inherit",
+    });
+    process.exit(reexecResult.status ?? 1);
   }
 
   if (cmp !== null && cmp === 0) {
