@@ -1,5 +1,6 @@
+import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
-import { stripHopByHop } from "@vellumai/assistant-client";
+import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
 
 import type { VelayHeaders } from "./protocol.js";
 
@@ -21,6 +22,38 @@ export function isSafeOriginRelativePath(path: string): boolean {
 export function formatRawQuery(rawQuery: string | undefined): string {
   if (!rawQuery) return "";
   return `?${rawQuery.replace(/^\?/, "")}`;
+}
+
+export function buildLoopbackHttpUrl(
+  gatewayLoopbackBaseUrl: string,
+  path: string,
+  rawQuery?: string,
+): string | undefined {
+  if (!isSafeOriginRelativePath(path)) return undefined;
+  return buildUpstreamUrl(
+    gatewayLoopbackBaseUrl,
+    path,
+    formatRawQuery(rawQuery),
+  );
+}
+
+export function buildLoopbackWebSocketUrl(
+  gatewayLoopbackBaseUrl: string,
+  path: string,
+  rawQuery?: string,
+): string | undefined {
+  const httpUrl = buildLoopbackHttpUrl(gatewayLoopbackBaseUrl, path, rawQuery);
+  if (!httpUrl) return undefined;
+
+  try {
+    const url = new URL(httpUrl);
+    if (url.protocol === "http:") url.protocol = "ws:";
+    if (url.protocol === "https:") url.protocol = "wss:";
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 export function headersToWeb(headers: VelayHeaders): Headers {
@@ -63,6 +96,38 @@ export function isBase64(value: string): boolean {
   return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
     value,
   );
+}
+
+export function decodeBase64Bytes(value: string): Uint8Array | undefined {
+  if (!isBase64(value)) return undefined;
+  return new Uint8Array(Buffer.from(value, "base64"));
+}
+
+export function decodeOptionalBase64ArrayBuffer(
+  value: string | undefined,
+): { ok: true; value?: ArrayBuffer } | { ok: false } {
+  if (!value) return { ok: true };
+
+  const bytes = decodeBase64Bytes(value);
+  if (bytes === undefined) return { ok: false };
+  return { ok: true, value: bytesToArrayBuffer(bytes) };
+}
+
+export function encodeBase64(value: string | ArrayBuffer | Uint8Array): string {
+  if (typeof value === "string") return Buffer.from(value).toString("base64");
+  if (value instanceof ArrayBuffer) {
+    return Buffer.from(value).toString("base64");
+  }
+  return Buffer.from(value).toString("base64");
+}
+
+export async function binaryLikeToBytes(data: unknown): Promise<Uint8Array> {
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
+  return Buffer.from(String(data));
 }
 
 export function closeWebSocket(
@@ -141,4 +206,10 @@ function truncateCloseReason(reason: string): string {
     byteLength += characterLength;
   }
   return truncated;
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer as ArrayBuffer;
 }
