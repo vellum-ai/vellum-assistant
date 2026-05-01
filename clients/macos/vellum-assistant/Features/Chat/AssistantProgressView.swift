@@ -304,7 +304,7 @@ struct AssistantProgressView: View {
         .sheet(item: $suggestRuleToolCall) { tc in
             RuleEditorModal(
                 toolName: tc.toolName,
-                commandText: tc.inputSummary,
+                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
                 scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
@@ -962,7 +962,7 @@ struct ToolCallStepDetailRow: View {
         .sheet(item: $ruleEditorToolCall) { tc in
             RuleEditorModal(
                 toolName: tc.toolName,
-                commandText: tc.inputSummary,
+                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
                 scopeOptions: Self.scopeOptions(from: tc),
@@ -1141,15 +1141,22 @@ struct ToolCallStepDetailRow: View {
     // MARK: - Scope Options
 
     /// Constructs scope option items from the tool call's risk scope options.
-    /// Falls back to a single exact command option when none are provided.
+    /// Falls back to a wildcard when no server-provided options exist, since
+    /// `inputSummary` may be a natural-language activity description (e.g. for
+    /// `remember`) rather than a matchable command pattern.
     static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
         guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
-            return [
-                ScopeOptionItem(
-                    label: toolCall.inputSummary,
-                    pattern: toolCall.inputSummary
-                )
-            ]
+            // Determine whether inputRawValue is a real command or just the
+            // activity description. Priority-key tools (bash → `command`) give
+            // a structured value; others fall through alphabetically and end up
+            // with the natural-language activity text.
+            let raw = toolCall.inputRawValue
+            let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+            let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
+            let label = pattern == "*"
+                ? "Any \(toolCall.toolName) call"
+                : pattern
+            return [ScopeOptionItem(label: label, pattern: pattern)]
         }
         return options.map { option in
             ScopeOptionItem(
@@ -1157,6 +1164,21 @@ struct ToolCallStepDetailRow: View {
                 pattern: option.pattern
             )
         }
+    }
+
+    /// Returns the best structured text to display in the "Command" header of
+    /// the Rule Editor Modal. Uses the full formatted input when `inputRawValue`
+    /// is just the natural-language activity description (tools like `remember`
+    /// that lack a priority key such as `command`/`path`/`url`); otherwise
+    /// returns the raw primary value directly.
+    static func commandDisplayText(from toolCall: ToolCallData) -> String {
+        let raw = toolCall.inputRawValue
+        let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+        if isNaturalLanguage {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+        }
+        return raw.isEmpty ? toolCall.inputSummary : raw
     }
 
     // MARK: - Rule Editor

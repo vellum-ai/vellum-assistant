@@ -458,7 +458,7 @@ struct ChatBubble: View, Equatable {
         .sheet(item: $suggestRuleToolCall) { tc in
             RuleEditorModal(
                 toolName: tc.toolName,
-                commandText: tc.inputSummary,
+                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
                 scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
