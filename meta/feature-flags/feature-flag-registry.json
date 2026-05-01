@@ -306,14 +306,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "onboarding-pre-chat",
-      "scope": "client",
-      "key": "onboarding-pre-chat",
-      "label": "Pre-Chat Onboarding Flow",
-      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
-      "defaultEnabled": true
-    },
-    {
       "id": "home-tab",
       "scope": "client",
       "key": "home-tab",
