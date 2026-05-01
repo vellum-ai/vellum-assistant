@@ -1,6 +1,9 @@
 import Foundation
 import Observation
+import os
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "CallSiteCatalog")
 
 /// A domain grouping for LLM call sites, fetched from the API catalog.
 /// Replaces the former `CallSiteDomain` enum — domain metadata now lives
@@ -82,6 +85,13 @@ public final class CallSiteCatalog {
     public private(set) var domains: [CallSiteDomain]
     public private(set) var callSites: [CallSiteOverride]
     public private(set) var isLoaded: Bool = false
+    /// True while an API request is in flight. Never true when `callSites` is
+    /// non-empty from cache — only meaningful alongside an empty list.
+    public private(set) var isFetching: Bool = false
+    /// True after a fetch attempt completed with no usable response (network
+    /// error, 4xx/5xx, or decode failure) and no cached data is available.
+    /// Cleared on the next successful fetch.
+    public private(set) var loadFailed: Bool = false
 
     @ObservationIgnored private var fetchTask: (id: UUID, task: Task<CallSiteCatalogResponse?, Never>)?
     @ObservationIgnored private var latestRequestId: UUID?
@@ -120,6 +130,7 @@ public final class CallSiteCatalog {
         let requestId: UUID
         let task: Task<CallSiteCatalogResponse?, Never>
         if let fetchTask, !force {
+            // Join the in-flight request — isFetching is already true.
             requestId = fetchTask.id
             task = fetchTask.task
         } else {
@@ -128,20 +139,32 @@ public final class CallSiteCatalog {
             latestRequestId = requestId
             fetchTask = (id: requestId, task: newTask)
             task = newTask
+            isFetching = true
         }
 
         let response = await task.value
         if fetchTask?.id == requestId {
             fetchTask = nil
         }
+
+        // A newer reload() superseded this request — leave isFetching alone;
+        // the newer request owns it.
         guard latestRequestId == requestId else {
             return false
         }
 
+        isFetching = false
+
         guard let response else {
+            loadFailed = true
+            log.error(
+                "CallSiteCatalog fetch failed — daemon may be running without GET config/llm/call-sites. " +
+                "The Action Overrides sheet will be empty until the daemon is updated and the sheet is reopened."
+            )
             return false
         }
 
+        loadFailed = false
         apply(response)
         Self.storeCachedResponse(response)
         isLoaded = true
@@ -217,6 +240,8 @@ public final class CallSiteCatalog {
         domains = []
         callSites = []
         isLoaded = false
+        isFetching = false
+        loadFailed = false
         UserDefaults.standard.removeObject(forKey: Self.cachedResponseKey)
     }
 }

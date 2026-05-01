@@ -122,7 +122,10 @@ struct CallSiteOverridesSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear { syncDraftsFromStore() }
         .task {
-            await store.ensureCallSiteCatalogLoaded()
+            // Re-attempt on open if a prior fetch failed (e.g. daemon was
+            // restarted since the last time the sheet was shown).
+            let shouldForce = catalog.loadFailed && catalog.callSites.isEmpty
+            await store.ensureCallSiteCatalogLoaded(force: shouldForce)
         }
         .onChange(of: store.callSiteOverrides) { _, _ in
             syncDraftsFromStore()
@@ -190,6 +193,46 @@ struct CallSiteOverridesSheet: View {
     // MARK: - Overrides List
 
     private var overridesList: some View {
+        Group {
+            if catalog.isFetching && catalog.callSites.isEmpty {
+                catalogLoadingState
+            } else if catalog.loadFailed && catalog.callSites.isEmpty {
+                catalogErrorState
+            } else {
+                catalogList
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private var catalogLoadingState: some View {
+        VStack {
+            Spacer()
+            ProgressView()
+            Spacer()
+        }
+    }
+
+    private var catalogErrorState: some View {
+        VStack(spacing: VSpacing.sm) {
+            Spacer()
+            Text("Couldn't load actions")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+            Text("Make sure your assistant is running and up to date.")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .multilineTextAlignment(.center)
+            VButton(label: "Retry", style: .outlined) {
+                Task { await store.ensureCallSiteCatalogLoaded(force: true) }
+            }
+            .padding(.top, VSpacing.xs)
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.lg)
+    }
+
+    private var catalogList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 let filtered = filteredEntriesByDomain
@@ -226,7 +269,6 @@ struct CallSiteOverridesSheet: View {
                 }
             }
         }
-        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Draft Management
