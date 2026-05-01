@@ -174,10 +174,12 @@ Examples:
         const data = (await response.json()) as {
           results: {
             id: string;
-            domain: string;
-            status: string;
-            verified: boolean;
-            created_at: string;
+            subdomain?: string;
+            domain?: string;
+            status?: string;
+            verified?: boolean;
+            created_at?: string;
+            created?: string;
           }[];
         };
 
@@ -191,10 +193,18 @@ Examples:
           );
         } else {
           for (const d of domains) {
-            log.info(`Domain:   ${d.domain}`);
-            log.info(`Status:   ${d.status}`);
-            log.info(`Verified: ${d.verified ? "yes" : "no"}`);
-            log.info(`Created:  ${d.created_at.split("T")[0]}`);
+            const displayDomain =
+              d.domain ??
+              (d.subdomain ? `${d.subdomain}.${baseDomain}` : "unknown");
+            const createdRaw = d.created_at ?? d.created;
+            const createdDate = createdRaw
+              ? createdRaw.split("T")[0]
+              : "unknown";
+            log.info(`Domain:   ${displayDomain}`);
+            if (d.status != null) log.info(`Status:   ${d.status}`);
+            if (d.verified != null)
+              log.info(`Verified: ${d.verified ? "yes" : "no"}`);
+            log.info(`Created:  ${createdDate}`);
           }
         }
       } catch (err) {
