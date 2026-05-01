@@ -230,6 +230,8 @@ public final class CallSiteCatalog {
     func replaceForTesting(_ response: CallSiteCatalogResponse, isLoaded: Bool = true) {
         fetchTask = nil
         latestRequestId = nil
+        isFetching = false
+        loadFailed = false
         apply(response)
         self.isLoaded = isLoaded
     }
