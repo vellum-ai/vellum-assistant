@@ -1,3 +1,5 @@
+import { TWILIO_PUBLIC_BASE_URL_FIELD } from "@vellumai/service-contracts/twilio-ingress";
+
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
@@ -184,7 +186,10 @@ function readConfiguredIngressUrls(
 
   return {
     ingressUrl: configFile.getString("ingress", "publicBaseUrl"),
-    twilioIngressUrl: configFile.getString("ingress", "twilioPublicBaseUrl"),
+    twilioIngressUrl: configFile.getString(
+      "ingress",
+      TWILIO_PUBLIC_BASE_URL_FIELD,
+    ),
   };
 }
 

@@ -27,6 +27,8 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/twilio-ingress";
+
 import { getIngressPublicBaseUrl } from "../config/env.js";
 
 export interface IngressConfig {
@@ -35,13 +37,6 @@ export interface IngressConfig {
     publicBaseUrl?: string;
     twilioPublicBaseUrl?: string;
   };
-}
-
-/**
- * Trim whitespace and strip trailing slashes from a URL string.
- */
-function normalizeUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
 }
 
 function assertPublicIngressEnabled(config: IngressConfig): void {
@@ -66,16 +61,12 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   assertPublicIngressEnabled(config);
 
   const ingressValue = config.ingress?.publicBaseUrl;
-  if (ingressValue) {
-    const normalized = normalizeUrl(ingressValue);
-    if (normalized) return normalized;
-  }
+  const normalizedIngressValue = normalizePublicBaseUrl(ingressValue);
+  if (normalizedIngressValue) return normalizedIngressValue;
 
   const ingressEnvValue = getIngressPublicBaseUrl();
-  if (ingressEnvValue) {
-    const normalized = normalizeUrl(ingressEnvValue);
-    if (normalized) return normalized;
-  }
+  const normalizedIngressEnvValue = normalizePublicBaseUrl(ingressEnvValue);
+  if (normalizedIngressEnvValue) return normalizedIngressEnvValue;
 
   throw new Error(
     "No public base URL configured. Set ingress.publicBaseUrl in config.",
@@ -86,10 +77,8 @@ export function getTwilioPublicBaseUrl(config: IngressConfig): string {
   assertPublicIngressEnabled(config);
 
   const ingressValue = config.ingress?.twilioPublicBaseUrl;
-  if (ingressValue) {
-    const normalized = normalizeUrl(ingressValue);
-    if (normalized) return normalized;
-  }
+  const normalizedIngressValue = normalizePublicBaseUrl(ingressValue);
+  if (normalizedIngressValue) return normalizedIngressValue;
 
   try {
     return getPublicBaseUrl(config);

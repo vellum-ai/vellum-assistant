@@ -33,6 +33,7 @@ describe("package independence", () => {
     "../transport.ts",
     "../credential-rpc.ts",
     "../trust-rules.ts",
+    "../twilio-ingress.ts",
     "../error.ts",
   ];
 
@@ -219,6 +220,7 @@ describe("ToolResponseBaseSchema", () => {
       result: { html: "<html></html>" },
     });
     expect(result.success).toBe(true);
+    if (!result.success) throw new Error("Expected successful response");
     expect(result.result).toEqual({ html: "<html></html>" });
   });
 
@@ -238,6 +240,7 @@ describe("ToolResponseBaseSchema", () => {
       },
     });
     expect(result.success).toBe(false);
+    if (result.success) throw new Error("Expected failed response");
     expect(result.error.code).toBe("TOOL_FAILED");
   });
 

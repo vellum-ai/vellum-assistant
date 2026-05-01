@@ -326,6 +326,27 @@ describe("ChannelReadinessService", () => {
     });
   });
 
+  test("phone readiness falls back to generic ingress when Twilio-specific ingress is whitespace", async () => {
+    mockHasTwilioCredentials = true;
+    mockTwilioPhoneNumber = "+15550123";
+    mockRawConfig = {
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.com",
+        twilioPublicBaseUrl: "   ",
+      },
+    };
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("phone");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Twilio public ingress URL is configured",
+    });
+  });
+
   test("telegram readiness still requires generic public ingress", async () => {
     mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
     mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
