@@ -33,7 +33,6 @@ import {
   getTelegramWebhookUrl,
   getTwilioConnectActionUrl,
   getTwilioMediaStreamUrl,
-  getTwilioPublicBaseUrl,
   getTwilioRelayUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
@@ -68,14 +67,6 @@ describe("IngressConfigSchema", () => {
     ).toThrow(/ingress\.publicBaseUrl must be an absolute URL/);
   });
 
-  test("accepts publicBaseUrlManagedBy", () => {
-    const result = IngressConfigSchema.parse({
-      publicBaseUrl: "https://example.com",
-      publicBaseUrlManagedBy: "velay",
-    });
-
-    expect(result.publicBaseUrlManagedBy).toBe("velay");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -252,7 +243,6 @@ describe("Twilio URL builders use publicBaseUrl", () => {
     };
 
     expect(getPublicBaseUrl(config)).toBe("https://example.com");
-    expect(getTwilioPublicBaseUrl(config)).toBe("https://example.com");
     expect(getOAuthCallbackUrl(config)).toBe(
       "https://example.com/webhooks/oauth/callback",
     );

@@ -2,10 +2,6 @@ import type { Command } from "commander";
 import { z } from "zod";
 
 import {
-  clearPublicBaseUrlManagedBy,
-  configKeySetsPublicBaseUrl,
-} from "../../config/ingress-ownership.js";
-import {
   getNestedValue,
   loadRawConfig,
   saveRawConfig,
@@ -106,9 +102,6 @@ Examples:
 
         const raw = loadRawConfig();
         setNestedValue(raw, key, parsed);
-        if (configKeySetsPublicBaseUrl(key)) {
-          clearPublicBaseUrlManagedBy(raw);
-        }
         saveRawConfig(raw);
         log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
       },

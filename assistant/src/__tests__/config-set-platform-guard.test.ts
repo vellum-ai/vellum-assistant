@@ -259,7 +259,7 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSaveRawConfigCalls).toHaveLength(1);
   });
 
-  test("config set ingress.publicBaseUrl clears stale Velay ownership", async () => {
+  test("config set ingress.publicBaseUrl overwrites existing value", async () => {
     mockLoadRawConfig = () => ({
       ingress: {
         publicBaseUrl: "https://stale-velay.example.test",
@@ -281,6 +281,7 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSaveRawConfigCalls[0]).toEqual({
       ingress: {
         publicBaseUrl: "https://manual.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
   });

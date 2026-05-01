@@ -88,12 +88,6 @@ const IngressBaseSchema = z
       .describe(
         "Public-facing base URL for the ingress server (used in webhook callbacks)",
       ),
-    publicBaseUrlManagedBy: z
-      .string()
-      .optional()
-      .describe(
-        "Marks who manages publicBaseUrl (e.g. 'velay'). Cleared when the user sets the URL manually.",
-      ),
     webhook: IngressWebhookConfigSchema.default(
       IngressWebhookConfigSchema.parse({}),
     ),

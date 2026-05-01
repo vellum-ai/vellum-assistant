@@ -80,14 +80,6 @@ export function getPublicBaseUrl(config: IngressConfig): string {
 }
 
 /**
- * Resolve the public base URL used for Twilio webhook callbacks.
- * Uses the same `publicBaseUrl` as all other channels.
- */
-export function getTwilioPublicBaseUrl(config: IngressConfig): string {
-  return getPublicBaseUrl(config);
-}
-
-/**
  * Build the Twilio voice webhook URL.
  *
  * When `callSessionId` is provided (outbound calls), it is included as a
@@ -101,7 +93,7 @@ export function getTwilioVoiceWebhookUrl(
   callSessionId?: string,
 ): string {
   return buildTwilioVoiceWebhookUrl(
-    getTwilioPublicBaseUrl(config),
+    getPublicBaseUrl(config),
     callSessionId,
   );
 }
@@ -110,14 +102,14 @@ export function getTwilioVoiceWebhookUrl(
  * Build the Twilio status callback URL.
  */
 export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
-  return buildTwilioStatusWebhookUrl(getTwilioPublicBaseUrl(config));
+  return buildTwilioStatusWebhookUrl(getPublicBaseUrl(config));
 }
 
 /**
  * Build the Twilio connect-action callback URL.
  */
 export function getTwilioConnectActionUrl(config: IngressConfig): string {
-  return buildTwilioConnectActionUrl(getTwilioPublicBaseUrl(config));
+  return buildTwilioConnectActionUrl(getPublicBaseUrl(config));
 }
 
 /**
@@ -125,7 +117,7 @@ export function getTwilioConnectActionUrl(config: IngressConfig): string {
  * Converts http:// → ws:// and https:// → wss://.
  */
 export function getTwilioRelayUrl(config: IngressConfig): string {
-  return buildTwilioRelayUrl(getTwilioPublicBaseUrl(config));
+  return buildTwilioRelayUrl(getPublicBaseUrl(config));
 }
 
 /**
@@ -135,7 +127,7 @@ export function getTwilioRelayUrl(config: IngressConfig): string {
  * Converts http:// → ws:// and https:// → wss://.
  */
 export function getTwilioMediaStreamUrl(config: IngressConfig): string {
-  return buildTwilioMediaStreamUrl(getTwilioPublicBaseUrl(config));
+  return buildTwilioMediaStreamUrl(getPublicBaseUrl(config));
 }
 
 /**

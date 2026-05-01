@@ -11,7 +11,7 @@
 import { loadConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { getTwilioPublicBaseUrl } from "../inbound/public-ingress-urls.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
@@ -773,7 +773,7 @@ export class CallController {
       const storeFormat = outputFormat ? "pcm" : format;
       handle = createStreamingEntry(storeFormat);
       const config = loadConfig();
-      const baseUrl = getTwilioPublicBaseUrl(config);
+      const baseUrl = getPublicBaseUrl(config);
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
       const sendPlayUrlOnce = (): void => {
         if (playUrlSent) return;

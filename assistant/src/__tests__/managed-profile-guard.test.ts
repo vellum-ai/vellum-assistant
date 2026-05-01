@@ -188,6 +188,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     expect(savedRaw).toEqual({
       ingress: {
         publicBaseUrl: "https://manual.example.test",
+        publicBaseUrlManagedBy: "velay",
       },
     });
   });

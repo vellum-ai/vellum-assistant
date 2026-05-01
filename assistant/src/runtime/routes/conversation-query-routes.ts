@@ -21,10 +21,6 @@
 import { z } from "zod";
 
 import {
-  clearPublicBaseUrlManagedBy,
-  configPatchSetsPublicBaseUrl,
-} from "../../config/ingress-ownership.js";
-import {
   deepMergeOverwrite,
   loadRawConfig,
   saveRawConfig,
@@ -342,12 +338,7 @@ function handlePatchConfig({ body }: RouteHandlerArgs) {
   try {
     const raw = loadRawConfig();
     const patch = body as Record<string, unknown>;
-    const clearsPublicBaseUrlManager =
-      configPatchSetsPublicBaseUrl(patch);
     deepMergeOverwrite(raw, patch);
-    if (clearsPublicBaseUrlManager) {
-      clearPublicBaseUrlManagedBy(raw);
-    }
     saveRawConfig(raw);
     return { ok: true };
   } catch (err) {
