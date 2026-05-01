@@ -2,35 +2,35 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-let mockFeatureFlagEnabled = true;
-
 mock.module("../../src/config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (_key: string, _config: unknown) =>
-    mockFeatureFlagEnabled,
+  isAssistantFeatureFlagEnabled: () => true,
 }));
 
 mock.module("../../src/config/loader.js", () => ({
   getConfig: () => ({}),
 }));
 
-// Track gatewayGet calls for assertion
-const gatewayGetCalls: string[] = [];
-let gatewayGetHandler: (path: string) => unknown = () => ({});
+// Track ipcCall invocations for assertion
+const ipcCallLog: string[] = [];
 
-mock.module("../../src/runtime/gateway-internal-client.js", () => ({
-  GatewayRequestError: class GatewayRequestError extends Error {
-    statusCode: number;
-    gatewayError: string | undefined;
-    constructor(message: string, statusCode: number, gatewayError?: string) {
-      super(message);
-      this.name = "GatewayRequestError";
-      this.statusCode = statusCode;
-      this.gatewayError = gatewayError;
-    }
-  },
-  gatewayGet: async <T>(path: string): Promise<T> => {
-    gatewayGetCalls.push(path);
-    return gatewayGetHandler(path) as T;
+// Handler receives (method, params) and returns the IPC response value.
+// Return `undefined` to simulate a transport failure.
+// Return `null` for get_conversation_threshold to indicate "no override".
+type IpcHandler = (
+  method: string,
+  params?: Record<string, unknown>,
+) => unknown;
+let ipcHandler: IpcHandler = () => undefined;
+
+mock.module("../../src/ipc/gateway-client.js", () => ({
+  ipcCall: async (method: string, params?: Record<string, unknown>) => {
+    // Normalise to a readable key for assertions
+    const key =
+      method === "get_conversation_threshold" && params?.conversationId
+        ? `/v1/permissions/thresholds/conversations/${params.conversationId}`
+        : "/v1/permissions/thresholds";
+    ipcCallLog.push(key);
+    return ipcHandler(method, params);
   },
 }));
 
@@ -48,42 +48,41 @@ import {
   _clearGlobalCacheForTesting,
   getAutoApproveThreshold,
 } from "../../src/permissions/gateway-threshold-reader.js";
-// Import GatewayRequestError from the mock so we can throw instances of it
-const { GatewayRequestError } =
-  await import("../../src/runtime/gateway-internal-client.js");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function resetMocks(): void {
-  mockFeatureFlagEnabled = true;
-  gatewayGetCalls.length = 0;
-  gatewayGetHandler = () => ({});
+  ipcCallLog.length = 0;
+  ipcHandler = () => undefined;
   _clearGlobalCacheForTesting();
 }
 
 afterEach(resetMocks);
 
+// Convenience: set up a handler that returns the given global thresholds and,
+// optionally, a per-conversation override threshold string.
+function withGlobals(
+  globals: { interactive: string; autonomous: string; headless: string },
+  conversationOverride?: { conversationId: string; threshold: string },
+): void {
+  ipcHandler = (method, params) => {
+    if (method === "get_global_thresholds") return globals;
+    if (method === "get_conversation_threshold") {
+      const id = params?.conversationId;
+      if (conversationOverride && id === conversationOverride.conversationId) {
+        return { threshold: conversationOverride.threshold };
+      }
+      return null; // no override
+    }
+    return undefined;
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("getAutoApproveThreshold", () => {
-  test("returns undefined when feature flag is off", async () => {
-    mockFeatureFlagEnabled = false;
-    const result = await getAutoApproveThreshold("conv-123", "conversation");
-    expect(result).toBeUndefined();
-    // Should not make any gateway calls
-    expect(gatewayGetCalls).toHaveLength(0);
-  });
-
   test("returns global defaults when gateway returns them", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "medium",
-          autonomous: "low",
-        };
-      }
-      return {};
-    };
+    withGlobals({ interactive: "medium", autonomous: "low", headless: "none" });
 
     // conversation maps to interactive
     expect(await getAutoApproveThreshold(undefined, "conversation")).toBe(
@@ -97,108 +96,84 @@ describe("getAutoApproveThreshold", () => {
 
     _clearGlobalCacheForTesting();
 
-    // headless remains strict regardless of autonomous global setting
+    // headless reads configured value (defaults to "none")
     expect(await getAutoApproveThreshold(undefined, "headless")).toBe("none");
   });
 
+  test("headless threshold is configurable via gateway", async () => {
+    withGlobals({ interactive: "medium", autonomous: "low", headless: "low" });
+
+    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("low");
+  });
+
   test("returns conversation override when it exists", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds/conversations/conv-xyz") {
-        return { threshold: "medium" };
-      }
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "low",
-          autonomous: "none",
-        };
-      }
-      return {};
-    };
+    withGlobals(
+      { interactive: "low", autonomous: "none", headless: "none" },
+      { conversationId: "conv-xyz", threshold: "medium" },
+    );
 
     const result = await getAutoApproveThreshold("conv-xyz", "conversation");
     expect(result).toBe("medium");
     // Should have called the conversation endpoint, not the global one
-    expect(gatewayGetCalls).toEqual([
+    expect(ipcCallLog).toEqual([
       "/v1/permissions/thresholds/conversations/conv-xyz",
     ]);
   });
 
-  test("falls back to global when conversation override returns 404", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path.startsWith("/v1/permissions/thresholds/conversations/")) {
-        throw new GatewayRequestError("Not found", 404, "Not found");
-      }
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "low",
-          autonomous: "none",
-        };
-      }
-      return {};
-    };
+  test("falls back to global when conversation override returns null (no override)", async () => {
+    withGlobals({ interactive: "low", autonomous: "none", headless: "none" });
+    // ipcHandler returns null for get_conversation_threshold (no row)
 
     const result = await getAutoApproveThreshold("conv-123", "conversation");
     expect(result).toBe("low");
-    // Should have called both endpoints
-    expect(gatewayGetCalls).toEqual([
+    // Called conversation endpoint first, then global
+    expect(ipcCallLog).toEqual([
       "/v1/permissions/thresholds/conversations/conv-123",
       "/v1/permissions/thresholds",
     ]);
   });
 
-  test("falls back to hardcoded defaults on gateway error", async () => {
-    gatewayGetHandler = () => {
+  test("falls back to global when conversation ipc returns undefined (transport failure)", async () => {
+    ipcHandler = (method) => {
+      if (method === "get_conversation_threshold") return undefined; // transport failure
+      if (method === "get_global_thresholds")
+        return { interactive: "low", autonomous: "none", headless: "none" };
+      return undefined;
+    };
+
+    const result = await getAutoApproveThreshold("conv-123", "conversation");
+    expect(result).toBe("low");
+  });
+
+  test("falls back to 'none' (Strict) for all contexts on global gateway failure", async () => {
+    // When the gateway IPC is unreachable, the reader defaults to "none" for
+    // all contexts — defense-in-depth ensures no tools are silently
+    // auto-approved when the gateway is down.
+    ipcHandler = () => {
       throw new Error("Connection refused");
     };
 
-    // conversation → "low"
     expect(await getAutoApproveThreshold(undefined, "conversation")).toBe(
-      "low",
+      "none",
     );
 
     _clearGlobalCacheForTesting();
 
-    // background → "none" (maps to autonomous, which defaults to "none")
     expect(await getAutoApproveThreshold(undefined, "background")).toBe("none");
 
     _clearGlobalCacheForTesting();
 
-    // headless → "none"
     expect(await getAutoApproveThreshold(undefined, "headless")).toBe("none");
-  });
-
-  test("falls back to hardcoded defaults on non-404 conversation error", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path.startsWith("/v1/permissions/thresholds/conversations/")) {
-        throw new GatewayRequestError("Internal error", 500, "Server error");
-      }
-      // Should not reach global endpoint
-      return {
-        interactive: "medium",
-        autonomous: "medium",
-      };
-    };
-
-    const result = await getAutoApproveThreshold("conv-123", "conversation");
-    // Should fall back to hardcoded default for conversation, not global endpoint
-    expect(result).toBe("low");
-    // Should have only called the conversation endpoint
-    expect(gatewayGetCalls).toEqual([
-      "/v1/permissions/thresholds/conversations/conv-123",
-    ]);
   });
 
   test("caching: second call within 30s does not re-fetch global", async () => {
     let fetchCount = 0;
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds") {
+    ipcHandler = (method) => {
+      if (method === "get_global_thresholds") {
         fetchCount++;
-        return {
-          interactive: "medium",
-          autonomous: "low",
-        };
+        return { interactive: "medium", autonomous: "low", headless: "none" };
       }
-      return {};
+      return null;
     };
 
     // First call — should fetch
@@ -211,7 +186,7 @@ describe("getAutoApproveThreshold", () => {
     expect(second).toBe("low");
     expect(fetchCount).toBe(1); // Still 1, cache hit
 
-    // Third call — headless always returns "none" regardless of cache
+    // Third call — headless also uses cache
     const third = await getAutoApproveThreshold(undefined, "headless");
     expect(third).toBe("none");
     expect(fetchCount).toBe(1); // Still 1
@@ -224,15 +199,7 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("defaults executionContext to conversation when omitted", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "medium",
-          autonomous: "low",
-        };
-      }
-      return {};
-    };
+    withGlobals({ interactive: "medium", autonomous: "low", headless: "none" });
 
     // executionContext omitted — should default to "conversation" → interactive
     const result = await getAutoApproveThreshold(undefined, undefined);
@@ -240,36 +207,20 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("skips conversation override when no conversationId", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "low",
-          autonomous: "none",
-        };
-      }
-      return {};
-    };
+    withGlobals({ interactive: "low", autonomous: "none", headless: "none" });
 
     const result = await getAutoApproveThreshold(undefined, "conversation");
     expect(result).toBe("low");
     // Should only call global endpoint, not conversation
-    expect(gatewayGetCalls).toEqual(["/v1/permissions/thresholds"]);
+    expect(ipcCallLog).toEqual(["/v1/permissions/thresholds"]);
   });
 
   test("skips conversation override for non-conversation contexts", async () => {
-    gatewayGetHandler = (path: string) => {
-      if (path === "/v1/permissions/thresholds") {
-        return {
-          interactive: "low",
-          autonomous: "medium",
-        };
-      }
-      return {};
-    };
+    withGlobals({ interactive: "low", autonomous: "medium", headless: "none" });
 
     // Even with a conversationId, background context should not check conversation override
     const result = await getAutoApproveThreshold("conv-123", "background");
     expect(result).toBe("medium");
-    expect(gatewayGetCalls).toEqual(["/v1/permissions/thresholds"]);
+    expect(ipcCallLog).toEqual(["/v1/permissions/thresholds"]);
   });
 });
