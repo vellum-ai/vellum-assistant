@@ -5,13 +5,12 @@ import type { WorkspaceMigration } from "./types.js";
 
 const SEEDED_MAIN_AGENT_MODEL = "claude-opus-4-7";
 const SEEDED_MAIN_AGENT_MAX_TOKENS = 32000;
-const OLD_MANAGED_DEFAULT_PROFILE = "balanced";
-const OPUS_MANAGED_PROFILE = "quality-optimized";
+const DEFAULT_MANAGED_PROFILE = "balanced";
 
 export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
   id: "064-unwind-main-agent-opus-seed",
   description:
-    "Remove seeded mainAgent Opus model override and select the Opus managed profile",
+    "Remove seeded mainAgent Opus model override and default activeProfile to balanced",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
 
@@ -36,11 +35,8 @@ export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
     if (mainAgent.model !== SEEDED_MAIN_AGENT_MODEL) return;
     if (mainAgent.maxTokens !== SEEDED_MAIN_AGENT_MAX_TOKENS) return;
 
-    if (
-      llm.activeProfile === undefined ||
-      llm.activeProfile === OLD_MANAGED_DEFAULT_PROFILE
-    ) {
-      llm.activeProfile = OPUS_MANAGED_PROFILE;
+    if (llm.activeProfile === undefined) {
+      llm.activeProfile = DEFAULT_MANAGED_PROFILE;
     }
 
     delete mainAgent.model;

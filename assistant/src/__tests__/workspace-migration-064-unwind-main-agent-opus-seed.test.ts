@@ -41,7 +41,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
     );
   });
 
-  test("removes exact seeded mainAgent override and moves missing activeProfile to quality", () => {
+  test("removes exact seeded mainAgent override and sets balanced when activeProfile is missing", () => {
     writeConfig({
       llm: {
         callSites: {
@@ -58,11 +58,14 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
         callSites: Record<string, unknown>;
       };
     };
-    expect(config.llm.activeProfile).toBe("quality-optimized");
+    expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.callSites.mainAgent).toBeUndefined();
   });
 
-  test("moves old balanced activeProfile to quality before removing seed", () => {
+  test("preserves balanced activeProfile (set by migration 052) while removing seed", () => {
+    // migration 052 sets activeProfile="balanced" before 064 runs; 064 must
+    // not override it — balanced is the intentional default, not a signal
+    // that the user wants the Opus quality tier.
     writeConfig({
       llm: {
         activeProfile: "balanced",
@@ -77,7 +80,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
     const config = readConfig() as {
       llm: { activeProfile: string; callSites: Record<string, unknown> };
     };
-    expect(config.llm.activeProfile).toBe("quality-optimized");
+    expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.callSites.mainAgent).toBeUndefined();
   });
 
@@ -100,7 +103,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
     expect(config.llm.callSites.mainAgent).toBeUndefined();
   });
 
-  test("removes only seeded model and maxTokens when user fields are present", () => {
+  test("removes only seeded model and maxTokens when user fields are present, preserves balanced", () => {
     writeConfig({
       llm: {
         activeProfile: "balanced",
@@ -123,7 +126,7 @@ describe("064-unwind-main-agent-opus-seed migration", () => {
         callSites: Record<string, Record<string, unknown>>;
       };
     };
-    expect(config.llm.activeProfile).toBe("quality-optimized");
+    expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.callSites.mainAgent).toEqual({
       effort: "low",
       thinking: { enabled: false },
