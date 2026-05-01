@@ -868,6 +868,10 @@ extension AppDelegate {
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
+        // Apple Guideline 5.1.2(i): AI Data Sharing consent must be re-collected
+        // on the next onboarding pass after a full retire. ToS is intentionally
+        // sticky and not cleared (matches web behavior).
+        UserDefaults.standard.removeObject(forKey: "aiDataConsent")
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
