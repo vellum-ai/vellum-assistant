@@ -24,7 +24,6 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -127,14 +126,6 @@ export class HostCuProxy {
   }
 
   // ---------------------------------------------------------------------------
-  // Send helper
-  // ---------------------------------------------------------------------------
-
-  private send(msg: ServerMessage): void {
-    broadcastMessage(msg, undefined, { targetCapability: "host_cu" });
-  }
-
-  // ---------------------------------------------------------------------------
   // Request / resolve lifecycle
   // ---------------------------------------------------------------------------
 
@@ -185,7 +176,7 @@ export class HostCuProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              this.send({
+              broadcastMessage({
                 type: "host_cu_cancel",
                 requestId,
                 conversationId,
@@ -203,7 +194,7 @@ export class HostCuProxy {
       this.pending.set(requestId, { resolve, reject, timer, conversationId, detachAbort });
 
       try {
-        this.send({
+        broadcastMessage({
           type: "host_cu_request",
           requestId,
           conversationId,
@@ -415,7 +406,7 @@ export class HostCuProxy {
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-        this.send({
+        broadcastMessage({
           type: "host_cu_cancel",
           requestId,
           conversationId: entry.conversationId,

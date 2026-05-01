@@ -14,6 +14,35 @@
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+
+// ---------------------------------------------------------------------------
+// Message type → capability inference
+// ---------------------------------------------------------------------------
+
+const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
+  host_bash: "host_bash",
+  host_file: "host_file",
+  host_transfer: "host_file", // transfers piggyback on host_file capability
+  host_cu: "host_cu",
+  host_browser: "host_browser",
+};
+
+/**
+ * Infer the {@link HostProxyCapability} a message should be targeted at based
+ * on its `type` field.  Returns `undefined` for message types that are not
+ * host-proxy messages (i.e. they should broadcast to all subscribers).
+ */
+function capabilityForMessageType(
+  type: string,
+): HostProxyCapability | undefined {
+  // All host-proxy message types are prefixed with `host_<domain>_<verb>`.
+  // We match on the first two underscore-delimited segments.
+  const first = type.indexOf("_");
+  if (first === -1) return undefined;
+  const second = type.indexOf("_", first + 1);
+  const prefix = second === -1 ? type : type.slice(0, second);
+  return HOST_PREFIX_TO_CAPABILITY[prefix];
+}
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -432,13 +461,18 @@ let _hubChain = Promise.resolve();
  * When `conversationId` is omitted, it is auto-extracted from the message
  * payload (if present).
  *
+ * Target capability is inferred automatically from the message type — callers
+ * never need to specify it.  Host-proxy messages (`host_bash_*`,
+ * `host_file_*`, `host_transfer_*`, `host_cu_*`, `host_browser_*`) are routed
+ * only to subscribers that declare the matching capability; all other messages
+ * broadcast to every subscriber.
+ *
  * This is the primary entrypoint for emitting events — handlers, routes, and
  * services should call this directly instead of threading a broadcast callback.
  */
 export function broadcastMessage(
   msg: ServerMessage,
   conversationId?: string,
-  options?: { targetCapability?: HostProxyCapability },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
 
@@ -460,8 +494,14 @@ export function broadcastMessage(
       ? undefined
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
+  const targetCapability = capabilityForMessageType(msg.type);
   _hubChain = _hubChain
-    .then(() => assistantEventHub.publish(event, options))
+    .then(() =>
+      assistantEventHub.publish(
+        event,
+        targetCapability ? { targetCapability } : undefined,
+      ),
+    )
     .then(() => {
       // When a conversation title changes, also broadcast an unscoped
       // `conversation_list_invalidated` so every connected client's sidebar

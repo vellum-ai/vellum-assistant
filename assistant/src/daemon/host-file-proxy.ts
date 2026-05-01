@@ -9,7 +9,6 @@ import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type { HostFileRequest } from "./message-types/host-file.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -77,10 +76,6 @@ export class HostFileProxy {
     );
   }
 
-  private send(msg: ServerMessage): void {
-    broadcastMessage(msg, undefined, { targetCapability: "host_file" });
-  }
-
   request(
     input: HostFileInput,
     conversationId: string,
@@ -120,7 +115,7 @@ export class HostFileProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              this.send({
+              broadcastMessage({
                 type: "host_file_cancel",
                 requestId,
                 conversationId,
@@ -146,7 +141,7 @@ export class HostFileProxy {
       });
 
       try {
-        this.send({
+        broadcastMessage({
           ...input,
           type: "host_file_request",
           requestId,
@@ -200,7 +195,7 @@ export class HostFileProxy {
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-        this.send({
+        broadcastMessage({
           type: "host_file_cancel",
           requestId,
           conversationId: entry.conversationId,

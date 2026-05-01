@@ -1,11 +1,12 @@
 import { v4 as uuid } from "uuid";
 
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type { HostBrowserRequest } from "./message-types/host-browser.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -69,20 +70,6 @@ export class HostBrowserProxy {
     );
   }
 
-  /**
-   * Publish a ServerMessage through the assistant event hub, targeted at
-   * subscribers with the `host_browser` capability.
-   */
-  private send(msg: ServerMessage): void {
-    void assistantEventHub
-      .publish(buildAssistantEvent(msg), {
-        targetCapability: "host_browser",
-      })
-      .catch((err) => {
-        log.warn({ err }, "failed to publish host_browser event to hub");
-      });
-  }
-
   request(
     input: HostBrowserInput,
     conversationId: string,
@@ -125,10 +112,10 @@ export class HostBrowserProxy {
             // so callers can rely on detachAbort being idempotent.
             detachAbort();
             try {
-              this.send({
+              broadcastMessage({
                 type: "host_browser_cancel",
                 requestId,
-              } as ServerMessage);
+              });
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -154,12 +141,12 @@ export class HostBrowserProxy {
           return;
         }
 
-        this.send({
+        broadcastMessage({
           ...input,
           type: "host_browser_request",
           requestId,
           conversationId,
-        } as ServerMessage);
+        });
       } catch (err) {
         // Sender threw synchronously (e.g. client transport error during
         // event emission). Clean up pending state and timer so we don't
@@ -211,10 +198,10 @@ export class HostBrowserProxy {
       clearTimeout(entry.timer);
       entry.detachAbort();
       try {
-        this.send({
+        broadcastMessage({
           type: "host_browser_cancel",
           requestId,
-        } as ServerMessage);
+        });
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }

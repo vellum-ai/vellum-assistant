@@ -28,10 +28,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
           }
         : undefined,
   },
-}));
-
-mock.module("../runtime/assistant-event.js", () => ({
-  buildAssistantEvent: (message: unknown) => ({ message }),
+  broadcastMessage: (msg: unknown) => {
+    publishedEvents.push(msg);
+  },
 }));
 
 // ── Real imports (after mocks) ───────────────────────────────────────
@@ -40,7 +39,7 @@ const { HostBrowserProxy } = await import("../daemon/host-browser-proxy.js");
 
 /** Extract the ServerMessage payloads from published events. */
 function getPublishedMessages(): unknown[] {
-  return publishedEvents.map((e) => (e as { message: unknown }).message);
+  return publishedEvents;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
