@@ -18,6 +18,8 @@ mock.module("../fetch.js", () => ({
 
 const { bridgeVelayHttpRequest } = await import("./http-bridge.js");
 
+const TWILIO_EXAMPLE_PATH = "/webhooks/twilio/example";
+
 afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
@@ -29,7 +31,7 @@ function makeFrame(
     type: VELAY_FRAME_TYPES.httpRequest,
     request_id: "req-123",
     method: "POST",
-    path: "/webhooks/example",
+    path: TWILIO_EXAMPLE_PATH,
     headers: {},
     ...overrides,
   };
@@ -66,7 +68,7 @@ describe("Velay HTTP bridge", () => {
 
     const response = await bridgeVelayHttpRequest(
       makeFrame({
-        path: "/webhooks/example",
+        path: TWILIO_EXAMPLE_PATH,
         headers: {
           "content-type": ["application/json"],
           connection: ["keep-alive"],
@@ -79,7 +81,7 @@ describe("Velay HTTP bridge", () => {
     );
 
     expect(response.status_code).toBe(200);
-    expect(captured[0].url).toBe("http://127.0.0.1:7830/webhooks/example");
+    expect(captured[0].url).toBe(`http://127.0.0.1:7830${TWILIO_EXAMPLE_PATH}`);
     expect(captured[0].method).toBe("POST");
     expect(captured[0].body).toBe('{"message":"hello"}');
     expect(captured[0].headers.get("content-type")).toBe("application/json");
@@ -163,6 +165,16 @@ describe("Velay HTTP bridge", () => {
     });
   });
 
+  test("rejects non-Twilio paths without contacting the loopback listener", async () => {
+    const response = await bridgeVelayHttpRequest(
+      makeFrame({ path: "/v1/guardian/init" }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status_code).toBe(502);
+  });
+
   test("rejects unsafe absolute paths without contacting the loopback listener", async () => {
     fetchMock = mock(async () => {
       throw new Error("should not fetch");
@@ -198,6 +210,7 @@ describe("Velay HTTP bridge", () => {
       "http://127.0.0.1:7830",
     );
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(response.status_code).toBe(502);
     expect(response.request_id).toBe("req-123");
   });
