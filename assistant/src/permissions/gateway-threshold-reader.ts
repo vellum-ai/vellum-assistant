@@ -141,7 +141,10 @@ export async function getAutoApproveThreshold(
       return value;
     }
     // Unexpected value from gateway — default to "none" (Strict).
-    log.warn({ field, value }, "Gateway returned unexpected threshold value, defaulting to none");
+    log.warn(
+      { field, value },
+      "Gateway returned unexpected threshold value, defaulting to none",
+    );
     return "none";
   } catch (err) {
     // Gateway unreachable — default to "none" (Strict) so no tools are

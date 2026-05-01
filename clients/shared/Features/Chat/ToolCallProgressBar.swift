@@ -34,20 +34,15 @@ public struct ToolCallProgressBar: View {
     /// communicates state instead of forcing a fallback to the standard
     /// row. Returns `nil` when no `acpSessionId` can be extracted.
     private var acpSpawnDeepLink: (toolCall: ToolCallData, sessionId: String)? {
-        guard toolCalls.count == 1,
-              let toolCall = toolCalls.first,
-              toolCall.toolName == "acp_spawn",
-              let result = toolCall.result,
-              !result.isEmpty,
-              let sessionId = ToolCallProgressBar.extractAcpSessionId(from: result) else {
-            return nil
-        }
-        return (toolCall, sessionId)
+        Self.acpSpawnDeepLink(from: toolCalls)
     }
 
     public var body: some View {
         #if os(iOS)
-        if let deepLink = acpSpawnDeepLink {
+        if Self.shouldRenderACPSpawnDeepLinkCard(
+            toolCalls: toolCalls,
+            isCodingAgentsPanelEnabled: MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
+        ), let deepLink = acpSpawnDeepLink {
             ACPSpawnDeepLinkCard(toolCall: deepLink.toolCall, acpSessionId: deepLink.sessionId)
         } else {
             standardBody
@@ -109,6 +104,25 @@ public struct ToolCallProgressBar: View {
     }
 
     // MARK: - acp_spawn deep-link helpers
+
+    static func acpSpawnDeepLink(from toolCalls: [ToolCallData]) -> (toolCall: ToolCallData, sessionId: String)? {
+        guard toolCalls.count == 1,
+              let toolCall = toolCalls.first,
+              toolCall.toolName == "acp_spawn",
+              let result = toolCall.result,
+              !result.isEmpty,
+              let sessionId = ToolCallProgressBar.extractAcpSessionId(from: result) else {
+            return nil
+        }
+        return (toolCall, sessionId)
+    }
+
+    public static func shouldRenderACPSpawnDeepLinkCard(
+        toolCalls: [ToolCallData],
+        isCodingAgentsPanelEnabled: Bool
+    ) -> Bool {
+        isCodingAgentsPanelEnabled && acpSpawnDeepLink(from: toolCalls) != nil
+    }
 
     /// Best-effort JSON probe for the `acpSessionId` field in
     /// `acp_spawn`'s result payload — the daemon UUID
@@ -467,8 +481,12 @@ public struct ACPSpawnDeepLinkCard: View {
     /// onto its `NavigationStack`. A nil store is a no-op so callers
     /// can pass through the bridge result without a guard of their own.
     @MainActor
-    static func applyACPSessionDeepLink(id: String, store: ACPSessionStore?) {
-        guard let store else { return }
+    static func applyACPSessionDeepLink(
+        id: String,
+        store: ACPSessionStore?,
+        isCodingAgentsPanelEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
+    ) {
+        guard isCodingAgentsPanelEnabled, let store else { return }
         store.selectedSessionId = id
     }
 }

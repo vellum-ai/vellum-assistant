@@ -88,7 +88,7 @@ export function seedInferenceProfiles(): void {
     typeof llm.activeProfile !== "string" ||
     !(llm.activeProfile in profiles)
   ) {
-    llm.activeProfile = "quality-optimized";
+    llm.activeProfile = "balanced";
   }
 
   const profileOrder = Array.isArray(llm.profileOrder)

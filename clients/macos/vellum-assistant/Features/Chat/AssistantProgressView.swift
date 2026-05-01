@@ -930,7 +930,8 @@ struct ToolCallStepDetailRow: View {
     /// in `clients/shared/` so iOS and macOS accept identical payload shapes
     /// from a single implementation.
     var acpSessionIdToOpen: String? {
-        guard toolCall.toolName == "acp_spawn",
+        guard CodingAgentsPanelFeatureFlag.isEnabled,
+              toolCall.toolName == "acp_spawn",
               toolCall.isComplete,
               !toolCall.isError,
               let result = toolCall.result,
@@ -1080,6 +1081,7 @@ struct ToolCallStepDetailRow: View {
     /// `internal` and `static` so unit tests can exercise the side effects
     /// against an injected `MainWindowState` / `ACPSessionStore` pair.
     static func openACPSession(id: String) {
+        guard CodingAgentsPanelFeatureFlag.isEnabled else { return }
         guard let appDelegate = AppDelegate.shared else { return }
         applyACPSessionDeepLink(
             id: id,
@@ -1098,7 +1100,9 @@ struct ToolCallStepDetailRow: View {
         windowState: MainWindowState?,
         store: ACPSessionStore?
     ) {
-        guard let windowState, let store else { return }
+        guard CodingAgentsPanelFeatureFlag.isEnabled,
+              let windowState,
+              let store else { return }
         windowState.showRightSlot(.native(.acpSessions))
         // Setting the id triggers ``ACPSessionsPanel/consumeSelectedSessionIdIfPresent``
         // which pushes the matching view model onto the panel's

@@ -107,6 +107,17 @@ final class InferenceProfileEditorTests: XCTestCase {
                 ],
                 defaultModel: "gemini-2.5-flash"
             ),
+            ProviderCatalogEntry(
+                id: "openrouter",
+                displayName: "OpenRouter",
+                models: [
+                    CatalogModel(
+                        id: "deepseek/deepseek-r1-0528",
+                        displayName: "DeepSeek R1"
+                    ),
+                ],
+                defaultModel: "deepseek/deepseek-r1-0528"
+            ),
         ]
     }
 
@@ -776,5 +787,25 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
         _ = editor.body
         XCTAssertEqual(cancelCalls, 0)
+    }
+
+    // MARK: - Provider dropdown filtering
+
+    func testManagedModeShowsOnlyManagedCapableProviders() {
+        store.inferenceMode = "managed"
+        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
+        XCTAssertEqual(
+            Set(editor.availableProviderIds),
+            Set(["anthropic", "openai", "gemini"])
+        )
+        XCTAssertFalse(editor.availableProviderIds.contains("openrouter"))
+    }
+
+    func testYourOwnModeShowsAllCatalogProviders() {
+        store.inferenceMode = "your-own"
+        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
+        XCTAssertTrue(editor.availableProviderIds.contains("openrouter"),
+            "your-own mode should expose all catalog providers including openrouter")
+        XCTAssertEqual(editor.availableProviderIds.count, store.dynamicProviderIds.count)
     }
 }

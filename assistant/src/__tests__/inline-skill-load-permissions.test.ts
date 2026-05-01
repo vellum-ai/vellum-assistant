@@ -188,7 +188,6 @@ describe("inline-command skill_load permissions", () => {
       );
       expect(result.decision).toBe("allow");
     });
-
   });
 
   // ── Feature flag disabled ────────────────────────────────────────────
@@ -253,5 +252,4 @@ describe("inline-command skill_load permissions", () => {
       }
     });
   });
-
 });

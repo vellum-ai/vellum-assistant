@@ -53,7 +53,10 @@ struct InferenceServiceCard: View {
     @State private var showAPIKeysSheet = false
     /// Per-provider key-exists status. Loaded async on appear and refreshed
     /// after the API keys sheet is dismissed.
-    @State private var providerKeyStatuses: [String: Bool] = [:]
+    /// Tri-state key status per provider: `true` = key present, `false` = key absent,
+    /// `nil` = not yet loaded or fetch failed. `nil` is treated as "unknown" so a
+    /// transient daemon error never triggers the auto-reset to managed mode.
+    @State private var providerKeyStatuses: [String: Bool?] = [:]
     /// Monotonically increasing counter bumped every time the API keys
     /// sheet is dismissed. Drives `.task(id:)` to re-fetch key statuses
     /// without a manual onChange handler.
@@ -70,7 +73,7 @@ struct InferenceServiceCard: View {
     /// provider has a configured API key.
     private var hasUsableProvider: Bool {
         let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
-        let hasConfiguredKey = providerKeyStatuses.values.contains(true)
+        let hasConfiguredKey = providerKeyStatuses.values.contains(where: { $0 == true })
         return hasKeylessProvider || hasConfiguredKey
     }
 
@@ -181,6 +184,20 @@ struct InferenceServiceCard: View {
         }
         .task(id: apiKeysRefreshToken) {
             await loadProviderKeyStatuses()
+            guard !Task.isCancelled else { return }
+            let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
+            let isManagedCapable = store.isManagedCapable(draftProvider)
+            // Flatten Bool?? → Bool? so nil-valued entries (fetch error) compare
+            // as truly unknown rather than as a present-but-nil outer optional.
+            // A [String: Bool?] subscript returns Bool?? where .some(.none) means
+            // "key exists in dict, value is nil" — `?? nil` collapses that to nil.
+            let flatStatus = providerKeyStatuses[draftProvider] ?? nil
+            let keyStatusKnown = flatStatus != nil
+            let hasConfiguredKey = flatStatus == true
+            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && keyStatusKnown && !hasConfiguredKey {
+                draftMode = "managed"
+                store.setInferenceMode("managed")
+            }
         }
         .onAppear {
             draftMode = store.inferenceMode
@@ -200,21 +217,9 @@ struct InferenceServiceCard: View {
                 }
             }
 
-            // Symmetric case: if the user is authenticated and the mode is
-            // still the default "your-own", switch to "managed" so signed-in
-            // users get managed inference out of the box — but only when the
-            // provider is managed-capable, requires an API key, and the user
-            // hasn't configured one. Providers like Ollama that don't use keys
-            // (apiKeyPlaceholder is nil) or non-managed providers (fireworks,
-            // openrouter) are left alone since the user intentionally set up
-            // that provider.
-            let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-            let providerIsManagedCapable = store.isManagedCapable(draftProvider)
-            if isLoggedIn && draftMode == "your-own" && providerIsManagedCapable && providerRequiresKey && !hasLocalKey {
-                draftMode = "managed"
-                store.setInferenceMode("managed")
-            }
+            // The task(id: apiKeysRefreshToken) block handles the "logged-in +
+            // your-own + no key configured" auto-reset using daemon-sourced
+            // key statuses. The task fires automatically on initial appearance.
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),
@@ -238,16 +243,9 @@ struct InferenceServiceCard: View {
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
             } else if isAuthenticated && store.inferenceMode == "your-own" {
-                // When a user signs in and has no BYO key for a managed-capable,
-                // key-based provider, default to managed. Keyless providers
-                // (e.g. Ollama) and non-managed providers are left in your-own mode.
-                let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-                let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-                let isManagedCapable = store.isManagedCapable(draftProvider)
-                if isManagedCapable && requiresKey && !hasLocalKey {
-                    draftMode = "managed"
-                    store.setInferenceMode("managed")
-                }
+                // Trigger the task to re-fetch daemon-sourced key statuses and
+                // apply the auto-reset check with accurate data.
+                apiKeysRefreshToken += 1
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in
@@ -360,7 +358,7 @@ struct InferenceServiceCard: View {
     /// "API Keys" action button lives in the consolidated `secondaryActionsRow`.
     private var apiKeysSection: some View {
         let configuredProviders = store.providerCatalog
-            .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == true }
+            .filter { $0.apiKeyPlaceholder != nil && (providerKeyStatuses[$0.id] ?? nil) == true }
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Keys")
@@ -405,7 +403,7 @@ struct InferenceServiceCard: View {
     /// Fetches the key-exists status for every key-required provider.
     private func loadProviderKeyStatuses() async {
         for provider in store.providerCatalog where provider.apiKeyPlaceholder != nil {
-            providerKeyStatuses[provider.id] = await APIKeyManager.hasKey(for: provider.id)
+            providerKeyStatuses[provider.id] = await APIKeyManager.keyStatus(for: provider.id)
         }
     }
 

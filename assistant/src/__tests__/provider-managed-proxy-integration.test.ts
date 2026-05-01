@@ -435,6 +435,38 @@ describe("managed proxy integration — ollama exclusion", () => {
   });
 });
 
+describe("config mode flip → provider reinit", () => {
+  test("re-running initializeProviders after managed→your-own flip switches gemini from managed-proxy to user-key", async () => {
+    // Phase 1: managed mode without user key → gemini registered as managed-proxy.
+    // This is the pre-patch state before PATCH /v1/config is called.
+    enableManagedProxy();
+    mockProviderKeys = {};
+    await initializeProviders(makeProvidersConfig("gemini", "gemini-2.5-pro"));
+    expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+
+    // Phase 2: user has now saved a key (POST /v1/secrets), then PATCHed config
+    // to mode=your-own. handlePatchConfig calls initializeProviders(getConfig())
+    // after saving, which should re-register gemini using the user key.
+    setUserKeysFor("gemini");
+    await initializeProviders(makeProvidersConfig("gemini", "gemini-2.5-pro"));
+    expect(getProviderRoutingSource("gemini")).toBe("user-key");
+  });
+
+  test("without reinit after config patch, gemini source remains stale managed-proxy", async () => {
+    // Demonstrates the bug: if initializeProviders is NOT called after saving
+    // config, the routing source stays managed-proxy even after mode flip.
+    enableManagedProxy();
+    mockProviderKeys = {};
+    await initializeProviders(makeProvidersConfig("gemini", "gemini-2.5-pro"));
+    expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+
+    // Flip mode but do NOT re-initialize providers (simulates skipping reinit).
+    setUserKeysFor("gemini");
+    // Source stays managed-proxy because initializeProviders was not called.
+    expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+  });
+});
+
 describe("managed proxy integration — constants integrity", () => {
   test("anthropic, openai, and gemini have metadata with managed=true and a proxyPath", () => {
     for (const provider of ["anthropic", "openai", "gemini"]) {

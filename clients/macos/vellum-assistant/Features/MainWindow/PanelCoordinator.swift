@@ -152,11 +152,13 @@ extension MainWindowView {
         case .home:
             homePanelView(onDismiss: { windowState.selection = nil })
         case .acpSessions:
-            ACPSessionsPanel(
-                store: acpSessionStore,
-                activeConversationId: conversationManager.activeConversationId?.uuidString,
-                onClose: { windowState.navigateBackOrDismiss() }
-            )
+            if CodingAgentsPanelFeatureFlag.isEnabled {
+                ACPSessionsPanel(
+                    store: acpSessionStore,
+                    activeConversationId: conversationManager.activeConversationId?.uuidString,
+                    onClose: { windowState.hideRightSlot(.acpSessions) }
+                )
+            }
         }
     }
 
@@ -631,7 +633,8 @@ extension MainWindowView {
     @ViewBuilder
     func defaultChatLayout(windowSize: CGSize) -> some View {
         let config = windowState.layoutConfig
-        let showConfigPanel = config.right.visible && config.right.content != .empty
+        let isDisabledACPSessionsRightSlot = Self.isDisabledACPSessionsRightSlot(config.right)
+        let showConfigPanel = config.right.visible && config.right.content != .empty && !isDisabledACPSessionsRightSlot
         let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
 
         VSplitView(
@@ -671,6 +674,25 @@ extension MainWindowView {
                 }
             }
         )
+        .onAppear {
+            hideDisabledACPSessionsRightSlotIfNeeded(config.right)
+        }
+        .onChange(of: config.right) { _, rightSlot in
+            hideDisabledACPSessionsRightSlotIfNeeded(rightSlot)
+        }
+    }
+
+    static func isDisabledACPSessionsRightSlot(_ rightSlot: SlotConfig) -> Bool {
+        !CodingAgentsPanelFeatureFlag.isEnabled
+            && rightSlot.visible
+            && rightSlot.content == .native(.acpSessions)
+    }
+
+    private func hideDisabledACPSessionsRightSlotIfNeeded(_ rightSlot: SlotConfig) {
+        guard Self.isDisabledACPSessionsRightSlot(rightSlot) else { return }
+        Task { @MainActor in
+            windowState.hideRightSlot(.acpSessions)
+        }
     }
 
     @ViewBuilder

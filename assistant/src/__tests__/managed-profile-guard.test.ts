@@ -4,7 +4,7 @@
  * via the PATCH config route.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
@@ -13,18 +13,49 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let savedRaw: Record<string, unknown> | null = null;
+let rawConfig: Record<string, unknown>;
 
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => ({
+function makeDefaultRawConfig(): Record<string, unknown> {
+  return {
     llm: {
       profiles: {
-        "quality-optimized": { provider: "anthropic", model: "claude-sonnet" },
+        "quality-optimized": {
+          provider: "anthropic",
+          model: "claude-sonnet",
+        },
         balanced: { provider: "anthropic", model: "claude-sonnet" },
         "cost-optimized": { provider: "anthropic", model: "claude-haiku" },
         "my-custom": { provider: "openai", model: "gpt-4o" },
       },
     },
-  }),
+  };
+}
+
+function deepMergeForTest(
+  target: Record<string, unknown>,
+  overrides: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(overrides)) {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      target[key] !== null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      deepMergeForTest(
+        target[key] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => structuredClone(rawConfig),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRaw = raw;
   },
@@ -32,8 +63,18 @@ mock.module("../config/loader.js", () => ({
     target: Record<string, unknown>,
     overrides: Record<string, unknown>,
   ) => {
-    Object.assign(target, overrides);
+    deepMergeForTest(target, overrides);
   },
+  getConfig: () => rawConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../providers/registry.js", () => ({
+  initializeProviders: async () => {},
+}));
+
+mock.module("../memory/embedding-backend.js", () => ({
+  clearEmbeddingBackendCache: () => {},
 }));
 
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
@@ -44,6 +85,11 @@ const replaceRoute = ROUTES.find(
 )!;
 
 const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+beforeEach(() => {
+  rawConfig = makeDefaultRawConfig();
+  savedRaw = null;
+});
 
 // ---------------------------------------------------------------------------
 // PUT /v1/config/llm/profiles/:name — replace inference profile
@@ -95,49 +141,71 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
 // ---------------------------------------------------------------------------
 
 describe("PATCH /v1/config — managed profile deletion guard", () => {
-  test("rejects deletion of quality-optimized via null with descriptive message", () => {
-    expect(() =>
+  test("rejects deletion of quality-optimized via null with descriptive message", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { "quality-optimized": null } } },
       }),
-    ).toThrow('Cannot delete managed profile "quality-optimized".');
+    ).rejects.toThrow('Cannot delete managed profile "quality-optimized".');
   });
 
-  test("rejects deletion of balanced via null", () => {
-    expect(() =>
+  test("rejects deletion of balanced via null", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { balanced: null } } },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("rejects deletion of cost-optimized via null", () => {
-    expect(() =>
+  test("rejects deletion of cost-optimized via null", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: { "cost-optimized": null } } },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("allows deletion of a user-defined profile via null", () => {
+  test("allows deletion of a user-defined profile via null", async () => {
     savedRaw = null;
-    const result = patchRoute.handler({
+    const result = await patchRoute.handler({
       body: { llm: { profiles: { "my-custom": null } } },
     });
     expect(result).toEqual({ ok: true });
   });
 
-  test("allows non-profile config patches", () => {
-    savedRaw = null;
-    const result = patchRoute.handler({
+  test("allows non-profile config patches", async () => {
+    const result = await patchRoute.handler({
       body: { someOtherKey: "value" },
     });
     expect(result).toEqual({ ok: true });
   });
 
-  test("allows patches that modify a managed profile (non-null)", () => {
+  test("clears stale Velay ownership when manually patching public base URL", async () => {
+    rawConfig = {
+      ingress: {
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
+      },
+    };
+
+    const result = await patchRoute.handler({
+      body: {
+        ingress: { publicBaseUrl: "https://manual.example.test" },
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).toEqual({
+      ingress: {
+        publicBaseUrl: "https://manual.example.test",
+        publicBaseUrlManagedBy: "velay",
+      },
+    });
+  });
+
+  test("allows patches that modify a managed profile (non-null)", async () => {
     savedRaw = null;
-    const result = patchRoute.handler({
+    const result = await patchRoute.handler({
       body: {
         llm: {
           profiles: { "quality-optimized": { provider: "anthropic" } },
@@ -147,11 +215,11 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  test("rejects nulling the entire profiles map", () => {
-    expect(() =>
+  test("rejects nulling the entire profiles map", async () => {
+    await expect(
       patchRoute.handler({
         body: { llm: { profiles: null } },
       }),
-    ).toThrow("Cannot null llm.profiles");
+    ).rejects.toThrow("Cannot null llm.profiles");
   });
 });
