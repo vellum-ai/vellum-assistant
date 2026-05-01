@@ -67,7 +67,7 @@ mockIpcResponse("classify_risk", {
 });
 mockIpcResponse("get_global_thresholds", {
   interactive: "low",
-  background: "medium",
+  autonomous: "medium",
   headless: "none",
 });
 
@@ -120,7 +120,7 @@ describe("inline-command skill_load permissions", () => {
     _clearGlobalCacheForTesting();
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
-      background: "medium",
+      autonomous: "medium",
       headless: "none",
     });
     testConfig.skills = { load: { extraDirs: [] } };
@@ -159,7 +159,7 @@ describe("inline-command skill_load permissions", () => {
       writeDynamicSkill("dynamic-strict", "Dynamic Strict Skill");
       mockIpcResponse("get_global_thresholds", {
         interactive: "none",
-        background: "none",
+        autonomous: "none",
         headless: "none",
       });
       _clearGlobalCacheForTesting();
