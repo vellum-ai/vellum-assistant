@@ -96,6 +96,21 @@ struct HatchingStepView: View {
             let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
             guard tosOk && aiOk else {
                 state.isHatching = false
+                // Mirror goBack()'s reset pattern so a subsequent retry with a
+                // different hosting mode doesn't get short-circuited by stale
+                // hatch state (e.g. isManagedHatch=true causing startHatching()
+                // to skip the CLI path).
+                state.isManagedHatch = false
+                state.hasExistingManagedAssistant = false
+                state.hatchFailed = false
+                state.hatchFailureReason = nil
+                state.hatchLogLines = []
+                state.hatchProgressTarget = 0.0
+                state.hatchProgressDisplay = 0.0
+                state.hatchStepLabel = nil
+                state.hatchTotalSteps = 1
+                state.hatchCurrentStep = 0
+                state.hatchProcessStarted = false
                 state.currentStep = 3
                 return
             }
