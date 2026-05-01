@@ -22,6 +22,47 @@ import { timingSafeEqual } from "node:crypto";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 // ---------------------------------------------------------------------------
+// Account key normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Known internal key prefixes. Keys in the encrypted store use slash-separated
+ * paths (e.g. `credential/vellum/platform_organization_id`), but callers
+ * (especially manual `curl` invocations) often use the colon-separated format
+ * visible in the CLI (e.g. `vellum:platform_organization_id`).
+ *
+ * This normalizer transparently converts colon-separated credential names
+ * to the internal format so writes land under the correct key. Without this,
+ * a credential stored as `vellum:platform_organization_id` would silently
+ * succeed but be invisible to the gateway and assistant, which look up
+ * `credential/vellum/platform_organization_id`.
+ */
+const CREDENTIAL_PREFIX = "credential/";
+
+function normalizeAccountKey(account: string): string {
+  // Already in internal format — pass through
+  if (account.startsWith(CREDENTIAL_PREFIX)) {
+    return account;
+  }
+
+  // Other known internal prefixes — pass through as-is
+  if (account.startsWith("oauth/")) {
+    return account;
+  }
+
+  // Convert "service:field" → "credential/service/field"
+  const colonIdx = account.indexOf(":");
+  if (colonIdx > 0 && colonIdx < account.length - 1) {
+    const service = account.slice(0, colonIdx);
+    const field = account.slice(colonIdx + 1);
+    return `${CREDENTIAL_PREFIX}${service}/${field}`;
+  }
+
+  // Unrecognized format — return as-is (will likely fail lookup, which is fine)
+  return account;
+}
+
+// ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
@@ -136,8 +177,9 @@ export async function handleCredentialRoute(
 
     const results: Array<{ account: string; ok: boolean }> = [];
     for (const entry of body.credentials as Array<{ account: string; value: string }>) {
-      const ok = await backend.set(entry.account, entry.value);
-      results.push({ account: entry.account, ok: !!ok });
+      const normalized = normalizeAccountKey(entry.account);
+      const ok = await backend.set(normalized, entry.value);
+      results.push({ account: normalized, ok: !!ok });
     }
 
     return new Response(
@@ -167,15 +209,17 @@ export async function handleCredentialRoute(
     return null; // Not a credential route
   }
 
-  const account = decodeURIComponent(accountSegment.slice(1));
-  if (!account) {
+  const rawAccount = decodeURIComponent(accountSegment.slice(1));
+  if (!rawAccount) {
     return new Response(
       JSON.stringify({ error: "Account name is required" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
+      );
+    }
 
-  switch (req.method) {
+    const account = normalizeAccountKey(rawAccount);
+
+    switch (req.method) {
     // GET /v1/credentials/:account — get credential value
     case "GET": {
       const value = await backend.get(account);
