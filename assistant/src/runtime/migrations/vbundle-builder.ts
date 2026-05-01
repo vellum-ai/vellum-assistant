@@ -712,8 +712,18 @@ async function computeFileSha256(
 /**
  * Create just the 512-byte tar header block for a regular file entry.
  * Extracted from `createTarEntry` logic — does NOT include data or padding.
+ *
+ * When `linkTarget` is provided, the header is emitted as a tar typeflag-2
+ * (symlink) record: typeflag is "2", the link target is written into the
+ * `linkname` field (header[157..256], 100-byte limit), and `size` is forced
+ * to 0 in the header field. Caller is responsible for not yielding any body
+ * or padding bytes for symlink entries.
  */
-function createTarHeaderBlock(name: string, size: number): Uint8Array {
+function createTarHeaderBlock(
+  name: string,
+  size: number,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
 
@@ -731,14 +741,26 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
   // Group ID (116-123)
   writeOctal(header, 116, 8, 0);
 
-  // File size (124-135)
-  writeOctal(header, 124, 12, size);
+  // File size (124-135) — symlink entries always declare size=0
+  writeOctal(header, 124, 12, linkTarget !== undefined ? 0 : size);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
 
-  // Type flag (156): regular file
-  header[156] = "0".charCodeAt(0);
+  // Type flag (156): regular file ("0") or symlink ("2")
+  header[156] =
+    linkTarget !== undefined ? "2".charCodeAt(0) : "0".charCodeAt(0);
+
+  // Linkname (157-256, 100 bytes) — only set for symlink entries
+  if (linkTarget !== undefined) {
+    const linkBytes = encoder.encode(linkTarget);
+    if (linkBytes.length > 100) {
+      throw new Error(
+        `symlink target exceeds 100-byte ustar linkname limit (${linkBytes.length} bytes): ${linkTarget}`,
+      );
+    }
+    header.set(linkBytes, 157);
+  }
 
   // USTAR magic (257-262)
   const magic = encoder.encode("ustar\0");
@@ -748,7 +770,8 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
   header[263] = "0".charCodeAt(0);
   header[264] = "0".charCodeAt(0);
 
-  // Compute and write checksum (148-155)
+  // Compute and write checksum (148-155). Must run AFTER linkname is set
+  // so the checksum covers the symlink target bytes.
   const checksum = computeHeaderChecksum(header);
   writeOctal(header, 148, 7, checksum);
   header[155] = 0x20; // trailing space
@@ -760,13 +783,21 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
  * If name exceeds 100 bytes, returns the PAX extended header entry
  * concatenated with the regular header block. Otherwise returns just
  * the header block.
+ *
+ * `linkTarget` is forwarded to `createTarHeaderBlock` so symlink entries
+ * still get a PAX path header for long names while emitting a typeflag-2
+ * ustar block.
  */
-function createPaxAndHeaderBlocks(name: string, size: number): Uint8Array {
+function createPaxAndHeaderBlocks(
+  name: string,
+  size: number,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
   const needsPax = nameBytes.length > 100;
 
-  const header = createTarHeaderBlock(name, size);
+  const header = createTarHeaderBlock(name, size, linkTarget);
 
   if (needsPax) {
     const paxEntry = createPaxPathEntry(name);
@@ -804,12 +835,18 @@ async function* generateTarStream(
 
   // File entries
   for (const file of files) {
+    if (isSymlinkEntry(file)) {
+      // Symlink entry: typeflag-2 header carries the linkname; no body, no
+      // padding. Skip the entrySize/body/padding logic entirely so the
+      // surrounding stream stays block-aligned.
+      yield createPaxAndHeaderBlocks(file.archivePath, 0, file.linkTarget);
+      continue;
+    }
+
     const entrySize = file.size;
     yield createPaxAndHeaderBlocks(file.archivePath, entrySize);
 
-    if (isSymlinkEntry(file)) {
-      // Symlink entry — empty body; the link target lives in the tar header.
-    } else if (isInMemoryEntry(file)) {
+    if (isInMemoryEntry(file)) {
       // In-memory entry — yield data directly
       if (file.size > 0) {
         yield file.data;
@@ -951,6 +988,11 @@ export async function streamExportVBundle(
     }
   }
 
+  // Symlink entries — populated by the walker in PR 4. For now this slice
+  // is always empty; downstream wiring (manifest emit + tar emit) is in
+  // place so the walker can append entries without further plumbing.
+  const symlinkEntries: SymlinkMetadata[] = [];
+
   // ------------------------------------------------------------------
   // Pass 1: Compute SHA-256 checksums to build the manifest
   // ------------------------------------------------------------------
@@ -975,6 +1017,19 @@ export async function streamExportVBundle(
     });
   }
 
+  // Add symlink entries to the manifest. The sha256 is computed over the
+  // link target string (UTF-8 encoded) so the streaming validator can
+  // verify the manifest declared the same target the tar header carries.
+  // size_bytes is always 0 for symlink entries.
+  for (const entry of symlinkEntries) {
+    fileEntries.push({
+      path: entry.archivePath,
+      sha256: sha256Hex(entry.linkTarget),
+      size_bytes: 0,
+      link_target: entry.linkTarget,
+    });
+  }
+
   const { manifest, manifestData } = buildManifestObject({
     contents: fileEntries,
     assistant,
@@ -995,6 +1050,7 @@ export async function streamExportVBundle(
     ...allFileMetadata,
     ...sanitizedConfigEntries,
     ...inMemoryEntries,
+    ...symlinkEntries,
   ];
   const tarGenerator = generateTarStream(manifestData, allEntries);
   const tarReadable = Readable.from(tarGenerator);
