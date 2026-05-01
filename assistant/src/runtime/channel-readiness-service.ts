@@ -1,3 +1,5 @@
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/twilio-ingress";
+
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
@@ -23,8 +25,9 @@ function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
   try {
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-    const twilioPublicBaseUrl = (ingress.twilioPublicBaseUrl as string) ?? "";
+    const publicBaseUrl = normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "";
+    const twilioPublicBaseUrl =
+      normalizePublicBaseUrl(ingress.twilioPublicBaseUrl) ?? "";
     const effectiveBaseUrl = options.twilio
       ? twilioPublicBaseUrl || publicBaseUrl
       : publicBaseUrl;

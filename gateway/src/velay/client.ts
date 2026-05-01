@@ -1,6 +1,12 @@
 import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
 
+import {
+  TWILIO_PUBLIC_BASE_URL_FIELD,
+  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
+  VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
@@ -28,7 +34,6 @@ const log = getLogger("velay-client");
 const BASE_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RECONNECT_JITTER_RATIO = 0.5;
-const VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER = "velay";
 const VELAY_POLICY_CLOSE_CODE = 4008;
 
 export type WebSocketConstructorWithOptions = {
@@ -127,7 +132,7 @@ export class VelayTunnelClient {
   }
 
   private async startAsync(): Promise<void> {
-    await clearStaleVelayTwilioPublicBaseUrlMarker(this.options.configFile);
+    await clearManagedTwilioPublicBaseUrl(this.options.configFile);
     await this.connect();
   }
 
@@ -382,14 +387,9 @@ export function createVelayTunnelClient(
   },
 ): VelayTunnelClient | undefined {
   if (!config.velayBaseUrl) {
-    void clearStaleVelayTwilioPublicBaseUrlMarker(deps.configFile).catch(
-      (err) => {
-        log.error(
-          { err },
-          "Failed to clear disabled Velay Twilio public URL marker",
-        );
-      },
-    );
+    void clearManagedTwilioPublicBaseUrl(deps.configFile).catch((err) => {
+      log.error({ err }, "Failed to clear disabled Velay Twilio public URL");
+    });
     return undefined;
   }
   return new VelayTunnelClient({
@@ -452,46 +452,16 @@ async function writeManagedTwilioPublicBaseUrl(
     (data) => {
       const ingress = getMutableIngress(data);
       if (
-        ingress.twilioPublicBaseUrl === publicUrl &&
-        ingress.twilioPublicBaseUrlManagedBy ===
+        ingress[TWILIO_PUBLIC_BASE_URL_FIELD] === publicUrl &&
+        ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] ===
           VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
       ) {
         return false;
       }
 
-      ingress.twilioPublicBaseUrl = publicUrl;
-      ingress.twilioPublicBaseUrlManagedBy =
+      ingress[TWILIO_PUBLIC_BASE_URL_FIELD] = publicUrl;
+      ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] =
         VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER;
-      data.ingress = ingress;
-      return true;
-    },
-  );
-}
-
-async function clearStaleVelayTwilioPublicBaseUrlMarker(
-  configFile: ConfigFileCache,
-): Promise<void> {
-  return mutateConfigFile(
-    configFile,
-    "Cannot clear Velay public URL marker because config.json is malformed",
-    (data) => {
-      if (
-        !data.ingress ||
-        typeof data.ingress !== "object" ||
-        Array.isArray(data.ingress)
-      ) {
-        return false;
-      }
-
-      const ingress = { ...(data.ingress as Record<string, unknown>) };
-      if (
-        ingress.twilioPublicBaseUrlManagedBy !==
-        VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
-      ) {
-        return false;
-      }
-
-      delete ingress.twilioPublicBaseUrlManagedBy;
       data.ingress = ingress;
       return true;
     },
@@ -516,22 +486,20 @@ async function clearManagedTwilioPublicBaseUrl(
 
       const ingress = { ...(data.ingress as Record<string, unknown>) };
       if (
-        ingress.twilioPublicBaseUrlManagedBy !==
+        ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD] !==
         VELAY_TWILIO_PUBLIC_BASE_URL_MANAGER
       ) {
         return false;
       }
       if (
         expectedPublicUrl !== undefined &&
-        ingress.twilioPublicBaseUrl !== expectedPublicUrl
+        ingress[TWILIO_PUBLIC_BASE_URL_FIELD] !== expectedPublicUrl
       ) {
-        delete ingress.twilioPublicBaseUrlManagedBy;
-        data.ingress = ingress;
-        return true;
+        return false;
       }
 
-      delete ingress.twilioPublicBaseUrl;
-      delete ingress.twilioPublicBaseUrlManagedBy;
+      delete ingress[TWILIO_PUBLIC_BASE_URL_FIELD];
+      delete ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD];
       data.ingress = ingress;
       return true;
     },
