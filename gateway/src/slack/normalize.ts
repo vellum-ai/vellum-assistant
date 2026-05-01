@@ -331,46 +331,6 @@ function withBotUserId(
   };
 }
 
-function parseAppMentionArgs(
-  botTokenOrBotUserId?: string,
-  botTokenOrContext?: string | SlackTextRenderContext,
-  maybeContext?: SlackTextRenderContext,
-): { botToken?: string; renderContext: SlackTextRenderContext } {
-  const firstArgIsToken = isSlackBotToken(botTokenOrBotUserId);
-
-  if (
-    typeof botTokenOrContext === "object" ||
-    typeof maybeContext === "object"
-  ) {
-    return {
-      botToken: firstArgIsToken
-        ? botTokenOrBotUserId
-        : typeof botTokenOrContext === "string"
-          ? botTokenOrContext
-          : undefined,
-      renderContext: withBotUserId(
-        firstArgIsToken ? undefined : botTokenOrBotUserId,
-        {
-          ...(typeof botTokenOrContext === "object" ? botTokenOrContext : {}),
-          ...maybeContext,
-        },
-      ),
-    };
-  }
-
-  return {
-    botToken: firstArgIsToken ? botTokenOrBotUserId : botTokenOrContext,
-    renderContext: withBotUserId(
-      firstArgIsToken ? undefined : botTokenOrBotUserId,
-      undefined,
-    ),
-  };
-}
-
-function isSlackBotToken(value: string | undefined): boolean {
-  return value?.startsWith("xox") ?? false;
-}
-
 function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
@@ -587,24 +547,23 @@ export function normalizeSlackAppMention(
   event: SlackAppMentionEvent,
   eventId: string,
   config: GatewayConfig,
-  botTokenOrBotUserId?: string,
-  botTokenOrContext?: string | SlackTextRenderContext,
-  maybeContext?: SlackTextRenderContext,
+  botUserId?: string,
+  botToken?: string,
+  renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  const { botToken, renderContext } = parseAppMentionArgs(
-    botTokenOrBotUserId,
-    botTokenOrContext,
-    maybeContext,
-  );
   const routing = resolveAssistant(config, event.channel, event.user);
   if (isRejection(routing)) {
     return null;
   }
 
-  const content = renderSlackInboundText(event.text, renderContext, {
-    stripLeadingBotMention: true,
-    fallbackStripFirstMention: true,
-  });
+  const content = renderSlackInboundText(
+    event.text,
+    withBotUserId(botUserId, renderContext),
+    {
+      stripLeadingBotMention: true,
+      fallbackStripFirstMention: true,
+    },
+  );
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 

@@ -794,6 +794,7 @@ export class SlackSocketModeClient {
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+        this.config.botUserId,
         this.config.botToken,
         renderContext,
       );

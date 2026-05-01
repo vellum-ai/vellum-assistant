@@ -173,6 +173,7 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-1a",
       config,
+      undefined,
       "xoxb-test",
     );
     expect(result1).not.toBeNull();
@@ -186,6 +187,7 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-1b",
       config,
+      undefined,
       "xoxb-test",
     );
     expect(result2).not.toBeNull();
@@ -218,6 +220,7 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-pw",
       config,
+      undefined,
       "xoxb-test",
     );
     expect(result).not.toBeNull();
@@ -308,6 +311,7 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-3",
       config,
+      undefined,
       "xoxb-test",
     );
 
