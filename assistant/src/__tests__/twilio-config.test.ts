@@ -5,6 +5,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockSecureKeys: Record<string, string | null> = {};
 let mockLoadConfigResult: Record<string, unknown> = {};
 
+function resolveMockTwilioBaseUrl(config: Record<string, unknown>): string {
+  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
+  const base =
+    (ingress.twilioPublicBaseUrl as string | undefined) ||
+    (ingress.publicBaseUrl as string | undefined) ||
+    "https://test.example.com";
+  return base.trim().replace(/\/+$/, "");
+}
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -21,8 +30,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
-  getPublicBaseUrl: () => "https://test.example.com",
-  getTwilioRelayUrl: () => "wss://test.example.com/twilio/relay",
+  getTwilioPublicBaseUrl: (config: Record<string, unknown>) =>
+    resolveMockTwilioBaseUrl(config),
+  getTwilioRelayUrl: (config: Record<string, unknown>) =>
+    `${resolveMockTwilioBaseUrl(config).replace(/^http/, "ws")}/twilio/relay`,
 }));
 
 import { getTwilioConfig } from "../calls/twilio-config.js";
@@ -36,7 +47,7 @@ describe("twilio-config", () => {
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        phoneNumber: "+15551234567",
+        phoneNumber: "+15550123",
       },
     };
   });
@@ -45,14 +56,32 @@ describe("twilio-config", () => {
     const config = await getTwilioConfig();
     expect(config.accountSid).toBe("AC_test_sid");
     expect(config.authToken).toBe("test_auth_token");
-    expect(config.phoneNumber).toBe("+15551234567");
+    expect(config.phoneNumber).toBe("+15550123");
     expect(config.webhookBaseUrl).toBe("https://test.example.com");
     expect(config.wssBaseUrl).toBe("wss://test.example.com/twilio/relay");
   });
 
+  test("uses Twilio-specific public base URL when generic ingress is empty", async () => {
+    mockLoadConfigResult = {
+      ingress: {
+        publicBaseUrl: "",
+        twilioPublicBaseUrl: "  https://twilio.example.com///  ",
+      },
+      twilio: {
+        accountSid: "AC_test_sid",
+        phoneNumber: "+15550123",
+      },
+    };
+
+    const config = await getTwilioConfig();
+
+    expect(config.webhookBaseUrl).toBe("https://twilio.example.com");
+    expect(config.wssBaseUrl).toBe("wss://twilio.example.com/twilio/relay");
+  });
+
   test("throws ConfigError when account SID is missing", async () => {
     mockLoadConfigResult = {
-      twilio: { accountSid: "", phoneNumber: "+15551234567" },
+      twilio: { accountSid: "", phoneNumber: "+15550123" },
     };
     expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
@@ -64,7 +93,7 @@ describe("twilio-config", () => {
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        phoneNumber: "+15551234567",
+        phoneNumber: "+15550123",
       },
     };
     expect(getTwilioConfig()).rejects.toThrow(

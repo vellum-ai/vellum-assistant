@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import {
-  getPublicBaseUrl,
+  getTwilioPublicBaseUrl,
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -44,7 +44,7 @@ export async function getTwilioConfig(): Promise<TwilioConfig> {
   const authToken =
     (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || "";
   const phoneNumber = resolveTwilioPhoneNumber();
-  const webhookBaseUrl = getPublicBaseUrl(config);
+  const webhookBaseUrl = getTwilioPublicBaseUrl(config);
 
   let wssBaseUrl: string;
   try {

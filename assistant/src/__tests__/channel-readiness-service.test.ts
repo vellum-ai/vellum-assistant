@@ -292,7 +292,7 @@ describe("ChannelReadinessService", () => {
   test("phone readiness accepts managed callback routing when ingress is absent", async () => {
     mockGetIsPlatform = true;
     mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumber = "+15555550123";
+    mockTwilioPhoneNumber = "+15550123";
 
     const readiness = createReadinessService();
     const [snapshot] = await readiness.getReadiness("phone");
@@ -302,6 +302,47 @@ describe("ChannelReadinessService", () => {
       name: "ingress",
       passed: true,
       message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("phone readiness accepts Twilio-specific ingress without generic public ingress", async () => {
+    mockHasTwilioCredentials = true;
+    mockTwilioPhoneNumber = "+15550123";
+    mockRawConfig = {
+      ingress: {
+        publicBaseUrl: "",
+        twilioPublicBaseUrl: "https://twilio.example.com",
+      },
+    };
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("phone");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Twilio public ingress URL is configured",
+    });
+  });
+
+  test("telegram readiness still requires generic public ingress", async () => {
+    mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
+    mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
+    mockRawConfig = {
+      ingress: {
+        publicBaseUrl: "",
+        twilioPublicBaseUrl: "https://twilio.example.com",
+      },
+    };
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("telegram");
+
+    expect(snapshot.ready).toBe(false);
+    expect(snapshot.reasons).toContainEqual({
+      code: "ingress",
+      text: "No public ingress URL or managed callback route is configured",
     });
   });
 
