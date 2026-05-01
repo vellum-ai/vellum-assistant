@@ -9,7 +9,10 @@ import {
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
 import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
-import { ConfigFileWatcher } from "./config-file-watcher.js";
+import {
+  ConfigFileWatcher,
+  type ConfigChangeEvent,
+} from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
 import { loadConfig } from "./config.js";
@@ -195,6 +198,23 @@ function detectCredentialChanges(
     changed.add(service);
   }
   return changed;
+}
+
+function isOnlyVelayTwilioIngressChange(event: ConfigChangeEvent): boolean {
+  if (event.changedKeys.size !== 1 || !event.changedKeys.has("ingress")) {
+    return false;
+  }
+
+  const ingressFields = event.changedFields.get("ingress");
+  if (!ingressFields || ingressFields.size === 0) {
+    return false;
+  }
+
+  return [...ingressFields].every(
+    (field) =>
+      field === "twilioPublicBaseUrl" ||
+      field === "twilioPublicBaseUrlManagedBy",
+  );
 }
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
@@ -1939,7 +1959,13 @@ async function main() {
     configFileCache.invalidate();
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
-    if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
+    const onlyVelayTwilioIngressChanged = isOnlyVelayTwilioIngressChange(event);
+
+    if (
+      event.changedKeys.has("ingress") &&
+      !onlyVelayTwilioIngressChanged &&
+      isTelegramConfigured()
+    ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
         log.error(
           { err },
@@ -1950,7 +1976,11 @@ async function main() {
 
     // Side effect: re-register email callback when ingress URL changes so
     // the platform callback route points at the new self-hosted URL.
-    if (event.changedKeys.has("ingress") && vellumReady) {
+    if (
+      event.changedKeys.has("ingress") &&
+      !onlyVelayTwilioIngressChanged &&
+      vellumReady
+    ) {
       registerEmailCallbackRoute({
         credentials: credentialCache,
         configFile: configFileCache,
@@ -2020,13 +2050,15 @@ async function main() {
   process.on("SIGTERM", () => {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
+    const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
-    velayTunnelClient?.stop();
+    const velayStop = velayTunnelClient?.stop();
+    if (velayStop) shutdownTasks.push(velayStop);
     ipcServer.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
@@ -2038,8 +2070,10 @@ async function main() {
     }
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
-      server.stop(true);
-      process.exit(0);
+      void Promise.allSettled(shutdownTasks).then(() => {
+        server.stop(true);
+        process.exit(0);
+      });
     }, drainMs);
   });
 }
