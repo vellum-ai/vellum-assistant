@@ -213,6 +213,18 @@ function hasStandaloneHelpFlag(args: string[], schema?: ArgSchema): boolean {
       continue;
     }
 
+    // Short-flag bundles: -xf where -f is a value flag.  POSIX convention
+    // places the value-consuming flag last in a bundle, so check the final
+    // character.  If it matches a known short value flag, the next token is
+    // its value and must be skipped.
+    if (arg.startsWith("-") && !arg.startsWith("--") && arg.length > 2) {
+      const lastChar = arg[arg.length - 1];
+      if (lastChar && valueFlags.has(`-${lastChar}`)) {
+        if (i + 1 < args.length) i++;
+        continue;
+      }
+    }
+
     if (arg.startsWith("-") && arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       const flagPart = arg.slice(0, eqIdx);

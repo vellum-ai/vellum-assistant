@@ -797,6 +797,22 @@ describe("unknown commands", () => {
     });
     expect(result.riskLevel).toBe("high");
   });
+
+  test("bundled short flags with value flag do not trigger help shortcut", async () => {
+    const result = await classifier.classify({
+      command: "tar -xf --help /etc/passwd",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("known command without argSchema + --help uses base risk", async () => {
+    const result = await classifier.classify({
+      command: "kill --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
 });
 
 // ── Variable expansion escalation ────────────────────────────────────────────
