@@ -40,6 +40,9 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         )
         var taggedAssistantId: String?
 
+        // Seed `true` so a regression that writes/removes aiDataConsent flips the assertion below.
+        defaults.set(true, forKey: "aiDataConsent")
+
         let coordinator = ManagedAssistantConnectionCoordinator(
             bootstrapService: bootstrapService,
             userDefaults: defaults,
@@ -60,7 +63,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
-        XCTAssertFalse(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT auto-accept AI Data Sharing consent (Apple Guideline 5.1.2(i))")
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT clobber AI Data Sharing consent (Apple Guideline 5.1.2(i) — must remain user-controlled)")
         XCTAssertEqual(taggedAssistantId, assistant.id)
 
         let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
@@ -75,6 +78,8 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
     func testActivateManagedAssistantPreservesExistingPrivacyOptOuts() async throws {
         defaults.set(false, forKey: "collectUsageData")
         defaults.set(false, forKey: "sendDiagnostics")
+        // Seed `true` so a regression that writes/removes aiDataConsent flips the assertion below.
+        defaults.set(true, forKey: "aiDataConsent")
 
         let coordinator = ManagedAssistantConnectionCoordinator(
             bootstrapService: MockManagedAssistantBootstrapService(
@@ -92,7 +97,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: "collectUsageData"))
         XCTAssertFalse(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
-        XCTAssertFalse(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT auto-accept AI Data Sharing consent (Apple Guideline 5.1.2(i))")
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT clobber AI Data Sharing consent (Apple Guideline 5.1.2(i) — must remain user-controlled)")
     }
 
     func testActivateManagedAssistantRePopulatesOrgIdAfterCleared() async throws {
