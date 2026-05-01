@@ -194,14 +194,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "show-thinking-blocks",
-      "scope": "client",
-      "key": "show-thinking-blocks",
-      "label": "Show Thinking Blocks",
-      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": true
-    },
-    {
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
