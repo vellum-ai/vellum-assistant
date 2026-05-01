@@ -1,4 +1,5 @@
 import {
+  normalizePublicBaseUrl,
   TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_PUBLIC_BASE_URL_FIELD,
   TWILIO_STATUS_WEBHOOK_PATH,
@@ -88,7 +89,7 @@ function buildSignatureUrlCandidateDetails(
     source: SignatureUrlCandidateSource,
   ): void => {
     if (!base) return;
-    const normalized = base.trim().replace(/\/+$/, "");
+    const normalized = normalizePublicBaseUrl(base);
     if (!normalized) return;
     addCandidate(`${normalized}${pathAndQuery}`, source);
   };

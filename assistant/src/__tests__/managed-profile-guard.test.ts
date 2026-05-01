@@ -4,7 +4,7 @@
  * via the PATCH config route.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
@@ -13,18 +13,49 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let savedRaw: Record<string, unknown> | null = null;
+let rawConfig: Record<string, unknown>;
 
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => ({
+function makeDefaultRawConfig(): Record<string, unknown> {
+  return {
     llm: {
       profiles: {
-        "quality-optimized": { provider: "anthropic", model: "claude-sonnet" },
+        "quality-optimized": {
+          provider: "anthropic",
+          model: "claude-sonnet",
+        },
         balanced: { provider: "anthropic", model: "claude-sonnet" },
         "cost-optimized": { provider: "anthropic", model: "claude-haiku" },
         "my-custom": { provider: "openai", model: "gpt-4o" },
       },
     },
-  }),
+  };
+}
+
+function deepMergeForTest(
+  target: Record<string, unknown>,
+  overrides: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(overrides)) {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      target[key] !== null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      deepMergeForTest(
+        target[key] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => structuredClone(rawConfig),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRaw = raw;
   },
@@ -32,7 +63,7 @@ mock.module("../config/loader.js", () => ({
     target: Record<string, unknown>,
     overrides: Record<string, unknown>,
   ) => {
-    Object.assign(target, overrides);
+    deepMergeForTest(target, overrides);
   },
 }));
 
@@ -44,6 +75,11 @@ const replaceRoute = ROUTES.find(
 )!;
 
 const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+beforeEach(() => {
+  rawConfig = makeDefaultRawConfig();
+  savedRaw = null;
+});
 
 // ---------------------------------------------------------------------------
 // PUT /v1/config/llm/profiles/:name — replace inference profile
@@ -128,11 +164,34 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
   });
 
   test("allows non-profile config patches", () => {
-    savedRaw = null;
     const result = patchRoute.handler({
       body: { someOtherKey: "value" },
     });
     expect(result).toEqual({ ok: true });
+  });
+
+  test("clears stale Velay ownership when manually patching Twilio public URL", () => {
+    rawConfig = {
+      ingress: {
+        publicBaseUrl: "https://generic.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    };
+
+    const result = patchRoute.handler({
+      body: {
+        ingress: { twilioPublicBaseUrl: "https://manual.example.test" },
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).toEqual({
+      ingress: {
+        publicBaseUrl: "https://generic.example.test",
+        twilioPublicBaseUrl: "https://manual.example.test",
+      },
+    });
   });
 
   test("allows patches that modify a managed profile (non-null)", () => {

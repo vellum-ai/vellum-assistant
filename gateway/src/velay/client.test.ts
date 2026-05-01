@@ -91,6 +91,17 @@ function makeTimerApi(delays: number[]) {
   };
 }
 
+function makeManualTimerApi(delays: number[], callbacks: Array<() => void>) {
+  return {
+    setTimeout: (fn: () => void, delayMs: number) => {
+      delays.push(delayMs);
+      callbacks.push(fn);
+      return fn;
+    },
+    clearTimeout: () => {},
+  };
+}
+
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
@@ -457,6 +468,62 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: { publicBaseUrl: "https://ngrok.example.test" },
     });
+  });
+
+  test("backs off repeated open-then-close failures until registration succeeds", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const reconnectCallbacks: Array<() => void> = [];
+    writeConfig({
+      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+    });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 80, jitterRatio: 0 },
+      timerApi: makeManualTimerApi(reconnectDelays, reconnectCallbacks),
+    });
+
+    client.start();
+    await flushPromises();
+
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+    expect(reconnectDelays).toEqual([10]);
+
+    reconnectCallbacks.shift()?.();
+    await flushPromises();
+    sockets[1].readyState = WS_OPEN;
+    sockets[1].emit("open");
+    sockets[1].readyState = WS_CLOSED;
+    sockets[1].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+    expect(reconnectDelays).toEqual([10, 20]);
+
+    reconnectCallbacks.shift()?.();
+    await flushPromises();
+    sockets[2].readyState = WS_OPEN;
+    sockets[2].emit("open");
+    sendFrame(sockets[2], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+    sockets[2].readyState = WS_CLOSED;
+    sockets[2].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+
+    expect(reconnectDelays).toEqual([10, 20, 10]);
   });
 
   test("writes only ingress.twilioPublicBaseUrl when publishing a Velay URL", async () => {
