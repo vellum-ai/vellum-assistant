@@ -18,7 +18,7 @@ public struct FilingClient: FilingClientProtocol {
     public func fetchConfig() async -> FilingConfigResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/filing/config", timeout: 10
+                path: "filing/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchConfig failed (HTTP \(response.statusCode))")
@@ -35,7 +35,7 @@ public struct FilingClient: FilingClientProtocol {
     public func runNow() async -> FilingRunNowResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/filing/run-now", timeout: 120
+                path: "filing/run-now", timeout: 120
             )
             guard response.isSuccess else {
                 log.error("runNow failed (HTTP \(response.statusCode))")

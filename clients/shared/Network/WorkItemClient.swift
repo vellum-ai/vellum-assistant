@@ -29,7 +29,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
             if let status { params["status"] = status }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/work-items",
+                path: "work-items",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -48,7 +48,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func complete(id: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/work-items/\(id)/complete", timeout: 10
+                path: "work-items/\(id)/complete", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("complete failed (HTTP \(response.statusCode))")
@@ -64,7 +64,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func delete(id: String) async -> WorkItemDeleteResponse? {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/work-items/\(id)", timeout: 10
+                path: "work-items/\(id)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("delete failed (HTTP \(response.statusCode))")
@@ -81,7 +81,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func runTask(id: String) async -> WorkItemRunTaskResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/work-items/\(id)/run", timeout: 10
+                path: "work-items/\(id)/run", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("runTask failed (HTTP \(response.statusCode))")
@@ -98,7 +98,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func fetchOutput(id: String) async -> WorkItemOutputResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/work-items/\(id)/output", timeout: 10
+                path: "work-items/\(id)/output", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchOutput failed (HTTP \(response.statusCode))")
@@ -122,7 +122,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
             if let sortIndex { body["sortIndex"] = sortIndex }
 
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/work-items/\(id)", json: body, timeout: 10
+                path: "work-items/\(id)", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("update failed (HTTP \(response.statusCode))")
@@ -139,7 +139,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func preflight(id: String) async -> WorkItemPreflightResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/work-items/\(id)/preflight", timeout: 10
+                path: "work-items/\(id)/preflight", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("preflight failed (HTTP \(response.statusCode))")
@@ -157,7 +157,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
         do {
             let body: [String: Any] = ["approvedTools": approvedTools]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/work-items/\(id)/approve-permissions", json: body, timeout: 10
+                path: "work-items/\(id)/approve-permissions", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("approvePermissions failed (HTTP \(response.statusCode))")
@@ -174,7 +174,7 @@ public struct WorkItemClient: WorkItemClientProtocol {
     public func cancel(id: String) async -> WorkItemCancelResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/work-items/\(id)/cancel", timeout: 10
+                path: "work-items/\(id)/cancel", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("cancel failed (HTTP \(response.statusCode))")

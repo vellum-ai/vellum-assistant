@@ -40,7 +40,7 @@ public struct SubagentClient: SubagentClientProtocol {
             if let conversationId { body["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/subagents/\(subagentId)/abort",
+                path: "subagents/\(subagentId)/abort",
                 json: body,
                 timeout: 10
             )
@@ -65,7 +65,7 @@ public struct SubagentClient: SubagentClientProtocol {
         do {
             let params: [String: String] = ["conversationId": conversationId]
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/subagents/\(subagentId)",
+                path: "subagents/\(subagentId)",
                 params: params,
                 timeout: 10
             )
@@ -90,7 +90,7 @@ public struct SubagentClient: SubagentClientProtocol {
             if let conversationId { body["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/subagents/\(subagentId)/message",
+                path: "subagents/\(subagentId)/message",
                 json: body,
                 timeout: 30
             )

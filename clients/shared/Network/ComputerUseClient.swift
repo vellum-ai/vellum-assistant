@@ -17,7 +17,7 @@ public struct ComputerUseClient: ComputerUseClientProtocol {
         do {
             let body = try JSONEncoder().encode(msg)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/computer-use/watch",
+                path: "computer-use/watch",
                 body: body,
                 timeout: 10
             )
@@ -36,7 +36,7 @@ public struct ComputerUseClient: ComputerUseClientProtocol {
         do {
             let body = try JSONEncoder().encode(msg)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/recordings/status",
+                path: "recordings/status",
                 body: body,
                 timeout: 10
             )

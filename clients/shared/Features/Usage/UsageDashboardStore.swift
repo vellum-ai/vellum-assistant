@@ -43,7 +43,7 @@ public struct UsageClient: UsageClientProtocol {
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         let result: (UsageTotalsResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/usage/totals?from=\(from)&to=\(to)", timeout: 10
+            path: "usage/totals?from=\(from)&to=\(to)", timeout: 10
         )
         return result?.0
     }
@@ -51,7 +51,7 @@ public struct UsageClient: UsageClientProtocol {
     public func fetchUsageDaily(from: Int, to: Int, granularity: String = "daily", tz: String) async -> UsageDailyResponse? {
         let encodedTz = tz.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? tz
         let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)&tz=\(encodedTz)", timeout: 10
+            path: "usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)&tz=\(encodedTz)", timeout: 10
         )
         return result?.0
     }
@@ -60,7 +60,7 @@ public struct UsageClient: UsageClientProtocol {
         let encodedGroupBy = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
         let encodedTz = tz.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? tz
         let result: (UsageSeriesResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/usage/series?from=\(from)&to=\(to)&granularity=\(granularity)&groupBy=\(encodedGroupBy)&tz=\(encodedTz)", timeout: 10
+            path: "usage/series?from=\(from)&to=\(to)&granularity=\(granularity)&groupBy=\(encodedGroupBy)&tz=\(encodedTz)", timeout: 10
         )
         return result?.0
     }
@@ -69,7 +69,7 @@ public struct UsageClient: UsageClientProtocol {
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
         do {
             let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+                path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
             )
             return UsageFetchResult(value: result.0, statusCode: result.1.statusCode)
         } catch {

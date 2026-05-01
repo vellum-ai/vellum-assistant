@@ -359,9 +359,9 @@ public final class GatewayConnectionManager {
     private func performHealthCheck() async throws {
         let healthPath: String
         #if os(macOS)
-        healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
+        healthPath = (cachedAssistant?.isManaged ?? false) ? "health" : "health"
         #else
-        healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
+        healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "health" : "health"
         #endif
 
         // Run the HTTP GET + JSON decode off the main actor. `GatewayHTTPClient`

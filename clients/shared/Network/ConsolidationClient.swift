@@ -19,7 +19,7 @@ public struct ConsolidationClient: ConsolidationClientProtocol {
     public func fetchConfig() async -> ConsolidationConfigResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/consolidation/config", timeout: 10
+                path: "consolidation/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchConfig failed (HTTP \(response.statusCode))")
@@ -36,7 +36,7 @@ public struct ConsolidationClient: ConsolidationClientProtocol {
     public func runNow() async -> ConsolidationRunNowResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/consolidation/run-now", timeout: 30
+                path: "consolidation/run-now", timeout: 30
             )
             guard response.isSuccess else {
                 log.error("runNow failed (HTTP \(response.statusCode))")

@@ -389,7 +389,7 @@ struct SettingsDeveloperTab: View {
     private func fetchHealthz() async {
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
@@ -642,7 +642,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "assistants/\(selectedAssistantId)/restart")
+        _ = try? await GatewayHTTPClient.post(path: "restart")
     }
 
     private func performLocalRestart() async {
@@ -825,7 +825,7 @@ struct SettingsDeveloperTab: View {
         let body: [String: String] = ["type": "credential", "name": "vellum:assistant_api_key"]
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 10
+                path: "secrets", json: body, timeout: 10
             )
             if response.isSuccess || response.statusCode == 404 {
                 // Clear the locally-cached credential so the key is not

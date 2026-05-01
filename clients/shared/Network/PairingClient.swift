@@ -33,7 +33,7 @@ public struct PairingClient: PairingClientProtocol {
             "decision": decision,
         ]
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/pairing/register", json: body, timeout: 10
+            path: "pairing/register", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("sendPairingApprovalResponse failed (HTTP \(response.statusCode))")
@@ -44,7 +44,7 @@ public struct PairingClient: PairingClientProtocol {
 
     public func fetchApprovedDevices() async throws -> [ApprovedDevicesListResponseMessage.Device] {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/pairing/register", timeout: 10
+            path: "pairing/register", timeout: 10
         )
         guard response.isSuccess else {
             throw PairingClientError.httpError(statusCode: response.statusCode)
@@ -59,7 +59,7 @@ public struct PairingClient: PairingClientProtocol {
             "hashedDeviceId": hashedDeviceId,
         ]
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/pairing/register", json: body, timeout: 10
+            path: "pairing/register", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("removeApprovedDevice failed (HTTP \(response.statusCode))")
@@ -70,7 +70,7 @@ public struct PairingClient: PairingClientProtocol {
 
     public func clearApprovedDevices() async throws -> Bool {
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/pairing/register", timeout: 10
+            path: "pairing/register", timeout: 10
         )
         guard response.isSuccess else {
             log.error("clearApprovedDevices failed (HTTP \(response.statusCode))")

@@ -33,7 +33,7 @@ public struct TTSClient: TTSClientProtocol {
     public func synthesize(messageId: String, conversationId: String?) async -> TTSResult {
         do {
             let encoded = messageId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageId
-            let path = "assistants/{assistantId}/messages/\(encoded)/tts"
+            let path = "messages/\(encoded)/tts"
             var params: [String: String]? = nil
             if let conversationId, !conversationId.isEmpty {
                 params = ["conversationId": conversationId]
@@ -57,7 +57,7 @@ public struct TTSClient: TTSClientProtocol {
                 json["conversationId"] = conversationId
             }
 
-            let path = "assistants/{assistantId}/tts/synthesize"
+            let path = "tts/synthesize"
             let response = try await GatewayHTTPClient.post(path: path, json: json, timeout: 60)
             return Self.mapResponse(response)
         } catch {
