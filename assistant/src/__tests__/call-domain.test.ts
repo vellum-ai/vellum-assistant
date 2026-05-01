@@ -28,8 +28,6 @@ mock.module("../calls/twilio-config.js", () => ({
     accountSid: "AC_test",
     authToken: "test_token",
     phoneNumber: assistantId === "ast-alpha" ? "+15550003333" : "+15550001111",
-    webhookBaseUrl: "https://test.example.com",
-    wssBaseUrl: "wss://test.example.com",
   }),
 }));
 
