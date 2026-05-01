@@ -159,7 +159,8 @@ public final class STTStreamingClient: STTStreamingClientProtocol {
         do {
             let request = try GatewayHTTPClient.buildWebSocketRequest(
                 path: "stt/stream",
-                params: params
+                params: params,
+                unprefixed: true
             )
             log.info("Opening STT stream WebSocket: mimeType=\(mimeType), sampleRate=\(sampleRate.map(String.init) ?? "nil")")
 
