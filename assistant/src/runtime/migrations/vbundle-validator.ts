@@ -291,13 +291,18 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
     }
 
     // Symlink (type '2') — empty body regardless of declared size; the link
-    // target lives in the ustar linkname field (157..256).
+    // target lives in the ustar linkname field (157..256). We preserve the
+    // tar-declared `size` here (rather than forcing it to 0) so the
+    // downstream `archiveEntry.size !== 0` check can surface
+    // `FILE_SIZE_MISMATCH` on malformed symlink headers. The body itself is
+    // always an empty buffer — symlinks have no data body even if the
+    // header lies about it.
     if (typeFlag === "2") {
       const linkname = decodeNullTerminated(header, 157, 100);
       entries.push({
         name: normalizePath(name),
         data: new Uint8Array(0),
-        size: 0,
+        size,
         linkname,
       });
       offset = dataStart + dataBlocks * BLOCK_SIZE;
@@ -577,15 +582,33 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
         });
       }
 
-      const normalized = posix.normalize(
-        posix.join(posix.dirname(fileEntry.path), fileEntry.link_target),
-      );
-      if (normalized.startsWith("../") || normalized === "..") {
+      // Absolute POSIX targets are unconstrained by the bundle root — reject
+      // them up front. The `posix.normalize` guard below only catches
+      // `..`-based escapes; an absolute path like `/etc/passwd` survives
+      // normalization unchanged and would otherwise pass.
+      if (fileEntry.link_target.startsWith("/")) {
         errors.push({
           code: "SYMLINK_TARGET_ESCAPES_ARCHIVE",
-          message: `Symlink target escapes archive root for ${fileEntry.path}: target=${fileEntry.link_target}, normalized=${normalized}`,
+          message: `Symlink target is absolute, which escapes the archive root for ${fileEntry.path}: target=${fileEntry.link_target}`,
           path: fileEntry.path,
         });
+      } else {
+        const normalized = posix.normalize(
+          posix.join(posix.dirname(fileEntry.path), fileEntry.link_target),
+        );
+        // Defense-in-depth: also reject if the joined+normalized path is
+        // absolute, in case `dirname` ever resolves to an absolute root.
+        if (
+          normalized.startsWith("../") ||
+          normalized === ".." ||
+          normalized.startsWith("/")
+        ) {
+          errors.push({
+            code: "SYMLINK_TARGET_ESCAPES_ARCHIVE",
+            message: `Symlink target escapes archive root for ${fileEntry.path}: target=${fileEntry.link_target}, normalized=${normalized}`,
+            path: fileEntry.path,
+          });
+        }
       }
       continue;
     }
