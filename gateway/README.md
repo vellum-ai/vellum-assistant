@@ -26,11 +26,11 @@ bun run dev
 
 ## Configuration
 
-| Variable                  | Required | Default | Description                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                  | Required | Default | Description                                                                                                                                                                                                                                                                         |
+| ------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`      | No       | —       | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store: CES HTTP API first (when `CES_CREDENTIAL_URL` is configured), then the encrypted file store (`~/.vellum/protected/keys.enc`). |
-| `TELEGRAM_WEBHOOK_SECRET` | No       | —       | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`.                                                                                                                                            |
-| `GATEWAY_PORT`            | No       | `7830`  | Port for the gateway HTTP server                                                                                                                                                                                                                                                                                                                                                       |
+| `TELEGRAM_WEBHOOK_SECRET` | No       | —       | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`.                                                                                                                                             |
+| `GATEWAY_PORT`            | No       | `7830`  | Port for the gateway HTTP server                                                                                                                                                                                                                                                    |
 
 Most gateway behavior is now configured via hardcoded defaults or workspace config (`~/.vellum/workspace/config.json`) rather than environment variables. Channel operational settings (Telegram API base URL, timeouts, deliver auth bypass flags, runtime base URL, routing, proxy settings, attachment limits, shutdown drain) are managed via `workspace/config.json` through `ConfigFileCache`. See the channel-specific sections in `ARCHITECTURE.md` for details.
 
@@ -176,7 +176,7 @@ The gateway serves as the single public ingress point for all external callbacks
 
 ### Tunnel Setup
 
-To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:
+To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL. Ngrok, Cloudflare Tunnel, and other custom HTTPS/WSS tunnels remain supported.
 
 #### Test Gateway Source Changes Locally (No Release Needed)
 
@@ -209,6 +209,47 @@ Then point your tunnel to that same local target (for example `http://127.0.0.1:
 In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typically live for Twilio inbound validation (no manual gateway restart required) because the gateway also validates signatures against forwarded public URL headers.
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
+
+### Velay for Twilio Local Testing
+
+Velay is an additional managed ingress transport for Twilio calls. It does not replace ngrok or `ingress.publicBaseUrl`. In this phase, Velay registration writes only `ingress.twilioPublicBaseUrl`; Twilio URL builders prefer that value when it is present, while Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs continue to use `ingress.publicBaseUrl`.
+
+Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades through the platform-managed tunnel:
+
+1. In `vellum-assistant-platform`, start the local Velay service:
+
+   ```bash
+   vel up velay
+   ```
+
+2. Ensure vembda injects the Velay endpoint into assistant gateway containers:
+
+   ```bash
+   VELAY_BASE_URL=http://host.docker.internal:8501
+   ```
+
+   The `host.docker.internal` host is important for Docker-hosted assistants because the gateway container must dial the Velay service running on the host.
+
+3. Re-hatch or restart the assistant so the gateway process receives `VELAY_BASE_URL`.
+4. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.twilioPublicBaseUrl` without changing `ingress.publicBaseUrl`.
+
+For an HTTP bridge smoke test, send a request to the registered Velay public URL and confirm it reaches the loopback gateway, for example:
+
+```bash
+curl -i "$VELAY_PUBLIC_BASE_URL/<assistant-id>/healthz"
+curl -i "$VELAY_PUBLIC_BASE_URL/<assistant-id>/schema"
+```
+
+When testing a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm the gateway logs or handler response show the request reached the loopback listener.
+
+For a synthetic Twilio WebSocket smoke test, connect a local WebSocket client to the Velay public URL using one of the gateway Twilio WebSocket paths, such as:
+
+```bash
+bun -e 'const ws = new WebSocket(process.argv[1]); ws.onopen = () => { console.log("open"); ws.close(); }; ws.onerror = (event) => console.error(event);' \
+  "wss://<velay-host>/<assistant-id>/webhooks/twilio/relay?callSessionId=session-123&token=<edge-token>"
+```
+
+For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/relay` or `/webhooks/twilio/media-stream/...` through the Velay URL. Keep using ngrok or another custom tunnel in `ingress.publicBaseUrl` when you need Telegram, OAuth, email, or non-Twilio webhook ingress.
 
 ## Ingress Boundary Guarantees
 
