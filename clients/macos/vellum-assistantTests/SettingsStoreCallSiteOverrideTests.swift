@@ -500,6 +500,46 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         XCTAssertEqual(memory?["provider"] as? String, "anthropic")
     }
 
+    // MARK: - ensureCallSiteCatalogLoaded idempotency
+
+    /// Verifies the race-condition fix: when the catalog is already loaded,
+    /// `ensureCallSiteCatalogLoaded(force:false)` must NOT call
+    /// `loadCallSiteOverrides`, so it cannot revert an optimistic
+    /// `setCallSiteOverrides` update that arrived before the next
+    /// `configChanged`-triggered fetch settles.
+    func testEnsureCallSiteCatalogLoadedDoesNotRevertOptimisticStateWhenAlreadyLoaded() async {
+        // Catalog is pre-loaded via MockSettingsClient (replaceForTesting in setUp).
+        XCTAssertTrue(CallSiteCatalog.shared.isLoaded)
+
+        // Seed a daemon config with no overrides.
+        store.loadCallSiteOverrides(config: [:])
+        XCTAssertEqual(store.overridesCount, 0)
+
+        // Simulate an in-flight setCallSiteOverrides optimistic update.
+        let optimistic = CallSiteOverride(
+            id: "memoryRetrieval",
+            displayName: "Memory Retrieval",
+            domain: "memory",
+            provider: nil,
+            model: nil,
+            profile: "balanced"
+        )
+        if let idx = store.callSiteOverrides.firstIndex(where: { $0.id == "memoryRetrieval" }) {
+            store.callSiteOverrides[idx].profile = "balanced"
+        }
+        XCTAssertEqual(store.overridesCount, 1, "Optimistic update should be visible")
+
+        // Calling ensureCallSiteCatalogLoaded (force=false) while the catalog
+        // is already loaded must not overwrite the optimistic state.
+        await store.ensureCallSiteCatalogLoaded(force: false)
+
+        let afterEnsure = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
+        XCTAssertEqual(afterEnsure?.profile, "balanced",
+            "ensureCallSiteCatalogLoaded must not revert optimistic override state")
+        XCTAssertEqual(store.overridesCount, 1)
+        _ = optimistic // suppress unused warning
+    }
+
     // MARK: - overridesCount derivation
 
     func testOverridesCountReflectsPartialOverrides() {
