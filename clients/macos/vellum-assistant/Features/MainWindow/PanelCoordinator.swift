@@ -650,7 +650,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
+                        showInspectButton: true,
                         onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
@@ -702,9 +702,7 @@ extension MainWindowView {
             let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
                 Self.conversationStartersFeatureFlagKey
             )
-            let showInspectButton = assistantFeatureFlagStore.isEnabled(
-                "settings-developer-nav"
-            )
+            let showInspectButton = true
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
                 "message-tts"
             )
