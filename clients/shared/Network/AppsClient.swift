@@ -139,7 +139,7 @@ public struct AppsClient: AppsClientProtocol {
             if let conversationId { params["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps",
+                path: "apps",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -183,7 +183,7 @@ public struct AppsClient: AppsClientProtocol {
     public func openApp(id: String) async -> AppOpenResult? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/\(id)/open", timeout: 10
+                path: "apps/\(id)/open", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("openApp failed (HTTP \(response.statusCode))")
@@ -220,7 +220,7 @@ public struct AppsClient: AppsClientProtocol {
     public func deleteApp(id: String) async -> AppDeleteResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/\(id)/delete", timeout: 10
+                path: "apps/\(id)/delete", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("deleteApp failed (HTTP \(response.statusCode))")
@@ -237,7 +237,7 @@ public struct AppsClient: AppsClientProtocol {
     public func fetchAppPreview(appId: String) async -> AppPreviewResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps/\(appId)/preview", timeout: 10
+                path: "apps/\(appId)/preview", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchAppPreview failed (HTTP \(response.statusCode))")
@@ -255,7 +255,7 @@ public struct AppsClient: AppsClientProtocol {
         do {
             let body: [String: Any] = ["preview": preview]
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/apps/\(appId)/preview", json: body, timeout: 10
+                path: "apps/\(appId)/preview", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateAppPreview failed (HTTP \(response.statusCode))")
@@ -272,7 +272,7 @@ public struct AppsClient: AppsClientProtocol {
     public func bundleApp(appId: String) async -> BundleAppResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/\(appId)/bundle", timeout: 10
+                path: "apps/\(appId)/bundle", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("bundleApp failed (HTTP \(response.statusCode))")
@@ -290,7 +290,7 @@ public struct AppsClient: AppsClientProtocol {
         do {
             let body: [String: Any] = ["filePath": filePath]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/open-bundle", json: body, timeout: 10
+                path: "apps/open-bundle", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("openBundle failed (HTTP \(response.statusCode))")
@@ -310,7 +310,7 @@ public struct AppsClient: AppsClientProtocol {
             if let limit { params["limit"] = String(limit) }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps/\(appId)/history",
+                path: "apps/\(appId)/history",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -332,7 +332,7 @@ public struct AppsClient: AppsClientProtocol {
             if let toCommit { params["toCommit"] = toCommit }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps/\(appId)/diff",
+                path: "apps/\(appId)/diff",
                 params: params,
                 timeout: 10
             )
@@ -352,7 +352,7 @@ public struct AppsClient: AppsClientProtocol {
         do {
             let body: [String: Any] = ["commitHash": commitHash]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/\(appId)/restore", json: body, timeout: 10
+                path: "apps/\(appId)/restore", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("restoreApp failed (HTTP \(response.statusCode))")
@@ -371,7 +371,7 @@ public struct AppsClient: AppsClientProtocol {
     public func fetchSharedAppsList() async -> SharedAppsListResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps/shared", timeout: 10
+                path: "apps/shared", timeout: 10
             )
             if response.statusCode == 404 {
                 // Older assistants may not expose the shared-apps route yet.
@@ -417,7 +417,7 @@ public struct AppsClient: AppsClientProtocol {
     public func deleteSharedApp(uuid: String) async -> SharedAppDeleteResponse? {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/apps/shared/\(uuid)", timeout: 10
+                path: "apps/shared/\(uuid)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("deleteSharedApp failed (HTTP \(response.statusCode))")
@@ -435,7 +435,7 @@ public struct AppsClient: AppsClientProtocol {
         do {
             let body: [String: Any] = ["uuid": uuid]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/fork", json: body, timeout: 10
+                path: "apps/fork", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("forkSharedApp failed (HTTP \(response.statusCode))")
@@ -452,7 +452,7 @@ public struct AppsClient: AppsClientProtocol {
     public func shareAppCloud(appId: String) async -> ShareAppCloudResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/apps/\(appId)/share-cloud", timeout: 10
+                path: "apps/\(appId)/share-cloud", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("shareAppCloud failed (HTTP \(response.statusCode))")
@@ -477,7 +477,7 @@ public struct AppsClient: AppsClientProtocol {
                 var params: [String: String] = ["method": method]
                 if let recordId { params["recordId"] = recordId }
                 response = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/apps/\(appId)/data",
+                    path: "apps/\(appId)/data",
                     params: params,
                     timeout: 10
                 )
@@ -492,7 +492,7 @@ public struct AppsClient: AppsClientProtocol {
                     body["data"] = rawData
                 }
                 response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/apps/\(appId)/data",
+                    path: "apps/\(appId)/data",
                     json: body,
                     timeout: 10
                 )

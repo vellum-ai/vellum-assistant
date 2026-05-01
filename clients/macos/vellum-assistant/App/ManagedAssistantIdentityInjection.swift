@@ -84,7 +84,7 @@ enum ManagedAssistantIdentityInjection {
         ]
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/\(assistantId)/secrets",
+                path: "secrets",
                 json: body,
                 timeout: 10
             )

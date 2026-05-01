@@ -16,7 +16,7 @@ public struct ConversationQueueClient: ConversationQueueClientProtocol {
         do {
             let encoded = requestId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? requestId
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/messages/queued/\(encoded)?conversationId=\(conversationId)",
+                path: "messages/queued/\(encoded)?conversationId=\(conversationId)",
                 timeout: 10
             )
             guard response.isSuccess else {

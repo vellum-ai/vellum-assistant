@@ -714,7 +714,7 @@ public struct LLMContextClient: LLMContextClientProtocol {
         do {
             try Task.checkCancellation()
             response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
+                path: "messages/\(messageId)/llm-context",
                 timeout: 15
             )
             try Task.checkCancellation()
@@ -774,7 +774,7 @@ public struct LLMContextClient: LLMContextClientProtocol {
     public func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/llm-request-logs/\(logId)/payload",
+                path: "llm-request-logs/\(logId)/payload",
                 timeout: 30
             )
             guard response.isSuccess else {

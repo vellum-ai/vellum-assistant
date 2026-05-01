@@ -105,7 +105,7 @@ public struct ContactClient: ContactClientProtocol {
         if let notes { body["notes"] = notes }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/contacts", json: body, timeout: 10
+            path: "contacts", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("updateContact failed (HTTP \(response.statusCode))")
@@ -128,7 +128,7 @@ public struct ContactClient: ContactClientProtocol {
         }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/contacts", json: body, timeout: 10
+            path: "contacts", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("createContact failed (HTTP \(response.statusCode))")
@@ -157,7 +157,7 @@ public struct ContactClient: ContactClientProtocol {
         if let guardianName { body["guardianName"] = guardianName }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/contacts/invites", json: body, timeout: 10
+            path: "contacts/invites", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("createInvite failed (HTTP \(response.statusCode))")
@@ -178,7 +178,7 @@ public struct ContactClient: ContactClientProtocol {
 
     public func triggerInviteCall(inviteId: String) async throws -> Bool {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/contacts/invites/\(inviteId)/call", json: [:], timeout: 10
+            path: "contacts/invites/\(inviteId)/call", json: [:], timeout: 10
         )
         guard response.isSuccess else {
             log.error("triggerInviteCall failed (HTTP \(response.statusCode))")
@@ -204,7 +204,7 @@ public struct ContactClient: ContactClientProtocol {
         if let role { params["role"] = role }
 
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/contacts", params: params, timeout: 10
+            path: "contacts", params: params, timeout: 10
         )
         guard response.isSuccess else {
             log.error("fetchContactsList failed (HTTP \(response.statusCode))")
@@ -215,7 +215,7 @@ public struct ContactClient: ContactClientProtocol {
 
     public func fetchContact(contactId: String) async throws -> ContactPayload? {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/contacts/\(contactId)", timeout: 10
+            path: "contacts/\(contactId)", timeout: 10
         )
         guard response.isSuccess else {
             log.error("fetchContact failed (HTTP \(response.statusCode))")
@@ -226,7 +226,7 @@ public struct ContactClient: ContactClientProtocol {
 
     public func deleteContact(contactId: String) async throws -> Bool {
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/contacts/\(contactId)", timeout: 10
+            path: "contacts/\(contactId)", timeout: 10
         )
         guard response.isSuccess || response.statusCode == 204 else {
             log.error("deleteContact failed (HTTP \(response.statusCode))")
@@ -247,7 +247,7 @@ public struct ContactClient: ContactClientProtocol {
         if let reason { body["reason"] = reason }
 
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/contact-channels/\(channelId)", json: body, timeout: 10
+            path: "contact-channels/\(channelId)", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("updateContactChannel failed (HTTP \(response.statusCode))")

@@ -31,7 +31,7 @@ public struct ToolClient: ToolClientProtocol {
 
     public func fetchToolNamesList() async throws -> ToolNamesListResponseMessage {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/tools", timeout: 10
+            path: "tools", timeout: 10
         )
         guard response.isSuccess else {
             log.error("fetchToolNamesList failed (HTTP \(response.statusCode))")
@@ -62,7 +62,7 @@ public struct ToolClient: ToolClientProtocol {
         if let isInteractive { body["isInteractive"] = isInteractive }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/tools/simulate-permission", json: body, timeout: 10
+            path: "tools/simulate-permission", json: body, timeout: 10
         )
         guard response.isSuccess else {
             log.error("simulateToolPermission failed (HTTP \(response.statusCode))")

@@ -99,7 +99,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         if let includeDeleted { params["include_deleted"] = String(includeDeleted) }
 
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/trust-rules", params: params, timeout: 10
+            path: "trust-rules", params: params, timeout: 10
         )
         guard response.isSuccess else {
             log.error("listRules failed (HTTP \(response.statusCode))")
@@ -117,7 +117,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
             "scope": scope,
         ]
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/trust-rules", json: body, timeout: 10
+            path: "trust-rules", json: body, timeout: 10
         )
         if response.statusCode == 403 {
             throw TrustRuleClientError.featureDisabled
@@ -136,7 +136,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
 
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/trust-rules/\(encoded)", json: body, timeout: 10
+            path: "trust-rules/\(encoded)", json: body, timeout: 10
         )
         if response.statusCode == 404 {
             throw TrustRuleClientError.notFound
@@ -154,7 +154,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
     public func deleteRule(id: String) async throws {
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/trust-rules/\(encoded)", timeout: 10
+            path: "trust-rules/\(encoded)", timeout: 10
         )
         if response.statusCode == 404 {
             throw TrustRuleClientError.notFound
@@ -171,7 +171,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
     public func resetRule(id: String) async throws -> TrustRule {
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/trust-rules/\(encoded)/reset", json: [:], timeout: 10
+            path: "trust-rules/\(encoded)/reset", json: [:], timeout: 10
         )
         if response.statusCode == 404 {
             throw TrustRuleClientError.notFound
@@ -216,7 +216,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
             ]
         }
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/trust-rules/suggest", json: body, timeout: 30
+            path: "trust-rules/suggest", json: body, timeout: 30
         )
         if response.statusCode == 403 {
             throw TrustRuleClientError.featureDisabled

@@ -186,7 +186,7 @@ final class AvatarAppearanceManager {
     private func fetchAvatarViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/workspace/file/content",
+                path: "workspace/file/content",
                 params: ["path": "data/avatar/avatar-image.png"],
                 timeout: 10
             )
@@ -225,7 +225,7 @@ final class AvatarAppearanceManager {
     private func fetchTraitsViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/workspace/file/content",
+                path: "workspace/file/content",
                 params: ["path": "data/avatar/character-traits.json"],
                 timeout: 10
             )
@@ -425,7 +425,7 @@ final class AvatarAppearanceManager {
         for attempt in 1...3 {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/avatar/render-from-traits",
+                    path: "avatar/render-from-traits",
                     json: json,
                     timeout: 15
                 )

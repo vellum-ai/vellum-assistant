@@ -170,7 +170,7 @@ final class CommandPaletteViewModel {
 
         do {
             let (decoded, response): (GlobalSearchResponse?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/search/global",
+                path: "search/global",
                 params: params,
                 timeout: deep ? 10 : 5
             )

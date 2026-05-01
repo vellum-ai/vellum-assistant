@@ -22,7 +22,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-bash-result",
+                path: "host-bash-result",
                 body: body,
                 timeout: 30
             )
@@ -46,7 +46,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
                 ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
                 : 30
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-file-result",
+                path: "host-file-result",
                 body: body,
                 timeout: timeout
             )
@@ -65,7 +65,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-cu-result",
+                path: "host-cu-result",
                 body: body,
                 timeout: 30
             )
@@ -84,7 +84,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-browser-result",
+                path: "host-browser-result",
                 body: body,
                 timeout: 30
             )
@@ -105,7 +105,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
             // Scale timeout based on payload size for large transfer results.
             let timeout: TimeInterval = max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-transfer-result",
+                path: "host-transfer-result",
                 body: body,
                 timeout: timeout
             )
@@ -123,7 +123,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
     public func pullTransferContent(transferId: String) async throws -> Data {
         // Use a generous timeout — large files may take a while to download.
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/transfers/\(transferId)/content",
+            path: "transfers/\(transferId)/content",
             timeout: 300
         )
         guard response.isSuccess else {
@@ -136,7 +136,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
         // Scale timeout by data size: ~5s per MB with a 30s minimum.
         let timeout: TimeInterval = max(30, TimeInterval(data.count) / (1024 * 1024) * 5 + 30)
         let response = try await GatewayHTTPClient.put(
-            path: "assistants/{assistantId}/transfers/\(transferId)/content",
+            path: "transfers/\(transferId)/content",
             body: data,
             params: ["sourcePath": sourcePath],
             contentType: "application/octet-stream",

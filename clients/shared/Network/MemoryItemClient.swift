@@ -62,7 +62,7 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/memory-items", params: params, timeout: 10
+                path: "memory-items", params: params, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchMemoryItems failed (HTTP \(response.statusCode))")
@@ -78,7 +78,7 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
     public func fetchMemoryItem(id: String) async -> MemoryItemPayload? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/memory-items/\(id)", timeout: 10
+                path: "memory-items/\(id)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchMemoryItem failed (HTTP \(response.statusCode))")
@@ -107,7 +107,7 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/memory-items", json: body, timeout: 10
+                path: "memory-items", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("createMemoryItem failed (HTTP \(response.statusCode))")
@@ -140,7 +140,7 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/memory-items/\(id)", json: body, timeout: 10
+                path: "memory-items/\(id)", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateMemoryItem failed (HTTP \(response.statusCode))")
@@ -157,7 +157,7 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
     public func deleteMemoryItem(id: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/memory-items/\(id)", timeout: 10
+                path: "memory-items/\(id)", timeout: 10
             )
             return response.statusCode == 204
         } catch {

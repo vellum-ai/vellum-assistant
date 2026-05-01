@@ -506,7 +506,7 @@ extension AppDelegate {
                 let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/sign-bundle-response",
+                    path: "sign-bundle-response",
                     json: [
                         "requestId": msg.requestId,
                         "signature": signature.base64EncodedString(),
@@ -517,7 +517,7 @@ extension AppDelegate {
             } catch {
                 log.error("Failed to sign bundle payload: \(error.localizedDescription)")
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/sign-bundle-response",
+                    path: "sign-bundle-response",
                     json: [
                         "requestId": msg.requestId,
                         "error": error.localizedDescription
@@ -535,7 +535,7 @@ extension AppDelegate {
                 let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/signing-identity-response",
+                    path: "signing-identity-response",
                     json: [
                         "requestId": msg.requestId,
                         "keyId": keyId,
@@ -545,7 +545,7 @@ extension AppDelegate {
             } catch {
                 log.error("Failed to get signing identity: \(error.localizedDescription)")
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/signing-identity-response",
+                    path: "signing-identity-response",
                     json: [
                         "requestId": msg.requestId,
                         "error": error.localizedDescription

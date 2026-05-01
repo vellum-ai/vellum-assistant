@@ -276,7 +276,7 @@ struct TeleportSection: View {
                     do {
                         let response = try await GatewayHTTPClient.withAssistant(oldId) {
                             try await GatewayHTTPClient.delete(
-                                path: "assistants/{assistantId}/retire",
+                                path: "retire",
                                 timeout: 30
                             )
                         }
@@ -498,7 +498,8 @@ struct TeleportSection: View {
                 path: "migrations/import",
                 body: bundleData,
                 contentType: "application/octet-stream",
-                timeout: 3600
+                timeout: 3600,
+                unprefixed: true
             )
         }
         guard importResponse.isSuccess else {
@@ -658,12 +659,14 @@ struct TeleportSection: View {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
                 timeout: 3600,
+                unprefixed: true,
                 onProgress: onProgress
             )
         } else {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 3600
+                timeout: 3600,
+                unprefixed: true
             )
         }
         guard response.isSuccess else {
@@ -749,7 +752,7 @@ struct TeleportSection: View {
                 try Task.checkCancellation()
 
                 if let response = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/guardian/init",
+                    path: "guardian/init",
                     json: body,
                     timeout: 15
                 ), response.isSuccess,

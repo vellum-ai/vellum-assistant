@@ -22,7 +22,7 @@ public struct NotificationClient: NotificationClientProtocol {
             if let errorCode { body["errorCode"] = errorCode }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/notification-intent-result", json: body, timeout: 10
+                path: "notification-intent-result", json: body, timeout: 10
             )
             if !response.isSuccess {
                 log.error("sendIntentResult failed (HTTP \(response.statusCode)) for deliveryId \(deliveryId)")

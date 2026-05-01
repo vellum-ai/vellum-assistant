@@ -543,7 +543,7 @@ struct AssistantBackupsSection: View {
         defer { isExporting = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 3600)
+            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 3600, unprefixed: true)
 
             guard response.isSuccess else {
                 errorMessage = "Export failed (HTTP \(response.statusCode))"
@@ -620,7 +620,7 @@ struct AssistantBackupsSection: View {
 
         do {
             let (decoded, _): (ManagedBackupsResponse?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/\(assistant.assistantId)/backups"
+                path: "backups"
             )
             guard let decoded else {
                 errorMessage = "Failed to load backups"
@@ -640,7 +640,7 @@ struct AssistantBackupsSection: View {
         defer { isCreatingBackup = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/\(assistant.assistantId)/backups")
+            let response = try await GatewayHTTPClient.post(path: "backups")
             if response.isSuccess {
                 successMessage = "Backup created successfully"
                 await loadManagedBackupsQuietly()
@@ -666,7 +666,7 @@ struct AssistantBackupsSection: View {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/\(assistant.assistantId)/backups/\(backup.snapshotName)/restore"
+                path: "backups/\(backup.snapshotName)/restore"
             )
             if response.isSuccess {
                 successMessage = "Restore initiated. The assistant may be briefly unavailable."
@@ -693,7 +693,7 @@ struct AssistantBackupsSection: View {
             // overload on `GatewayHTTPClient.get<T>` is convenient but its
             // `configure` closure parameter is not `@Sendable`, which conflicts
             // with strict concurrency when called from @MainActor code.
-            let response = try await GatewayHTTPClient.get(path: "backups", timeout: 15)
+            let response = try await GatewayHTTPClient.get(path: "backups", timeout: 15, unprefixed: true)
             guard response.isSuccess else {
                 errorMessage = "Failed to load backups (HTTP \(response.statusCode))"
                 return
@@ -836,7 +836,8 @@ extension AssistantBackupsSection {
             let response = try await GatewayHTTPClient.post(
                 path: "backups/restore",
                 json: ["path": path],
-                timeout: 120
+                timeout: 120,
+                unprefixed: true
             )
             if response.isSuccess {
                 handleRestoreSuccess(message: "Backup restored. Restarting assistant...")
@@ -862,7 +863,8 @@ extension AssistantBackupsSection {
                 path: "migrations/import",
                 body: fileData,
                 contentType: "application/octet-stream",
-                timeout: 3600
+                timeout: 3600,
+                unprefixed: true
             )
 
             if response.isSuccess {

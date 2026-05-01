@@ -44,7 +44,7 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
     // MARK: - Compaction actions (conversation-scoped)
 
     public func forceCompact(conversationId: String) async throws -> CompactionForceResponse {
-        let path = "assistants/{assistantId}/conversations/\(conversationId)/playground/compact"
+        let path = "conversations/\(conversationId)/playground/compact"
         let response = try await GatewayHTTPClient.post(path: path, json: [:], timeout: 120)
         try throwIfUnsuccessful(response, path: path)
         return try JSONDecoder().decode(CompactionForceResponse.self, from: response.data)
@@ -55,7 +55,7 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
         consecutiveFailures: Int?,
         circuitOpenForMs: Int?
     ) async throws {
-        let path = "assistants/{assistantId}/conversations/\(conversationId)/playground/inject-compaction-failures"
+        let path = "conversations/\(conversationId)/playground/inject-compaction-failures"
         let body = InjectFailuresRequest(
             consecutiveFailures: consecutiveFailures,
             circuitOpenForMs: circuitOpenForMs
@@ -69,13 +69,13 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
     }
 
     public func resetCircuit(conversationId: String) async throws {
-        let path = "assistants/{assistantId}/conversations/\(conversationId)/playground/reset-compaction-circuit"
+        let path = "conversations/\(conversationId)/playground/reset-compaction-circuit"
         let response = try await GatewayHTTPClient.post(path: path, json: [:], timeout: 15)
         try throwIfUnsuccessful(response, path: path)
     }
 
     public func getState(conversationId: String) async throws -> CompactionStateResponse {
-        let path = "assistants/{assistantId}/conversations/\(conversationId)/playground/compaction-state"
+        let path = "conversations/\(conversationId)/playground/compaction-state"
         let response = try await GatewayHTTPClient.get(path: path, timeout: 15)
         try throwIfUnsuccessful(response, path: path)
         return try JSONDecoder().decode(CompactionStateResponse.self, from: response.data)
@@ -88,7 +88,7 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
         avgTokensPerTurn: Int?,
         title: String?
     ) async throws -> SeedConversationResponse {
-        let path = "assistants/{assistantId}/playground/seed-conversation"
+        let path = "playground/seed-conversation"
         let body = SeedConversationRequest(
             turns: turns,
             avgTokensPerTurn: avgTokensPerTurn,
@@ -104,21 +104,21 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
     }
 
     public func listSeededConversations() async throws -> SeededConversationsListResponse {
-        let path = "assistants/{assistantId}/playground/seeded-conversations"
+        let path = "playground/seeded-conversations"
         let response = try await GatewayHTTPClient.get(path: path, timeout: 15)
         try throwIfUnsuccessful(response, path: path)
         return try JSONDecoder().decode(SeededConversationsListResponse.self, from: response.data)
     }
 
     public func deleteSeededConversation(id: String) async throws -> DeleteSeededConversationsResponse {
-        let path = "assistants/{assistantId}/playground/seeded-conversations/\(id)"
+        let path = "playground/seeded-conversations/\(id)"
         let response = try await GatewayHTTPClient.delete(path: path, timeout: 15)
         try throwIfUnsuccessful(response, path: path)
         return try JSONDecoder().decode(DeleteSeededConversationsResponse.self, from: response.data)
     }
 
     public func deleteAllSeededConversations() async throws -> DeleteSeededConversationsResponse {
-        let path = "assistants/{assistantId}/playground/seeded-conversations"
+        let path = "playground/seeded-conversations"
         let response = try await GatewayHTTPClient.delete(path: path, timeout: 30)
         try throwIfUnsuccessful(response, path: path)
         return try JSONDecoder().decode(DeleteSeededConversationsResponse.self, from: response.data)

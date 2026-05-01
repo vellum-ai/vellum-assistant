@@ -184,7 +184,7 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
     public convenience init() {
         self.init(
             requestBuilder: {
-                try GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params: nil)
+                try GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params: nil, unprefixed: true)
             },
             webSocketFactory: { request in
                 URLSession.shared.webSocketTask(with: request)

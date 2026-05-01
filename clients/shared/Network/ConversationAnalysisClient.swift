@@ -15,7 +15,7 @@ public struct ConversationAnalysisClient: ConversationAnalysisClientProtocol {
     public func analyzeConversation(conversationId: String) async -> ConversationListResponseItem? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/analyze",
+                path: "conversations/\(conversationId)/analyze",
                 json: [:],
                 timeout: 30
             )

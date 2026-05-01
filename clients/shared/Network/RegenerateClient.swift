@@ -17,7 +17,7 @@ public struct RegenerateClient: RegenerateClientProtocol {
     public func regenerate(conversationId: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/regenerate",
+                path: "conversations/\(conversationId)/regenerate",
                 timeout: 15
             )
             guard response.isSuccess else {

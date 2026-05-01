@@ -155,7 +155,7 @@ public func loadSTTProviderRegistry() -> STTProviderRegistry {
 public func refreshSTTProviderRegistry() async {
     do {
         let (registry, _): (STTProviderRegistry?, GatewayHTTPClient.Response) =
-            try await GatewayHTTPClient.get(path: "assistants/{assistantId}/stt/providers")
+            try await GatewayHTTPClient.get(path: "stt/providers")
         if let registry, !registry.providers.isEmpty {
             cachedSTTProviderRegistry.withLock { $0 = registry }
             log.info("Loaded \(registry.providers.count) STT providers from API")

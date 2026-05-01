@@ -55,7 +55,7 @@ public enum ACPClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/acp/sessions",
+                path: "acp/sessions",
                 params: params,
                 timeout: 15
             )
@@ -90,7 +90,7 @@ public enum ACPClient {
         id: String
     ) async -> Result<Bool, ACPClientError> {
         return await postExpectingAck(
-            path: "assistants/{assistantId}/acp/\(id)/cancel",
+            path: "acp/\(id)/cancel",
             body: [:],
             label: "cancelSession"
         )
@@ -109,7 +109,7 @@ public enum ACPClient {
         instruction: String
     ) async -> Result<Bool, ACPClientError> {
         return await postExpectingAck(
-            path: "assistants/{assistantId}/acp/\(id)/steer",
+            path: "acp/\(id)/steer",
             body: ["instruction": instruction],
             label: "steerSession"
         )
@@ -133,7 +133,7 @@ public enum ACPClient {
         id: String
     ) async -> Result<Bool, ACPClientError> {
         return await deleteExpectingPayload(
-            path: "assistants/{assistantId}/acp/sessions/\(id)",
+            path: "acp/sessions/\(id)",
             timeout: 10,
             as: DeleteSessionResponse.self,
             label: "deleteSession"
@@ -151,7 +151,7 @@ public enum ACPClient {
     ///   `.failure` on transport, decoding, or non-2xx responses.
     public static func clearCompleted() async -> Result<Int, ACPClientError> {
         return await deleteExpectingPayload(
-            path: "assistants/{assistantId}/acp/sessions?status=completed",
+            path: "acp/sessions?status=completed",
             timeout: 15,
             as: ClearCompletedResponse.self,
             label: "clearCompleted"

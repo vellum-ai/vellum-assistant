@@ -95,6 +95,6 @@ public struct InteractionClient: InteractionClientProtocol {
     /// gateway or direct remote runtime) use flat `<endpoint>` paths.
     private static func approvalPath(endpoint: String) throws -> String {
         let managed = try GatewayHTTPClient.isConnectionManaged()
-        return managed ? "assistants/{assistantId}/\(endpoint)" : endpoint
+        return managed ? "\(endpoint)" : endpoint
     }
 }
