@@ -138,14 +138,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "managed-sign-in",
-      "scope": "client",
-      "key": "managed-sign-in",
-      "label": "Managed Sign In",
-      "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": true
-    },
-    {
       "id": "conversation-starters",
       "scope": "assistant",
       "key": "conversation-starters",
