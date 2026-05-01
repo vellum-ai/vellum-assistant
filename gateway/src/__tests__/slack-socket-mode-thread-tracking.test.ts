@@ -201,7 +201,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("tracks app mention thread before slow mentioned-user lookup completes", async () => {
+  test("emits a slow app mention before its immediate thread reply", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -260,20 +260,20 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.source.updateId).toBe("Ev-race-reply");
-      expect(emitted[0].event.message.content).toBe(
-        "following up while lookup is still pending",
-      );
+      expect(emitted).toHaveLength(0);
 
       expect(resolveDelayedMention).toBeDefined();
       resolveDelayedMention!(makeSlackUserResponse());
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
-      expect(emitted[1].event.source.updateId).toBe("Ev-race-mention");
-      expect(emitted[1].event.message.content).toBe(
+      expect(emitted[0].event.source.updateId).toBe("Ev-race-mention");
+      expect(emitted[0].event.message.content).toBe(
         "@Example User can you help here?",
+      );
+      expect(emitted[1].event.source.updateId).toBe("Ev-race-reply");
+      expect(emitted[1].event.message.content).toBe(
+        "following up while lookup is still pending",
       );
     } finally {
       rawDb.close();

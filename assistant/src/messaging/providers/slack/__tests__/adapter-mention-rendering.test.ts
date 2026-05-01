@@ -93,6 +93,29 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
     };
   }
 
+  if (method === "search.messages") {
+    return {
+      ok: true,
+      messages: {
+        total: 1,
+        matches: [
+          {
+            iid: "search-1",
+            ts: "1700000002.000300",
+            text: "Search result for <@ULEO> and <@UMISSING>",
+            user: "USENDER",
+            username: "sender",
+            channel: { id: "C_HISTORY", name: "history" },
+            permalink:
+              "https://example.slack.com/archives/C_HISTORY/p1700000002000300",
+            thread_ts: "1700000000.000100",
+          },
+        ],
+        paging: { count: 20, total: 1, page: 1, pages: 1 },
+      },
+    };
+  }
+
   if (method === "users.info") {
     return fakeUserInfoResponse(parsed.searchParams.get("user") ?? "");
   }
@@ -181,5 +204,23 @@ describe("Slack adapter mention rendering", () => {
       name: "Thread Sender",
     });
     expect(messages[0].threadId).toBe("1700000000.000100");
+  });
+
+  test("search renders Slack user mentions for model-facing text", async () => {
+    const result = await slackProvider.search!(undefined, "from:sender");
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].text).toBe(
+      "Search result for @Leo and @unknown-user",
+    );
+    expect(result.messages[0].sender).toEqual({
+      id: "USENDER",
+      name: "sender",
+    });
+    expect(result.messages[0].metadata).toEqual({
+      permalink:
+        "https://example.slack.com/archives/C_HISTORY/p1700000002000300",
+      channelName: "history",
+    });
   });
 });

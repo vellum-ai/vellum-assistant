@@ -1,4 +1,4 @@
-import { extractSlackUserMentionIds } from "@vellumai/slack-text";
+import { buildSlackUserLabelMap } from "@vellumai/slack-text";
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
@@ -64,6 +64,7 @@ export class SlackSocketModeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
+  private emitQueues: Map<string, Promise<void>> | undefined = new Map();
 
   constructor(
     config: SlackSocketModeConfig,
@@ -602,7 +603,7 @@ export class SlackSocketModeClient {
       }
     }
 
-    void this.normalizeAndEmit(
+    this.enqueueNormalizeAndEmit(
       event,
       eventId,
       isAppMention,
@@ -612,9 +613,7 @@ export class SlackSocketModeClient {
       isMessageChanged,
       isMessageDeleted,
       isDm,
-    ).catch((err) => {
-      log.error({ err, eventId }, "Slack event normalization failed");
-    });
+    );
   }
 
   private extractTextBearingContent(
@@ -644,14 +643,9 @@ export class SlackSocketModeClient {
   private async resolveMentionLabelsForText(
     text: string,
   ): Promise<Record<string, string>> {
-    const ids = extractSlackUserMentionIds(text).filter(
-      (id) => id !== this.config.botUserId,
-    );
-    const uniqueIds = [...new Set(ids)];
-    if (uniqueIds.length === 0) return {};
-
-    const entries = await Promise.all(
-      uniqueIds.map(async (id): Promise<[string, string] | undefined> => {
+    return buildSlackUserLabelMap(
+      [text],
+      async (id): Promise<string | undefined> => {
         const userInfo = await Promise.race([
           resolveSlackUser(id, this.config.botToken),
           new Promise<undefined>((resolve) =>
@@ -659,11 +653,100 @@ export class SlackSocketModeClient {
           ),
         ]);
         if (!userInfo) return undefined;
-        return [id, userInfo.displayName || userInfo.username];
-      }),
+        return userInfo.displayName || userInfo.username;
+      },
+      { ignoredUserIds: [this.config.botUserId] },
     );
+  }
 
-    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+  private enqueueNormalizeAndEmit(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
+    eventId: string,
+    isAppMention: boolean,
+    isActiveThreadReply: boolean,
+    isReactionAdded: boolean,
+    isReactionRemoved: boolean,
+    isMessageChanged: boolean,
+    isMessageDeleted: boolean,
+    isDm: boolean,
+  ): void {
+    const queues = (this.emitQueues ??= new Map());
+    const orderingKey = this.getEventOrderingKey(event, eventId);
+    const previous = queues.get(orderingKey) ?? Promise.resolve();
+    const current = previous
+      .catch(() => undefined)
+      .then(() =>
+        this.normalizeAndEmit(
+          event,
+          eventId,
+          isAppMention,
+          isActiveThreadReply,
+          isReactionAdded,
+          isReactionRemoved,
+          isMessageChanged,
+          isMessageDeleted,
+          isDm,
+        ),
+      );
+
+    queues.set(orderingKey, current);
+    void current
+      .catch((err: unknown) => {
+        log.error({ err, eventId }, "Slack event normalization failed");
+      })
+      .finally(() => {
+        if (queues.get(orderingKey) === current) {
+          queues.delete(orderingKey);
+        }
+      });
+  }
+
+  private getEventOrderingKey(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
+    eventId: string,
+  ): string {
+    if (event.type === "reaction_added" || event.type === "reaction_removed") {
+      const reaction = event as
+        | SlackReactionAddedEvent
+        | SlackReactionRemovedEvent;
+      return `${reaction.item.channel}:${reaction.item.ts}`;
+    }
+
+    if (
+      event.type === "message" &&
+      (event as SlackMessageChangedEvent).subtype === "message_changed"
+    ) {
+      const changed = event as SlackMessageChangedEvent;
+      return `${changed.channel}:${changed.message.thread_ts ?? changed.message.ts ?? eventId}`;
+    }
+
+    if (
+      event.type === "message" &&
+      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
+    ) {
+      const deleted = event as SlackMessageDeletedEvent;
+      return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
+    }
+
+    const message = event as
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent;
+    return `${message.channel}:${message.thread_ts ?? message.ts ?? eventId}`;
   }
 
   private async normalizeAndEmit(
