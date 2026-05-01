@@ -51,7 +51,7 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["command -v rm", RiskLevel.Low],
   ["command -V sudo", RiskLevel.Low],
   ["rm --help", RiskLevel.Low],
-  ["mycustomtool --help", RiskLevel.Low],
+  ["mycustomtool --help", RiskLevel.Medium],
 
   // Medium risk
   ["git push origin main", RiskLevel.Medium],
