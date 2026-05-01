@@ -298,6 +298,13 @@ struct InferenceProfileEditor: View {
             .joined(separator: "-")
     }
 
+    var availableProviderIds: [String] {
+        if store.inferenceMode == "managed" {
+            return store.managedCapableProviders.map(\.id)
+        }
+        return store.dynamicProviderIds
+    }
+
     private var providerField: some View {
         labeled("Provider") {
             VDropdown(
@@ -325,7 +332,7 @@ struct InferenceProfileEditor: View {
                         Self.clampContextWindowForSelectedModel(&profile)
                     }
                 ),
-                options: store.dynamicProviderIds.map { provider in
+                options: availableProviderIds.map { provider in
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
