@@ -41,7 +41,7 @@ struct ImproveExperienceStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         VStack(spacing: 0) {
-            VStack(spacing: VSpacing.sm) {
+            VStack(spacing: 0) {
                 // Usage analytics toggle
                 VToggle(
                     isOn: $collectUsageData,
@@ -50,14 +50,9 @@ struct ImproveExperienceStepView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceLift)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBase, lineWidth: 1)
-                        )
-                )
+
+                Divider()
+                    .background(VColor.surfaceBase)
 
                 // Diagnostics toggle
                 VToggle(
@@ -67,16 +62,11 @@ struct ImproveExperienceStepView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceLift)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBase, lineWidth: 1)
-                        )
-                )
 
-                // Privacy note bar
+                Divider()
+                    .background(VColor.surfaceBase)
+
+                // Privacy note
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.eyeOff, size: 14)
                         .foregroundStyle(VColor.contentTertiary)
@@ -84,19 +74,26 @@ struct ImproveExperienceStepView: View {
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
-                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VColor.surfaceBase)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .padding(.bottom, VSpacing.sm)
-
-                // ToS consent checkbox
-                HStack(spacing: VSpacing.md) {
-                    tosCheckbox
-                    tosConsentText
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.md)
             }
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surfaceLift)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBase, lineWidth: 1)
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .padding(.bottom, VSpacing.sm)
+
+            // ToS consent checkbox
+            HStack(spacing: VSpacing.md) {
+                tosCheckbox
+                tosConsentText
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: VSpacing.sm) {
                 VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
