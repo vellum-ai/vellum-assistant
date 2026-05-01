@@ -40,6 +40,10 @@ function buildWebhookUrls(baseUrl: string): {
 function resolveEffectiveTwilioBaseUrl(
   configFile: ConfigFileCache,
 ): string | undefined {
+  if (configFile.getBoolean("ingress", "enabled", { force: true }) === false) {
+    return undefined;
+  }
+
   const twilioBaseUrl = normalizePublicBaseUrl(
     configFile.getString("ingress", "twilioPublicBaseUrl"),
   );
