@@ -42,14 +42,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "settings-developer-nav",
-      "scope": "assistant",
-      "key": "settings-developer-nav",
-      "label": "Settings Developer Nav",
-      "description": "Control Developer nav visibility in macOS settings",
-      "defaultEnabled": true
-    },
-    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",
