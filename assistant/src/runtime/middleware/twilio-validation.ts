@@ -4,7 +4,7 @@
 
 import { TwilioConversationRelayProvider } from "../../calls/twilio-provider.js";
 import { loadConfig } from "../../config/loader.js";
-import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import { getTwilioPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 
@@ -86,7 +86,7 @@ export async function validateTwilioWebhook(
   // signature.
   let publicBaseUrl: string | undefined;
   try {
-    publicBaseUrl = getPublicBaseUrl(loadConfig());
+    publicBaseUrl = getTwilioPublicBaseUrl(loadConfig());
   } catch {
     // No webhook base URL configured -- fall back to using req.url as-is
   }
