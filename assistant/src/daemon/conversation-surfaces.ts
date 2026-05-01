@@ -1206,7 +1206,11 @@ export async function handleSurfaceAction(
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
+    // Pass conversationId so events without an inline conversationId (e.g.
+    // text_delta) are published with the correct conversation scope and
+    // reach the SSE subscriber filtered to this conversation.
+    const onEvent = (msg: ServerMessage) =>
+      broadcastMessage(msg, ctx.conversationId);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -1440,7 +1444,11 @@ export async function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
+  // Pass conversationId so events without an inline conversationId (e.g.
+  // text_delta) are published with the correct conversation scope and
+  // reach the SSE subscriber filtered to this conversation.
+  const onEvent = (msg: ServerMessage) =>
+    broadcastMessage(msg, ctx.conversationId);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
