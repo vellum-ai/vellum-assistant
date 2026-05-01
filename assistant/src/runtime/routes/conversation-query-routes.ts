@@ -46,7 +46,10 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
-import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "../../daemon/handlers/shared.js";
+import {
+  CONFIG_RELOAD_DEBOUNCE_MS,
+  log,
+} from "../../daemon/handlers/shared.js";
 import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import {

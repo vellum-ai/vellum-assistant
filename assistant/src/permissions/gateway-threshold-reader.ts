@@ -150,7 +150,7 @@ export async function getAutoApproveThreshold(
     }
     // Unexpected value from gateway — default to "none" (Strict).
     log.warn(
-      { executionContext: ctx, value },
+      { field, value },
       "Gateway returned unexpected threshold value, defaulting to none",
     );
     return "none";

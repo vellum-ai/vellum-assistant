@@ -184,6 +184,27 @@ describe("inline-command skill_load permissions", () => {
     });
   });
 
+  // ── Feature flag disabled ────────────────────────────────────────────
+
+  describe("feature flag disabled", () => {
+    test("dynamic skill auto-allows when flag is off (low risk threshold)", async () => {
+      ensureSkillsDir();
+      writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
+
+      // Disable the feature flag
+      _setOverridesForTesting({
+        "inline-skill-commands": false,
+      });
+
+      const result = await check(
+        "skill_load",
+        { skill: "dynamic-flag-off" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("allow");
+    });
+  });
+
   // ── Allowlist options ────────────────────────────────────────────────
 
   describe("allowlist options", () => {
