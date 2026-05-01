@@ -180,16 +180,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // Directories to preserve when clearing the workspace. Derived from the
   // shared WORKSPACE_PRESERVE_PATHS list so the streaming importer's
   // carry-over logic and this in-place clear stay in sync.
-  const WORKSPACE_SKIP_DIRS = new Set<string>();
-  const DATA_SKIP_DIRS = new Set<string>();
-  for (const rel of policy.WORKSPACE_PRESERVE_PATHS) {
-    const parts = rel.split("/");
-    if (parts.length === 1) {
-      WORKSPACE_SKIP_DIRS.add(parts[0]);
-    } else if (parts.length === 2 && parts[0] === "data") {
-      DATA_SKIP_DIRS.add(parts[1]);
-    }
-  }
+  const { topLevelSkipDirs, dataSubdirSkipDirs } =
+    policy.partitionWorkspacePreserveSkipDirs();
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
@@ -207,7 +199,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // "workspace/../../etc/passwd") from triggering a workspace purge while
   // resolving to nothing.
   const hasWorkspaceEntries = manifest.contents.some(
-    (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
+    (f) =>
+      policy.isWorkspaceNamespacedArchivePath(f.path) &&
+      !!pathResolver.resolve(f.path),
   );
 
   // Capture the target's credential metadata BEFORE the workspace clear
@@ -239,7 +233,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       // Clear workspace contents selectively, preserving skip dirs
       const topEntries = readdirSync(workspaceDir, { withFileTypes: true });
       for (const entry of topEntries) {
-        if (WORKSPACE_SKIP_DIRS.has(entry.name)) continue;
+        if (topLevelSkipDirs.has(entry.name)) continue;
 
         const entryPath = join(workspaceDir, entry.name);
         if (entry.name === "data" && entry.isDirectory()) {
@@ -247,7 +241,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           // (critical user data) but clear everything else
           const dataEntries = readdirSync(entryPath, { withFileTypes: true });
           for (const dataEntry of dataEntries) {
-            if (DATA_SKIP_DIRS.has(dataEntry.name)) continue;
+            if (dataSubdirSkipDirs.has(dataEntry.name)) continue;
             rmSync(join(entryPath, dataEntry.name), {
               recursive: true,
               force: true,
@@ -323,7 +317,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     // than clobber — the user has curated their persona since the
     // bundle was exported.
     if (
-      fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+      policy.isLegacyPersonaArchivePath(fileEntry.path) &&
       isGuardianPersonaCustomized(diskPath)
     ) {
       log.warn(
@@ -398,7 +392,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     // Sanitize config files to strip environment-specific fields (defense-in-depth)
     let dataToWrite: Uint8Array = archiveEntry.data;
-    if (CONFIG_ARCHIVE_PATHS.has(fileEntry.path)) {
+    if (policy.isConfigArchivePath(fileEntry.path)) {
       const configJson = new TextDecoder().decode(archiveEntry.data);
       const sanitized = sanitizeConfigForTransfer(configJson);
       dataToWrite = new TextEncoder().encode(sanitized);
@@ -410,7 +404,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     // would wipe them and break the gateway's vellum credential read.
     // We use the snapshot captured BEFORE the workspace clear because
     // Step 1b may have already removed the live file.
-    if (fileEntry.path === policy.CREDENTIAL_METADATA_ARCHIVE_PATH) {
+    if (policy.isCredentialMetadataArchivePath(fileEntry.path)) {
       const bundleJson = new TextDecoder().decode(archiveEntry.data);
       const merged = mergeMetadataPreservingVellum(
         bundleJson,
@@ -496,8 +490,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // run (e.g. workspaceDir unset) the live metadata.json is still on
   // disk untouched — we must not rewrite it here or we would drop the
   // non-vellum entries the caller chose to keep.
-  const bundleHadMetadata = manifest.contents.some(
-    (f) => f.path === policy.CREDENTIAL_METADATA_ARCHIVE_PATH,
+  const bundleHadMetadata = manifest.contents.some((f) =>
+    policy.isCredentialMetadataArchivePath(f.path),
   );
   if (
     workspaceWasCleared &&
