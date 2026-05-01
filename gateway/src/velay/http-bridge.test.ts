@@ -131,14 +131,17 @@ describe("Velay HTTP bridge", () => {
 
   test("converts loopback responses back into Velay response frames", async () => {
     fetchMock = mock(async () => {
+      const headers = new Headers({
+        "content-type": "text/plain",
+        "x-result": "preserved",
+        connection: "keep-alive",
+        "transfer-encoding": "chunked",
+      });
+      headers.append("set-cookie", "session=abc; Path=/; HttpOnly");
+      headers.append("set-cookie", "prefs=dark; Path=/");
       return new Response("created", {
         status: 201,
-        headers: {
-          "content-type": "text/plain",
-          "x-result": "preserved",
-          connection: "keep-alive",
-          "transfer-encoding": "chunked",
-        },
+        headers,
       });
     });
 
@@ -153,6 +156,7 @@ describe("Velay HTTP bridge", () => {
       status_code: 201,
       headers: {
         "content-type": ["text/plain"],
+        "set-cookie": ["session=abc; Path=/; HttpOnly", "prefs=dark; Path=/"],
         "x-result": ["preserved"],
       },
       body_base64: base64("created"),
