@@ -159,7 +159,10 @@ enum APIKeyManager {
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                   let found = json["found"] as? Bool else {
-                return SecretReadResult(found: false, masked: nil)
+                // Non-success HTTP (4xx/5xx) is a server/network error, not a
+                // definitive absence. Mark it so keyStatus(for:) returns nil
+                // rather than false, preventing auto-reset on transient failures.
+                return SecretReadResult(found: false, masked: nil, isNetworkError: !response.isSuccess)
             }
             let masked = json["masked"] as? String
             return SecretReadResult(found: found, masked: masked)

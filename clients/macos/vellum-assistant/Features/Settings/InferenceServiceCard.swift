@@ -73,7 +73,7 @@ struct InferenceServiceCard: View {
     /// provider has a configured API key.
     private var hasUsableProvider: Bool {
         let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
-        let hasConfiguredKey = providerKeyStatuses.values.contains(true as Bool?)
+        let hasConfiguredKey = providerKeyStatuses.values.contains(where: { $0 == true })
         return hasKeylessProvider || hasConfiguredKey
     }
 
@@ -187,11 +187,13 @@ struct InferenceServiceCard: View {
             guard !Task.isCancelled else { return }
             let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
             let isManagedCapable = store.isManagedCapable(draftProvider)
-            // Only auto-reset when key status is definitively false (absent).
-            // nil = not loaded or fetch failed → skip to avoid false positives
-            // from transient daemon errors silently overriding the user's choice.
-            let hasConfiguredKey = providerKeyStatuses[draftProvider] == .some(true)
-            let keyStatusKnown = providerKeyStatuses[draftProvider] != nil
+            // Flatten Bool?? → Bool? so nil-valued entries (fetch error) compare
+            // as truly unknown rather than as a present-but-nil outer optional.
+            // A [String: Bool?] subscript returns Bool?? where .some(.none) means
+            // "key exists in dict, value is nil" — `?? nil` collapses that to nil.
+            let flatStatus = providerKeyStatuses[draftProvider] ?? nil
+            let keyStatusKnown = flatStatus != nil
+            let hasConfiguredKey = flatStatus == true
             if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && keyStatusKnown && !hasConfiguredKey {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
@@ -356,7 +358,7 @@ struct InferenceServiceCard: View {
     /// "API Keys" action button lives in the consolidated `secondaryActionsRow`.
     private var apiKeysSection: some View {
         let configuredProviders = store.providerCatalog
-            .filter { $0.apiKeyPlaceholder != nil && providerKeyStatuses[$0.id] == .some(true) }
+            .filter { $0.apiKeyPlaceholder != nil && (providerKeyStatuses[$0.id] ?? nil) == true }
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Keys")

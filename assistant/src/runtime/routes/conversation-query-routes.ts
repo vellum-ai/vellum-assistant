@@ -375,13 +375,16 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   // Reinitialize providers so the live registry reflects the new config
   // (e.g. a mode flip between managed and your-own). Isolated try/catch so
   // a provider reinit failure doesn't mask the successful config save.
+  // Only advance the config fingerprint on success — if reinit failed, leave
+  // it stale so the watcher can detect the saved config on the next event
+  // and retry provider initialization.
   try {
     await initializeProviders(getConfig());
+    configWatcher.updateFingerprint();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `handlePatchConfig: provider reinit failed: ${message}`);
   }
-  configWatcher.updateFingerprint();
   return { ok: true };
 }
 
