@@ -130,14 +130,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "referral-codes",
-      "scope": "client",
-      "key": "referral-codes",
-      "label": "Referral Codes",
-      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-      "defaultEnabled": true
-    },
-    {
       "id": "managed-sign-in",
       "scope": "client",
       "key": "managed-sign-in",
