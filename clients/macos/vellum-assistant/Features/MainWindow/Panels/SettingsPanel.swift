@@ -33,7 +33,6 @@ enum SettingsTab: String {
     }
 
     static func sidebarTopTabs(
-        billingEnabled: Bool = false,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false
     ) -> [SettingsTab] {
@@ -44,7 +43,7 @@ enum SettingsTab: String {
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
         tabs.append(.sounds)
-        if billingEnabled { tabs.append(.billing) }
+        tabs.append(.billing)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         tabs.append(.schedules)
@@ -89,11 +88,6 @@ struct SettingsPanel: View {
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
-        // Pre-compute the billing flag so the first render already has the
-        // correct tab list in the sidebar nav.
-        let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
-        _isBillingEnabled = State(initialValue: billingEnabled)
-
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
@@ -102,10 +96,7 @@ struct SettingsPanel: View {
         // first instance and leaves the second with .general).
         if let pending = store.pendingSettingsTab {
             // Validate that the deep-linked tab is actually visible before
-            // accepting it. @AppStorage isn't wired to UserDefaults in init,
-            // so read connectedOrgId directly from UserDefaults.
-            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
+            // accepting it.
             // Compaction Playground is deferred until flags load and
             // dev mode can be evaluated by the live sidebar visibility helper.
             // Debug tab is gated to managed assistants; `AppDelegate` publishes
@@ -113,7 +104,6 @@ struct SettingsPanel: View {
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
             var visibleTabs = SettingsTab.sidebarTopTabs(
-                billingEnabled: canShowBilling,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false
             )
@@ -147,13 +137,10 @@ struct SettingsPanel: View {
     /// Re-evaluated after loadFeatureFlags() completes.
     @State private var deferredDeepLinkTab: SettingsTab?
     @State private var hasLoadedFeatureFlags: Bool = false
-    @State private var isBillingEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
     @State private var bootstrapGeneration: Int = 0
-    @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
-    private static let billingFeatureFlagKey = "settings-billing"
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
@@ -223,7 +210,6 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -260,9 +246,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.billingFeatureFlagKey {
-                    isBillingEnabled = enabled
-                } else if key == Self.compactionPlaygroundFeatureFlagKey {
+                if key == Self.compactionPlaygroundFeatureFlagKey {
                     isCompactionPlaygroundEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
@@ -310,7 +294,6 @@ struct SettingsPanel: View {
 
     private var visibleSidebarTopTabs: [SettingsTab] {
         SettingsTab.sidebarTopTabs(
-            billingEnabled: billingVisible,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
         )

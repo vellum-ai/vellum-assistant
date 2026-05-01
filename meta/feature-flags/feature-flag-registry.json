@@ -82,30 +82,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-credential-backend",
-      "scope": "assistant",
-      "key": "ces-credential-backend",
-      "label": "CES Credential Backend",
-      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
-      "id": "referral-codes",
-      "scope": "client",
-      "key": "referral-codes",
-      "label": "Referral Codes",
-      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-      "defaultEnabled": true
-    },
-    {
-      "id": "settings-billing",
-      "scope": "client",
-      "key": "settings-billing",
-      "label": "Billing Settings Tab",
-      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
-      "defaultEnabled": true
-    },
-    {
       "id": "deploy-to-vercel",
       "scope": "assistant",
       "key": "deploy-to-vercel",
@@ -144,30 +120,6 @@
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
       "defaultEnabled": false
-    },
-    {
-      "id": "show-thinking-blocks",
-      "scope": "client",
-      "key": "show-thinking-blocks",
-      "label": "Show Thinking Blocks",
-      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": true
-    },
-    {
-      "id": "inline-skill-commands",
-      "scope": "assistant",
-      "key": "inline-skill-commands",
-      "label": "Inline Skill Command Expansion",
-      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
-      "defaultEnabled": true
-    },
-    {
-      "id": "channel-voice-transcription",
-      "scope": "assistant",
-      "key": "channel-voice-transcription",
-      "label": "Channel Voice Transcription",
-      "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
-      "defaultEnabled": true
     },
     {
       "id": "message-tts",
