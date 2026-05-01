@@ -1922,6 +1922,15 @@ async function main() {
       }
     }
 
+    if (changed.has("twilio")) {
+      syncConfiguredTwilioPhoneNumberWebhooks({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.warn({ err }, "Twilio webhook sync failed after credential change");
+      });
+    }
+
     // Register email callback route with the platform so inbound email
     // webhooks are forwarded to this gateway (same pattern as Telegram).
     // Fires on initial credential load and whenever vellum credentials change
@@ -1973,10 +1982,7 @@ async function main() {
         credentials: credentialCache,
         configFile: configFileCache,
       }).catch((err) => {
-        log.warn(
-          { err },
-          "Twilio webhook sync failed after ingress URL change",
-        );
+        log.warn({ err }, "Twilio webhook sync failed after config change");
       });
     }
 
