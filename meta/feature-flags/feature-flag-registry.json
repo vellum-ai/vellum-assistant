@@ -10,14 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -114,6 +106,7 @@
       "defaultEnabled": true
     },
     {
+<<<<<<< HEAD
       "id": "ces-credential-backend",
       "scope": "assistant",
       "key": "ces-credential-backend",
@@ -127,6 +120,13 @@
       "key": "referral-codes",
       "label": "Referral Codes",
       "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
+=======
+      "id": "settings-billing",
+      "scope": "client",
+      "key": "settings-billing",
+      "label": "Billing Settings Tab",
+      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
+>>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {
@@ -135,14 +135,6 @@
       "key": "managed-sign-in",
       "label": "Managed Sign In",
       "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": true
-    },
-    {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": true
     },
     {
@@ -186,14 +178,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "show-thinking-blocks",
-      "scope": "client",
-      "key": "show-thinking-blocks",
-      "label": "Show Thinking Blocks",
-      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": true
-    },
-    {
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
@@ -224,14 +208,6 @@
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
-    },
-    {
-      "id": "backward-releases",
-      "scope": "assistant",
-      "key": "backward-releases",
-      "label": "Backward Releases",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
     },
     {
       "id": "voice-mode",

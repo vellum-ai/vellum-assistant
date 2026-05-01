@@ -21,7 +21,6 @@ struct SettingsBillingTab: View {
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
-    @State private var isReferralCodesEnabled: Bool = false
     @State private var showEarnCreditsModal: Bool = false
 
     var body: some View {
@@ -37,7 +36,6 @@ struct SettingsBillingTab: View {
             EarnCreditsModal()
         }
         .task {
-            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
@@ -48,13 +46,6 @@ struct SettingsBillingTab: View {
             }
         }
         .background(WindowReader(window: $hostWindow))
-        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-            if let key = notification.userInfo?["key"] as? String,
-               key == "referral-codes",
-               let enabled = notification.userInfo?["enabled"] as? Bool {
-                isReferralCodesEnabled = enabled
-            }
-        }
     }
 
     // MARK: - Balance Card
@@ -63,15 +54,13 @@ struct SettingsBillingTab: View {
         SettingsCard(
             title: "Credit Balance",
             accessory: {
-                if isReferralCodesEnabled {
-                    VButton(
-                        label: "Earn credits",
-                        leftIcon: VIcon.gift.rawValue,
-                        style: .outlined,
-                        size: .compact
-                    ) {
-                        showEarnCreditsModal = true
-                    }
+                VButton(
+                    label: "Earn credits",
+                    leftIcon: VIcon.gift.rawValue,
+                    style: .outlined,
+                    size: .compact
+                ) {
+                    showEarnCreditsModal = true
                 }
             }
         ) {
