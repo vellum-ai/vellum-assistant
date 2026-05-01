@@ -6,27 +6,13 @@
  * is passed to a getter, or when `refreshNow()` is called explicitly.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { getWorkspaceDir } from "./credential-reader.js";
+import { readConfigFileOrEmpty } from "./config-file-utils.js";
 
 const DEFAULT_TTL_MS = 1000;
 
 type ReadOptions = {
   force?: boolean;
 };
-
-function readConfigFile(path: string): Record<string, unknown> {
-  try {
-    if (!existsSync(path)) return {};
-    const raw = readFileSync(path, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-    return data as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
 
 /**
  * Iterate entries and keep only those whose value is a non-empty,
@@ -48,21 +34,19 @@ function normalizeRecord(raw: unknown): Record<string, string> | undefined {
 
 export class ConfigFileCache {
   private ttlMs: number;
-  private configPath: string;
   private snapshot: Record<string, unknown> = {};
   private lastReadAt = 0;
   private invalidateCallbacks: Set<() => void> = new Set();
 
   constructor(opts?: { ttlMs?: number }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
-    this.configPath = join(getWorkspaceDir(), "config.json");
   }
 
   /** Read the config file if the cached snapshot is stale or force is set. */
   private ensureFresh(opts?: ReadOptions): void {
     const now = Date.now();
     if (opts?.force || now - this.lastReadAt >= this.ttlMs) {
-      this.snapshot = readConfigFile(this.configPath);
+      this.snapshot = readConfigFileOrEmpty();
       this.lastReadAt = Date.now();
     }
   }
@@ -121,7 +105,7 @@ export class ConfigFileCache {
 
   /** Immediately re-read config.json, updating the cached snapshot. */
   refreshNow(): void {
-    this.snapshot = readConfigFile(this.configPath);
+    this.snapshot = readConfigFileOrEmpty();
     this.lastReadAt = Date.now();
   }
 

@@ -3,15 +3,18 @@
  * Uses the same fs.watch() + debounce pattern as CredentialWatcher.
  */
 
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, watch, type FSWatcher } from "node:fs";
+import { dirname } from "node:path";
+import {
+  CONFIG_FILENAME,
+  getConfigPath,
+  readConfigFileOrEmpty,
+} from "./config-file-utils.js";
 import { getLogger } from "./logger.js";
-import { getWorkspaceDir } from "./credential-reader.js";
 
 const log = getLogger("config-file-watcher");
 
 const DEBOUNCE_MS = 500;
-const CONFIG_FILENAME = "config.json";
 
 export type ConfigChangeEvent = {
   /** Full parsed config.json data. */
@@ -26,25 +29,6 @@ export type ConfigChangeEvent = {
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
-
-function getConfigPath(): string {
-  return join(getWorkspaceDir(), CONFIG_FILENAME);
-}
-
-function readConfigFile(path: string): Record<string, unknown> {
-  try {
-    if (!existsSync(path)) return {};
-
-    const raw = readFileSync(path, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-
-    return data as Record<string, unknown>;
-  } catch (err) {
-    log.debug({ err }, "Failed to read config file");
-    return {};
-  }
-}
 
 export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
@@ -140,7 +124,11 @@ export class ConfigFileWatcher {
   }
 
   private pollOnce(): void {
-    const data = readConfigFile(this.configPath);
+    const data = readConfigFileOrEmpty({
+      onMalformed: (detail) => {
+        log.debug({ err: detail }, "Failed to read config file");
+      },
+    });
 
     const changedKeys = new Set<string>();
     const changedFields = new Map<string, Set<string>>();

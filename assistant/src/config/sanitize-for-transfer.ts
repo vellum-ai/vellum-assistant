@@ -1,3 +1,8 @@
+import {
+  TWILIO_PUBLIC_BASE_URL_FIELD,
+  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 /**
  * Strips environment-specific fields from config JSON before transferring
  * between local and platform environments (teleport/restore).
@@ -43,8 +48,8 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     const ingress = config.ingress as Record<string, unknown>;
     ingress.publicBaseUrl = "";
     delete ingress.enabled;
-    delete ingress.twilioPublicBaseUrl;
-    delete ingress.twilioPublicBaseUrlManagedBy;
+    delete ingress[TWILIO_PUBLIC_BASE_URL_FIELD];
+    delete ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD];
   }
 
   // Strip daemon entirely

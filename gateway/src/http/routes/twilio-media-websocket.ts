@@ -1,4 +1,5 @@
 import { buildWsUpstreamUrl } from "@vellumai/assistant-client";
+import { TWILIO_MEDIA_STREAM_WEBHOOK_PATH } from "@vellumai/service-contracts/twilio-ingress";
 
 import {
   validateEdgeToken,
@@ -12,9 +13,6 @@ const log = getLogger("twilio-media-ws");
 
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
-
-/** Path prefix for media-stream WS upgrades. */
-const MEDIA_STREAM_PATH_PREFIX = "/webhooks/twilio/media-stream";
 
 type MediaStreamSocketData = {
   wsType: "twilio-media-stream";
@@ -44,8 +42,10 @@ export function extractMediaStreamMetadata(url: URL): {
 } {
   // Try path-based extraction first.
   // Expected pathname: /webhooks/twilio/media-stream/<callSessionId>[/<token>]
-  if (url.pathname.startsWith(MEDIA_STREAM_PATH_PREFIX + "/")) {
-    const suffix = url.pathname.slice(MEDIA_STREAM_PATH_PREFIX.length + 1);
+  if (url.pathname.startsWith(TWILIO_MEDIA_STREAM_WEBHOOK_PATH + "/")) {
+    const suffix = url.pathname.slice(
+      TWILIO_MEDIA_STREAM_WEBHOOK_PATH.length + 1,
+    );
     const segments = suffix.split("/").filter(Boolean);
     if (segments.length >= 1) {
       try {
