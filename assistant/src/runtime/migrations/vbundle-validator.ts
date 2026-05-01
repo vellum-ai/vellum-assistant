@@ -14,6 +14,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { z } from "zod";
@@ -202,6 +203,9 @@ export interface VBundleTarEntry {
   name: string;
   data: Uint8Array;
   size: number;
+  /** Set when the tar entry is typeflag-2 (symlink); carries the link target
+   *  decoded from the ustar linkname field. */
+  linkname?: string;
 }
 
 export interface VBundleValidationResult {
@@ -221,6 +225,9 @@ interface TarEntry {
   name: string;
   data: Uint8Array;
   size: number;
+  /** Set when the tar entry is typeflag-2 (symlink); carries the link target
+   *  decoded from the ustar linkname field. */
+  linkname?: string;
 }
 
 /**
@@ -279,6 +286,20 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
       if (pathMatch) {
         longName = pathMatch[1];
       }
+      offset = dataStart + dataBlocks * BLOCK_SIZE;
+      continue;
+    }
+
+    // Symlink (type '2') — empty body regardless of declared size; the link
+    // target lives in the ustar linkname field (157..256).
+    if (typeFlag === "2") {
+      const linkname = decodeNullTerminated(header, 157, 100);
+      entries.push({
+        name: normalizePath(name),
+        data: new Uint8Array(0),
+        size: 0,
+        linkname,
+      });
       offset = dataStart + dataBlocks * BLOCK_SIZE;
       continue;
     }
@@ -505,6 +526,75 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
       errors.push({
         code: "MISSING_DECLARED_FILE",
         message: `File declared in manifest not found in archive: ${fileEntry.path}`,
+        path: fileEntry.path,
+      });
+      continue;
+    }
+
+    if (fileEntry.link_target !== undefined) {
+      // Symlink branch: typeflag agreement, linkname agreement, sha over the
+      // link target string, size==0 on both sides, and path-traversal rejection.
+      if (archiveEntry.linkname === undefined) {
+        errors.push({
+          code: "SYMLINK_TYPEFLAG_MISMATCH",
+          message: `Manifest declares symlink for ${fileEntry.path} but tar entry is not typeflag-2`,
+          path: fileEntry.path,
+        });
+        continue;
+      }
+
+      if (archiveEntry.linkname !== fileEntry.link_target) {
+        errors.push({
+          code: "LINK_TARGET_MISMATCH",
+          message: `Symlink linkname mismatch for ${fileEntry.path}: manifest declares "${fileEntry.link_target}", tar carries "${archiveEntry.linkname}"`,
+          path: fileEntry.path,
+        });
+        continue;
+      }
+
+      if (archiveEntry.size !== 0) {
+        errors.push({
+          code: "FILE_SIZE_MISMATCH",
+          message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size_bytes} bytes, archive has ${archiveEntry.size} bytes`,
+          path: fileEntry.path,
+        });
+      }
+
+      if (fileEntry.size_bytes !== 0) {
+        errors.push({
+          code: "FILE_SIZE_MISMATCH",
+          message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size_bytes} bytes, archive has ${archiveEntry.size} bytes`,
+          path: fileEntry.path,
+        });
+      }
+
+      const expected = sha256Hex(fileEntry.link_target);
+      if (expected !== fileEntry.sha256) {
+        errors.push({
+          code: "FILE_CHECKSUM_MISMATCH",
+          message: `Checksum mismatch for ${fileEntry.path}: expected ${fileEntry.sha256}, computed ${expected}`,
+          path: fileEntry.path,
+        });
+      }
+
+      const normalized = posix.normalize(
+        posix.join(posix.dirname(fileEntry.path), fileEntry.link_target),
+      );
+      if (normalized.startsWith("../") || normalized === "..") {
+        errors.push({
+          code: "SYMLINK_TARGET_ESCAPES_ARCHIVE",
+          message: `Symlink target escapes archive root for ${fileEntry.path}: target=${fileEntry.link_target}, normalized=${normalized}`,
+          path: fileEntry.path,
+        });
+      }
+      continue;
+    }
+
+    if (archiveEntry.linkname !== undefined) {
+      // Tar carries a typeflag-2 entry but manifest declares a regular file.
+      errors.push({
+        code: "SYMLINK_NOT_DECLARED",
+        message: `Tar entry ${fileEntry.path} is typeflag-2 but manifest does not declare link_target`,
         path: fileEntry.path,
       });
       continue;

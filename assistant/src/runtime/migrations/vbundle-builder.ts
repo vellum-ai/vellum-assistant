@@ -247,7 +247,11 @@ function createPaxPathEntry(name: string): Uint8Array {
   return result;
 }
 
-function createTarEntry(name: string, data: Uint8Array): Uint8Array {
+function createTarEntry(
+  name: string,
+  data: Uint8Array,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
 
@@ -255,6 +259,14 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   // so that the full path is preserved in the archive.
   const needsPax = nameBytes.length > 100;
   const paxEntry = needsPax ? createPaxPathEntry(name) : null;
+
+  const isSymlink = linkTarget !== undefined;
+  const linkTargetBytes = isSymlink ? encoder.encode(linkTarget) : null;
+  if (linkTargetBytes && linkTargetBytes.length > 100) {
+    throw new Error(
+      `Symlink target "${linkTarget}" is ${linkTargetBytes.length} bytes, exceeding the ustar linkname-field 100-byte limit. The walker should guard against this case before calling createTarEntry.`,
+    );
+  }
 
   const header = new Uint8Array(BLOCK_SIZE);
 
@@ -270,14 +282,19 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   // Group ID (116-123)
   writeOctal(header, 116, 8, 0);
 
-  // File size (124-135)
-  writeOctal(header, 124, 12, data.length);
+  // File size (124-135) — symlink entries always carry size 0
+  writeOctal(header, 124, 12, isSymlink ? 0 : data.length);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
 
-  // Type flag (156): regular file
-  header[156] = "0".charCodeAt(0);
+  // Type flag (156): regular file ("0") or symlink ("2")
+  header[156] = (isSymlink ? "2" : "0").charCodeAt(0);
+
+  // Linkname (157-256) — only set for symlinks; null-padded by default
+  if (linkTargetBytes) {
+    header.set(linkTargetBytes, 157);
+  }
 
   // USTAR magic (257-262)
   const magic = encoder.encode("ustar\0");
@@ -287,16 +304,22 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   header[263] = "0".charCodeAt(0);
   header[264] = "0".charCodeAt(0);
 
-  // Compute and write checksum (148-155)
+  // Compute and write checksum (148-155) — must be last so the linkname
+  // (and every other field) contributes to the sum.
   const checksum = computeHeaderChecksum(header);
   writeOctal(header, 148, 7, checksum);
   header[155] = 0x20; // trailing space
 
-  // Combine header + padded data
-  const paddedData = padToBlock(data);
-  const fileEntry = new Uint8Array(header.length + paddedData.length);
-  fileEntry.set(header, 0);
-  fileEntry.set(paddedData, header.length);
+  // Symlink entries are header-only — no body, no padding.
+  const fileEntry = isSymlink
+    ? header
+    : (() => {
+        const paddedData = padToBlock(data);
+        const combined = new Uint8Array(header.length + paddedData.length);
+        combined.set(header, 0);
+        combined.set(paddedData, header.length);
+        return combined;
+      })();
 
   if (paxEntry) {
     const result = new Uint8Array(paxEntry.length + fileEntry.length);
@@ -309,11 +332,11 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
 }
 
 function createTarArchive(
-  entries: Array<{ name: string; data: Uint8Array }>,
+  entries: Array<{ name: string; data: Uint8Array; linkTarget?: string }>,
 ): Uint8Array {
   const parts: Uint8Array[] = [];
   for (const entry of entries) {
-    parts.push(createTarEntry(entry.name, entry.data));
+    parts.push(createTarEntry(entry.name, entry.data, entry.linkTarget));
   }
   // End-of-archive: two zero blocks
   parts.push(new Uint8Array(BLOCK_SIZE * 2));
@@ -387,12 +410,22 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
     secretsRedacted,
   } = options;
 
-  // Build file entries for the manifest
-  const fileEntries: ManifestFileEntryType[] = files.map((f) => ({
-    path: f.path,
-    sha256: sha256Hex(f.data),
-    size_bytes: f.data.length,
-  }));
+  // Build file entries for the manifest. Symlink entries hash the link target
+  // string (not the empty data buffer) and declare size_bytes: 0.
+  const fileEntries: ManifestFileEntryType[] = files.map((f) =>
+    f.linkTarget !== undefined
+      ? {
+          path: f.path,
+          sha256: sha256Hex(f.linkTarget),
+          size_bytes: 0,
+          link_target: f.linkTarget,
+        }
+      : {
+          path: f.path,
+          sha256: sha256Hex(f.data),
+          size_bytes: f.data.length,
+        },
+  );
 
   const { manifest, manifestData } = buildManifestObject({
     contents: fileEntries,
@@ -404,10 +437,16 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
     now: new Date(),
   });
 
-  // Build tar entries: manifest first, then all files
+  // Build tar entries: manifest first, then all files. Symlink entries forward
+  // `linkTarget` so createTarEntry emits a typeflag-2 header; `data` is unused
+  // in that branch but must still be a valid Uint8Array.
   const tarEntries = [
     { name: "manifest.json", data: manifestData },
-    ...files.map((f) => ({ name: f.path, data: f.data })),
+    ...files.map((f) =>
+      f.linkTarget !== undefined
+        ? { name: f.path, data: new Uint8Array(0), linkTarget: f.linkTarget }
+        : { name: f.path, data: f.data },
+    ),
   ];
 
   const tar = createTarArchive(tarEntries);
