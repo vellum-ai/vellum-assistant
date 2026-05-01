@@ -6,7 +6,7 @@
  */
 
 import {
-  extractSlackUserMentionIds,
+  buildSlackUserLabelMap,
   renderSlackTextForModel,
 } from "@vellumai/slack-text";
 
@@ -253,12 +253,15 @@ function mapMessage(
   };
 }
 
-function mapSearchMatch(match: SlackSearchMatch): Message {
+function mapSearchMatch(
+  match: SlackSearchMatch,
+  userLabels: Record<string, string>,
+): Message {
   return {
     id: match.ts,
     conversationId: match.channel.id,
     sender: { id: match.user ?? "unknown", name: match.username ?? "unknown" },
-    text: match.text,
+    text: renderSlackTextForModel(match.text, { userLabels }),
     timestamp: parseFloat(match.ts) * 1000,
     threadId: match.thread_ts,
     platform: "slack",
@@ -291,29 +294,21 @@ async function buildMentionUserLabels(
   auth: OAuthConnection | string,
   slackMessages: SlackMessage[],
 ): Promise<Record<string, string>> {
-  const mentionUserIds = [
-    ...new Set(
-      slackMessages.flatMap((msg) => extractSlackUserMentionIds(msg.text)),
-    ),
-  ];
-  if (mentionUserIds.length === 0) return {};
-
-  const userLabels: Record<string, string> = {};
-
-  await Promise.all(
-    mentionUserIds.map(async (userId) => {
-      try {
-        const label = await resolveUserName(auth, userId);
-        if (label && label !== userId) {
-          userLabels[userId] = label;
-        }
-      } catch {
-        // Leave unresolved mentions out so the renderer uses @unknown-user.
-      }
-    }),
+  return buildSlackUserLabelMap(
+    slackMessages.map((msg) => msg.text),
+    (userId) => resolveUserName(auth, userId),
   );
+}
 
-  return userLabels;
+async function mapSearchMatches(
+  auth: OAuthConnection | string,
+  matches: SlackSearchMatch[],
+): Promise<Message[]> {
+  const userLabels = await buildSlackUserLabelMap(
+    matches.map((match) => match.text),
+    (userId) => resolveUserName(auth, userId),
+  );
+  return matches.map((match) => mapSearchMatch(match, userLabels));
 }
 
 export const slackProvider: MessagingProvider = {
@@ -487,12 +482,14 @@ export const slackProvider: MessagingProvider = {
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult> {
-    const resp = await runReadWithFallback(connection, (auth) =>
-      slack.searchMessages(auth, query, options?.count ?? 20),
-    );
+    let auth: OAuthConnection | string = getReadAuth(connection);
+    const resp = await runReadWithFallback(connection, async (a) => {
+      auth = a;
+      return slack.searchMessages(a, query, options?.count ?? 20);
+    });
     return {
       total: resp.messages.total,
-      messages: resp.messages.matches.map(mapSearchMatch),
+      messages: await mapSearchMatches(auth, resp.messages.matches),
       hasMore: resp.messages.paging.page < resp.messages.paging.pages,
     };
   },

@@ -5,6 +5,10 @@ export interface RenderSlackTextOptions {
   channelFallbackLabel?: string;
 }
 
+export interface BuildSlackUserLabelMapOptions {
+  ignoredUserIds?: Iterable<string | undefined>;
+}
+
 const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)>/g;
 const LEADING_SLACK_USER_MENTION_RE = /^\s*<@[UW][A-Z0-9]+>\s*/;
 
@@ -25,7 +29,7 @@ export function extractSlackUserMentionIds(text: string): string[] {
 
 export function stripLeadingSlackUserMention(
   text: string,
-  userId: string,
+  userId: string
 ): string {
   if (!isSlackUserId(userId)) {
     return text;
@@ -49,7 +53,7 @@ export function stripLeadingSlackMentionFallback(text: string): string {
 
 export function renderSlackTextForModel(
   text: string,
-  options: RenderSlackTextOptions = {},
+  options: RenderSlackTextOptions = {}
 ): string {
   return text.replace(/<([^<>\s][^<>]*)>/g, (token, content: string) => {
     if (content.startsWith("@")) {
@@ -72,9 +76,51 @@ export function renderSlackTextForModel(
   });
 }
 
+export async function buildSlackUserLabelMap(
+  texts: Iterable<string | undefined>,
+  resolveLabel: (userId: string) => Promise<string | undefined | null>,
+  options: BuildSlackUserLabelMapOptions = {}
+): Promise<Record<string, string>> {
+  const ignored = new Set(
+    [...(options.ignoredUserIds ?? [])].filter(
+      (id): id is string => typeof id === "string" && id.length > 0
+    )
+  );
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const text of texts) {
+    if (!text) continue;
+    for (const id of extractSlackUserMentionIds(text)) {
+      if (ignored.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+
+  if (ids.length === 0) return {};
+
+  const entries = await Promise.all(
+    ids.map(
+      async (id): Promise<[string, string] | undefined> => {
+        try {
+          const label = await resolveLabel(id);
+          const sanitized = sanitizeOptionalLabel(label ?? undefined);
+          if (!sanitized || sanitized === id) return undefined;
+          return [id, sanitized];
+        } catch {
+          return undefined;
+        }
+      }
+    )
+  );
+
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+}
+
 function renderUserMention(
   content: string,
-  options: RenderSlackTextOptions,
+  options: RenderSlackTextOptions
 ): string {
   const id = content.slice(1);
   if (!isSlackUserId(id)) {
@@ -83,16 +129,22 @@ function renderUserMention(
 
   const fallback = sanitizeLabel(options.userFallbackLabel, "unknown-user");
   const label = sanitizeLabel(options.userLabels?.[id], fallback);
+  if (label === id) {
+    return `@${fallback}`;
+  }
   return `@${label}`;
 }
 
 function renderChannelReference(
   content: string,
-  options: RenderSlackTextOptions,
+  options: RenderSlackTextOptions
 ): string {
   const [idWithPrefix, label] = splitSlackLabel(content);
   const channelId = idWithPrefix.slice(1);
-  const fallback = sanitizeLabel(options.channelFallbackLabel, "unknown-channel");
+  const fallback = sanitizeLabel(
+    options.channelFallbackLabel,
+    "unknown-channel"
+  );
   const resolvedLabel = label ?? options.channelLabels?.[channelId];
   return `#${sanitizeLabel(resolvedLabel, fallback)}`;
 }
@@ -129,10 +181,7 @@ function splitSlackLabel(content: string): [string, string | undefined] {
     return [content, undefined];
   }
 
-  return [
-    content.slice(0, separatorIndex),
-    content.slice(separatorIndex + 1),
-  ];
+  return [content.slice(0, separatorIndex), content.slice(separatorIndex + 1)];
 }
 
 function sanitizeLabel(label: string | undefined, fallback: string): string {
@@ -155,6 +204,15 @@ function sanitizeLabel(label: string | undefined, fallback: string): string {
     .trim();
 
   return sanitizedFallback || "unknown";
+}
+
+function sanitizeOptionalLabel(label: string | undefined): string | undefined {
+  return label
+    ?.replace(/[<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[@#]+/, "")
+    .trim();
 }
 
 function stripLeadingExactToken(text: string, token: string): string {
