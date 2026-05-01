@@ -468,6 +468,7 @@ export async function hatchAssistant(
     method: "POST",
     headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({}),
+    signal: AbortSignal.timeout(300_000),
   });
 
   if (response.ok) {
