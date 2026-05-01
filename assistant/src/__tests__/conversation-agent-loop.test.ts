@@ -950,6 +950,140 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("llm_call_started / llm_call_finished trace coherence", () => {
+    // Regression: the started event was emitted by emitLlmCallStartedIfNeeded
+    // using deps.ctx.provider.name (the default), while the finished event used
+    // event.actualProvider. For routed calls (e.g. gpt-5.5 via openai from an
+    // anthropic-default conversation) this caused started="anthropic" /
+    // finished="openai". The fix passes providerName explicitly from handleUsage
+    // so both events always agree, even when text_delta never fires (tool-only).
+
+    test("started and finished use the same provider name for a streaming response", async () => {
+      // In the real routing scenario, text_delta fires while
+      // CallSiteRoutingProvider._routedProviderName is set to the active
+      // transport (covered by call-site-routing-provider.test.ts). Here we
+      // verify the loop wiring: when text_delta fires before usage, the started
+      // event reflects the provider that will also appear on finished.
+      const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
+        [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({ type: "text_delta", text: "Hi." });
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          model: "gpt-5.5-2026-04-23",
+          actualProvider: "openai",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        // Provider name matches actualProvider so both paths agree.
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+        traceEmitter: {
+          emit: (event: string, label: string, payload: { attributes?: Record<string, unknown> }) => {
+            if (event === "llm_call_started" || event === "llm_call_finished") {
+              traceEvents.push({ label, attrs: payload.attributes ?? {} });
+            }
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const started = traceEvents.find((e) => e.label.startsWith("LLM call to") && !e.label.endsWith("finished"));
+      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
+
+      expect(started).toBeDefined();
+      expect(finished).toBeDefined();
+      expect(started!.attrs["provider"]).toBe("openai");
+      expect(finished!.attrs["provider"]).toBe("openai");
+    });
+
+    test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
+      // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
+      // fires as a fallback inside handleUsage *after* _routedProviderName has
+      // been cleared. Without passing providerName explicitly it would say "anthropic".
+      const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
+        [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // No text_delta — pure tool-call response
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          model: "gpt-5.5-2026-04-23",
+          actualProvider: "openai",
+          providerDurationMs: 100,
+        });
+        return messages;
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "anthropic",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+        traceEmitter: {
+          emit: (event: string, label: string, payload: { attributes?: Record<string, unknown> }) => {
+            if (event === "llm_call_started" || event === "llm_call_finished") {
+              traceEvents.push({ label, attrs: payload.attributes ?? {} });
+            }
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const started = traceEvents.find((e) => e.label.startsWith("LLM call to") && !e.label.endsWith("finished"));
+      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
+
+      expect(started).toBeDefined();
+      expect(finished).toBeDefined();
+      expect(started!.attrs["provider"]).toBe("openai");
+      expect(finished!.attrs["provider"]).toBe("openai");
+    });
+  });
+
   describe("usage accounting", () => {
     test("records the actual provider for usage accounting", async () => {
       const events: ServerMessage[] = [];

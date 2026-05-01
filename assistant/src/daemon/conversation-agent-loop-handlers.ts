@@ -233,20 +233,31 @@ export function createEventHandlerState(): EventHandlerState {
 
 // ── Shared Helper ────────────────────────────────────────────────────
 
+// providerNameOverride should be supplied when the caller already knows the
+// resolved provider name (e.g. handleUsage, which has event.actualProvider).
+// When called during streaming (text_delta / thinking_delta) the override is
+// omitted and provider.name is used — the CallSiteRoutingProvider getter
+// returns the active transport name during sendMessage, so they agree.
+// Passing the override from handleUsage guarantees started/finished never
+// disagree even for tool-call-only responses where text_delta never fires
+// (and therefore the started event would otherwise fall back here *after*
+// _routedProviderName has already been cleared in the finally block).
 function emitLlmCallStartedIfNeeded(
   state: EventHandlerState,
   deps: EventHandlerDeps,
+  providerNameOverride?: string,
 ): void {
   if (state.llmCallStartedEmitted) return;
   state.llmCallStartedEmitted = true;
+  const providerName = providerNameOverride ?? deps.ctx.provider.name;
   deps.ctx.traceEmitter.emit(
     "llm_call_started",
-    `LLM call to ${deps.ctx.provider.name}`,
+    `LLM call to ${providerName}`,
     {
       requestId: deps.reqId,
       status: "info",
       attributes: {
-        provider: deps.ctx.provider.name,
+        provider: providerName,
         model: state.model || "unknown",
       },
     },
@@ -1052,7 +1063,9 @@ function handleUsage(
     }
   }
 
-  emitLlmCallStartedIfNeeded(state, deps);
+  // Pass providerName so that if text_delta never fired (tool-call-only
+  // responses), the started event uses the same resolved name as finished.
+  emitLlmCallStartedIfNeeded(state, deps, providerName);
 
   deps.ctx.traceEmitter.emit(
     "llm_call_finished",
