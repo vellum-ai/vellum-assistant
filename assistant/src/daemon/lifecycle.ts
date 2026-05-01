@@ -6,7 +6,6 @@ import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import { startBackupWorker } from "../backup/backup-worker.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
@@ -980,7 +979,6 @@ export async function runDaemon(): Promise<void> {
     });
     try {
       await runtimeHttp.start();
-      setRelayBroadcast((msg) => broadcastMessage(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
           const conversation =

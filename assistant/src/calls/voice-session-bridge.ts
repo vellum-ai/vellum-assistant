@@ -5,9 +5,8 @@
  * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
  *
- * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
- * dependencies at startup via `setVoiceBridgeDeps()`.
+ * Dependency injection follows a module-level setter pattern: the daemon
+ * lifecycle injects dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
@@ -273,8 +272,8 @@ function buildVoiceCallControlPrompt(opts: {
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
- * The caller (CallController via relay-server) can use the returned handle
- * to cancel the turn on barge-in.
+ * The caller (CallController) can use the returned handle to cancel the
+ * turn on barge-in.
  */
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
@@ -615,8 +614,8 @@ export async function startVoiceTurn(
     }
   };
 
-  // If the caller provided an external AbortSignal (e.g. from a
-  // RelayConnection's AbortController), wire it to the turn's abort.
+  // If the caller provided an external AbortSignal, wire it to the
+  // turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
       abortFn();

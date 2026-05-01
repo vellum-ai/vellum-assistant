@@ -132,7 +132,7 @@ export function resolveCallHints(
 ): string {
   const assistantName = getAssistantName();
 
-  // Look up the guardian contact for a displayName fallback (mirrors relay-server pattern)
+  // Look up the guardian contact for a displayName fallback
   let guardianDisplayName: string | undefined;
   try {
     const voiceGuardian = findGuardianForChannel("phone");

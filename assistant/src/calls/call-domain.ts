@@ -39,7 +39,6 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
-import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
@@ -670,14 +669,6 @@ export async function cancelCall(
         "Failed to terminate call via provider API — proceeding with cleanup",
       );
     }
-  }
-
-  // End the relay connection if active
-  const relayConnection = activeRelayConnections.get(callSessionId);
-  if (relayConnection) {
-    relayConnection.endSession(reason);
-    relayConnection.destroy();
-    activeRelayConnections.delete(callSessionId);
   }
 
   // End the media-stream session if active

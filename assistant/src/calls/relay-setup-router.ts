@@ -1,5 +1,5 @@
 /**
- * Pure routing logic extracted from RelayConnection.handleSetup.
+ * Pure routing logic for call setup.
  *
  * Given a setup context (call session, actor trust, voice config, ACL policy),
  * returns a discriminated union describing what the relay connection should do
@@ -74,8 +74,7 @@ export interface SetupResolved {
  *
  * This function is pure routing logic — it reads state but performs no
  * side effects (no call-session mutations, no event recording, no WS
- * messages). The caller (`RelayConnection.handleSetup`) is responsible
- * for acting on the returned outcome.
+ * messages). The caller is responsible for acting on the returned outcome.
  */
 export function routeSetup(ctx: SetupContext): {
   outcome: SetupOutcome;

@@ -2,9 +2,9 @@
  * Transport interface consumed by CallController for sending voice output
  * and controlling call lifecycle.
  *
- * Decouples the controller from any specific wire protocol (e.g.
- * ConversationRelay) so that alternative transports (media-stream, etc.)
- * can be introduced without modifying controller logic.
+ * Decouples the controller from any specific wire protocol so that
+ * alternative transports (media-stream, Vellum server, etc.) can be
+ * introduced without modifying controller logic.
  */
 
 // ── Transport interface ──────────────────────────────────────────────
@@ -45,33 +45,4 @@ export interface CallTransport {
    * WAV from TTS providers and the audio store.
    */
   readonly requiresWavAudio?: boolean;
-}
-
-// ── ConversationRelay adapter ────────────────────────────────────────
-
-import type { RelayConnection } from "./relay-server.js";
-
-/**
- * Adapts a RelayConnection (Twilio ConversationRelay WebSocket) to the
- * CallTransport interface. All calls are forwarded 1:1 — no behavioral
- * changes from the pre-abstraction path.
- */
-export class ConversationRelayTransport implements CallTransport {
-  constructor(private relay: RelayConnection) {}
-
-  sendTextToken(token: string, last: boolean): void {
-    this.relay.sendTextToken(token, last);
-  }
-
-  sendPlayUrl(url: string): void {
-    this.relay.sendPlayUrl(url);
-  }
-
-  endSession(reason?: string): void {
-    this.relay.endSession(reason);
-  }
-
-  getConnectionState(): string {
-    return this.relay.getConnectionState();
-  }
 }

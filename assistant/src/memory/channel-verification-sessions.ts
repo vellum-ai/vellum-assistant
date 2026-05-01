@@ -217,8 +217,8 @@ export function findPendingSessionByHash(
 
 /**
  * Find any pending inbound (non-expired) session for a given channel.
- * Scoped to 'pending' status only — this is the inbound verification path used by
- * the relay-server to gate incoming voice calls. Outbound session states
+ * Scoped to 'pending' status only — this is the inbound verification path used to
+ * gate incoming voice calls. Outbound session states
  * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
  * verification does not inadvertently force unrelated inbound callers into the
  * verification flow.
