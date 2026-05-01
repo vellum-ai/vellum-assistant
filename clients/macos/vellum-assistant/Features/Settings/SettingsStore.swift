@@ -4496,6 +4496,14 @@ public final class SettingsStore: ObservableObject {
     /// latest daemon config so persisted overrides are merged into the newly
     /// fetched display metadata.
     func ensureCallSiteCatalogLoaded(force: Bool = false) async {
+        // Snapshot before the async fetch so we know whether the catalog was
+        // already populated. When `force` is false and the catalog is already
+        // loaded, `ensureLoaded` returns immediately without hitting the
+        // network — in that case we must NOT call `loadCallSiteOverrides`
+        // below, because `latestDaemonConfig` may still be the pre-save
+        // snapshot and would revert any optimistic state written by a
+        // concurrent `setCallSiteOverrides` call.
+        let wasAlreadyLoaded = !force && CallSiteCatalog.shared.isLoaded
         let loaded: Bool
         if force {
             loaded = await CallSiteCatalog.shared.reload(using: settingsClient)
@@ -4503,6 +4511,12 @@ public final class SettingsStore: ObservableObject {
             loaded = await CallSiteCatalog.shared.ensureLoaded(using: settingsClient)
         }
         guard loaded else { return }
+
+        // Only re-merge overrides when the catalog was actually (re)fetched.
+        // Skipping when already loaded preserves optimistic state that
+        // `applyDaemonConfig` will reconcile once the next `configChanged`
+        // refresh completes.
+        guard !wasAlreadyLoaded else { return }
 
         if let latestDaemonConfig {
             loadCallSiteOverrides(config: latestDaemonConfig)
