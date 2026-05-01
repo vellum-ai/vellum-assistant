@@ -12,6 +12,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 COPY packages/assistant-client ./packages/assistant-client
 COPY packages/ces-client ./packages/ces-client
 COPY packages/service-contracts ./packages/service-contracts
+COPY packages/slack-text ./packages/slack-text
 
 # Install deps for shared packages that have their own file: dependencies.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile
