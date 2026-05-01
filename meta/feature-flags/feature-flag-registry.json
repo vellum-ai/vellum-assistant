@@ -10,14 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
