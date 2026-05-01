@@ -1324,7 +1324,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.post(path: "secrets", body: bodyData)
+            }
         }
     }
 
@@ -1336,7 +1338,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.delete(path: "secrets", body: bodyData)
+            }
         }
         return true
     }
