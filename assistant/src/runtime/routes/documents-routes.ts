@@ -8,8 +8,10 @@ import { z } from "zod";
 
 import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
+import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 const log = getLogger("documents-routes");
 
@@ -310,6 +312,34 @@ export const ROUTES: RouteDefinition[] = [
         throw new InternalError(result.error);
       }
       return result;
+    },
+  },
+
+  {
+    operationId: "exportDocumentPDF",
+    endpoint: "documents/:id/pdf",
+    method: "GET",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "Export a document as PDF",
+    description: "Render a document to PDF and return the binary content.",
+    tags: ["documents"],
+    handler: async ({ pathParams }) => {
+      const result = loadDocument(pathParams!.id);
+      if (!result.success) {
+        throw new NotFoundError(result.error);
+      }
+      const pdfBuffer = await renderMarkdownToPDF(result.title, result.content);
+      const filename =
+        result.title
+          .replace(/[^a-zA-Z0-9_-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "") || "document";
+      return new RouteResponse(pdfBuffer, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}.pdf"`,
+        "Content-Length": String(pdfBuffer.length),
+      });
     },
   },
 ];
