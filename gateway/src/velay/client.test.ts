@@ -510,12 +510,13 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public-2.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
       },
     });
-    expect(invalidations.count).toBe(2);
+    expect(invalidations.count).toBe(1);
   });
 
-  test("clears stale Velay marker on startup before connecting", async () => {
+  test("clears stale Velay-managed Twilio public URL on startup before connecting", async () => {
     const sockets: FakeWebSocket[] = [];
     const invalidations = { count: 0 };
     writeConfig({
@@ -537,14 +538,13 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
       },
     });
     expect(invalidations.count).toBe(1);
     await client.stop();
   });
 
-  test("disabled Velay cleanup clears stale marker and preserves Twilio URL", async () => {
+  test("disabled Velay cleanup clears stale managed URL and preserves manual Twilio URL", async () => {
     const invalidations = { count: 0 };
     writeConfig({
       ingress: {
@@ -565,7 +565,6 @@ describe("VelayTunnelClient", () => {
     expect(readConfig()).toEqual({
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
-        twilioPublicBaseUrl: "https://stale-velay.example.test",
       },
     });
     expect(invalidations.count).toBe(1);
