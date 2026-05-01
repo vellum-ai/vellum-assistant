@@ -31,6 +31,37 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertNil(profile.thinkingStreamThinking)
     }
 
+    func testIntegerFieldsDecodeExactDoublesWithinIntBounds() {
+        let profile = InferenceProfile(
+            name: "numeric-json",
+            json: [
+                "maxTokens": 64000.0,
+                "contextWindow": [
+                    "maxInputTokens": 150000.0,
+                ],
+            ]
+        )
+
+        XCTAssertEqual(profile.maxTokens, 64000)
+        XCTAssertEqual(profile.contextWindowMaxInputTokens, 150000)
+    }
+
+    func testIntegerFieldsIgnoreUnsafeDoubleValues() {
+        let huge = Double.greatestFiniteMagnitude
+        let profile = InferenceProfile(
+            name: "unsafe-numbers",
+            json: [
+                "maxTokens": huge,
+                "contextWindow": [
+                    "maxInputTokens": 150000.5,
+                ],
+            ]
+        )
+
+        XCTAssertNil(profile.maxTokens)
+        XCTAssertNil(profile.contextWindowMaxInputTokens)
+    }
+
     // MARK: - Fully-populated fragment
 
     func testFullyPopulatedFragmentRoundTrips() {

@@ -89,7 +89,6 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "verbosity",
   "temperature",
   "thinking",
-  "contextWindow",
 ]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
@@ -97,6 +96,36 @@ function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function mergeInferenceProfileContextWindow(
+  existingProfile: Record<string, unknown>,
+  fragment: Record<string, unknown>,
+  nextProfile: Record<string, unknown>,
+): void {
+  const existingContextWindow =
+    asMutablePlainObject(existingProfile.contextWindow) ?? {};
+  const nextContextWindow: Record<string, unknown> = {
+    ...existingContextWindow,
+  };
+
+  delete nextContextWindow.maxInputTokens;
+
+  if (Object.hasOwn(fragment, "contextWindow")) {
+    const fragmentContextWindow = asMutablePlainObject(fragment.contextWindow);
+    if (
+      fragmentContextWindow &&
+      Object.hasOwn(fragmentContextWindow, "maxInputTokens")
+    ) {
+      nextContextWindow.maxInputTokens = fragmentContextWindow.maxInputTokens;
+    }
+  }
+
+  if (Object.keys(nextContextWindow).length === 0) {
+    delete nextProfile.contextWindow;
+  } else {
+    nextProfile.contextWindow = nextContextWindow;
+  }
 }
 
 function replaceInferenceProfileConfig(
@@ -117,7 +146,14 @@ function replaceInferenceProfileConfig(
   for (const key of INFERENCE_PROFILE_UI_KEYS) {
     delete nextProfile[key];
   }
-  profiles[name] = { ...nextProfile, ...fragment };
+  const fragmentTopLevel = { ...fragment };
+  delete fragmentTopLevel.contextWindow;
+  profiles[name] = { ...nextProfile, ...fragmentTopLevel };
+  mergeInferenceProfileContextWindow(
+    existingProfile,
+    fragment,
+    profiles[name] as Record<string, unknown>,
+  );
 }
 
 function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
