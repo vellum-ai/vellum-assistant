@@ -47,6 +47,7 @@
     "@vellumai/gateway-client": "file:../packages/gateway-client",
     "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",
+    "@vellumai/twilio-client": "file:../packages/twilio-client",
     "archiver": "7.0.1",
     "commander": "13.1.0",
     "croner": "10.0.1",
@@ -77,7 +78,8 @@
     "@vellumai/egress-proxy",
     "@vellumai/gateway-client",
     "@vellumai/skill-host-contracts",
-    "@vellumai/slack-text"
+    "@vellumai/slack-text",
+    "@vellumai/twilio-client"
   ],
   "overrides": {
     "lodash": "4.18.1",

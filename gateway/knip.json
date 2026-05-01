@@ -5,6 +5,7 @@
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
     "@vellumai/service-contracts",
-    "@vellumai/slack-text"
+    "@vellumai/slack-text",
+    "@vellumai/twilio-client"
   ]
 }

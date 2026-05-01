@@ -6,6 +6,15 @@
  * config handler. Uses fetch() directly — no twilio npm package.
  */
 
+import {
+  lookupIncomingPhoneNumberSid,
+  twilioAuthHeader,
+  twilioBaseUrl,
+  TwilioRestError,
+  type TwilioWebhookUrls,
+  updatePhoneNumberWebhooks as updateTwilioPhoneNumberWebhooks,
+} from "@vellumai/twilio-client";
+
 import { loadConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -56,20 +65,7 @@ export async function hasTwilioCredentials(): Promise<boolean> {
   }
 }
 
-/** Build the HTTP Basic auth header for Twilio API requests. */
-export function twilioAuthHeader(
-  accountSid: string,
-  authToken: string,
-): string {
-  return (
-    "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64")
-  );
-}
-
-/** Build the Twilio REST API base URL for a given account. */
-export function twilioBaseUrl(accountSid: string): string {
-  return `https://api.twilio.com/2010-04-01/Accounts/${accountSid}`;
-}
+export { twilioAuthHeader, twilioBaseUrl };
 
 export interface TwilioPhoneNumber {
   phoneNumber: string;
@@ -210,9 +206,13 @@ export async function provisionPhoneNumber(
   };
 }
 
-export interface WebhookUrls {
-  voiceUrl: string;
-  statusCallbackUrl: string;
+export type WebhookUrls = TwilioWebhookUrls;
+
+function rethrowAsProviderError(err: unknown): never {
+  if (err instanceof TwilioRestError) {
+    throw new ProviderError(err.message, "twilio", err.status);
+  }
+  throw err;
 }
 
 /**
@@ -227,69 +227,15 @@ export async function updatePhoneNumberWebhooks(
   phoneNumber: string,
   webhooks: WebhookUrls,
 ): Promise<void> {
-  // First, find the SID for this phone number
-  const listRes = await fetch(
-    `${twilioBaseUrl(
+  try {
+    await updateTwilioPhoneNumberWebhooks({
       accountSid,
-    )}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(
+      authToken,
       phoneNumber,
-    )}`,
-    {
-      method: "GET",
-      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
-    },
-  );
-
-  if (!listRes.ok) {
-    const text = await listRes.text();
-    throw new ProviderError(
-      `Twilio API error ${listRes.status} looking up phone number: ${text}`,
-      "twilio",
-      listRes.status,
-    );
-  }
-
-  const listData = (await listRes.json()) as {
-    incoming_phone_numbers: Array<{ sid: string; phone_number: string }>;
-  };
-
-  const match = listData.incoming_phone_numbers.find(
-    (n) => n.phone_number === phoneNumber,
-  );
-  if (!match) {
-    throw new ProviderError(
-      `Phone number ${phoneNumber} not found on Twilio account ${accountSid}`,
-      "twilio",
-    );
-  }
-
-  // Update the phone number's webhook configuration
-  const body = new URLSearchParams({
-    VoiceUrl: webhooks.voiceUrl,
-    VoiceMethod: "POST",
-    StatusCallback: webhooks.statusCallbackUrl,
-    StatusCallbackMethod: "POST",
-  });
-
-  const updateRes = await fetch(
-    `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers/${match.sid}.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: twilioAuthHeader(accountSid, authToken),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    },
-  );
-
-  if (!updateRes.ok) {
-    const text = await updateRes.text();
-    throw new ProviderError(
-      `Twilio API error ${updateRes.status} updating webhooks: ${text}`,
-      "twilio",
-      updateRes.status,
-    );
+      webhooks,
+    });
+  } catch (err) {
+    rethrowAsProviderError(err);
   }
 }
 
@@ -302,35 +248,17 @@ async function getPhoneNumberSid(
   authToken: string,
   phoneNumber: string,
 ): Promise<string | null> {
-  const res = await fetch(
-    `${twilioBaseUrl(
-      accountSid,
-    )}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(
-      phoneNumber,
-    )}`,
-    {
-      method: "GET",
-      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
-    },
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new ProviderError(
-      `Twilio API error ${res.status} looking up phone number SID: ${text}`,
-      "twilio",
-      res.status,
+  try {
+    return (
+      (await lookupIncomingPhoneNumberSid({
+        accountSid,
+        authToken,
+        phoneNumber,
+      })) ?? null
     );
+  } catch (err) {
+    rethrowAsProviderError(err);
   }
-
-  const data = (await res.json()) as {
-    incoming_phone_numbers: Array<{ sid: string; phone_number: string }>;
-  };
-
-  const match = data.incoming_phone_numbers.find(
-    (n) => n.phone_number === phoneNumber,
-  );
-  return match?.sid ?? null;
 }
 
 /**
