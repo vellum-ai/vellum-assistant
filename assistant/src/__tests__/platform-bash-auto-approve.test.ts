@@ -245,13 +245,11 @@ describe("platform-hosted bash auto-approval", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("bash NOT auto-approved for non-guardian actors via platform path (sandbox bash is allowed)", async () => {
+  test("bash NOT auto-approved for non-guardian actors via platform path (trusted_contact requires grant)", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
 
-    const platformAutoApproveCalled = false;
     const trackingPrompter = {
       prompt: async () => {
-        // If this is called, we know the platform auto-approve did NOT fire
         return { decision: "allow" as const };
       },
       resolveConfirmation: () => {},
@@ -270,11 +268,10 @@ describe("platform-hosted bash auto-approval", () => {
       }),
     );
 
-    // With requireFreshApproval, trusted_contact+bash goes through check()
-    // which returns "prompt" and then the interactive prompter is called.
-    // The platform auto-approve path (guardian-only) is NOT taken.
-    expect(result.isError).toBe(false);
-    void platformAutoApproveCalled; // suppress unused warning
+    // trusted_contact now requires a guardian-scoped grant for side-effect
+    // tools. Without a grant, the pre-execution gate denies the invocation
+    // before the permission checker or prompter is reached.
+    expect(result.isError).toBe(true);
   });
 
   test("bash NOT auto-approved when requireFreshApproval is set", async () => {

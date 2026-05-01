@@ -292,11 +292,7 @@ export class ToolApprovalHandler {
       executionTarget,
     );
 
-    if (
-      isUntrustedTrustClass(context.trustClass) &&
-      guardianApprovalRequired &&
-      context.trustClass !== "trusted_contact"
-    ) {
+    if (isUntrustedTrustClass(context.trustClass) && guardianApprovalRequired) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
       deferredConsumeParams = {
