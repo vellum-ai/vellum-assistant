@@ -158,8 +158,7 @@ public final class CallSiteCatalog {
         guard let response else {
             loadFailed = true
             log.error(
-                "CallSiteCatalog fetch failed — daemon may be running without GET config/llm/call-sites. " +
-                "The Action Overrides sheet will be empty until the daemon is updated and the sheet is reopened."
+                "CallSiteCatalog fetch failed — daemon may be running without GET config/llm/call-sites. The Action Overrides sheet will be empty until the daemon is updated and the sheet is reopened."
             )
             return false
         }
