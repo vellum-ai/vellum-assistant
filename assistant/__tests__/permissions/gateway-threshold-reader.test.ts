@@ -59,7 +59,7 @@ afterEach(resetMocks);
 // Convenience: set up a handler that returns the given global thresholds and,
 // optionally, a per-conversation override threshold string.
 function withGlobals(
-  globals: { interactive: string; autonomous: string; headless: string },
+  globals: { interactive: string; autonomous: string },
   conversationOverride?: { conversationId: string; threshold: string },
 ): void {
   ipcHandler = (method, params) => {
@@ -79,7 +79,7 @@ function withGlobals(
 
 describe("getAutoApproveThreshold", () => {
   test("returns global defaults when gateway returns them", async () => {
-    withGlobals({ interactive: "medium", autonomous: "low", headless: "none" });
+    withGlobals({ interactive: "medium", autonomous: "low" });
 
     // conversation maps to interactive
     expect(await getAutoApproveThreshold(undefined, "conversation")).toBe(
@@ -93,19 +93,13 @@ describe("getAutoApproveThreshold", () => {
 
     _clearGlobalCacheForTesting();
 
-    // headless reads configured value (defaults to "none")
-    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("none");
-  });
-
-  test("headless threshold is configurable via gateway", async () => {
-    withGlobals({ interactive: "medium", autonomous: "low", headless: "low" });
-
+    // headless also maps to autonomous
     expect(await getAutoApproveThreshold(undefined, "headless")).toBe("low");
   });
 
   test("returns conversation override when it exists", async () => {
     withGlobals(
-      { interactive: "low", autonomous: "none", headless: "none" },
+      { interactive: "low", autonomous: "none" },
       { conversationId: "conv-xyz", threshold: "medium" },
     );
 
@@ -118,7 +112,7 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("falls back to global when conversation override returns null (no override)", async () => {
-    withGlobals({ interactive: "low", autonomous: "none", headless: "none" });
+    withGlobals({ interactive: "low", autonomous: "none" });
     // ipcHandler returns null for get_conversation_threshold (no row)
 
     const result = await getAutoApproveThreshold("conv-123", "conversation");
@@ -134,7 +128,7 @@ describe("getAutoApproveThreshold", () => {
     ipcHandler = (method) => {
       if (method === "get_conversation_threshold") return undefined; // transport failure
       if (method === "get_global_thresholds")
-        return { interactive: "low", autonomous: "none", headless: "none" };
+        return { interactive: "low", autonomous: "none" };
       return undefined;
     };
 
@@ -168,7 +162,7 @@ describe("getAutoApproveThreshold", () => {
     ipcHandler = (method) => {
       if (method === "get_global_thresholds") {
         fetchCount++;
-        return { interactive: "medium", autonomous: "low", headless: "none" };
+        return { interactive: "medium", autonomous: "low" };
       }
       return null;
     };
@@ -183,9 +177,9 @@ describe("getAutoApproveThreshold", () => {
     expect(second).toBe("low");
     expect(fetchCount).toBe(1); // Still 1, cache hit
 
-    // Third call — headless also uses cache
+    // Third call — still cached
     const third = await getAutoApproveThreshold(undefined, "headless");
-    expect(third).toBe("none");
+    expect(third).toBe("low");
     expect(fetchCount).toBe(1); // Still 1
 
     // After clearing cache, should re-fetch
@@ -196,7 +190,7 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("defaults executionContext to conversation when omitted", async () => {
-    withGlobals({ interactive: "medium", autonomous: "low", headless: "none" });
+    withGlobals({ interactive: "medium", autonomous: "low" });
 
     // executionContext omitted — should default to "conversation" → interactive
     const result = await getAutoApproveThreshold(undefined, undefined);
@@ -204,7 +198,7 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("skips conversation override when no conversationId", async () => {
-    withGlobals({ interactive: "low", autonomous: "none", headless: "none" });
+    withGlobals({ interactive: "low", autonomous: "none" });
 
     const result = await getAutoApproveThreshold(undefined, "conversation");
     expect(result).toBe("low");
@@ -213,7 +207,7 @@ describe("getAutoApproveThreshold", () => {
   });
 
   test("skips conversation override for non-conversation contexts", async () => {
-    withGlobals({ interactive: "low", autonomous: "medium", headless: "none" });
+    withGlobals({ interactive: "low", autonomous: "medium" });
 
     // Even with a conversationId, background context should not check conversation override
     const result = await getAutoApproveThreshold("conv-123", "background");
