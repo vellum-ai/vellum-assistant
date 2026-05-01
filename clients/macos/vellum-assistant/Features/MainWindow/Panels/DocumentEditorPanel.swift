@@ -24,8 +24,15 @@ struct DocumentEditorPanelView: View {
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
                 } else {
-                    VButton(label: "Export", iconOnly: VIcon.arrowDownToLine.rawValue, style: .ghost) {
-                        documentManager.exportToFile()
+                    VSplitButton(
+                        label: "Export",
+                        icon: VIcon.arrowDownToLine.rawValue,
+                        style: .ghost,
+                        action: { documentManager.exportToFile() }
+                    ) {
+                        VMenuItem(label: "Export as PDF") {
+                            documentManager.exportToPDF()
+                        }
                     }
                 }
                 VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: onClose)
