@@ -46,12 +46,10 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
 public struct GlobalThresholds: Codable, Sendable, Equatable {
     public let interactive: String
     public let autonomous: String
-    public let headless: String
 
-    public init(interactive: String, autonomous: String, headless: String = "none") {
+    public init(interactive: String, autonomous: String) {
         self.interactive = interactive
         self.autonomous = autonomous
-        self.headless = headless
     }
 }
 
@@ -105,7 +103,6 @@ public struct ThresholdClient: ThresholdClientProtocol {
         let body: [String: Any] = [
             "interactive": thresholds.interactive,
             "autonomous": thresholds.autonomous,
-            "headless": thresholds.headless,
         ]
         let response = try await GatewayHTTPClient.put(
             path: "assistants/{assistantId}/permissions/thresholds", json: body, timeout: 10

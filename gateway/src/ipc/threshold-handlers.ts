@@ -18,7 +18,6 @@ import type { IpcRoute } from "./server.js";
 const GLOBAL_DEFAULTS = {
   interactive: "medium",
   autonomous: "low",
-  headless: "none",
 };
 
 const GetConversationThresholdSchema = z.object({
@@ -46,7 +45,6 @@ export const thresholdRoutes: IpcRoute[] = [
       return {
         interactive: row.interactive,
         autonomous: row.autonomous,
-        headless: row.headless,
       };
     },
   },
