@@ -198,8 +198,9 @@ function sendFrame(ws: FakeWebSocket, frame: VelayFrame): void {
 }
 
 async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 6; i++) {
+    await Promise.resolve();
+  }
 }
 
 beforeEach(() => {
@@ -211,13 +212,14 @@ afterEach(() => {
 });
 
 describe("VelayTunnelClient", () => {
-  test("stays disabled when VELAY_BASE_URL is unset", () => {
+  test("stays disabled when VELAY_BASE_URL is unset", async () => {
     const client = createVelayTunnelClient(makeConfig(), {
       credentials: makeCredentials({}),
       configFile: makeConfigFileCache({ count: 0 }),
     });
 
     expect(client).toBeUndefined();
+    await flushPromises();
   });
 
   test("retries without opening a socket when the assistant API key is missing", async () => {
@@ -236,7 +238,26 @@ describe("VelayTunnelClient", () => {
 
     expect(sockets).toHaveLength(0);
     expect(reconnectDelays).toEqual([10]);
-    client.stop();
+    await client.stop();
+  });
+
+  test("retries without opening a socket when the platform assistant ID is missing", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+      }),
+    });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(0);
+    expect(reconnectDelays).toEqual([10]);
+    await client.stop();
   });
 
   test("registers with Velay and publishes the Twilio public URL", async () => {
@@ -276,6 +297,7 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
       },
       existing: { preserved: true },
     });
@@ -335,11 +357,45 @@ describe("VelayTunnelClient", () => {
         publicBaseUrl: "https://ngrok.example.test",
         otherIngressSetting: "keep-me",
         twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
       },
       gateway: {
         runtimeProxyRequireAuth: false,
       },
     });
+  });
+
+  test("rejects registration with an invalid public URL", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+    });
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      configFile: makeConfigFileCache(invalidations),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "notaurl",
+    });
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 1008, reason: "invalid public URL" },
+    ]);
+    expect(readConfig()).toEqual({
+      ingress: { publicBaseUrl: "https://ngrok.example.test" },
+    });
+    expect(invalidations.count).toBe(0);
+    expect(reconnectDelays).toEqual([10]);
   });
 
   test("clears the published Twilio public URL when the tunnel disconnects", async () => {
@@ -402,6 +458,7 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public-2.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
       },
     });
 
@@ -413,8 +470,86 @@ describe("VelayTunnelClient", () => {
       ingress: {
         publicBaseUrl: "https://ngrok.example.test",
         twilioPublicBaseUrl: "https://velay-public-2.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
       },
     });
+  });
+
+  test("clears stale managed Velay URL on startup before connecting", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
+    const client = makeClient({
+      sockets,
+      configFile: makeConfigFileCache(invalidations),
+    });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(1);
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(1);
+    await client.stop();
+  });
+
+  test("disabled Velay cleanup clears managed URL and preserves manual URL", async () => {
+    const invalidations = { count: 0 };
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
+
+    expect(
+      createVelayTunnelClient(makeConfig(), {
+        credentials: makeCredentials({}),
+        configFile: makeConfigFileCache(invalidations),
+      }),
+    ).toBeUndefined();
+    await flushPromises();
+
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(1);
+
+    writeConfig({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://manual.example.test",
+      },
+    });
+
+    expect(
+      createVelayTunnelClient(makeConfig(), {
+        credentials: makeCredentials({}),
+        configFile: makeConfigFileCache(invalidations),
+      }),
+    ).toBeUndefined();
+    await flushPromises();
+
+    expect(readConfig()).toEqual({
+      ingress: {
+        publicBaseUrl: "https://ngrok.example.test",
+        twilioPublicBaseUrl: "https://manual.example.test",
+      },
+    });
+    expect(invalidations.count).toBe(1);
   });
 
   test("dispatches HTTP and WebSocket frames to the loopback bridges", async () => {
@@ -490,6 +625,7 @@ describe("VelayTunnelClient", () => {
       gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
       credentials: makeCredentials({
         [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
       }),
       configFile: makeConfigFileCache({ count: 0 }),
       webSocketConstructor: makeWebSocketConstructor(sockets),
@@ -506,7 +642,7 @@ describe("VelayTunnelClient", () => {
 
     client.start();
     await flushPromises();
-    client.stop();
+    await client.stop();
     sockets[0].emit("close", { code: 1000, reason: "gateway shutdown" });
     await flushPromises();
 
