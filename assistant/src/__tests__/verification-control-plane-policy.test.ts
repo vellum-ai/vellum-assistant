@@ -700,15 +700,14 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("non-guardian invocation of unrelated bash command is allowed (sandbox bash is auto-approved)", async () => {
+  test("non-guardian invocation of unrelated bash command requires guardian grant", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
       { command: "curl http://localhost:3000/v1/messages" },
       makeContext({ trustClass: "trusted_contact" }),
     );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("ok");
+    expect(result.isError).toBe(true);
   });
 
   test("non-guardian invocation of unrelated tool is unaffected", async () => {
