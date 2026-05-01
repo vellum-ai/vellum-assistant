@@ -33,7 +33,6 @@ enum SettingsTab: String {
     }
 
     static func sidebarTopTabs(
-        billingEnabled: Bool = false,
         soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false
@@ -45,7 +44,7 @@ enum SettingsTab: String {
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
-        if billingEnabled { tabs.append(.billing) }
+        tabs.append(.billing)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         tabs.append(.schedules)
@@ -89,11 +88,6 @@ struct SettingsPanel: View {
         self.showToast = showToast
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
-
-        // Pre-compute the billing flag so the first render already has the
-        // correct tab list in the sidebar nav.
-        let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
-        _isBillingEnabled = State(initialValue: billingEnabled)
 
         // Pre-compute the sounds flag so deep-link validation below uses
         // the actual config value instead of the @State default (true).
@@ -232,7 +226,6 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
@@ -260,9 +253,6 @@ struct SettingsPanel: View {
                 guard allVisibleTabs.contains(tab) else { return }
                 selectVisibleTab(tab)
             }
-        }
-        .onChange(of: billingVisible) { _, _ in
-            handleSidebarVisibilityChanged()
         }
         .onChange(of: isDebugVisible) { _, _ in
             handleSidebarVisibilityChanged()
@@ -328,16 +318,10 @@ struct SettingsPanel: View {
 
     private var visibleSidebarTopTabs: [SettingsTab] {
         SettingsTab.sidebarTopTabs(
-            billingEnabled: billingVisible,
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
         )
-    }
-
-    private var billingVisible: Bool {
-        let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
-        return isBillingEnabled && authManager.isAuthenticated && connectedOrgId != nil
     }
 
     /// The Debug tab currently only hosts cloud-hosted assistant tooling

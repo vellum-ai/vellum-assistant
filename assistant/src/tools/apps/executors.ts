@@ -78,11 +78,8 @@ export interface AppCreateInput {
   description?: string;
   schema_json?: string;
   html?: string;
-  pages?: Record<string, string>;
   auto_open?: boolean;
   preview?: Record<string, unknown>;
-  /** When provided, controls multifile scaffold behavior. */
-  featureFlags?: { multifileEnabled: boolean };
 }
 
 export async function executeAppCreate(
@@ -93,14 +90,9 @@ export async function executeAppCreate(
   const name = input.name;
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
-  // Default to a minimal scaffold only when html is truly omitted; reject
-  // invalid types (e.g. object/number) so malformed tool calls surface errors.
-  let htmlDefinition: string;
-  if (typeof input.html === "string") {
-    htmlDefinition = input.html;
-  } else if (input.html == null) {
-    htmlDefinition = "<!DOCTYPE html><html><head></head><body></body></html>";
-  } else {
+  // Reject invalid html types (e.g. object/number) so malformed tool calls
+  // surface errors early.
+  if (input.html != null && typeof input.html !== "string") {
     return {
       content: JSON.stringify({
         error: `html must be a string, got ${typeof input.html}`,
@@ -108,7 +100,6 @@ export async function executeAppCreate(
       isError: true,
     };
   }
-  const pages = input.pages;
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
 
@@ -121,49 +112,33 @@ export async function executeAppCreate(
       isError: true,
     };
   }
-  if (pages) {
-    for (const [filename, content] of Object.entries(pages)) {
-      if (typeof content !== "string") {
-        return {
-          content: JSON.stringify({
-            error: `pages["${filename}"] must be a string, got ${typeof content}`,
-          }),
-          isError: true,
-        };
-      }
-    }
-  }
 
   // Extract icon from preview if provided - only persist emoji-like values,
   // not URLs which would render as raw strings in UI and bundle manifests.
   const rawIcon = preview?.icon as string | undefined;
   const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
 
-  const multifileEnabled = input.featureFlags?.multifileEnabled === true;
-
   const app = store.createApp({
     name,
     description,
     icon,
     schemaJson,
-    htmlDefinition: multifileEnabled ? "" : htmlDefinition,
-    pages: multifileEnabled ? undefined : pages,
-    formatVersion: multifileEnabled ? 2 : undefined,
+    htmlDefinition: "",
+    formatVersion: 2,
   });
 
   // Scaffold multifile app with src/ files and compile to dist/
-  if (multifileEnabled) {
-    const htmlSafeName = name
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-    const jsxSafeName = name.replace(/[<>{}&"']/g, "");
+  const htmlSafeName = name
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const jsxSafeName = name.replace(/[<>{}&"']/g, "");
 
-    const indexHtml =
-      typeof input.html === "string"
-        ? input.html
-        : `<!DOCTYPE html>
+  const indexHtml =
+    typeof input.html === "string"
+      ? input.html
+      : `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -175,7 +150,7 @@ export async function executeAppCreate(
 </body>
 </html>`;
 
-    const mainTsx = `import { render } from 'preact';
+  const mainTsx = `import { render } from 'preact';
 
 function App() {
   return <div>{"Hello, ${jsxSafeName}!"}</div>;
@@ -184,31 +159,30 @@ function App() {
 render(<App />, document.getElementById('app')!);
 `;
 
-    // Only write scaffold files when they don't already exist on disk.
-    // The LLM may have written custom source files via file_write before
-    // calling app_create, and overwriting them would destroy the real app
-    // content, leaving only the scaffold placeholder.
-    if (!store.appFileExists(app.id, "src/index.html")) {
-      store.writeAppFile(app.id, "src/index.html", indexHtml);
-    }
-    if (!store.appFileExists(app.id, "src/main.tsx")) {
-      store.writeAppFile(app.id, "src/main.tsx", mainTsx);
-    }
+  // Only write scaffold files when they don't already exist on disk.
+  // The LLM may have written custom source files via file_write before
+  // calling app_create, and overwriting them would destroy the real app
+  // content, leaving only the scaffold placeholder.
+  if (!store.appFileExists(app.id, "src/index.html")) {
+    store.writeAppFile(app.id, "src/index.html", indexHtml);
+  }
+  if (!store.appFileExists(app.id, "src/main.tsx")) {
+    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+  }
 
-    // Compile src/ → dist/
-    const appDir = getAppDirPath(app.id);
-    const compileResult = await compileApp(appDir);
-    if (!compileResult.ok) {
-      return {
-        content: JSON.stringify({
-          ...app,
-          compile_errors: compileResult.errors,
-          compile_warnings: compileResult.warnings,
-          compile_duration_ms: compileResult.durationMs,
-        }),
-        isError: false,
-      };
-    }
+  // Compile src/ → dist/
+  const appDir = getAppDirPath(app.id);
+  const compileResult = await compileApp(appDir);
+  if (!compileResult.ok) {
+    return {
+      content: JSON.stringify({
+        ...app,
+        compile_errors: compileResult.errors,
+        compile_warnings: compileResult.warnings,
+        compile_duration_ms: compileResult.durationMs,
+      }),
+      isError: false,
+    };
   }
 
   // Emit the inline preview card via the proxy without opening a workspace panel.

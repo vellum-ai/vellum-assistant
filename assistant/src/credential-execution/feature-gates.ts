@@ -31,9 +31,6 @@ export const CES_GRANT_AUDIT_FLAG_KEY = "ces-grant-audit" as const;
 /** Gate for managed sidecar transport in containerized environments. */
 export const CES_MANAGED_SIDECAR_FLAG_KEY = "ces-managed-sidecar" as const;
 
-/** Gate for routing credential reads/writes through the CES process. */
-const CES_CREDENTIAL_BACKEND_FLAG_KEY = "ces-credential-backend" as const;
-
 // ---------------------------------------------------------------------------
 // Public API — predicate functions
 // ---------------------------------------------------------------------------
@@ -71,13 +68,4 @@ export function isCesGrantAuditEnabled(config: AssistantConfig): boolean {
  */
 export function isCesManagedSidecarEnabled(config: AssistantConfig): boolean {
   return isAssistantFeatureFlagEnabled(CES_MANAGED_SIDECAR_FLAG_KEY, config);
-}
-
-/**
- * Whether credential reads and writes should be routed through the CES process.
- */
-export function isCesCredentialBackendEnabled(
-  config: AssistantConfig,
-): boolean {
-  return isAssistantFeatureFlagEnabled(CES_CREDENTIAL_BACKEND_FLAG_KEY, config);
 }

@@ -67,10 +67,12 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("undeclared flag respects persisted override", () => {
-    _setOverridesForTesting({ browser: false });
+    _setOverridesForTesting({ "some-undeclared-flag": false });
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
+      false,
+    );
   });
 });
 
