@@ -235,7 +235,9 @@ function isNonLiteralGenericValue(value: string): boolean {
   // Only ALL_CAPS names (SCREAMING_SNAKE_CASE) are suppressed for the bare
   // $VAR form — this avoids passwords like $uperSecret123 which are valid
   // POSIX names but clearly not env var references.
-  if (/^\$[A-Z_][A-Z0-9_]*$/.test(value) || /^\$\{[^}]+\}$/.test(value))
+  // Braced form requires a plain variable name only — rejects default/substitution
+  // expansions like ${DB_PASSWORD:-SuperSecret123!} which can contain real secrets.
+  if (/^\$[A-Z_][A-Z0-9_]*$/.test(value) || /^\$\{[A-Za-z_]\w*\}$/.test(value))
     return true;
 
   // UUIDs: generated identifiers, not credential values

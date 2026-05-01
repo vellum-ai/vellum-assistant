@@ -573,6 +573,13 @@ describe("generic secret non-literal suppression", () => {
     expect(generic).toHaveLength(0);
   });
 
+  test("still flags shell default expansion containing a secret", () => {
+    expectMatch(
+      "password=${DB_PASSWORD:-SuperSecret123!}",
+      "Generic Secret Assignment",
+    );
+  });
+
   test("does not flag UUID after credential keyword", () => {
     const input = "token=f47ac10b-58cc-4372-a567-0e02b2c3d479";
     const matches = scanText(input);
