@@ -290,22 +290,27 @@ function applyMainScreenMode(paired?: boolean): void {
     assistantInfo.style.display = 'flex';
     connectionAreaEl.style.display = 'block';
     sessionActions.style.display = 'flex';
+    activityCard.style.display = 'flex';
     signOutBtn.textContent = 'Sign out';
   } else {
     // self-hosted
     assistantInfo.style.display = 'none';
-    sessionActions.style.display = 'flex';
     signOutBtn.textContent = 'Disconnect';
     if (paired) {
       // Already paired — show connected state, hide URL input, show re-pair
       selfHostedSettings.style.display = 'none';
       connectionAreaEl.style.display = 'block';
       troubleshootSection.style.display = 'block';
+      sessionActions.style.display = 'flex';
+      activityCard.style.display = 'flex';
     } else {
-      // Not yet paired — show URL input, hide connection status
+      // Not yet paired — show URL input, hide connection status,
+      // activity card, and disconnect button until paired
       selfHostedSettings.style.display = 'block';
       connectionAreaEl.style.display = 'none';
       troubleshootSection.style.display = 'none';
+      sessionActions.style.display = 'none';
+      activityCard.style.display = 'none';
     }
   }
 }
@@ -341,9 +346,8 @@ function pairAndConnect(): void {
         if (response?.ok) {
           // Step 3: connect
           sendMessage({ type: 'connect' }, () => {});
-          // Hide the gateway URL input and show the connected state
-          selfHostedSettings.style.display = 'none';
-          troubleshootSection.style.display = 'block';
+          // Transition to the paired/connected state
+          applyMainScreenMode(true);
           gatewayUrlSave.disabled = false;
           gatewayUrlSave.textContent = 'Pair';
           refreshStatus();
@@ -784,6 +788,7 @@ sendMessage<{
   mode: 'self-hosted' | 'cloud' | null;
   session?: { email: string } | null;
   selectedAssistant?: { id: string; name: string } | null;
+  selfHostedPaired?: boolean;
 }>({ type: 'get-session' }, (response) => {
   if (!response?.ok) {
     showScreen('welcome');
@@ -792,10 +797,17 @@ sendMessage<{
 
   if (response.mode === 'self-hosted') {
     currentMode = 'self-hosted';
-    // Returning to a previously-paired self-hosted session — show connected state
-    applyMainScreenMode(true);
+    const paired = response.selfHostedPaired === true;
+    applyMainScreenMode(paired);
     showScreen('main');
-    loadMainScreen();
+    if (paired) {
+      // Already paired — auto-connect and show status
+      loadMainScreen();
+    } else {
+      // Not yet paired — just load the gateway URL input,
+      // don't auto-connect (avoid "Failed to fetch" before pairing)
+      loadGatewayUrl();
+    }
   } else if (response.mode === 'cloud') {
     currentMode = 'cloud';
     if (response.selectedAssistant) {

@@ -1345,11 +1345,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         }
       }
 
+      // For self-hosted mode, check whether the user has successfully
+      // paired (has a valid, non-expired capability token). The popup
+      // uses this to decide whether to show the connected screen or the
+      // pairing screen on reopen.
+      let selfHostedPaired = false;
+      if (mode === "self-hosted") {
+        const gatewayUrl = await getStoredGatewayUrl();
+        const token = await getStoredLocalToken(gatewayUrl);
+        selfHostedPaired = token !== null;
+      }
+
       sendResponseFn({
         ok: true,
         mode,
         session: session ? { email: session.email } : null,
         selectedAssistant,
+        selfHostedPaired,
       });
     })().catch(() => sendResponseFn({ ok: false, mode: null }));
     return true; // async
