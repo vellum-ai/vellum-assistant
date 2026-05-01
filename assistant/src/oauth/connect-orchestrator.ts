@@ -19,6 +19,7 @@
  * - Running identity verifiers
  */
 
+import { emitPostConnectNudge } from "../home/post-connect-feed.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
@@ -250,6 +251,7 @@ export async function orchestrateOAuthConnect(
               },
               "Deferred OAuth2 flow completed — tokens stored",
             );
+            void emitPostConnectNudge(options.service);
             options.onDeferredComplete?.({
               success: true,
               service: options.service,
@@ -370,6 +372,8 @@ export async function orchestrateOAuthConnect(
       { service: options.service, accountInfo },
       "orchestrateOAuthConnect: tokens stored, connect complete",
     );
+
+    void emitPostConnectNudge(options.service);
 
     return {
       success: true,

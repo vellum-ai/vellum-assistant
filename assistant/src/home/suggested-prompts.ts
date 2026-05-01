@@ -21,14 +21,34 @@ const log = getLogger("suggested-prompts");
  * listed here produce deterministic "Connect X" prompts when disconnected.
  * The icon values are VIcon case names rendered by the macOS client.
  */
+interface PromptEntry {
+  label: string;
+  prompt: string;
+  icon: string;
+}
+
 const CONNECT_PROMPT_META: Record<
   string,
-  { label: string; prompt: string; icon: string }
+  PromptEntry & { connectedPrompts?: PromptEntry[] }
 > = {
   google: {
     label: "Connect Gmail",
     prompt: "Help me connect my Gmail account",
     icon: "mail",
+    connectedPrompts: [
+      {
+        label: "Triage my inbox",
+        prompt:
+          "Help me triage my inbox — summarize what's unread and flag anything that needs a reply",
+        icon: "mail",
+      },
+      {
+        label: "Summarize today's emails",
+        prompt:
+          "Summarize the emails I received today and highlight anything important",
+        icon: "mail",
+      },
+    ],
   },
   slack: {
     label: "Connect Slack",
@@ -75,7 +95,9 @@ export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
 
 /**
  * Check which well-known OAuth providers are not connected and return
- * a "Connect X" prompt for each.
+ * a "Connect X" prompt for each. For connected providers that have
+ * `connectedPrompts`, return those instead so users discover ongoing
+ * management capabilities.
  */
 async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
   const providers = listProviders();
@@ -86,15 +108,29 @@ async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
     if (!meta) continue;
 
     const connected = await isProviderConnected(provider.provider);
-    if (connected) continue;
 
-    prompts.push({
-      id: `connect-${provider.provider}`,
-      label: meta.label,
-      icon: meta.icon,
-      prompt: meta.prompt,
-      source: "deterministic",
-    });
+    if (!connected) {
+      prompts.push({
+        id: `connect-${provider.provider}`,
+        label: meta.label,
+        icon: meta.icon,
+        prompt: meta.prompt,
+        source: "deterministic",
+      });
+      continue;
+    }
+
+    if (meta.connectedPrompts) {
+      for (const cp of meta.connectedPrompts) {
+        prompts.push({
+          id: `manage-${provider.provider}-${cp.label.toLowerCase().replace(/\s+/g, "-")}`,
+          label: cp.label,
+          icon: cp.icon,
+          prompt: cp.prompt,
+          source: "deterministic",
+        });
+      }
+    }
   }
 
   return prompts;
