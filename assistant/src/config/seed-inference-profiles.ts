@@ -83,12 +83,12 @@ export function seedInferenceProfiles(): void {
     profiles[name] = { ...seed };
   }
 
-  // Reset to "balanced" when the current value references a missing profile
+  // Reset to the default managed profile when the current value is missing.
   if (
     typeof llm.activeProfile !== "string" ||
     !(llm.activeProfile in profiles)
   ) {
-    llm.activeProfile = "balanced";
+    llm.activeProfile = "quality-optimized";
   }
 
   const profileOrder = Array.isArray(llm.profileOrder)
