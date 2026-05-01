@@ -1,6 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
+enum CodingAgentsPanelFeatureFlag {
+    static let key = "coding-agents-panel"
+
+    static var isEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled(key)
+    }
+}
+
 /// Main window toolbar: sidebar toggle, home, search, navigation,
 /// coding agents, update button, and conversation title overlay.
 struct TopBarView: View {
@@ -72,15 +80,17 @@ struct TopBarView: View {
                     .vTooltip(homeTooltip)
                 }
 
-                VButton(
-                    label: "Coding Agents",
-                    iconOnly: VIcon.terminal.rawValue,
-                    style: .ghost,
-                    isActive: windowState.isRightSlotShowing(.acpSessions)
-                ) {
-                    windowState.toggleRightSlot(.acpSessions)
+                if Self.isCodingAgentsButtonVisible {
+                    VButton(
+                        label: "Coding Agents",
+                        iconOnly: VIcon.terminal.rawValue,
+                        style: .ghost,
+                        isActive: windowState.isRightSlotShowing(.acpSessions)
+                    ) {
+                        windowState.toggleRightSlot(.acpSessions)
+                    }
+                    .vTooltip("Coding Agents")
                 }
-                .vTooltip("Coding Agents")
 
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
                     AppDelegate.shared?.toggleCommandPalette()
@@ -203,5 +213,9 @@ struct TopBarView: View {
         }
         .frame(height: 48)
         .background(VColor.surfaceBase)
+    }
+
+    static var isCodingAgentsButtonVisible: Bool {
+        CodingAgentsPanelFeatureFlag.isEnabled
     }
 }
