@@ -210,14 +210,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "channel-voice-transcription",
-      "scope": "assistant",
-      "key": "channel-voice-transcription",
-      "label": "Channel Voice Transcription",
-      "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
-      "defaultEnabled": true
-    },
-    {
       "id": "sounds",
       "scope": "assistant",
       "key": "sounds",
