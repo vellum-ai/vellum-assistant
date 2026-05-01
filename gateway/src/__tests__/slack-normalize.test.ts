@@ -315,6 +315,24 @@ describe("Slack inbound mention rendering", () => {
     expect(result!.event.message.conversationExternalId).toBe("C_CHANNEL1");
   });
 
+  test("channel messages without bot user ID strip only the first leading mention fallback", () => {
+    const config = makeConfig();
+    const event = makeChannelMessageEvent({
+      text: "<@UBOT> <@ULEO> hello",
+    });
+    const result = normalizeSlackChannelMessage(
+      event,
+      "evt-channel-fallback-render",
+      config,
+      undefined,
+      undefined,
+      { userLabels: { ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@leo hello");
+  });
+
   test("message edits render mentions and preserve edit metadata", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent({
