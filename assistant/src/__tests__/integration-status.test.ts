@@ -5,8 +5,9 @@ import { credentialKey } from "../security/credential-key.js";
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
 
-/** Set of providers that should report as connected via isProviderConnected(). */
 const connectedProviders = new Set<string>();
+const managedProviders = new Set<string>();
+const platformConnectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
@@ -18,19 +19,58 @@ mock.module("../config/loader.js", () => ({
       ? { accountSid: mockTwilioAccountSid }
       : undefined,
   }),
+  getConfig: () => ({ services: {} }),
+}));
+
+mock.module("../config/schemas/services.js", () => ({
+  getServiceMode: (_services: unknown, key: string) =>
+    managedProviders.has(key) ? "managed" : "your-own",
+  ServicesSchema: { shape: { google: true, slack: true } },
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
-  isProviderConnected: (provider: string) => connectedProviders.has(provider),
+  isProviderConnected: (provider: string) =>
+    Promise.resolve(connectedProviders.has(provider)),
   getConnectionByProvider: (provider: string) =>
     connectedProviders.has(provider)
       ? { id: `conn-${provider}`, status: "active" }
       : undefined,
+  getProvider: (provider: string) => {
+    const managedKeys: Record<string, string> = {
+      google: "google",
+      slack: "slack",
+    };
+    return managedKeys[provider]
+      ? { managedServiceConfigKey: managedKeys[provider] }
+      : undefined;
+  },
 }));
 
-/** Mark a provider as fully connected (active row + access token). */
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: async () => ({
+      platformAssistantId: "test-assistant",
+      fetch: async (path: string) => {
+        const url = new URL(`http://localhost${path}`);
+        const provider = url.searchParams.get("provider");
+        const hasConnections =
+          provider && platformConnectedProviders.has(provider);
+        return {
+          ok: true,
+          json: async () => (hasConnections ? [{ id: "conn-1" }] : []),
+        };
+      },
+    }),
+  },
+}));
+
 function setOAuthConnected(provider: string): void {
   connectedProviders.add(provider);
+}
+
+function setPlatformConnected(provider: string, configKey: string): void {
+  managedProviders.add(configKey);
+  platformConnectedProviders.add(provider);
 }
 
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
@@ -40,6 +80,8 @@ describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
     connectedProviders.clear();
+    managedProviders.clear();
+    platformConnectedProviders.clear();
     mockTwilioAccountSid = undefined;
   });
 
@@ -99,7 +141,6 @@ describe("integration-status", () => {
     });
 
     test("Telegram disconnected when no connection record exists", async () => {
-      // No oauth_connection record for telegram — should be disconnected
       const summary = await getIntegrationSummary();
       const telegram = summary.find(
         (s: { name: string }) => s.name === "Telegram",
@@ -153,7 +194,6 @@ describe("integration-status", () => {
     });
 
     test("returns false when no connection record exists for category integrations", async () => {
-      // No oauth_connection record for telegram — should not count as connected
       expect(await hasCapability("messaging")).toBe(false);
     });
 
@@ -163,6 +203,46 @@ describe("integration-status", () => {
 
     test("email category checks Gmail", async () => {
       setOAuthConnected("google");
+      expect(await hasCapability("email")).toBe(true);
+    });
+  });
+
+  describe("managed mode", () => {
+    test("Gmail shows connected when platform has active connection", async () => {
+      setPlatformConnected("google", "google");
+
+      const summary = await getIntegrationSummary();
+      const gmail = summary.find((s: { name: string }) => s.name === "Gmail");
+      expect(gmail?.connected).toBe(true);
+    });
+
+    test("Gmail shows disconnected when managed but no platform connection", async () => {
+      managedProviders.add("google");
+
+      const summary = await getIntegrationSummary();
+      const gmail = summary.find((s: { name: string }) => s.name === "Gmail");
+      expect(gmail?.connected).toBe(false);
+    });
+
+    test("Slack shows connected when platform has active connection", async () => {
+      setPlatformConnected("slack", "slack");
+
+      const summary = await getIntegrationSummary();
+      const slack = summary.find((s: { name: string }) => s.name === "Slack");
+      expect(slack?.connected).toBe(true);
+    });
+
+    test("formatIntegrationSummary reflects managed connections", async () => {
+      setPlatformConnected("google", "google");
+      setPlatformConnected("slack", "slack");
+
+      const result = await formatIntegrationSummary();
+      expect(result).toContain("Gmail \u2713");
+      expect(result).toContain("Slack \u2713");
+    });
+
+    test("hasCapability returns true for managed email connection", async () => {
+      setPlatformConnected("google", "google");
       expect(await hasCapability("email")).toBe(true);
     });
   });
