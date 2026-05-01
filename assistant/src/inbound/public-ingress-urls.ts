@@ -27,7 +27,7 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
-import { normalizePublicBaseUrl } from "@vellumai/service-contracts/twilio-ingress";
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
 import { getIngressPublicBaseUrl } from "../config/env.js";
 
