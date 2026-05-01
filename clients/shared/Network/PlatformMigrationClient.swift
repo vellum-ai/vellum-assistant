@@ -13,14 +13,14 @@ public enum PlatformMigrationClient {
 
     // MARK: - Response Types
 
-    /// Response from the platform's upload URL endpoint.
-    public struct UploadUrlResponse: Decodable {
+    /// Response from the platform's unified signed-URL endpoint.
+    public struct SignedUrlResponse: Decodable {
         public let uploadUrl: String
         public let bundleKey: String
         public let expiresAt: String
 
         private enum CodingKeys: String, CodingKey {
-            case uploadUrl = "upload_url"
+            case uploadUrl = "url"
             case bundleKey = "bundle_key"
             case expiresAt = "expires_at"
         }
@@ -60,14 +60,17 @@ public enum PlatformMigrationClient {
 
     // MARK: - Public API
 
-    /// Requests a signed upload URL from the platform for uploading a migration bundle.
+    /// Requests a signed upload URL from the platform's unified signed-URL endpoint.
     ///
-    /// - Returns: An `UploadUrlResponse` containing the signed URL, bundle key, and expiration.
+    /// POSTs to `/v1/migrations/signed-url/` with `{"operation": "upload"}`. The
+    /// returned signed URL is suitable for a direct GCS PUT of bundle bytes.
+    ///
+    /// - Returns: A `SignedUrlResponse` containing the signed URL, bundle key, and expiration.
     /// - Throws: `PlatformMigrationError` on auth or request failures.
-    public static func requestUploadUrl() async throws -> UploadUrlResponse {
+    public static func requestSignedUploadUrl() async throws -> SignedUrlResponse {
         let (baseURL, token, orgId) = try resolveAuthContext()
 
-        guard let url = URL(string: "\(baseURL)/v1/migrations/upload-url/") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/signed-url/") else {
             throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
         }
 
@@ -78,11 +81,11 @@ public enum PlatformMigrationClient {
         if let orgId {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["content_type": "application/octet-stream"])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["operation": "upload"])
 
         let (data, statusCode) = try await executeWithRetry(
             request: request,
-            label: "upload-url",
+            label: "signed-url",
             nonRetryableStatusCodes: [404]
         )
 
@@ -96,13 +99,13 @@ public enum PlatformMigrationClient {
         }
 
         let decoder = JSONDecoder()
-        return try decoder.decode(UploadUrlResponse.self, from: data)
+        return try decoder.decode(SignedUrlResponse.self, from: data)
     }
 
     /// Uploads binary bundle data to a GCS signed URL.
     ///
     /// - Parameters:
-    ///   - url: The signed upload URL from `requestUploadUrl()`.
+    ///   - url: The signed upload URL from `requestSignedUploadUrl()`.
     ///   - bundleData: The raw bundle data to upload.
     /// - Throws: `PlatformMigrationError.uploadFailed` if the upload returns a non-2xx status.
     public static func uploadToSignedUrl(_ url: String, bundleData: Data) async throws {
@@ -126,7 +129,7 @@ public enum PlatformMigrationClient {
     /// Uploads binary bundle data to a GCS signed URL with progress tracking.
     ///
     /// - Parameters:
-    ///   - url: The signed upload URL from `requestUploadUrl()`.
+    ///   - url: The signed upload URL from `requestSignedUploadUrl()`.
     ///   - bundleData: The raw bundle data to upload.
     ///   - onProgress: A closure called on the main actor with values from 0.0 to 1.0
     ///     representing the fraction of bytes uploaded.
@@ -182,7 +185,7 @@ public enum PlatformMigrationClient {
 
     /// Triggers a GCS-based import on the platform after the bundle has been uploaded.
     ///
-    /// - Parameter bundleKey: The bundle key returned by `requestUploadUrl()`.
+    /// - Parameter bundleKey: The bundle key returned by `requestSignedUploadUrl()`.
     /// - Returns: A tuple of the HTTP status code and raw response data.
     /// - Throws: `PlatformMigrationError` on auth failures, or network errors from `URLSession`.
     public static func importFromGcs(bundleKey: String) async throws -> (statusCode: Int, data: Data) {
