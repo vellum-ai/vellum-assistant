@@ -57,7 +57,7 @@ public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable, Equatable
     }
 
     /// Derive a human-readable name from the flag key.
-    /// e.g. "settings-billing" -> "Settings Billing"
+    /// e.g. "settings-developer-nav" -> "Settings Developer Nav"
     public var displayName: String {
         if let label = label { return label }
         return key

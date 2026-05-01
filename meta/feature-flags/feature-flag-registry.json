@@ -42,6 +42,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "settings-developer-nav",
+      "scope": "assistant",
+      "key": "settings-developer-nav",
+      "label": "Settings Developer Nav",
+      "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",
@@ -122,11 +130,27 @@
       "defaultEnabled": false
     },
     {
+      "id": "sounds",
+      "scope": "assistant",
+      "key": "sounds",
+      "label": "Sounds",
+      "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
+      "defaultEnabled": false
+    },
+    {
       "id": "message-tts",
       "scope": "assistant",
       "key": "message-tts",
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
+      "defaultEnabled": false
+    },
+    {
+      "id": "backward-releases",
+      "scope": "assistant",
+      "key": "backward-releases",
+      "label": "Backward Releases",
+      "description": "Show older versions in the version picker, allowing rollback to previous releases",
       "defaultEnabled": false
     },
     {

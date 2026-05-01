@@ -58,8 +58,8 @@ struct AssistantUpgradeSection: View {
     @State private var isTakingLongerThanExpected = false
     @State private var escalationTask: Task<Void, Never>?
     @State private var dockerUpgradeTask: Task<Void, Never>?
-    @State private var backwardReleasesEnabled = true
-
+    @State private var backwardReleasesEnabled = false
+    private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
         availableReleases.first
@@ -381,6 +381,11 @@ struct AssistantUpgradeSection: View {
             }
         }
         .task { await loadReleases() }
+        .task {
+            if let flags = try? await featureFlagClient.getFeatureFlags() {
+                backwardReleasesEnabled = flags.first(where: { $0.key == "backward-releases" })?.enabled ?? false
+            }
+        }
         .onChange(of: currentVersion) { _, _ in
             Task { await loadReleasesQuietly() }
         }
