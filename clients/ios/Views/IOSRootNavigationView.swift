@@ -38,6 +38,7 @@ struct IOSRootNavigationView: View {
     /// `ConversationListView` on iPad). Mirrors `isSettingsPresented`.
     @State private var isACPSessionsPresented: Bool = false
     @State private var activeConversationId: UUID?
+    @State private var featureFlagRefreshToken: Int = 0
     /// True when `activeConversationId` was populated by the auto-seed path
     /// (cold start / size-class transition / fallback after deletion) rather
     /// than by an explicit user action. `compactRoot`'s `.task(id:)` uses
@@ -49,50 +50,15 @@ struct IOSRootNavigationView: View {
 
     /// Width of the drawer — capped so the underlying chat still peeks through.
     private let drawerMaxWidth: CGFloat = 360
+    private static let codingAgentsPanelFeatureFlag = "coding-agents-panel"
+
+    private var isCodingAgentsPanelEnabled: Bool {
+        _ = featureFlagRefreshToken
+        return Self.isCodingAgentsPanelEnabled()
+    }
 
     var body: some View {
-        Group {
-            // Treat a `nil` size class as compact so that on iPhone cold start —
-            // where SwiftUI may report `horizontalSizeClass` as `nil` for one
-            // frame during initial environment resolution — we don't briefly
-            // mount `regularLayout` (i.e. `ConversationListView`). Its
-            // `.onAppear` consumes any pending selection request synchronously
-            // during layout, which would otherwise land a cold-start push-
-            // notification deep link in a transient `ConversationListView` that
-            // is immediately torn down when the size class resolves to
-            // `.compact`, silently dropping the selection.
-            if horizontalSizeClass == .regular {
-                regularLayout
-            } else {
-                compactLayout
-            }
-        }
-        // `onDismiss` resets `navigateToConnect` so that:
-        // (1) re-opening Settings via the drawer/toolbar doesn't auto-push
-        //     the Connect destination again, and
-        // (2) if `IOSRootNavigationView` is recreated (e.g. `ContentView`'s
-        //     `.id(client)` changes), `@State isSettingsPresented` resets to
-        //     `false` but the parent-owned `navigateToConnect` stays `true` —
-        //     which would otherwise cause the `.task` one-shot check below to
-        //     reopen the sheet automatically. Clearing the binding on dismiss
-        //     breaks that loop.
-        .sheet(isPresented: $isSettingsPresented, onDismiss: {
-            navigateToConnect = false
-        }) {
-            SettingsBottomSheet(
-                authManager: authManager,
-                conversationStore: store
-            )
-        }
-        // Coding Agents (ACP sessions) sheet. Driven from the terminal-icon
-        // toolbar entry on each top-level surface — see `compactEmptyRoot`,
-        // `ConversationChatView` (compact), and `ConversationListView` (iPad).
-        .sheet(isPresented: $isACPSessionsPresented) {
-            ACPSessionsView(
-                store: clientProvider.acpSessionStore,
-                onClose: { isACPSessionsPresented = false }
-            )
-        }
+        rootWithSheets
         .task {
             seedActiveConversationIfNeeded()
             applyPendingSelectionRequestIfNeeded()
@@ -109,15 +75,12 @@ struct IOSRootNavigationView: View {
             // link that was already set before this view appeared (e.g.
             // a launch path that wakes the app via the inline card)
             // would be missed by `.onChange` alone.
-            if clientProvider.acpSessionStore.selectedSessionId != nil
-                && !isACPSessionsPresented {
-                isACPSessionsPresented = true
-            }
+            reconcileACPSessionsPresentation()
         }
         .onChange(of: store.selectionRequest?.id) { _, _ in
             applyPendingSelectionRequestIfNeeded()
         }
-        .onChange(of: clientProvider.acpSessionStore.selectedSessionId) { _, newValue in
+        .onChange(of: clientProvider.acpSessionStore.selectedSessionId) { _, _ in
             // Inline `acp_spawn` taps (rendered by `ToolCallProgressBar`
             // on iOS) land here by setting the store's
             // `selectedSessionId`. We surface the Coding Agents sheet
@@ -125,8 +88,21 @@ struct IOSRootNavigationView: View {
             // observation tick — that's where the actual detail-view
             // push happens. Clearing the field here would race the
             // panel's consume helper, so we leave it alone.
-            if newValue != nil && !isACPSessionsPresented {
-                isACPSessionsPresented = true
+            reconcileACPSessionsPresentation()
+        }
+        .onChange(of: isCodingAgentsPanelEnabled) { _, _ in
+            reconcileACPSessionsPresentation()
+        }
+        .task {
+            let notifications = NotificationCenter.default.notifications(
+                named: Notification.Name("assistantFeatureFlagDidChange")
+            )
+            for await notification in notifications {
+                guard notification.userInfo?["key"] as? String == Self.codingAgentsPanelFeatureFlag else {
+                    continue
+                }
+                featureFlagRefreshToken += 1
+                reconcileACPSessionsPresentation()
             }
         }
         .onChange(of: store.conversations.map(\.id)) { _, _ in
@@ -161,6 +137,60 @@ struct IOSRootNavigationView: View {
             if shouldShow && !isSettingsPresented {
                 isSettingsPresented = true
             }
+        }
+    }
+
+    @ViewBuilder
+    private var rootWithSheets: some View {
+        if isCodingAgentsPanelEnabled {
+            rootWithSettingsSheet
+                // Coding Agents (ACP sessions) sheet. Driven from the terminal-icon
+                // toolbar entry on each top-level surface — see `compactEmptyRoot`,
+                // `ConversationChatView` (compact), and `ConversationListView` (iPad).
+                .sheet(isPresented: $isACPSessionsPresented) {
+                    ACPSessionsView(
+                        store: clientProvider.acpSessionStore,
+                        onClose: { isACPSessionsPresented = false }
+                    )
+                }
+        } else {
+            rootWithSettingsSheet
+        }
+    }
+
+    private var rootWithSettingsSheet: some View {
+        Group {
+            // Treat a `nil` size class as compact so that on iPhone cold start —
+            // where SwiftUI may report `horizontalSizeClass` as `nil` for one
+            // frame during initial environment resolution — we don't briefly
+            // mount `regularLayout` (i.e. `ConversationListView`). Its
+            // `.onAppear` consumes any pending selection request synchronously
+            // during layout, which would otherwise land a cold-start push-
+            // notification deep link in a transient `ConversationListView` that
+            // is immediately torn down when the size class resolves to
+            // `.compact`, silently dropping the selection.
+            if horizontalSizeClass == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
+        }
+        // `onDismiss` resets `navigateToConnect` so that:
+        // (1) re-opening Settings via the drawer/toolbar doesn't auto-push
+        //     the Connect destination again, and
+        // (2) if `IOSRootNavigationView` is recreated (e.g. `ContentView`'s
+        //     `.id(client)` changes), `@State isSettingsPresented` resets to
+        //     `false` but the parent-owned `navigateToConnect` stays `true` —
+        //     which would otherwise cause the `.task` one-shot check below to
+        //     reopen the sheet automatically. Clearing the binding on dismiss
+        //     breaks that loop.
+        .sheet(isPresented: $isSettingsPresented, onDismiss: {
+            navigateToConnect = false
+        }) {
+            SettingsBottomSheet(
+                authManager: authManager,
+                conversationStore: store
+            )
         }
     }
 
@@ -253,7 +283,10 @@ struct IOSRootNavigationView: View {
                 onOpenDrawer: openDrawer,
                 onComposeNew: composeNewConversation,
                 onShowSettings: { isSettingsPresented = true },
-                onShowACPSessions: { isACPSessionsPresented = true }
+                onShowACPSessions: Self.codingAgentsPanelAction(
+                    isEnabled: isCodingAgentsPanelEnabled,
+                    action: { isACPSessionsPresented = true }
+                )
             )
             .task(id: id) {
                 store.loadHistoryIfNeeded(for: id)
@@ -322,13 +355,15 @@ struct IOSRootNavigationView: View {
                 .accessibilityLabel("Settings")
             }
             .hideSharedToolbarBackgroundIfAvailable()
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: { isACPSessionsPresented = true }) {
-                    VIconView(.terminal, size: 20)
+            if isCodingAgentsPanelEnabled {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { isACPSessionsPresented = true }) {
+                        VIconView(.terminal, size: 20)
+                    }
+                    .accessibilityLabel("Coding Agents")
                 }
-                .accessibilityLabel("Coding Agents")
+                .hideSharedToolbarBackgroundIfAvailable()
             }
-            .hideSharedToolbarBackgroundIfAvailable()
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: composeNewConversation) {
                     VIconView(.squarePen, size: 20)
@@ -345,7 +380,10 @@ struct IOSRootNavigationView: View {
         ConversationListView(
             store: store,
             onShowSettings: { isSettingsPresented = true },
-            onShowACPSessions: { isACPSessionsPresented = true },
+            onShowACPSessions: Self.codingAgentsPanelAction(
+                isEnabled: isCodingAgentsPanelEnabled,
+                action: { isACPSessionsPresented = true }
+            ),
             selectedConversationId: $activeConversationId
         )
     }
@@ -380,6 +418,37 @@ struct IOSRootNavigationView: View {
         activeConversationWasSeeded = false
         activeConversationId = conversation.id
         closeDrawer()
+    }
+
+    private func reconcileACPSessionsPresentation() {
+        isACPSessionsPresented = Self.resolvedACPSessionsPresentation(
+            isCodingAgentsPanelEnabled: isCodingAgentsPanelEnabled,
+            selectedSessionId: clientProvider.acpSessionStore.selectedSessionId,
+            isCurrentlyPresented: isACPSessionsPresented
+        )
+    }
+
+    static func isCodingAgentsPanelEnabled(
+        flagManager: MacOSClientFeatureFlagManager = .shared
+    ) -> Bool {
+        flagManager.isEnabled(codingAgentsPanelFeatureFlag)
+    }
+
+    static func codingAgentsPanelAction(
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> (() -> Void)? {
+        isEnabled ? action : nil
+    }
+
+    static func resolvedACPSessionsPresentation(
+        isCodingAgentsPanelEnabled: Bool,
+        selectedSessionId: String?,
+        isCurrentlyPresented: Bool
+    ) -> Bool {
+        guard isCodingAgentsPanelEnabled else { return false }
+        if selectedSessionId != nil { return true }
+        return isCurrentlyPresented
     }
 
     /// Fallback after the user archives the currently active conversation from

@@ -88,7 +88,8 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
 
         ACPSpawnDeepLinkCard.applyACPSessionDeepLink(
             id: "acp-target-id",
-            store: store
+            store: store,
+            isCodingAgentsPanelEnabled: true
         )
 
         XCTAssertEqual(
@@ -105,7 +106,75 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     func test_applyACPSessionDeepLink_isNoOpWhenStoreIsNil() {
         // No assertion needed beyond "this didn't crash" — the helper
         // returns void and a nil store has no observable side effect.
-        ACPSpawnDeepLinkCard.applyACPSessionDeepLink(id: "acp-id", store: nil)
+        ACPSpawnDeepLinkCard.applyACPSessionDeepLink(
+            id: "acp-id",
+            store: nil,
+            isCodingAgentsPanelEnabled: true
+        )
+    }
+
+    /// Even direct calls into the card helper must respect the client flag.
+    /// Otherwise disabled UI could still route into the panel if an old
+    /// inline card or test harness invoked the side effect directly.
+    func test_applyACPSessionDeepLink_isNoOpWhenPanelFlagIsDisabled() {
+        let store = ACPSessionStore()
+
+        ACPSpawnDeepLinkCard.applyACPSessionDeepLink(
+            id: "acp-disabled",
+            store: store,
+            isCodingAgentsPanelEnabled: false
+        )
+
+        XCTAssertNil(store.selectedSessionId)
+    }
+
+    // MARK: - inline card feature flag
+
+    /// When the panel flag is enabled and the tool result includes a
+    /// parseable ACP session id, iOS should render the tap-to-open card.
+    func test_shouldRenderACPSpawnDeepLinkCard_enabledForSingleSpawnWithSessionId() {
+        let toolCall = makeAcpSpawnToolCall(isComplete: true, isError: false)
+
+        XCTAssertTrue(
+            ToolCallProgressBar.shouldRenderACPSpawnDeepLinkCard(
+                toolCalls: [toolCall],
+                isCodingAgentsPanelEnabled: true
+            )
+        )
+    }
+
+    /// With the panel flag disabled, the same `acp_spawn` result must fall
+    /// back to the ordinary progress bar so the tool result remains visible
+    /// without offering tap-to-open routing.
+    func test_shouldRenderACPSpawnDeepLinkCard_disabledFallsBackToProgressBar() {
+        let toolCall = makeAcpSpawnToolCall(isComplete: true, isError: false)
+
+        XCTAssertFalse(
+            ToolCallProgressBar.shouldRenderACPSpawnDeepLinkCard(
+                toolCalls: [toolCall],
+                isCodingAgentsPanelEnabled: false
+            )
+        )
+    }
+
+    /// The card remains limited to the single-call case so mixed progress
+    /// groups keep their ordinary step-by-step affordance.
+    func test_shouldRenderACPSpawnDeepLinkCard_requiresSingleSpawnCall() {
+        let spawn = makeAcpSpawnToolCall(isComplete: true, isError: false)
+        let other = ToolCallData(
+            toolName: "bash",
+            inputSummary: "echo ok",
+            result: "<command_completed />",
+            isError: false,
+            isComplete: true
+        )
+
+        XCTAssertFalse(
+            ToolCallProgressBar.shouldRenderACPSpawnDeepLinkCard(
+                toolCalls: [spawn, other],
+                isCodingAgentsPanelEnabled: true
+            )
+        )
     }
 
     // MARK: - statusLabel
