@@ -683,7 +683,8 @@ function annotatePersistedAssistantMessage(
         rec._riskLevel = risk.riskLevel;
         if (risk.riskReason) rec._riskReason = risk.riskReason;
         rec._autoApproved = risk.autoApproved;
-        if (risk.matchedTrustRuleId) rec._matchedTrustRuleId = risk.matchedTrustRuleId;
+        if (risk.matchedTrustRuleId)
+          rec._matchedTrustRuleId = risk.matchedTrustRuleId;
         if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
         if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
         if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;

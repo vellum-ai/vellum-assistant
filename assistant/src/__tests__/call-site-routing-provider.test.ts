@@ -321,9 +321,8 @@ describe("CallSiteRoutingProvider", () => {
       },
     };
 
-    const wrapped = new CallSiteRoutingProvider(
-      defaultProvider,
-      (name) => (name === "openai" ? altProvider : undefined),
+    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
+      name === "openai" ? altProvider : undefined,
     );
 
     expect(wrapped.name).toBe("anthropic"); // idle → default
@@ -359,7 +358,9 @@ describe("CallSiteRoutingProvider", () => {
       name: "openai",
       async sendMessage() {
         // Yield so fireworks call can start before we complete.
-        await new Promise<void>((r) => { resolveOpenAI = r; });
+        await new Promise<void>((r) => {
+          resolveOpenAI = r;
+        });
         nameSeenByOpenAI.push(wrapped.name);
         return makeResponse("openai");
       },
@@ -368,7 +369,9 @@ describe("CallSiteRoutingProvider", () => {
     const fireworksProvider: Provider = {
       name: "fireworks",
       async sendMessage() {
-        await new Promise<void>((r) => { resolveFireworks = r; });
+        await new Promise<void>((r) => {
+          resolveFireworks = r;
+        });
         nameSeenByFireworks.push(wrapped.name);
         return makeResponse("fireworks");
       },
@@ -382,10 +385,10 @@ describe("CallSiteRoutingProvider", () => {
 
     // Start both calls concurrently (do not await yet).
     const callA = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { callSite: "memoryRetrieval" },   // → openai
+      config: { callSite: "memoryRetrieval" }, // → openai
     });
     const callB = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { callSite: "conversationTitle" },   // → fireworks
+      config: { callSite: "conversationTitle" }, // → fireworks
     });
 
     // Let both reach their suspension point, then resolve in order.

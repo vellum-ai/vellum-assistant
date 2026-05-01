@@ -73,7 +73,7 @@ struct InferenceServiceCard: View {
     /// provider has a configured API key.
     private var hasUsableProvider: Bool {
         let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
-        let hasConfiguredKey = providerKeyStatuses.values.contains(where: { $0 == true })
+        let hasConfiguredKey = providerKeyStatuses.values.contains(true)
         return hasKeylessProvider || hasConfiguredKey
     }
 

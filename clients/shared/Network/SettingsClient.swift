@@ -169,7 +169,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "config/embeddings", timeout: 10
+                path: "assistants/{assistantId}/config/embeddings", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchEmbeddingConfig failed (HTTP \(response.statusCode))")
@@ -187,7 +187,7 @@ public struct SettingsClient: SettingsClientProtocol {
             var body: [String: Any] = ["provider": provider]
             if let model { body["model"] = model }
             let response = try await GatewayHTTPClient.put(
-                path: "config/embeddings", json: body, timeout: 10
+                path: "assistants/{assistantId}/config/embeddings", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setEmbeddingConfig failed (HTTP \(response.statusCode))")
@@ -203,7 +203,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "integrations/telegram/config", timeout: 10
+                path: "assistants/{assistantId}/integrations/telegram/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchTelegramConfig failed (HTTP \(response.statusCode))")
