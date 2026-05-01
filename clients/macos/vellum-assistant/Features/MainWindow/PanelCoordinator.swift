@@ -11,9 +11,6 @@ private let panelCoordinatorLog = Logger(
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
-    fileprivate static let conversationStartersFeatureFlagKey =
-        "conversation-starters"
-
     // MARK: - Config-Driven Slot Rendering
 
     @ViewBuilder
@@ -699,9 +696,7 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
-            let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
-                Self.conversationStartersFeatureFlagKey
-            )
+            let conversationStartersEnabled = true
             let showInspectButton = assistantFeatureFlagStore.isEnabled(
                 "settings-developer-nav"
             )
