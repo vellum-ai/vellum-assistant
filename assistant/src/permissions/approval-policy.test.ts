@@ -982,14 +982,14 @@ describe("resolveThreshold", () => {
       expect(resolveThreshold("medium", "background")).toBe("medium");
     });
 
-    test("returns scalar for headless context", () => {
+    test("returns none for headless context regardless of scalar", () => {
       expect(resolveThreshold("none", "headless")).toBe("none");
+      expect(resolveThreshold("high", "headless")).toBe("none");
     });
 
-    test("returns high scalar for any context", () => {
+    test("returns high scalar for non-headless contexts", () => {
       expect(resolveThreshold("high", "conversation")).toBe("high");
       expect(resolveThreshold("high", "background")).toBe("high");
-      expect(resolveThreshold("high", "headless")).toBe("high");
     });
 
     test("returns scalar when executionContext is omitted", () => {

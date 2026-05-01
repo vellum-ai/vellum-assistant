@@ -72,6 +72,7 @@ export function resolveThreshold(
   configValue: ThresholdConfig | undefined,
   executionContext?: ExecutionContext,
 ): ThresholdScalar {
+  if (executionContext === "headless") return "none";
   if (configValue == null) {
     return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
   }
@@ -80,7 +81,6 @@ export function resolveThreshold(
   }
   const ctx = executionContext ?? "conversation";
   if (ctx === "conversation") return configValue.conversation;
-  if (ctx === "headless") return "none";
   return configValue.autonomous;
 }
 
