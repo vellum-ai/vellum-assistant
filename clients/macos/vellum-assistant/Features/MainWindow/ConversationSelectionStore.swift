@@ -58,6 +58,7 @@ final class ConversationSelectionStore {
         draftViewModel = nil
         draftLocalId = nil
         activeConversationId = conversationId
+        activeConversation = listStore.conversations.first { $0.id == conversationId }
 
         let vm = getOrCreateViewModel(for: conversationId)
         vm?.ensureMessageLoopStarted()
@@ -84,6 +85,7 @@ final class ConversationSelectionStore {
     /// stop channel refresh, and notify observation.
     func performDeactivation() {
         activeConversationId = nil
+        activeConversation = nil
         onActiveViewModelChanged?(nil)
         stopChannelRefresh()
     }
@@ -197,12 +199,34 @@ final class ConversationSelectionStore {
         migrateStorageKeysIfNeeded()
     }
 
-    // MARK: - Computed Properties
+    // MARK: - Active Conversation Cache
 
-    /// The active conversation model, if one is selected and exists in the list.
-    var activeConversation: ConversationModel? {
-        guard let activeConversationId else { return nil }
-        return listStore.conversations.first { $0.id == activeConversationId }
+    /// Cached active conversation model, updated explicitly when the selection
+    /// changes or when the list store's conversations array mutates. Stored
+    /// rather than computed so that views reading this property track only the
+    /// `activeConversation` stored property — not `listStore.conversations`.
+    /// This breaks the cross-store observation dependency that previously caused
+    /// every `conversations` mutation (seen/unseen flips, pagination appends,
+    /// heartbeat timestamps) to invalidate TopBarView and other toolbar views.
+    /// Writes are equality-guarded so mutations that don't affect the active
+    /// conversation produce no observation notification.
+    private(set) var activeConversation: ConversationModel?
+
+    /// Refresh the cached ``activeConversation`` from `listStore.conversations`.
+    /// Called when the conversations array mutates (title change, conversationId
+    /// backfill, seen/unseen flip, pagination append) so the cached model stays
+    /// current. The equality guard (`!=`) ensures no observation notification
+    /// fires when the active conversation's fields are unchanged — which is the
+    /// common case for mutations targeting other conversations.
+    func refreshActiveConversation() {
+        guard let activeConversationId else {
+            if activeConversation != nil { activeConversation = nil }
+            return
+        }
+        let updated = listStore.conversations.first { $0.id == activeConversationId }
+        if updated != activeConversation {
+            activeConversation = updated
+        }
     }
 
     /// The ChatViewModel for the active conversation, or the draft ViewModel
