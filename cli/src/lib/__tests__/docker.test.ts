@@ -29,6 +29,20 @@ function buildAssistantArgs(
   return builders.assistant();
 }
 
+function buildGatewayArgs(
+  overrides: Partial<Parameters<typeof serviceDockerRunArgs>[0]> = {},
+): string[] {
+  const res = dockerResourceNames(instanceName);
+  const builders = serviceDockerRunArgs({
+    gatewayPort: 7830,
+    imageTags,
+    instanceName,
+    res,
+    ...overrides,
+  });
+  return builders.gateway();
+}
+
 describe("serviceDockerRunArgs — assistant", () => {
   test("grants the minimum capability set needed for DinD (SYS_ADMIN + NET_ADMIN) rather than --privileged", () => {
     const args = buildAssistantArgs();
@@ -109,6 +123,33 @@ describe("serviceDockerRunArgs — assistant", () => {
     expect(args.some((a) => a.startsWith("GUARDIAN_BOOTSTRAP_SECRET="))).toBe(
       false,
     );
+  });
+});
+
+describe("serviceDockerRunArgs — gateway", () => {
+  const savedVelayBaseUrl = process.env.VELAY_BASE_URL;
+
+  beforeEach(() => {
+    delete process.env.VELAY_BASE_URL;
+  });
+
+  afterEach(() => {
+    if (savedVelayBaseUrl === undefined) delete process.env.VELAY_BASE_URL;
+    else process.env.VELAY_BASE_URL = savedVelayBaseUrl;
+  });
+
+  test("passes VELAY_BASE_URL into the gateway container when set", () => {
+    process.env.VELAY_BASE_URL = "http://host.docker.internal:8501";
+
+    expect(buildGatewayArgs()).toContain(
+      "VELAY_BASE_URL=http://host.docker.internal:8501",
+    );
+  });
+
+  test("omits VELAY_BASE_URL from gateway args when unset", () => {
+    expect(
+      buildGatewayArgs().some((arg) => arg.startsWith("VELAY_BASE_URL=")),
+    ).toBe(false);
   });
 });
 

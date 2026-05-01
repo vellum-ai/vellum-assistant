@@ -333,12 +333,11 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.webSocketBridge.closeAll();
-    void this.clearPublishedTwilioPublicBaseUrl();
     log.info(
       { code: event.code, reason: event.reason },
       "Velay tunnel disconnected",
     );
-    this.scheduleReconnect();
+    this.clearPublishedTwilioPublicBaseUrlThenReconnect();
   }
 
   private disconnectActiveWebSocket(
@@ -350,9 +349,8 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.webSocketBridge.closeAll();
-    void this.clearPublishedTwilioPublicBaseUrl();
     closeWebSocket(ws, code, reason);
-    this.scheduleReconnect();
+    this.clearPublishedTwilioPublicBaseUrlThenReconnect();
   }
 
   private async clearPublishedTwilioPublicBaseUrl(): Promise<void> {
@@ -364,6 +362,16 @@ export class VelayTunnelClient {
     } catch (err) {
       log.error({ err }, "Failed to clear Velay Twilio public URL");
     }
+  }
+
+  private clearPublishedTwilioPublicBaseUrlThenReconnect(): void {
+    void this.clearPublishedTwilioPublicBaseUrl()
+      .catch((err) => {
+        log.error({ err }, "Failed to clear Velay Twilio public URL");
+      })
+      .finally(() => {
+        this.scheduleReconnect();
+      });
   }
 
   private sendFrame(frame: VelayFrame): void {
