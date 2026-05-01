@@ -348,7 +348,8 @@ public final class AuthService {
         organizationId: String,
         name: String? = nil,
         description: String? = nil,
-        anthropicApiKey: String? = nil
+        anthropicApiKey: String? = nil,
+        mode: HatchAssistantMode = .ensure
     ) async throws -> HatchAssistantResult {
         let requestBody = HatchAssistantRequest(
             name: name,
@@ -356,9 +357,16 @@ public final class AuthService {
             anthropic_api_key: anthropicApiKey
         )
         let bodyData = try JSONEncoder().encode(requestBody)
+        let hatchPath: String
+        switch mode {
+        case .ensure:
+            hatchPath = "v1/assistants/hatch/"
+        case .create:
+            hatchPath = "v1/assistants/hatch/?mode=\(mode.rawValue)"
+        }
 
         let response = try await performPlatformRequest(
-            path: "v1/assistants/hatch/",
+            path: hatchPath,
             method: "POST",
             organizationId: organizationId,
             body: bodyData,

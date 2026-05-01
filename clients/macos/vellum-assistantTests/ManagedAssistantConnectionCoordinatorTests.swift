@@ -2,6 +2,8 @@ import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 
+private let aiConsentMustNotBeClobberedMessage = "Managed coordinator must NOT clobber AI Data Sharing consent (Apple Guideline 5.1.2(i) — must remain user-controlled)"
+
 @MainActor
 final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
     private var tempDir: URL!
@@ -19,6 +21,10 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         defaultsSuiteName = "ManagedAssistantConnectionCoordinatorTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: defaultsSuiteName)
         defaults.removePersistentDomain(forName: defaultsSuiteName)
+        // Seed `true` so a regression that writes/removes aiDataConsent flips
+        // the AI-consent assertions in tests below. setUp runs after the
+        // per-test UUID suite is created, so each test sees a fresh seed.
+        defaults.set(true, forKey: "aiDataConsent")
     }
 
     override func tearDown() {
@@ -60,6 +66,7 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), aiConsentMustNotBeClobberedMessage)
         XCTAssertEqual(taggedAssistantId, assistant.id)
 
         let data = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
@@ -91,6 +98,34 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: "collectUsageData"))
         XCTAssertFalse(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), aiConsentMustNotBeClobberedMessage)
+    }
+
+    func testActivateNewManagedAssistantUsesCreatePath() async throws {
+        let assistant = PlatformAssistant(id: "managed-new", name: "New")
+        let bootstrapService = MockManagedAssistantBootstrapService(
+            outcome: .createdNew(assistant)
+        )
+
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            bootstrapService: bootstrapService,
+            userDefaults: defaults,
+            runtimeURLProvider: { "https://platform.example.com" },
+            updateAssistantTag: { _ in },
+            lockfilePath: lockfilePath,
+            dateProvider: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
+
+        let result = try await coordinator.activateNewManagedAssistant()
+
+        XCTAssertEqual(result.assistant.id, assistant.id)
+        XCTAssertFalse(result.reusedExisting)
+        XCTAssertEqual(bootstrapService.ensureCallCount, 0)
+        XCTAssertEqual(bootstrapService.createCallCount, 1)
+        XCTAssertEqual(defaults.string(forKey: "connectedOrganizationId"), nil)
+        let lockfileData = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let lockfileJson = try JSONSerialization.jsonObject(with: lockfileData) as? [String: Any]
+        XCTAssertEqual(lockfileJson?["activeAssistant"] as? String, assistant.id)
     }
 
     func testActivateManagedAssistantRePopulatesOrgIdAfterCleared() async throws {
@@ -158,6 +193,8 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
 private final class MockManagedAssistantBootstrapService: ManagedAssistantBootstrapProviding {
     private let outcome: ManagedBootstrapOutcome?
     private let onEnsureManagedAssistant: (() -> Void)?
+    private(set) var ensureCallCount = 0
+    private(set) var createCallCount = 0
 
     init(
         outcome: ManagedBootstrapOutcome? = nil,
@@ -172,9 +209,22 @@ private final class MockManagedAssistantBootstrapService: ManagedAssistantBootst
         description: String?,
         anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome {
+        ensureCallCount += 1
         onEnsureManagedAssistant?()
         guard let outcome else {
             fatalError("ensureManagedAssistant called without a configured outcome")
+        }
+        return outcome
+    }
+
+    func createManagedAssistant(
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> ManagedBootstrapOutcome {
+        createCallCount += 1
+        guard let outcome else {
+            fatalError("createManagedAssistant called without a configured outcome")
         }
         return outcome
     }

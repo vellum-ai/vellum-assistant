@@ -2,6 +2,8 @@ import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 
+private let aiConsentMustNotBeClobberedMessage = "Managed coordinator must NOT clobber AI Data Sharing consent (Apple Guideline 5.1.2(i) — must remain user-controlled)"
+
 @MainActor
 final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
     private var tempDir: URL!
@@ -19,6 +21,10 @@ final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
         defaultsSuiteName = "ManagedAssistantConnectionCoordinatorSwitchTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: defaultsSuiteName)
         defaults.removePersistentDomain(forName: defaultsSuiteName)
+        // Seed `true` so a regression that writes/removes aiDataConsent flips
+        // the AI-consent assertions in tests below. setUp runs after the
+        // per-test UUID suite is created, so each test sees a fresh seed.
+        defaults.set(true, forKey: "aiDataConsent")
     }
 
     override func tearDown() {
@@ -150,6 +156,7 @@ final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
         let bootstrap = MockBootstrap(
             outcome: .createdNew(PlatformAssistant(id: "managed-activate"))
         )
+
         let coordinator = ManagedAssistantConnectionCoordinator(
             bootstrapService: bootstrap,
             userDefaults: defaults,
@@ -168,6 +175,7 @@ final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertTrue(defaults.bool(forKey: "aiDataConsent"), aiConsentMustNotBeClobberedMessage)
         // With no connection controller, bring-up must be a no-op.
         XCTAssertEqual(controller.teardownCount, 0)
         XCTAssertEqual(controller.bringUpCount, 0)
@@ -239,6 +247,14 @@ private final class MockBootstrap: ManagedAssistantBootstrapProviding {
     private let outcome: ManagedBootstrapOutcome
     init(outcome: ManagedBootstrapOutcome) { self.outcome = outcome }
     func ensureManagedAssistant(
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> ManagedBootstrapOutcome {
+        outcome
+    }
+
+    func createManagedAssistant(
         name: String?,
         description: String?,
         anthropicApiKey: String?

@@ -168,6 +168,12 @@ public struct HatchAssistantRequest: Codable, Sendable {
     }
 }
 
+/// Query mode for the platform hatch endpoint.
+public enum HatchAssistantMode: String, Codable, Sendable {
+    case ensure
+    case create
+}
+
 /// Result type for platform assistant lookups where 404/403 are normal outcomes.
 public enum PlatformAssistantResult: Sendable {
     case found(PlatformAssistant)

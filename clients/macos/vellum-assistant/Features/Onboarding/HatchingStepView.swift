@@ -86,6 +86,16 @@ struct HatchingStepView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
         .onAppear {
+            // Apple Guideline 5.1.2(i): AI Data Sharing consent must be explicitly
+            // checked by the user. If either consent flag is missing, bounce back
+            // to the privacy step (step 3) instead of starting the hatch.
+            let tosOk = UserDefaults.standard.bool(forKey: "tosAccepted")
+            let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
+            guard tosOk && aiOk else {
+                state.bounceToConsentStep()
+                return
+            }
+
             // Eagerly initialize avatar traits so computed getters don't
             // mutate @Observable state during body evaluation.
             if state.hatchAvatarBodyShape == nil {
@@ -339,18 +349,7 @@ struct HatchingStepView: View {
     private func goBack() {
         healthCheckTask?.cancel()
         isCheckingHealth = false
-        state.isHatching = false
-        state.isManagedHatch = false
-        state.hasExistingManagedAssistant = false
-        state.hatchFailed = false
-        state.hatchFailureReason = nil
-        state.hatchLogLines = []
-        state.hatchProgressTarget = 0.0
-        state.hatchProgressDisplay = 0.0
-        state.hatchStepLabel = nil
-        state.hatchTotalSteps = 1
-        state.hatchCurrentStep = 0
-        state.hatchProcessStarted = false
+        state.resetHatchTransientState()
         progressStartDate = nil
         segmentStartDate = nil
         segmentStartValue = 0

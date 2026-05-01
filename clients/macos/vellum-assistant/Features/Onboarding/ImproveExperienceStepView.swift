@@ -22,6 +22,7 @@ struct ImproveExperienceStepView: View {
     @AppStorage("collectUsageData") private var collectUsageData: Bool = true
     @AppStorage("sendDiagnostics") private var sendDiagnostics: Bool = true
     @AppStorage("tosAccepted") private var tosAccepted: Bool = false
+    @AppStorage("aiDataConsent") private var aiDataConsent: Bool = false
 
     var body: some View {
         Text("Before You Start")
@@ -41,7 +42,7 @@ struct ImproveExperienceStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         VStack(spacing: 0) {
-            VStack(spacing: VSpacing.sm) {
+            VStack(spacing: 0) {
                 // Usage analytics toggle
                 VToggle(
                     isOn: $collectUsageData,
@@ -50,14 +51,10 @@ struct ImproveExperienceStepView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceLift)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBase, lineWidth: 1)
-                        )
-                )
+
+                Divider()
+                    .background(VColor.surfaceBase)
+                    .accessibilityHidden(true)
 
                 // Diagnostics toggle
                 VToggle(
@@ -67,16 +64,12 @@ struct ImproveExperienceStepView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceLift)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBase, lineWidth: 1)
-                        )
-                )
 
-                // Privacy note bar
+                Divider()
+                    .background(VColor.surfaceBase)
+                    .accessibilityHidden(true)
+
+                // Privacy note
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.eyeOff, size: 14)
                         .foregroundStyle(VColor.contentTertiary)
@@ -84,22 +77,37 @@ struct ImproveExperienceStepView: View {
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
-                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VColor.surfaceBase)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .padding(.bottom, VSpacing.sm)
+                .padding(VSpacing.md)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surfaceLift)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBase, lineWidth: 1)
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .padding(.bottom, VSpacing.sm)
 
-                // ToS consent checkbox
-                HStack(spacing: VSpacing.md) {
-                    tosCheckbox
-                    tosConsentText
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Consent checkboxes (AI Data Sharing first, then ToS)
+            VStack(spacing: VSpacing.sm) {
+                consentRow(
+                    isChecked: $aiDataConsent,
+                    markdown: "I agree to the [AI Data Sharing Policy](\(AppURLs.dataSharingDocs.absoluteString))",
+                    plainText: "I agree to the AI Data Sharing Policy"
+                )
+
+                consentRow(
+                    isChecked: $tosAccepted,
+                    markdown: "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))",
+                    plainText: "I agree to the Terms of Service and Privacy Policy"
+                )
             }
 
             VStack(spacing: VSpacing.sm) {
-                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
+                VButton(label: "Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted || !aiDataConsent) {
                     saveAndContinue()
                 }
 
@@ -142,22 +150,39 @@ struct ImproveExperienceStepView: View {
         }
     }
 
-    // MARK: - ToS Consent Checkbox
+    // MARK: - Consent Row
 
-    private var tosCheckbox: some View {
+    /// A single consent row: checkbox + markdown link text. Uses `plainText` for
+    /// both the checkbox's accessibility label and the markdown-render fallback
+    /// so the two cannot drift apart.
+    private func consentRow(
+        isChecked: Binding<Bool>,
+        markdown: String,
+        plainText: String
+    ) -> some View {
+        HStack(spacing: VSpacing.md) {
+            consentCheckbox(isChecked: isChecked, accessibilityLabel: plainText)
+            consentText(markdown: markdown, fallback: plainText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Consent Checkbox
+
+    private func consentCheckbox(isChecked: Binding<Bool>, accessibilityLabel: String) -> some View {
         Button {
             withAnimation(VAnimation.fast) {
-                tosAccepted.toggle()
+                isChecked.wrappedValue.toggle()
             }
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(tosAccepted ? VColor.primaryBase : Color.clear)
+                    .fill(isChecked.wrappedValue ? VColor.primaryBase : Color.clear)
 
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .strokeBorder(tosAccepted ? Color.clear : VColor.borderElement, lineWidth: 1.5)
+                    .strokeBorder(isChecked.wrappedValue ? Color.clear : VColor.borderElement, lineWidth: 1.5)
 
-                if tosAccepted {
+                if isChecked.wrappedValue {
                     VIconView(.check, size: 12)
                         .foregroundStyle(VColor.contentInset)
                 }
@@ -166,16 +191,16 @@ struct ImproveExperienceStepView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
-        .accessibilityValue(tosAccepted ? "Checked" : "Unchecked")
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(isChecked.wrappedValue ? "Checked" : "Unchecked")
         .accessibilityAddTraits(.isToggle)
     }
 
-    // MARK: - ToS Consent Text
+    // MARK: - Consent Text
 
-    private var tosConsentText: some View {
+    private func consentText(markdown: String, fallback: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(tosAttributedString)
+            Text(attributedString(from: markdown, fallback: fallback))
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
@@ -186,13 +211,12 @@ struct ImproveExperienceStepView: View {
         }
     }
 
-    private var tosAttributedString: AttributedString {
-        let markdown = "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))"
+    private func attributedString(from markdown: String, fallback: String) -> AttributedString {
         // Use `try?` with a plain-text fallback so a markdown parse failure
         // (e.g. unexpected interpolated content from VELLUM_DOCS_BASE_URL) degrades
         // gracefully instead of crashing the onboarding flow.
         guard var str = try? AttributedString(markdown: markdown) else {
-            return AttributedString("I agree to the Terms of Service and Privacy Policy")
+            return AttributedString(fallback)
         }
         for run in str.runs where run.link != nil {
             str[run.range].underlineStyle = .single
@@ -203,10 +227,13 @@ struct ImproveExperienceStepView: View {
     // MARK: - Actions
 
     private func saveAndContinue() {
-        // @AppStorage already persists collectUsageData, sendDiagnostics, and
-        // tosAccepted. Explicitly set tosAccepted = true here as a safeguard
-        // so acceptance is recorded even if the user somehow bypasses the toggle.
+        // @AppStorage already persists collectUsageData, sendDiagnostics,
+        // tosAccepted, and aiDataConsent. Explicitly set tosAccepted and
+        // aiDataConsent here as a safeguard so acceptance is recorded even if
+        // the user somehow bypasses the toggles. The Start button is only
+        // enabled when both checkboxes are checked, so this is a backstop.
         tosAccepted = true
+        aiDataConsent = true
 
         if sendDiagnostics {
             MetricKitManager.startSentry()
