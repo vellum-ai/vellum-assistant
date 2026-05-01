@@ -1,6 +1,12 @@
 process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
+
+import {
+  TWILIO_PUBLIC_BASE_URL_FIELD,
+  TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import {
   loadOrCreateSigningKey,
@@ -212,8 +218,8 @@ function isOnlyVelayTwilioIngressChange(event: ConfigChangeEvent): boolean {
 
   return [...ingressFields].every(
     (field) =>
-      field === "twilioPublicBaseUrl" ||
-      field === "twilioPublicBaseUrlManagedBy",
+      field === TWILIO_PUBLIC_BASE_URL_FIELD ||
+      field === TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
   );
 }
 
