@@ -181,6 +181,13 @@ struct InferenceServiceCard: View {
         }
         .task(id: apiKeysRefreshToken) {
             await loadProviderKeyStatuses()
+            let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
+            let isManagedCapable = store.isManagedCapable(draftProvider)
+            let hasConfiguredKey = providerKeyStatuses[draftProvider] == true
+            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && !hasConfiguredKey {
+                draftMode = "managed"
+                store.setInferenceMode("managed")
+            }
         }
         .onAppear {
             draftMode = store.inferenceMode
@@ -200,21 +207,9 @@ struct InferenceServiceCard: View {
                 }
             }
 
-            // Symmetric case: if the user is authenticated and the mode is
-            // still the default "your-own", switch to "managed" so signed-in
-            // users get managed inference out of the box — but only when the
-            // provider is managed-capable, requires an API key, and the user
-            // hasn't configured one. Providers like Ollama that don't use keys
-            // (apiKeyPlaceholder is nil) or non-managed providers (fireworks,
-            // openrouter) are left alone since the user intentionally set up
-            // that provider.
-            let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-            let providerIsManagedCapable = store.isManagedCapable(draftProvider)
-            if isLoggedIn && draftMode == "your-own" && providerIsManagedCapable && providerRequiresKey && !hasLocalKey {
-                draftMode = "managed"
-                store.setInferenceMode("managed")
-            }
+            // The task(id: apiKeysRefreshToken) block handles the "logged-in +
+            // your-own + no key configured" auto-reset using daemon-sourced
+            // key statuses. Bump the token here so the task fires on appear.
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),
@@ -238,16 +233,9 @@ struct InferenceServiceCard: View {
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
             } else if isAuthenticated && store.inferenceMode == "your-own" {
-                // When a user signs in and has no BYO key for a managed-capable,
-                // key-based provider, default to managed. Keyless providers
-                // (e.g. Ollama) and non-managed providers are left in your-own mode.
-                let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-                let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-                let isManagedCapable = store.isManagedCapable(draftProvider)
-                if isManagedCapable && requiresKey && !hasLocalKey {
-                    draftMode = "managed"
-                    store.setInferenceMode("managed")
-                }
+                // Trigger the task to re-fetch daemon-sourced key statuses and
+                // apply the auto-reset check with accurate data.
+                apiKeysRefreshToken += 1
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in

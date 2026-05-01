@@ -22,9 +22,13 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
+  getConfig,
+  invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
+import { initializeProviders } from "../../providers/registry.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
@@ -325,7 +329,7 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   }
 }
 
-function handlePatchConfig({ body }: RouteHandlerArgs) {
+async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
     typeof body !== "object" ||
@@ -340,6 +344,9 @@ function handlePatchConfig({ body }: RouteHandlerArgs) {
     const patch = body as Record<string, unknown>;
     deepMergeOverwrite(raw, patch);
     saveRawConfig(raw);
+    clearEmbeddingBackendCache();
+    invalidateConfigCache();
+    await initializeProviders(getConfig());
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
