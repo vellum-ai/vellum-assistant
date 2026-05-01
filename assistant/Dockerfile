@@ -23,6 +23,7 @@ COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
 COPY packages/gateway-client ./packages/gateway-client
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
+COPY packages/slack-text ./packages/slack-text
 
 # Install deps for shared packages that have their own file: dependencies.
 # Without this, bun's module resolution at runtime walks up from e.g.
