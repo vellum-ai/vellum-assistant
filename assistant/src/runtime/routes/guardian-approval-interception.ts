@@ -71,14 +71,8 @@ export interface ApprovalInterceptionParams {
   approvalMessageTs?: string;
 }
 
-export interface ApprovalInterceptionResult {
-  handled: boolean;
-  type?:
-    | "decision_applied"
-    | "assistant_turn"
-    | "guardian_decision_applied"
-    | "stale_ignored";
-}
+import type { ApprovalInterceptionResult } from "./approval-interception-types.js";
+export type { ApprovalInterceptionResult } from "./approval-interception-types.js";
 
 /**
  * Check for pending approvals and handle inbound messages accordingly.

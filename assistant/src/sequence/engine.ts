@@ -9,7 +9,7 @@
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import type { ScheduleMessageProcessor } from "../schedule/scheduler.js";
+import type { ScheduleMessageProcessor } from "../schedule/scheduler-types.js";
 import { getLogger } from "../util/logger.js";
 import { recordEvent } from "./analytics.js";
 import { checkAllPreSend, recordSend } from "./guardrails.js";

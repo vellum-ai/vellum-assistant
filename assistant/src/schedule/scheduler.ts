@@ -1,4 +1,3 @@
-import type { LLMCallSite } from "../config/schemas/llm.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
@@ -27,23 +26,11 @@ import {
 
 const log = getLogger("scheduler");
 
-export interface ScheduleMessageOptions {
-  trustClass?: "guardian" | "trusted_contact" | "unknown";
-  taskRunId?: string;
-  /**
-   * Optional LLM call-site identifier propagated to the per-call provider
-   * config. Schedule and sequence callers will start passing their own call-site
-   * (e.g. for a future scheduled-agent profile) once PRs 7-11 migrate them off
-   * the default `mainAgent` route.
-   */
-  callSite?: LLMCallSite;
-}
-
-export type ScheduleMessageProcessor = (
-  conversationId: string,
-  message: string,
-  options?: ScheduleMessageOptions,
-) => Promise<unknown>;
+import type { ScheduleMessageProcessor } from "./scheduler-types.js";
+export type {
+  ScheduleMessageOptions,
+  ScheduleMessageProcessor,
+} from "./scheduler-types.js";
 
 export type ScheduleNotifyModeNotifier = (payload: {
   id: string;

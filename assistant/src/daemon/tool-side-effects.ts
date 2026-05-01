@@ -22,9 +22,9 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");
 
