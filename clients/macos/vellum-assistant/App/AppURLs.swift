@@ -67,6 +67,11 @@ public enum AppURLs {
         docsURL(path: "/privacy-policy")
     }
 
+    /// AI Data Sharing Policy docs — linked from the onboarding AI data consent checkbox.
+    public static var dataSharingDocs: URL {
+        docsURL(path: "/data-sharing")
+    }
+
     // MARK: - Helpers
 
     /// Build a docs URL by appending a path to the (possibly env-overridden) base.
