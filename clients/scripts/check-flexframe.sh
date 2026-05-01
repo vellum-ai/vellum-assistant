@@ -4,13 +4,15 @@ set -euo pipefail
 # FlexFrame guardrail script
 #
 # Detects `.frame(maxWidth:)` / `.frame(maxHeight:)` / `.frame(minWidth:)` /
-# `.frame(minHeight:)` usages in performance-sensitive chat/window directories.
+# `.frame(minHeight:)` / `.frame(idealWidth:)` / `.frame(idealHeight:)` usages
+# in performance-sensitive chat/window directories.
 # These modifiers create `_FlexFrameLayout`, which queries `explicitAlignment`
 # on descendants — cascading O(depth × children) per layout pass and causing
 # multi-second hangs in LazyVStack-backed hierarchies.
 #
 # ALL parameters on the flexible frame overload — minWidth, minHeight, maxWidth,
-# maxHeight — create `_FlexFrameLayout`. The fixed overload (width:, height:)
+# maxHeight, idealWidth, idealHeight — create `_FlexFrameLayout`. The fixed
+# overload (width:, height:)
 # creates `_FrameLayout` instead. See:
 # https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)
 #
@@ -62,11 +64,12 @@ SCAN_DIRS=(
 )
 
 # Matches .frame(maxWidth: ...) / .frame(maxHeight: ...) / .frame(minWidth: ...)
-# / .frame(minHeight: ...) — any value. ALL four parameters live on the flexible
-# frame overload and create `_FlexFrameLayout`.
+# / .frame(minHeight: ...) / .frame(idealWidth: ...) / .frame(idealHeight: ...)
+# — any value. ALL six parameters live on the flexible frame overload and
+# create `_FlexFrameLayout`.
 # Rust-regex compatible (no lookaround) so it works with ripgrep's default
 # engine; we strip comment-only lines in a second pass below.
-PATTERN='\.frame\(\s*(max|min)(Width|Height)\s*:'
+PATTERN='\.frame\(\s*(max|min|ideal)(Width|Height)\s*:'
 
 cd "$REPO_ROOT"
 
@@ -235,7 +238,7 @@ print_new_violations() {
 if [[ "$NEW_COUNT" -gt 0 ]]; then
   echo "=== flexframe lint: $NEW_COUNT new violation(s) ==="
   echo
-  echo "  .frame(maxWidth:) / .frame(maxHeight:) / .frame(minWidth:) / .frame(minHeight:)"
+  echo "  .frame(max/min/idealWidth:) / .frame(max/min/idealHeight:)"
   echo "  create _FlexFrameLayout, which queries explicitAlignment on descendants and"
   echo "  cascades O(depth × children) per layout pass. This causes multi-second hangs"
   echo "  in LazyVStack-backed chat hierarchies."
