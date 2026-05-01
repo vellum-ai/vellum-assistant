@@ -52,7 +52,7 @@ struct InferenceProfileEditor: View {
     /// it as the default position without writing a profile override.
     static let defaultMaxOutputTokens: Int = 64_000
 
-    /// Keep the slider range positive to match the daemon schema.
+    /// Keep the editor range positive to match the daemon schema.
     static let minSliderMaxOutputTokens: Int = 1
     static let maxOutputTokensStep: Double = 1_000
 
@@ -61,8 +61,9 @@ struct InferenceProfileEditor: View {
     /// current default.
     static let defaultContextWindowTokens: Int = 200_000
 
-    /// Keep the slider range positive to match the daemon schema.
-    static let minSliderContextWindowTokens: Int = 1
+    /// Lowest context-window value offered by the UI. The daemon schema
+    /// remains independently positive; this only keeps slider snaps sane.
+    static let minSliderContextWindowTokens: Int = 50_000
     static let contextWindowTokensStep: Double = 50_000
 
     /// Tracks whether the user has manually edited the Key field. When
@@ -379,22 +380,46 @@ struct InferenceProfileEditor: View {
                     .foregroundStyle(VColor.contentTertiary)
             }
         ) {
-            VSlider(
-                value: Binding(
-                    get: { Double(Self.maxOutputSliderValue(maxTokens: profile.maxTokens, limit: limit)) },
-                    set: { newValue in
-                        guard let limit else { return }
-                        profile.maxTokens = Self.clampedMaxOutputTokens(Int(newValue.rounded()), limit: limit)
-                    }
-                ),
-                range: Double(Self.minSliderMaxOutputTokens)...Double(upperBound),
-                step: Self.maxOutputTokensStep,
-                showTickMarks: true
-            )
-            .disabled(limit == nil)
-            .help(limit == nil ? "Max output token metadata is unavailable for this model." : "Maximum tokens the model may generate in one response.")
-            .accessibilityLabel("Max output tokens")
-            .accessibilityValue(Self.formattedTokenCount(value))
+            HStack(spacing: VSpacing.sm) {
+                if let limit {
+                    VSlider(
+                        value: Binding(
+                            get: { Double(Self.maxOutputSliderValue(maxTokens: profile.maxTokens, limit: limit)) },
+                            set: { newValue in
+                                profile.maxTokens = Self.clampedMaxOutputTokens(Int(newValue.rounded()), limit: limit)
+                            }
+                        ),
+                        range: Double(Self.minSliderMaxOutputTokens)...Double(upperBound),
+                        step: Self.maxOutputTokensStep,
+                        showTickMarks: true
+                    )
+                    .help("Maximum tokens the model may generate in one response.")
+                    .accessibilityLabel("Max output tokens")
+                    .accessibilityValue(Self.formattedTokenCount(value))
+                } else {
+                    VTextField(
+                        placeholder: String(Self.defaultMaxOutputTokens),
+                        text: Binding(
+                            get: { profile.maxTokens.map(String.init) ?? "" },
+                            set: { newValue in
+                                profile.maxTokens = Self.manualMaxOutputTokensValue(newValue)
+                            }
+                        ),
+                        maxWidth: 160,
+                        size: .small
+                    )
+                    .help("Max output token metadata is unavailable for this model.")
+                    Spacer(minLength: 0)
+                }
+                VButton(
+                    label: "Inherit",
+                    style: .ghost,
+                    size: .compact,
+                    isDisabled: profile.maxTokens == nil
+                ) {
+                    profile = Self.clearingMaxOutputTokensOverride(profile)
+                }
+            }
         }
     }
 
@@ -595,6 +620,20 @@ struct InferenceProfileEditor: View {
         min(max(value, 1), limit)
     }
 
+    static func manualMaxOutputTokensValue(_ rawValue: String) -> Int? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Int(trimmed) else {
+            return nil
+        }
+        return max(value, minSliderMaxOutputTokens)
+    }
+
+    static func clearingMaxOutputTokensOverride(_ profile: InferenceProfile) -> InferenceProfile {
+        var cleared = profile
+        cleared.maxTokens = nil
+        return cleared
+    }
+
     static func clampMaxOutputTokensForSelectedModel(_ profile: inout InferenceProfile) {
         guard
             let current = profile.maxTokens,
@@ -610,7 +649,10 @@ struct InferenceProfileEditor: View {
     }
 
     static func effectiveDefaultContextWindowTokens(model: LLMModelEntry?) -> Int {
-        let defaultTokens = max(model?.defaultContextWindowTokens ?? defaultContextWindowTokens, 1)
+        let defaultTokens = max(
+            model?.defaultContextWindowTokens ?? defaultContextWindowTokens,
+            minSliderContextWindowTokens
+        )
         guard let limit = model?.contextWindowTokens else {
             return defaultTokens
         }
@@ -618,7 +660,10 @@ struct InferenceProfileEditor: View {
     }
 
     static func contextWindowSliderValue(maxInputTokens: Int?, model: LLMModelEntry?) -> Int {
-        let value = max(maxInputTokens ?? effectiveDefaultContextWindowTokens(model: model), 1)
+        let value = max(
+            maxInputTokens ?? effectiveDefaultContextWindowTokens(model: model),
+            minSliderContextWindowTokens
+        )
         guard let limit = model?.contextWindowTokens else { return value }
         return clampedContextWindowTokens(value, limit: limit)
     }
@@ -628,7 +673,7 @@ struct InferenceProfileEditor: View {
     }
 
     static func clampedContextWindowTokens(_ value: Int, limit: Int) -> Int {
-        min(max(value, 1), limit)
+        min(max(value, minSliderContextWindowTokens), limit)
     }
 
     static func clampContextWindowForSelectedModel(_ profile: inout InferenceProfile) {

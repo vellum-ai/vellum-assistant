@@ -163,7 +163,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.profileDescription = (json["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.provider = (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        self.maxTokens = json["maxTokens"] as? Int
+        self.maxTokens = Self.intValue(json["maxTokens"])
         self.effort = (json["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.speed = (json["speed"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.verbosity = (json["verbosity"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -276,7 +276,11 @@ public struct InferenceProfile: Hashable, Identifiable {
         if let int = value as? Int {
             return int
         }
-        if let double = value as? Double, double.rounded() == double {
+        if let double = value as? Double,
+           double.isFinite,
+           double.rounded(.towardZero) == double,
+           double >= Double(Int.min),
+           double < Double(Int.max) {
             return Int(double)
         }
         return nil

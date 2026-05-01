@@ -270,7 +270,7 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
     }
 
-    func testUnknownModelStillShowsDisabledMaxOutputControl() {
+    func testUnknownModelStillShowsMaxOutputControlWithoutCatalogLimit() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "anthropic",
             model: "claude-vintage-1900",
@@ -283,6 +283,25 @@ final class InferenceProfileEditorTests: XCTestCase {
             provider: "anthropic",
             model: "claude-vintage-1900"
         ))
+    }
+
+    func testCatalogModelWithoutStaticOutputMetadataCanUseManualMaxTokens() {
+        let (editor, _) = makeEditor(profile: InferenceProfile(
+            name: "gemini-preview",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            maxTokens: 96_000
+        ))
+
+        XCTAssertTrue(editor.canSave)
+        XCTAssertNil(InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview"
+        ))
+        XCTAssertEqual(
+            InferenceProfileEditor.manualMaxOutputTokensValue("128000"),
+            128_000
+        )
     }
 
     func testOpenRouterReasoningModelsShowEffortAndThinking() {
@@ -436,6 +455,20 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(profile.maxTokens, 64_000)
     }
 
+    func testMaxOutputOverrideCanBeClearedToInherit() {
+        var profile = InferenceProfile(
+            name: "manual-output",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            maxTokens: 96_000
+        )
+
+        profile = InferenceProfileEditor.clearingMaxOutputTokensOverride(profile)
+
+        XCTAssertNil(profile.maxTokens)
+        XCTAssertNil(profile.toJSON()["maxTokens"])
+    }
+
     func testGPT55ContextWindowSliderLimitIs1050K() {
         let limit = InferenceProfileEditor.contextWindowTokenLimit(
             provider: "openai",
@@ -497,6 +530,14 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(
             InferenceProfileEditor.contextWindowSliderValue(maxInputTokens: nil, model: model),
             200_000
+        )
+    }
+
+    func testContextWindowSliderLowerBoundIsAlignedWithStep() {
+        XCTAssertEqual(InferenceProfileEditor.minSliderContextWindowTokens, 50_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.clampedContextWindowTokens(1, limit: 1_000_000),
+            50_000
         )
     }
 

@@ -155,7 +155,12 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
             maxTokens: 32000,
             contextWindow: {
               maxInputTokens: 900000,
+              targetBudgetRatio: 0.3,
               summaryBudgetRatio: 0.08,
+              overflowRecovery: {
+                enabled: true,
+                maxAttempts: 4,
+              },
             },
             openrouter: {
               only: ["anthropic"],
@@ -166,7 +171,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     };
   });
 
-  test("owns contextWindow while preserving non-UI profile leaves", () => {
+  test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", () => {
     const result = replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
@@ -185,11 +190,18 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.provider).toBe("openai");
     expect(savedProfile.model).toBe("gpt-5.5");
     expect(savedProfile.maxTokens).toBeUndefined();
-    expect(savedProfile.contextWindow).toBeUndefined();
+    expect(savedProfile.contextWindow).toEqual({
+      targetBudgetRatio: 0.3,
+      summaryBudgetRatio: 0.08,
+      overflowRecovery: {
+        enabled: true,
+        maxAttempts: 4,
+      },
+    });
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 
-  test("writes a replacement contextWindow override", () => {
+  test("writes only the replacement contextWindow maxInputTokens override", () => {
     const result = replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
@@ -197,6 +209,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         model: "gpt-5.5",
         contextWindow: {
           maxInputTokens: 150000,
+          summaryBudgetRatio: 0.2,
         },
       },
     });
@@ -208,7 +221,15 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.contextWindow).toEqual({ maxInputTokens: 150000 });
+    expect(savedProfile.contextWindow).toEqual({
+      maxInputTokens: 150000,
+      targetBudgetRatio: 0.3,
+      summaryBudgetRatio: 0.08,
+      overflowRecovery: {
+        enabled: true,
+        maxAttempts: 4,
+      },
+    });
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 });
