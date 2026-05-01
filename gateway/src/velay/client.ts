@@ -206,7 +206,6 @@ export class VelayTunnelClient {
 
       ws.addEventListener("open", () => {
         if (this.ws !== ws || !this.running) return;
-        this.reconnectAttempt = 0;
         log.info("Velay tunnel connected");
       });
 
@@ -313,6 +312,7 @@ export class VelayTunnelClient {
 
     await writeManagedTwilioPublicBaseUrl(publicUrl, this.options.configFile);
     this.publishedTwilioPublicBaseUrl = publicUrl;
+    this.reconnectAttempt = 0;
     log.info({ publicUrl }, "Velay tunnel registered");
   }
 

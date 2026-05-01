@@ -1,4 +1,11 @@
 import packageJson from "../package.json" with { type: "json" };
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 export function buildSchema(): Record<string, unknown> {
   return {
@@ -300,7 +307,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/voice": {
+      [TWILIO_VOICE_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio voice webhook",
           description:
@@ -358,7 +365,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/status": {
+      [TWILIO_STATUS_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio status webhook",
           description:
@@ -415,7 +422,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/connect-action": {
+      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio connect-action webhook",
           description:
@@ -962,7 +969,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/relay": {
+      [TWILIO_RELAY_WEBHOOK_PATH]: {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
           description:
@@ -1002,7 +1009,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/media-stream": {
+      [TWILIO_MEDIA_STREAM_WEBHOOK_PATH]: {
         get: {
           summary: "Twilio Media Stream WebSocket",
           description:

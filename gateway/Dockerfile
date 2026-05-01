@@ -13,6 +13,7 @@ COPY packages/assistant-client ./packages/assistant-client
 COPY packages/ces-client ./packages/ces-client
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/slack-text ./packages/slack-text
+COPY packages/twilio-client ./packages/twilio-client
 
 # Install deps for shared packages that have their own file: dependencies.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile

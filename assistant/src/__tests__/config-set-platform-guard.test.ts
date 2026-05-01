@@ -52,8 +52,27 @@ mock.module("../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: (obj: Record<string, unknown>, key: string) =>
     mockGetNestedValue(obj, key),
-  setNestedValue: (obj: Record<string, unknown>, key: string, value: unknown) =>
-    mockSetNestedValueCalls.push({ obj, key, value }),
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ) => {
+    mockSetNestedValueCalls.push({ obj, key, value });
+    const keys = key.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const segment = keys[i]!;
+      if (
+        current[segment] == null ||
+        typeof current[segment] !== "object" ||
+        Array.isArray(current[segment])
+      ) {
+        current[segment] = {};
+      }
+      current = current[segment] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]!] = value;
+  },
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
@@ -238,6 +257,34 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSetNestedValueCalls[0]!.key).toBe("calls.enabled");
     expect(mockSetNestedValueCalls[0]!.value).toBe(true);
     expect(mockSaveRawConfigCalls).toHaveLength(1);
+  });
+
+  test("config set ingress.twilioPublicBaseUrl clears stale Velay ownership", async () => {
+    mockLoadRawConfig = () => ({
+      ingress: {
+        publicBaseUrl: "https://generic.example.test",
+        twilioPublicBaseUrl: "https://stale-velay.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+      },
+    });
+
+    const { exitCode } = await runCli([
+      "node",
+      "assistant",
+      "config",
+      "set",
+      "ingress.twilioPublicBaseUrl",
+      "https://manual.example.test",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(mockSaveRawConfigCalls).toHaveLength(1);
+    expect(mockSaveRawConfigCalls[0]).toEqual({
+      ingress: {
+        publicBaseUrl: "https://generic.example.test",
+        twilioPublicBaseUrl: "https://manual.example.test",
+      },
+    });
   });
 
   test("config get services.inference.mode — works without platform connection", async () => {

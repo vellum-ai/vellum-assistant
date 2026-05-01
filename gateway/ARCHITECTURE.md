@@ -1077,9 +1077,10 @@ All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhoo
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 
-1. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
-2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
-3. Raw request URL (always included as the final fallback)
+1. `ConfigFileCache.getString("ingress", "twilioPublicBaseUrl")` (if configured)
+2. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
+3. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
+4. Raw request URL (always included as the final fallback)
 
 This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, the config file watcher detects ingress URL changes and triggers webhook reconciliation directly, so neither channel requires a gateway restart.
 
