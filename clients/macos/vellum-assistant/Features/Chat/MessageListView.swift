@@ -196,7 +196,7 @@ struct MessageListView: View {
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .environment(\.messageHeightCache, messageHeightCache)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
-            .frame(width: widths.scrollSurfaceWidth)
+            .fixedWidth(widths.scrollSurfaceWidth)
             .id(conversationId)
             .flipped()  // Invert the scroll — visual bottom becomes natural top
             .overlay(alignment: .bottom) {
