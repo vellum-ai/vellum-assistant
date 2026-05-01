@@ -65,6 +65,16 @@ mock.module("../config/loader.js", () => ({
   ) => {
     deepMergeForTest(target, overrides);
   },
+  getConfig: () => rawConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../providers/registry.js", () => ({
+  initializeProviders: async () => {},
+}));
+
+mock.module("../memory/embedding-backend.js", () => ({
+  clearEmbeddingBackendCache: () => {},
 }));
 
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
@@ -155,22 +165,22 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("allows deletion of a user-defined profile via null", () => {
+  test("allows deletion of a user-defined profile via null", async () => {
     savedRaw = null;
-    const result = patchRoute.handler({
+    const result = await patchRoute.handler({
       body: { llm: { profiles: { "my-custom": null } } },
     });
     expect(result).toEqual({ ok: true });
   });
 
-  test("allows non-profile config patches", () => {
-    const result = patchRoute.handler({
+  test("allows non-profile config patches", async () => {
+    const result = await patchRoute.handler({
       body: { someOtherKey: "value" },
     });
     expect(result).toEqual({ ok: true });
   });
 
-  test("clears stale Velay ownership when manually patching public base URL", () => {
+  test("clears stale Velay ownership when manually patching public base URL", async () => {
     rawConfig = {
       ingress: {
         publicBaseUrl: "https://stale-velay.example.test",
@@ -178,7 +188,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
       },
     };
 
-    const result = patchRoute.handler({
+    const result = await patchRoute.handler({
       body: {
         ingress: { publicBaseUrl: "https://manual.example.test" },
       },
@@ -193,9 +203,9 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     });
   });
 
-  test("allows patches that modify a managed profile (non-null)", () => {
+  test("allows patches that modify a managed profile (non-null)", async () => {
     savedRaw = null;
-    const result = patchRoute.handler({
+    const result = await patchRoute.handler({
       body: {
         llm: {
           profiles: { "quality-optimized": { provider: "anthropic" } },
