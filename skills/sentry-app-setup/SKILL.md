@@ -50,18 +50,15 @@ Guide them through the form:
 | **Name**        | The assistant's name. This is how the integration appears in Sentry. |
 | **Webhook URL** | Leave blank (not needed for API-only usage)                          |
 
-**Permissions** — set these based on what the assistant needs. A good default for full issue and project management:
+**Permissions** — set these based on what the assistant needs. Recommended defaults:
 
 | Resource          | Access Level |
 | ----------------- | ------------ |
-| **Issue & Event** | Read & Write |
-| **Project**       | Read & Write |
-| **Release**       | Admin        |
+| **Issue & Event** | Read         |
+| **Project**       | Read         |
 | **Organization**  | Read         |
-| **Team**          | Read         |
-| **Member**        | Read         |
 
-Adjust permissions up or down based on the user's needs. The principle of least privilege applies — only request what you'll actually use.
+Adjust permissions up or down based on the user's needs. The principle of least privilege applies — only request what you'll actually use. Add write access to Issue & Event or Project if the assistant needs to resolve issues or manage releases.
 
 > Click **Save Changes** when done. The integration is automatically installed on the organization.
 
@@ -104,7 +101,11 @@ Sentry supports uploading a logo for internal integrations through the web UI (n
 
 Direct the user:
 
-> Go to **Settings > Developer Settings**, find your integration, and upload a logo. Requirements: PNG, 256×256 to 1024×1024, transparent background (unless the logo fills the entire space).
+> Go to **Settings > Developer Settings**, find your integration, and upload a logo.
+
+**Logo** requirements: PNG, 256×256 to 1024×1024, transparent background (unless the logo fills the entire space).
+
+**Small Icon** requirements (optional, separate upload): PNG, must use **only black with an alpha channel** — no colors, no white fill. Sentry rejects icons that use any color other than black.
 
 ### Step 6: Report Success
 
