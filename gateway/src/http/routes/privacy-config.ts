@@ -3,7 +3,7 @@ import {
   enqueueConfigWrite,
   readConfigFile,
   writeConfigFileAtomic,
-} from "./config-file-utils.js";
+} from "../../config-file-utils.js";
 
 const log = getLogger("privacy-config");
 

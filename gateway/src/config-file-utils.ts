@@ -1,21 +1,22 @@
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  renameSync,
-} from "node:fs";
-import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { getWorkspaceDir } from "../../credential-reader.js";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+
+import { getWorkspaceDir } from "./credential-reader.js";
 
 /**
- * Serializes config writes so concurrent PATCH requests don't race on
+ * Serializes config writes so concurrent config mutations don't race on
  * read-modify-write. Each write awaits the previous one before proceeding.
  *
- * This chain is shared across all config mutation routes (feature flags,
- * privacy config, etc.) to prevent concurrent writes to the same
- * config.json from overwriting each other's changes.
+ * This chain is shared across all gateway config mutations to prevent
+ * concurrent writes to the same config.json from overwriting each other's
+ * changes.
  */
 let configWriteChain: Promise<void> = Promise.resolve();
 
