@@ -29,6 +29,9 @@
 
 import {
   normalizePublicBaseUrl,
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -132,7 +135,7 @@ export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
  */
 export function getTwilioConnectActionUrl(config: IngressConfig): string {
   const base = getTwilioPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/connect-action`;
+  return `${base}${TWILIO_CONNECT_ACTION_WEBHOOK_PATH}`;
 }
 
 /**
@@ -142,7 +145,7 @@ export function getTwilioConnectActionUrl(config: IngressConfig): string {
 export function getTwilioRelayUrl(config: IngressConfig): string {
   const base = getTwilioPublicBaseUrl(config);
   const wsBase = base.replace(/^http(s?)/, "ws$1");
-  return `${wsBase}/webhooks/twilio/relay`;
+  return `${wsBase}${TWILIO_RELAY_WEBHOOK_PATH}`;
 }
 
 /**
@@ -154,7 +157,7 @@ export function getTwilioRelayUrl(config: IngressConfig): string {
 export function getTwilioMediaStreamUrl(config: IngressConfig): string {
   const base = getTwilioPublicBaseUrl(config);
   const wsBase = base.replace(/^http(s?)/, "ws$1");
-  return `${wsBase}/webhooks/twilio/media-stream`;
+  return `${wsBase}${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}`;
 }
 
 /**

@@ -10,6 +10,8 @@ import { dirname, join } from "node:path";
 
 import { getWorkspaceDir } from "./credential-reader.js";
 
+export const CONFIG_FILENAME = "config.json";
+
 /**
  * Serializes config writes so concurrent config mutations don't race on
  * read-modify-write. Each write awaits the previous one before proceeding.
@@ -29,7 +31,7 @@ export function enqueueConfigWrite(fn: () => void): void {
 }
 
 export function getConfigPath(): string {
-  return join(getWorkspaceDir(), "config.json");
+  return join(getWorkspaceDir(), CONFIG_FILENAME);
 }
 
 export type ConfigReadResult =
@@ -55,6 +57,15 @@ export function readConfigFile(): ConfigReadResult {
   } catch (err) {
     return { ok: false, reason: "malformed", detail: String(err) };
   }
+}
+
+export function readConfigFileOrEmpty(options?: {
+  onMalformed?: (detail: string) => void;
+}): Record<string, unknown> {
+  const result = readConfigFile();
+  if (result.ok) return result.data;
+  options?.onMalformed?.(result.detail);
+  return {};
 }
 
 /**
