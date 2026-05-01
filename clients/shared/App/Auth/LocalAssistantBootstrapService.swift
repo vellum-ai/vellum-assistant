@@ -348,7 +348,7 @@ public final class LocalAssistantBootstrapService {
             let body: [String: String] = ["type": "credential", "name": name]
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "secrets", json: body, timeout: 5, unprefixed: true
+                    path: "secrets", json: body, timeout: 5
                 )
                 if response.isSuccess || response.statusCode == 404 {
                     log.info("Cleared assistant credential: \(name, privacy: .public) (status \(response.statusCode))")
