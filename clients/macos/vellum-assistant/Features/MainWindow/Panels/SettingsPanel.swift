@@ -136,7 +136,6 @@ struct SettingsPanel: View {
         }
     }
 
-    @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
@@ -546,7 +545,6 @@ struct SettingsPanel: View {
             InferenceServiceCard(
                 store: store,
                 authManager: authManager,
-                apiKeyText: $apiKeyText,
                 showToast: showToast
             )
 
