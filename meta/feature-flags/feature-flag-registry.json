@@ -162,11 +162,19 @@
       "defaultEnabled": false
     },
     {
+<<<<<<< HEAD
+      "id": "show-thinking-blocks",
+      "scope": "client",
+      "key": "show-thinking-blocks",
+      "label": "Show Thinking Blocks",
+      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
+=======
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
       "label": "Inline Skill Command Expansion",
       "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
+>>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {

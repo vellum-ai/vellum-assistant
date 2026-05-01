@@ -1,8 +1,7 @@
 /**
  * Tests for inline-command skill load permission handling.
  *
- * When a skill contains inline command expansions (!\`...\`) and the
- * inline-skill-commands flag is on, the permission
+ * When a skill contains inline command expansions (!\`...\`), the permission
  * system must:
  *
  * 1. Emit skill_load_dynamic:<id>@<hash> / skill_load_dynamic:<id> candidates
@@ -16,8 +15,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
@@ -124,9 +121,6 @@ describe("inline-command skill_load permissions", () => {
       headless: "none",
     });
     testConfig.skills = { load: { extraDirs: [] } };
-    _setOverridesForTesting({
-      "inline-skill-commands": true,
-    });
     try {
       rmSync(join(testDir, "protected", "trust.json"));
     } catch {
@@ -188,28 +182,6 @@ describe("inline-command skill_load permissions", () => {
       );
       expect(result.decision).toBe("allow");
     });
-
-  });
-
-  // ── Feature flag disabled ────────────────────────────────────────────
-
-  describe("feature flag disabled", () => {
-    test("dynamic skill auto-allows when flag is off (low risk threshold)", async () => {
-      ensureSkillsDir();
-      writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
-
-      // Disable the feature flag
-      _setOverridesForTesting({
-        "inline-skill-commands": false,
-      });
-
-      const result = await check(
-        "skill_load",
-        { skill: "dynamic-flag-off" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-    });
   });
 
   // ── Allowlist options ────────────────────────────────────────────────
@@ -253,5 +225,4 @@ describe("inline-command skill_load permissions", () => {
       }
     });
   });
-
 });
