@@ -146,14 +146,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
-      "defaultEnabled": true
-    },
-    {
       "id": "deploy-to-vercel",
       "scope": "assistant",
       "key": "deploy-to-vercel",
