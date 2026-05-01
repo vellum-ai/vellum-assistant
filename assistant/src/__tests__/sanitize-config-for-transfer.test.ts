@@ -8,6 +8,8 @@ describe("sanitizeConfigForTransfer", () => {
       ingress: {
         publicBaseUrl: "https://example.com",
         enabled: true,
+        twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
         webhook: { path: "/hook" },
       },
       daemon: { port: 3000, logLevel: "debug" },
@@ -31,6 +33,8 @@ describe("sanitizeConfigForTransfer", () => {
 
     expect(result.ingress.publicBaseUrl).toBe("");
     expect(result.ingress.enabled).toBeUndefined();
+    expect(result.ingress.twilioPublicBaseUrl).toBeUndefined();
+    expect(result.ingress.twilioPublicBaseUrlManagedBy).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
     expect(result.hostBrowser).toEqual({
@@ -135,11 +139,32 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.skills.load.builtIn).toBe(true);
   });
 
-  test("preserves nested ingress fields other than publicBaseUrl and enabled", () => {
+  test("strips Velay-managed Twilio ingress state during transfer", () => {
+    const input = {
+      ingress: {
+        publicBaseUrl: "https://old.url",
+        enabled: true,
+        twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
+        webhook: { path: "/webhook" },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.ingress).toEqual({
+      publicBaseUrl: "",
+      webhook: { path: "/webhook" },
+    });
+  });
+
+  test("preserves nested ingress fields other than environment-specific URL state", () => {
     const input = {
       ingress: {
         publicBaseUrl: "https://old.url",
         enabled: false,
+        twilioPublicBaseUrl: "https://velay-public.example.test",
+        twilioPublicBaseUrlManagedBy: "velay",
         webhook: { path: "/webhook", secret: "abc" },
         rateLimit: { max: 50, window: 60 },
       },
@@ -151,6 +176,8 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.rateLimit).toEqual({ max: 50, window: 60 });
     expect(result.ingress.publicBaseUrl).toBe("");
     expect(result.ingress.enabled).toBeUndefined();
+    expect(result.ingress.twilioPublicBaseUrl).toBeUndefined();
+    expect(result.ingress.twilioPublicBaseUrlManagedBy).toBeUndefined();
   });
 
   test("handles config missing some target fields", () => {

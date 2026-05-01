@@ -618,6 +618,28 @@ describe("VelayTunnelClient", () => {
     ]);
   });
 
+  test("ignores websocket messages with invalid message types", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const websocketFrames: VelayWebSocketInboundFrame[] = [];
+    const client = makeClient({ sockets, websocketFrames });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+
+    sockets[0].emit("message", {
+      data: JSON.stringify({
+        type: VELAY_FRAME_TYPES.websocketMessage,
+        connection_id: "conn-123",
+        message_type: "json",
+        body_base64: "",
+      }),
+    });
+    await flushPromises();
+
+    expect(websocketFrames).toEqual([]);
+  });
+
   test("stops reconnecting and closes bridged sockets on shutdown", async () => {
     const sockets: FakeWebSocket[] = [];
     const reconnectDelays: number[] = [];

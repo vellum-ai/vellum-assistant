@@ -14,7 +14,7 @@ import {
   enqueueConfigWrite,
   readConfigFile,
   writeConfigFileAtomic,
-} from "../http/routes/config-file-utils.js";
+} from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { bridgeVelayHttpRequest } from "./http-bridge.js";
 import { closeWebSocket } from "./bridge-utils.js";
