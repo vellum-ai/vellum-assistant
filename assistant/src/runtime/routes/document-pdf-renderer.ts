@@ -17,7 +17,7 @@ import { importPlaywright } from "../../tools/browser/runtime-check.js";
 
 const FONT_STACK = `"DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
 
-function wrapInPrintTemplate(title: string, innerHtml: string): string {
+function wrapInPrintTemplate(innerHtml: string): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -114,27 +114,12 @@ function wrapInPrintTemplate(title: string, innerHtml: string): string {
     height: auto;
   }
 
-  .document-title {
-    margin-top: 0;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid #e0e0e0;
-  }
 </style>
 </head>
 <body>
-<h1 class="document-title">${escapeHtml(title)}</h1>
 ${innerHtml}
 </body>
 </html>`;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +141,7 @@ export async function renderMarkdownToPDF(
     gfm: true,
     breaks: true,
   }) as string;
-  const fullHtml = wrapInPrintTemplate(title, innerHtml);
+  const fullHtml = wrapInPrintTemplate(innerHtml);
 
   const pw = await importPlaywright();
   const browser = await pw.chromium.launch({ headless: true });
