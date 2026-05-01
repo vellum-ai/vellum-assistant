@@ -24,10 +24,18 @@ export interface CatalogModel {
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
+const OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS = 272000;
 
 function catalogModel(model: CatalogModel): CatalogModel {
-  const defaultContextWindowTokens =
+  const configuredDefaultContextWindowTokens =
     model.defaultContextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+  const defaultContextWindowTokens =
+    model.contextWindowTokens === undefined
+      ? configuredDefaultContextWindowTokens
+      : Math.min(
+          configuredDefaultContextWindowTokens,
+          model.contextWindowTokens,
+        );
 
   return {
     ...model,
@@ -59,7 +67,10 @@ export interface ProviderCatalogEntry {
 }
 
 /**
- * Single source of truth for all inference provider metadata and models.
+ * Canonical assistant catalog for inference provider metadata and models.
+ * `meta/llm-provider-catalog.json` mirrors the client-facing subset and is
+ * kept in parity by `llm-catalog-parity.test.ts`; native-client fallbacks
+ * mirror only the startup-critical display/setup/context metadata.
  *
  * Model limits verified 2026-04-30 against official provider docs:
  * - Anthropic model overview and context window docs:
@@ -178,6 +189,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "GPT-5.5",
         contextWindowTokens: 1050000,
         maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -186,6 +199,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
           cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "gpt-5.5-pro",
+        displayName: "GPT-5.5 Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 30.0,
+          outputPer1mTokens: 180.0,
         },
       },
       {
