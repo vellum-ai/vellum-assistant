@@ -13,7 +13,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
+
 
 const log = getLogger("host-transfer-proxy");
 
@@ -97,9 +97,7 @@ export class HostTransferProxy {
     );
   }
 
-  private send(msg: ServerMessage): void {
-    broadcastMessage(msg, undefined, { targetCapability: "host_file" });
-  }
+
 
   /**
    * Request a file transfer from the sandbox to the host machine.
@@ -166,7 +164,7 @@ export class HostTransferProxy {
                 detachAbort();
                 pendingInteractions.resolve(requestId);
                 try {
-                  this.send({
+                  broadcastMessage({
                     type: "host_transfer_cancel",
                     requestId,
                     conversationId: input.conversationId,
@@ -199,7 +197,7 @@ export class HostTransferProxy {
           this.transfers.set(transferId, entry);
 
           try {
-            this.send({
+            broadcastMessage({
               type: "host_transfer_request",
               requestId,
               conversationId: input.conversationId,
@@ -288,7 +286,7 @@ export class HostTransferProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              this.send({
+              broadcastMessage({
                 type: "host_transfer_cancel",
                 requestId,
                 conversationId: input.conversationId,
@@ -319,7 +317,7 @@ export class HostTransferProxy {
       this.transfers.set(transferId, entry);
 
       try {
-        this.send({
+        broadcastMessage({
           type: "host_transfer_request",
           requestId,
           conversationId: input.conversationId,
@@ -486,7 +484,7 @@ export class HostTransferProxy {
     this.transfers.delete(entry.transferId);
     pendingInteractions.resolve(requestId);
     try {
-      this.send({
+      broadcastMessage({
         type: "host_transfer_cancel",
         requestId,
         conversationId: entry.conversationId,
@@ -517,7 +515,7 @@ export class HostTransferProxy {
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-          this.send({
+          broadcastMessage({
             type: "host_transfer_cancel",
             requestId,
             conversationId: entry.conversationId,

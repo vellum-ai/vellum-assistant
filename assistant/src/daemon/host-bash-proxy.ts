@@ -10,7 +10,6 @@ import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("host-bash-proxy");
 
@@ -62,10 +61,6 @@ export class HostBashProxy {
     return (
       assistantEventHub.getMostRecentClientByCapability("host_bash") != null
     );
-  }
-
-  private send(msg: ServerMessage): void {
-    broadcastMessage(msg, undefined, { targetCapability: "host_bash" });
   }
 
   request(
@@ -122,7 +117,7 @@ export class HostBashProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              this.send({
+              broadcastMessage({
                 type: "host_bash_cancel",
                 requestId,
                 conversationId,
@@ -147,7 +142,7 @@ export class HostBashProxy {
       });
 
       try {
-        this.send({
+        broadcastMessage({
           type: "host_bash_request",
           requestId,
           conversationId,
@@ -209,7 +204,7 @@ export class HostBashProxy {
         entry.detachAbort();
         pendingInteractions.resolve(requestId);
         try {
-          this.send({
+          broadcastMessage({
             type: "host_bash_cancel",
             requestId,
             conversationId: entry.conversationId,
