@@ -20,6 +20,7 @@ export function mapApprovalProvenance(
     wasPrompted?: boolean;
     wasTimeout?: boolean;
     wasSystemCancel?: boolean;
+    wasAbort?: boolean;
   },
 ): { approvalMode: ApprovalMode; approvalReason: ApprovalReason } {
   if (decision === "platform_auto_approve") {
@@ -46,6 +47,9 @@ export function mapApprovalProvenance(
   // "deny" — interactive prompt denied, timed out, or system-cancelled
   if (decision === "deny") {
     if (opts.wasSystemCancel) {
+      return { approvalMode: "prompted", approvalReason: "system_cancelled" };
+    }
+    if (opts.wasAbort) {
       return { approvalMode: "prompted", approvalReason: "system_cancelled" };
     }
     if (opts.wasTimeout) {
