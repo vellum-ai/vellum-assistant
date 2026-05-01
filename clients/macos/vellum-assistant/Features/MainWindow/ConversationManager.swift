@@ -327,7 +327,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         // any conversations mutation so views stay current without tracking the
         // full conversations array.
         listStore.onDerivedPropertiesRecomputed = { [weak self] in
-            self?.selectionStore.refreshActiveConversation()
+            self?.selectionStore.syncActiveConversationCache()
         }
 
         // List store → selection store: schedule eviction after appending conversations

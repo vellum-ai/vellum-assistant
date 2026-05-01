@@ -204,14 +204,14 @@ final class ConversationSelectionStore {
     /// The active conversation model, if one is selected and exists in the list.
     ///
     /// Stored rather than computed so that views track only this property — not
-    /// `listStore.conversations`. Synchronized by ``refreshActiveConversation()``
+    /// `listStore.conversations`. Synchronized by ``syncActiveConversationCache()``
     /// and writes in ``performActivation(for:)`` / ``performDeactivation()``.
     private(set) var activeConversation: ConversationModel?
 
     /// Synchronize ``activeConversation`` with the current conversations array.
     /// The equality guard skips the write when the active conversation's fields
     /// are unchanged, avoiding unnecessary observation notifications.
-    func refreshActiveConversation() {
+    func syncActiveConversationCache() {
         guard let activeConversationId else {
             if activeConversation != nil { activeConversation = nil }
             return
