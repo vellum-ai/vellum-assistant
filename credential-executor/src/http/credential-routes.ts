@@ -51,7 +51,9 @@ function normalizeAccountKey(account: string): string {
   }
 
   // Convert "service:field" → "credential/service/field"
-  const colonIdx = account.indexOf(":");
+  // Use lastIndexOf to match the canonical split in secret-routes.ts
+  // (e.g. "integration:google:access_token" → service="integration:google", field="access_token")
+  const colonIdx = account.lastIndexOf(":");
   if (colonIdx > 0 && colonIdx < account.length - 1) {
     const service = account.slice(0, colonIdx);
     const field = account.slice(colonIdx + 1);

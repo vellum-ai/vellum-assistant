@@ -167,6 +167,25 @@ describe("credential route key normalization", () => {
     expect(store.get("credential/vellum/assistant_api_key")).toBe("key-1");
   });
 
+  it("splits multi-colon keys at the last colon", async () => {
+    const { deps, store } = makeDeps();
+
+    const req = makeRequest(
+      "POST",
+      "/v1/credentials/integration%3Agoogle%3Aaccess_token",
+      { value: "google-token" },
+    );
+    const res = await handleCredentialRoute(req, deps);
+
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    // "integration:google:access_token" splits at last colon →
+    // service="integration:google", field="access_token"
+    expect(body.account).toBe("credential/integration:google/access_token");
+    expect(store.get("credential/integration:google/access_token")).toBe("google-token");
+  });
+
   it("returns normalized key in response body", async () => {
     const { deps } = makeDeps();
 
