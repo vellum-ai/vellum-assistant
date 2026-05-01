@@ -202,14 +202,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "inline-skill-commands",
-      "scope": "assistant",
-      "key": "inline-skill-commands",
-      "label": "Inline Skill Command Expansion",
-      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
-      "defaultEnabled": true
-    },
-    {
       "id": "channel-voice-transcription",
       "scope": "assistant",
       "key": "channel-voice-transcription",

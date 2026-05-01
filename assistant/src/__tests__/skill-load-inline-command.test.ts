@@ -4,8 +4,6 @@
  * Validates that:
  * - Root skills with `!\`command\`` tokens get those tokens expanded exactly
  *   once at skill_load time, wrapped in <inline_skill_command> XML tags.
- * - When the feature flag is off, skill_load returns an error instead of
- *   leaving unresolved live tokens in the prompt.
  * - When the skill source is "extra", skill_load rejects with a specific error.
  * - Render failures produce stable inline stubs rather than raw stderr.
  */
@@ -13,8 +11,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Test directory ────────────────────────────────────────────────────────────
 
@@ -163,10 +159,6 @@ describe("skill_load inline command expansion", () => {
       ) => mockRunInlineCommand(command, workingDir),
     }));
 
-    // Enable the feature flag
-    _setOverridesForTesting({
-      "inline-skill-commands": true,
-    });
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
@@ -252,48 +244,6 @@ describe("skill_load inline command expansion", () => {
       expect(result.content).not.toContain("inline_skill_command");
       // Runner should not be called
       expect(runInlineCommandCalls).toHaveLength(0);
-    });
-  });
-
-  // ── Feature flag off ─────────────────────────────────────────────────
-
-  describe("feature flag disabled", () => {
-    test("returns error when flag is off and skill has inline commands", async () => {
-      _setOverridesForTesting({
-        "inline-skill-commands": false,
-      });
-
-      writeSkill(
-        "flagged-off-skill",
-        "Flagged Off Skill",
-        "Has inline commands",
-        "Data: !`echo hello`",
-      );
-
-      const result = await executeSkillLoad({ skill: "flagged-off-skill" });
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "inline-skill-commands feature flag is disabled",
-      );
-      // Runner should not be called when flag is off
-      expect(runInlineCommandCalls).toHaveLength(0);
-    });
-
-    test("plain skill still loads when flag is off", async () => {
-      _setOverridesForTesting({
-        "inline-skill-commands": false,
-      });
-
-      writeSkill(
-        "plain-flag-off",
-        "Plain Flag Off",
-        "No inline commands",
-        "Regular content.",
-      );
-
-      const result = await executeSkillLoad({ skill: "plain-flag-off" });
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("Regular content.");
     });
   });
 
