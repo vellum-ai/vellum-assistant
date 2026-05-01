@@ -604,7 +604,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "config/llm/call-sites", timeout: 10
+                path: "assistants/{assistantId}/config/llm/call-sites", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchCallSiteCatalog failed (HTTP \(response.statusCode))")
