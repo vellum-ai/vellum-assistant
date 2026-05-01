@@ -715,6 +715,49 @@ public final class AuthService {
         }
     }
 
+    // MARK: - Account Deletion
+
+    /// Outcome of a `POST /v1/user/deletion-request/` call.
+    public enum AccountDeletionStatus: Sendable {
+        /// Server accepted the request (HTTP 201). The session should be torn
+        /// down on the client side.
+        case requested
+        /// Server-side `account-deletion` flag is off (HTTP 404). The feature
+        /// is unavailable for this account; the caller should surface the
+        /// inline "not available" copy rather than a generic error.
+        case unavailable
+    }
+
+    /// Request deletion of the signed-in Vellum account.
+    ///
+    /// Posts to platform's user-scoped `deletion-request` endpoint, bypassing
+    /// the local gateway since deletion is not assistant-scoped. The endpoint
+    /// is organization-agnostic — the deleted entity is the user, not an org
+    /// membership — so no `Vellum-Organization-Id` header is sent. Returns
+    /// `.requested` on 201 and `.unavailable` on 404 (server-side flag off).
+    /// All other non-2xx responses throw ``PlatformAPIError``.
+    public func requestAccountDeletion() async throws -> AccountDeletionStatus {
+        let response = try await performPlatformRequest(
+            path: "v1/user/deletion-request/",
+            method: "POST",
+            organizationId: nil
+        )
+
+        switch response.statusCode {
+        case 201:
+            return .requested
+        case 404:
+            return .unavailable
+        case 401, 403:
+            throw PlatformAPIError.authenticationRequired
+        default:
+            throw PlatformAPIError.serverError(
+                statusCode: response.statusCode,
+                detail: String(data: response.data, encoding: .utf8)
+            )
+        }
+    }
+
     // MARK: - Allauth Requests
 
     private func request<T: Codable>(_ requestConfig: AuthRequestConfig) async throws -> AllauthResponse<T> {

@@ -376,6 +376,14 @@
       "label": "Inference Profiles",
       "description": "Show inference profile picker in chat, active profile dropdown, Manage Profiles button, and per-task overrides link in Settings",
       "defaultEnabled": false
+    },
+    {
+      "id": "account-deletion",
+      "scope": "client",
+      "key": "account-deletion",
+      "label": "Account Deletion",
+      "description": "Surfaces the user-initiated account deletion flow in client settings.",
+      "defaultEnabled": false
     }
   ]
 }
