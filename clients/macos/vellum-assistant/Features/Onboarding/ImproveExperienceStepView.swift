@@ -93,29 +93,17 @@ struct ImproveExperienceStepView: View {
 
             // Consent checkboxes (AI Data Sharing first, then ToS)
             VStack(spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.md) {
-                    consentCheckbox(
-                        isChecked: $aiDataConsent,
-                        accessibilityLabel: "I agree to the AI Data Sharing Policy"
-                    )
-                    consentText(
-                        markdown: "I agree to the [AI Data Sharing Policy](\(AppURLs.dataSharingDocs.absoluteString))",
-                        fallback: "I agree to the AI Data Sharing Policy"
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                consentRow(
+                    isChecked: $aiDataConsent,
+                    markdown: "I agree to the [AI Data Sharing Policy](\(AppURLs.dataSharingDocs.absoluteString))",
+                    plainText: "I agree to the AI Data Sharing Policy"
+                )
 
-                HStack(spacing: VSpacing.md) {
-                    consentCheckbox(
-                        isChecked: $tosAccepted,
-                        accessibilityLabel: "I agree to the Terms of Service and Privacy Policy"
-                    )
-                    consentText(
-                        markdown: "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))",
-                        fallback: "I agree to the Terms of Service and Privacy Policy"
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                consentRow(
+                    isChecked: $tosAccepted,
+                    markdown: "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))",
+                    plainText: "I agree to the Terms of Service and Privacy Policy"
+                )
             }
 
             VStack(spacing: VSpacing.sm) {
@@ -160,6 +148,23 @@ struct ImproveExperienceStepView: View {
                 .onAppear { showCharacters = true }
                 .accessibilityHidden(true)
         }
+    }
+
+    // MARK: - Consent Row
+
+    /// A single consent row: checkbox + markdown link text. Uses `plainText` for
+    /// both the checkbox's accessibility label and the markdown-render fallback
+    /// so the two cannot drift apart.
+    private func consentRow(
+        isChecked: Binding<Bool>,
+        markdown: String,
+        plainText: String
+    ) -> some View {
+        HStack(spacing: VSpacing.md) {
+            consentCheckbox(isChecked: isChecked, accessibilityLabel: plainText)
+            consentText(markdown: markdown, fallback: plainText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Consent Checkbox

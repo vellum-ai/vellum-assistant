@@ -264,10 +264,19 @@ final class OnboardingState {
     /// bounce and the next consent re-check doesn't leave `onboarding.step`
     /// pointing at the now-aborted hatch step.
     func bounceToConsentStep() {
-        // Mirror HatchingStepView.goBack()'s reset pattern so a subsequent
-        // retry with a different hosting mode doesn't get short-circuited by
-        // stale hatch state (e.g. isManagedHatch=true causing startHatching()
-        // to skip the CLI path).
+        resetHatchTransientState()
+        currentStep = 3
+        if shouldPersist { persist() }
+    }
+
+    /// Clears the hatch-related transient state shared by `bounceToConsentStep()`
+    /// and `HatchingStepView.goBack()`. Both call sites need the same reset
+    /// before allowing a retry — without it, stale flags like `isManagedHatch`
+    /// can short-circuit `startHatching()` (e.g. skipping the CLI path).
+    /// Does NOT touch `hatchCompleted`, `hasHatched`, avatar traits, ToS/AI
+    /// consent, or any non-hatch credentials — see `resetForRetry()` for the
+    /// full reset.
+    func resetHatchTransientState() {
         isHatching = false
         isManagedHatch = false
         hasExistingManagedAssistant = false
@@ -280,8 +289,6 @@ final class OnboardingState {
         hatchTotalSteps = 1
         hatchCurrentStep = 0
         hatchProcessStarted = false
-        currentStep = 3
-        if shouldPersist { persist() }
     }
 
     static func clearPersistedState() {

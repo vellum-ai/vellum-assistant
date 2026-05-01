@@ -352,18 +352,7 @@ struct HatchingStepView: View {
     private func goBack() {
         healthCheckTask?.cancel()
         isCheckingHealth = false
-        state.isHatching = false
-        state.isManagedHatch = false
-        state.hasExistingManagedAssistant = false
-        state.hatchFailed = false
-        state.hatchFailureReason = nil
-        state.hatchLogLines = []
-        state.hatchProgressTarget = 0.0
-        state.hatchProgressDisplay = 0.0
-        state.hatchStepLabel = nil
-        state.hatchTotalSteps = 1
-        state.hatchCurrentStep = 0
-        state.hatchProcessStarted = false
+        state.resetHatchTransientState()
         progressStartDate = nil
         segmentStartDate = nil
         segmentStartValue = 0
