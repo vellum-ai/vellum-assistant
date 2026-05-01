@@ -5,7 +5,6 @@ import type { WorkspaceMigration } from "./types.js";
 
 const SEEDED_MAIN_AGENT_MODEL = "claude-opus-4-7";
 const SEEDED_MAIN_AGENT_MAX_TOKENS = 32000;
-const OLD_MANAGED_DEFAULT_PROFILE = "balanced";
 const OPUS_MANAGED_PROFILE = "quality-optimized";
 
 export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
@@ -36,10 +35,7 @@ export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
     if (mainAgent.model !== SEEDED_MAIN_AGENT_MODEL) return;
     if (mainAgent.maxTokens !== SEEDED_MAIN_AGENT_MAX_TOKENS) return;
 
-    if (
-      llm.activeProfile === undefined ||
-      llm.activeProfile === OLD_MANAGED_DEFAULT_PROFILE
-    ) {
+    if (llm.activeProfile === undefined) {
       llm.activeProfile = OPUS_MANAGED_PROFILE;
     }
 
