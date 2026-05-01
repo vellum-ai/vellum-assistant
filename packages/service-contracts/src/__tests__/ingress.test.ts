@@ -23,6 +23,9 @@ describe("normalizeHttpPublicBaseUrl", () => {
     expect(normalizeHttpPublicBaseUrl(" HTTPS://EXAMPLE.TEST/twilio ")).toBe(
       "https://example.test/twilio",
     );
+    expect(normalizeHttpPublicBaseUrl("https://example.test/twilio///")).toBe(
+      "https://example.test/twilio",
+    );
     expect(normalizeHttpPublicBaseUrl("https://example.test")).toBe(
       "https://example.test/",
     );
@@ -32,5 +35,20 @@ describe("normalizeHttpPublicBaseUrl", () => {
     expect(normalizeHttpPublicBaseUrl("ftp://example.test")).toBeUndefined();
     expect(normalizeHttpPublicBaseUrl("notaurl")).toBeUndefined();
     expect(normalizeHttpPublicBaseUrl("")).toBeUndefined();
+  });
+
+  test("rejects query strings and fragments instead of mutating them", () => {
+    expect(
+      normalizeHttpPublicBaseUrl("https://example.test/twilio?token=abc/"),
+    ).toBeUndefined();
+    expect(
+      normalizeHttpPublicBaseUrl("https://example.test/twilio#section/"),
+    ).toBeUndefined();
+    expect(
+      normalizeHttpPublicBaseUrl("https://example.test/twilio?"),
+    ).toBeUndefined();
+    expect(
+      normalizeHttpPublicBaseUrl("https://example.test/twilio#"),
+    ).toBeUndefined();
   });
 });
