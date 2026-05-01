@@ -243,7 +243,27 @@ describe("VelayWebSocketBridge", () => {
     ).toEqual([]);
   });
 
-  test("sanitizes invalid close codes from Velay before closing locally", () => {
+  test("remaps protocol close codes from Velay before closing locally", () => {
+    bridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+
+    expect(() => {
+      bridge.close({
+        type: VELAY_FRAME_TYPES.websocketClose,
+        connection_id: "conn-123",
+        code: 1008,
+        reason: "Policy violation",
+      });
+    }).not.toThrow();
+
+    expect(fakeSocket.closes).toEqual([
+      { code: 4008, reason: "Policy violation" },
+    ]);
+    expect(bridge.getConnectionCount()).toBe(0);
+  });
+
+  test("sanitizes invalid reserved close codes from Velay before closing locally", () => {
     bridge.open(makeOpenFrame());
     fakeSocket.readyState = WS_OPEN;
     fakeSocket.emit("open");
@@ -310,7 +330,9 @@ describe("VelayWebSocketBridge", () => {
       body_base64: "not base64",
     });
 
-    expect(fakeSocket.closes).toEqual([{ code: undefined, reason: undefined }]);
+    expect(fakeSocket.closes).toEqual([
+      { code: 4003, reason: "Invalid message" },
+    ]);
     expect(bridge.getConnectionCount()).toBe(0);
   });
 
@@ -363,5 +385,18 @@ describe("VelayWebSocketBridge", () => {
       code: 1001,
       reason: "going away",
     });
+  });
+
+  test("remaps closeAll going-away semantics to an application close code", () => {
+    bridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+
+    bridge.closeAll();
+
+    expect(fakeSocket.closes).toEqual([
+      { code: 4001, reason: "Tunnel closed" },
+    ]);
+    expect(bridge.getConnectionCount()).toBe(0);
   });
 });
