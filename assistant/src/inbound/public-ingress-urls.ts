@@ -27,7 +27,11 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
-import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
+import {
+  normalizePublicBaseUrl,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 import { getIngressPublicBaseUrl } from "../config/env.js";
 
@@ -110,9 +114,9 @@ export function getTwilioVoiceWebhookUrl(
 ): string {
   const base = getTwilioPublicBaseUrl(config);
   if (callSessionId) {
-    return `${base}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
+    return `${base}${TWILIO_VOICE_WEBHOOK_PATH}?callSessionId=${callSessionId}`;
   }
-  return `${base}/webhooks/twilio/voice`;
+  return `${base}${TWILIO_VOICE_WEBHOOK_PATH}`;
 }
 
 /**
@@ -120,7 +124,7 @@ export function getTwilioVoiceWebhookUrl(
  */
 export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
   const base = getTwilioPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/status`;
+  return `${base}${TWILIO_STATUS_WEBHOOK_PATH}`;
 }
 
 /**
