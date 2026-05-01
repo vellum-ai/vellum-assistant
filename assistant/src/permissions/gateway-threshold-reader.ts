@@ -20,6 +20,7 @@ type Threshold = "none" | "low" | "medium" | "high";
 interface GlobalThresholds {
   interactive: string;
   autonomous: string;
+  headless: string;
 }
 
 interface ConversationThreshold {
@@ -58,6 +59,7 @@ function mapExecutionContextToField(
   executionContext: ExecutionContext,
 ): keyof GlobalThresholds {
   if (executionContext === "conversation") return "interactive";
+  if (executionContext === "headless") return "headless";
   return "autonomous";
 }
 
@@ -65,9 +67,6 @@ function resolveExecutionContextThreshold(
   executionContext: ExecutionContext,
   globalThresholds: GlobalThresholds,
 ): string {
-  if (executionContext === "headless") {
-    return "none";
-  }
   return globalThresholds[mapExecutionContextToField(executionContext)];
 }
 

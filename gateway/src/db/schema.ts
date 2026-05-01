@@ -100,6 +100,7 @@ export const autoApproveThresholds = sqliteTable("auto_approve_thresholds", {
   id: integer("id").primaryKey().default(1),
   interactive: text("interactive").notNull().default("medium"),
   autonomous: text("autonomous").notNull().default("low"),
+  headless: text("headless").notNull().default("none"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(datetime('now'))`),

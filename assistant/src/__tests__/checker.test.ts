@@ -122,14 +122,14 @@ import * as platformModule from "../util/platform.js";
 /** Default gateway thresholds matching the old config fallback defaults. */
 const DEFAULT_GATEWAY_THRESHOLDS = {
   interactive: "low",
-  background: "medium",
+  autonomous: "medium",
   headless: "none",
 } as const;
 
 /** Strict gateway thresholds — equivalent to autoApproveUpTo: "none". */
 const STRICT_GATEWAY_THRESHOLDS = {
   interactive: "none",
-  background: "none",
+  autonomous: "none",
   headless: "none",
 } as const;
 
