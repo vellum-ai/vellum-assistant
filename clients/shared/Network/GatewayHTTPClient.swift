@@ -14,12 +14,12 @@ public enum MultipartPart {
 /// Consolidates URL construction, auth headers, org-id injection, and
 /// request execution so callers can simply write:
 ///
-///     let response = try await GatewayHTTPClient.get(path: "health", unprefixed: true)
+///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "restart")
 ///
 /// All paths are automatically prepended with `assistants/{assistantId}/` unless
 /// the caller passes `unprefixed: true` (for routes that operate outside assistant
-/// scope, e.g. `health`, `guardian/*`, `secrets`).
+/// scope, e.g. `healthz`, `guardian/*`, `secrets`).
 public enum GatewayHTTPClient {
     private static let sseAcceptHeader = "text/event-stream, application/json"
 
