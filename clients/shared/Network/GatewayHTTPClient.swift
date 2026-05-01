@@ -405,7 +405,7 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/secrets"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"secrets"`).
     ///   - body: Optional HTTP body data.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
@@ -834,9 +834,9 @@ public enum GatewayHTTPClient {
     /// ``post(path:body:timeout:)``.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/workspace/file/content"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"workspace/file/content"`).
     ///   - params: Optional query parameters.
-    /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
+    /// - Returns: The fully-qualified URL.
     /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
     public static func buildURL(path: String, params: [String: String]? = nil, unprefixed: Bool = false) throws -> URL {
         let connection = try resolveConnection()
