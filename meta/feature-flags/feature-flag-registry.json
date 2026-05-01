@@ -106,14 +106,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-managed-sidecar",
-      "scope": "assistant",
-      "key": "ces-managed-sidecar",
-      "label": "CES Managed Sidecar Transport",
-      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
-      "defaultEnabled": true
-    },
-    {
       "id": "ces-credential-backend",
       "scope": "assistant",
       "key": "ces-credential-backend",
