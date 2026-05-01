@@ -33,6 +33,7 @@ describe("package independence", () => {
     "../transport.ts",
     "../credential-rpc.ts",
     "../trust-rules.ts",
+    "../ingress.ts",
     "../twilio-ingress.ts",
     "../error.ts",
   ];

@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
 
 import {
@@ -22,10 +21,10 @@ import { closeWebSocket } from "./bridge-utils.js";
 import {
   VELAY_FRAME_TYPES,
   VELAY_TUNNEL_SUBPROTOCOL,
+  parseVelayFrame,
   type VelayFrame,
   type VelayHttpRequestFrame,
   type VelayRegisteredFrame,
-  type VelayWebSocketInboundFrame,
 } from "./protocol.js";
 import { VelayWebSocketBridge } from "./websocket-bridge.js";
 
@@ -495,7 +494,9 @@ async function clearManagedTwilioPublicBaseUrl(
         expectedPublicUrl !== undefined &&
         ingress[TWILIO_PUBLIC_BASE_URL_FIELD] !== expectedPublicUrl
       ) {
-        return false;
+        delete ingress[TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD];
+        data.ingress = ingress;
+        return true;
       }
 
       delete ingress[TWILIO_PUBLIC_BASE_URL_FIELD];
@@ -541,112 +542,4 @@ function buildRegisterWebSocketUrl(baseUrl: string): string {
     throw new Error("VELAY_BASE_URL must use http, https, ws, or wss");
   }
   return url.toString();
-}
-
-function parseVelayFrame(data: unknown): VelayFrame | undefined {
-  const raw = decodeWebSocketData(data);
-  if (raw === undefined) return undefined;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return undefined;
-  }
-  const frame = parsed as Record<string, unknown>;
-
-  switch (frame.type) {
-    case VELAY_FRAME_TYPES.registered:
-      return isRegisteredFrame(frame) ? frame : undefined;
-    case VELAY_FRAME_TYPES.httpRequest:
-      return isHttpRequestFrame(frame) ? frame : undefined;
-    case VELAY_FRAME_TYPES.websocketOpen:
-    case VELAY_FRAME_TYPES.websocketMessage:
-    case VELAY_FRAME_TYPES.websocketClose:
-      return isWebSocketInboundFrame(frame) ? frame : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function decodeWebSocketData(data: unknown): string | undefined {
-  if (typeof data === "string") return data;
-  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
-  if (ArrayBuffer.isView(data)) {
-    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString(
-      "utf8",
-    );
-  }
-  return undefined;
-}
-
-function isRegisteredFrame(
-  frame: Record<string, unknown>,
-): frame is VelayRegisteredFrame {
-  return (
-    frame.type === VELAY_FRAME_TYPES.registered &&
-    typeof frame.assistant_id === "string" &&
-    typeof frame.public_url === "string"
-  );
-}
-
-function isHttpRequestFrame(
-  frame: Record<string, unknown>,
-): frame is VelayHttpRequestFrame {
-  return (
-    frame.type === VELAY_FRAME_TYPES.httpRequest &&
-    typeof frame.request_id === "string" &&
-    typeof frame.method === "string" &&
-    typeof frame.path === "string" &&
-    isOptionalString(frame.raw_query) &&
-    isOptionalString(frame.body_base64) &&
-    isVelayHeaders(frame.headers)
-  );
-}
-
-function isWebSocketInboundFrame(
-  frame: Record<string, unknown>,
-): frame is VelayWebSocketInboundFrame {
-  if (frame.type === VELAY_FRAME_TYPES.websocketOpen) {
-    return (
-      typeof frame.connection_id === "string" &&
-      typeof frame.path === "string" &&
-      isOptionalString(frame.raw_query) &&
-      isOptionalString(frame.subprotocol) &&
-      isVelayHeaders(frame.headers)
-    );
-  }
-  if (frame.type === VELAY_FRAME_TYPES.websocketMessage) {
-    return (
-      typeof frame.connection_id === "string" &&
-      typeof frame.message_type === "string" &&
-      isOptionalString(frame.body_base64)
-    );
-  }
-  if (frame.type === VELAY_FRAME_TYPES.websocketClose) {
-    return (
-      typeof frame.connection_id === "string" &&
-      (frame.code === undefined || typeof frame.code === "number") &&
-      isOptionalString(frame.reason)
-    );
-  }
-  return false;
-}
-
-function isOptionalString(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === "string";
-}
-
-function isVelayHeaders(value: unknown): value is Record<string, string[]> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  return Object.values(value).every(
-    (headerValues) =>
-      Array.isArray(headerValues) &&
-      headerValues.every((headerValue) => typeof headerValue === "string"),
-  );
 }

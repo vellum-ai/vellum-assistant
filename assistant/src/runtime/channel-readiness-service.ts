@@ -1,4 +1,4 @@
-import { normalizePublicBaseUrl } from "@vellumai/service-contracts/twilio-ingress";
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
