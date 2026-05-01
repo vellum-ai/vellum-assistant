@@ -149,6 +149,7 @@
           "contextWindowTokens": 1050000,
           "maxOutputTokens": 128000,
           "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
           "longContextMode": "native-model",
           "supportsThinking": true,
           "supportsCaching": true,
@@ -189,9 +190,9 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.5,
-            "outputPer1mTokens": 3,
-            "cacheReadPer1mTokens": 0.05
+            "inputPer1mTokens": 0.75,
+            "outputPer1mTokens": 4.5,
+            "cacheReadPer1mTokens": 0.075
           }
         },
         {
@@ -333,7 +334,7 @@
         {
           "id": "gemini-2.5-pro",
           "displayName": "Gemini 2.5 Pro",
-          "contextWindowTokens": 2000000,
+          "contextWindowTokens": 1048576,
           "maxOutputTokens": 65536,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",

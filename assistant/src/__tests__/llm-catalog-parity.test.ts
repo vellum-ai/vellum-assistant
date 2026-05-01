@@ -224,7 +224,7 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
-  test("OpenAI catalog includes GPT-5.5 Pro long-context metadata", () => {
+  test("OpenAI catalog includes long-context pricing metadata", () => {
     const openai = PROVIDER_CATALOG.find((entry) => entry.id === "openai");
     expect(
       openai?.models.find((model) => model.id === "gpt-5.5-pro"),
@@ -234,6 +234,29 @@ describe("LLM catalog parity: daemon vs client", () => {
       defaultContextWindowTokens: 200000,
       maxOutputTokens: 128000,
       longContextPricingThresholdTokens: 272000,
+      longContextMode: "native-model",
+    });
+    expect(
+      openai?.models.find((model) => model.id === "gpt-5.4"),
+    ).toMatchObject({
+      displayName: "GPT-5.4",
+      contextWindowTokens: 1050000,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 128000,
+      longContextPricingThresholdTokens: 272000,
+      longContextMode: "native-model",
+    });
+  });
+
+  test("Gemini 2.5 Pro catalog context matches provider limits", () => {
+    const gemini = PROVIDER_CATALOG.find((entry) => entry.id === "gemini");
+    expect(
+      gemini?.models.find((model) => model.id === "gemini-2.5-pro"),
+    ).toMatchObject({
+      displayName: "Gemini 2.5 Pro",
+      contextWindowTokens: 1048576,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 65536,
       longContextMode: "native-model",
     });
   });

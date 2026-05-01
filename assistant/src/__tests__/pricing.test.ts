@@ -57,6 +57,56 @@ describe("resolvePricing", () => {
   });
 
   describe("OpenAI models", () => {
+    test("prices GPT-5.4 Mini at current API rates", () => {
+      const result = resolvePricingForUsage("openai", "gpt-5.4-mini", {
+        directInputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.75 + 4.5 + 0.075);
+    });
+
+    test("uses OpenAI long-context tiers above 272k prompt tokens", () => {
+      const cases = [
+        ["gpt-5.5", 10 + 45 + 1],
+        ["gpt-5.5-pro", 60 + 270 + 60],
+        ["gpt-5.4", 5 + 22.5 + 0.5],
+      ] as const;
+
+      for (const [model, expectedCost] of cases) {
+        const result = resolvePricingForUsage("openai", model, {
+          directInputTokens: 272_001,
+          outputTokens: 1_000_000,
+          cacheCreationInputTokens: 727_999,
+          cacheReadInputTokens: 1_000_000,
+          anthropicCacheCreation: null,
+        });
+
+        expect(result.pricingStatus).toBe("priced");
+        expect(result.estimatedCostUsd).toBeCloseTo(expectedCost, 10);
+      }
+    });
+
+    test("uses OpenAI short-context tiers through 272k prompt tokens", () => {
+      const result = resolvePricingForUsage("openai", "gpt-5.4", {
+        directInputTokens: 272_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (272_000 / 1_000_000) * 2.5 + 15,
+        10,
+      );
+    });
+
     test("returns priced for gpt-4o", () => {
       const result = resolvePricing("openai", "gpt-4o", 1_000_000, 1_000_000);
       expect(result.pricingStatus).toBe("priced");

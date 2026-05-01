@@ -99,7 +99,7 @@ describe("UsageTrackingProvider", () => {
       inferenceProfileSource: "active",
       pricingStatus: "priced",
     });
-    expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.0065, 10);
+    expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.00975, 10);
   });
 
   test("uses the transport provider when resolved attribution points elsewhere", async () => {

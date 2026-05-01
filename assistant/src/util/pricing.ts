@@ -37,10 +37,48 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "claude-haiku-4": { inputPer1M: 1, outputPer1M: 5 },
   },
   openai: {
-    "gpt-5.5": { inputPer1M: 5, outputPer1M: 30 },
-    "gpt-5.5-pro": { inputPer1M: 30, outputPer1M: 180 },
-    "gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15 },
-    "gpt-5.4-mini": { inputPer1M: 0.5, outputPer1M: 3 },
+    "gpt-5.5": {
+      inputPer1M: 5,
+      outputPer1M: 30,
+      cacheReadPer1M: 0.5,
+      tiers: [
+        {
+          inputTokenThreshold: 272_000,
+          inputPer1M: 10,
+          outputPer1M: 45,
+          cacheReadPer1M: 1,
+        },
+      ],
+    },
+    "gpt-5.5-pro": {
+      inputPer1M: 30,
+      outputPer1M: 180,
+      tiers: [
+        {
+          inputTokenThreshold: 272_000,
+          inputPer1M: 60,
+          outputPer1M: 270,
+        },
+      ],
+    },
+    "gpt-5.4": {
+      inputPer1M: 2.5,
+      outputPer1M: 15,
+      cacheReadPer1M: 0.25,
+      tiers: [
+        {
+          inputTokenThreshold: 272_000,
+          inputPer1M: 5,
+          outputPer1M: 22.5,
+          cacheReadPer1M: 0.5,
+        },
+      ],
+    },
+    "gpt-5.4-mini": {
+      inputPer1M: 0.75,
+      outputPer1M: 4.5,
+      cacheReadPer1M: 0.075,
+    },
     "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
     "gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14 },
     "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },

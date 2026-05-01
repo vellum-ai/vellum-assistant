@@ -79,6 +79,8 @@ export interface ProviderCatalogEntry {
  * - OpenAI model comparison and model detail docs:
  *   https://developers.openai.com/api/docs/models/compare
  *   https://developers.openai.com/api/docs/models
+ * - Google Gemini model docs:
+ *   https://ai.google.dev/gemini-api/docs/models
  *
  * contextWindowTokens is the maximum known input context. maxOutputTokens is
  * the maximum standard synchronous Messages/Responses output limit.
@@ -222,6 +224,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "GPT-5.4",
         contextWindowTokens: 1050000,
         maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -257,9 +261,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.5,
-          outputPer1mTokens: 3.0,
-          cacheReadPer1mTokens: 0.05,
+          inputPer1mTokens: 0.75,
+          outputPer1mTokens: 4.5,
+          cacheReadPer1mTokens: 0.075,
         },
       },
       {
@@ -390,7 +394,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "gemini-2.5-pro",
         displayName: "Gemini 2.5 Pro",
-        contextWindowTokens: 2000000,
+        contextWindowTokens: 1048576,
         maxOutputTokens: 65536,
         supportsThinking: true,
         supportsCaching: true,
