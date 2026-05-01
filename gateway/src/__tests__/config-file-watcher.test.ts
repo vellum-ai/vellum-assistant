@@ -6,6 +6,10 @@ import {
   ConfigFileWatcher,
   type ConfigChangeEvent,
 } from "../config-file-watcher.js";
+import {
+  isOnlyVelayTwilioIngressChange,
+  shouldSyncTwilioPhoneWebhooksAfterConfigChange,
+} from "../twilio/webhook-sync-trigger.js";
 import { testWorkspaceDir } from "./test-preload.js";
 
 const configPath = join(testWorkspaceDir, "config.json");
@@ -20,6 +24,22 @@ function pollOnce(watcher: ConfigFileWatcher): void {
       pollOnce: () => void;
     }
   ).pollOnce();
+}
+
+function makeEvent(
+  changedKeys: string[],
+  changedFields: Record<string, string[]>,
+): ConfigChangeEvent {
+  return {
+    data: {},
+    changedKeys: new Set(changedKeys),
+    changedFields: new Map(
+      Object.entries(changedFields).map(([section, fields]) => [
+        section,
+        new Set(fields),
+      ]),
+    ),
+  };
 }
 
 afterEach(() => {
@@ -116,5 +136,32 @@ describe("ConfigFileWatcher", () => {
     expect(events[1].changedFields.get("ingress")).toEqual(
       new Set(["publicBaseUrl"]),
     );
+  });
+});
+
+describe("Twilio webhook sync config-change triggers", () => {
+  test("syncs when generic public ingress changes without a Twilio override", () => {
+    const event = makeEvent(["ingress"], { ingress: ["publicBaseUrl"] });
+
+    expect(isOnlyVelayTwilioIngressChange(event)).toBe(false);
+    expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
+  });
+
+  test("syncs when the Twilio-specific public ingress changes", () => {
+    const event = makeEvent(["ingress"], {
+      ingress: ["twilioPublicBaseUrl", "twilioPublicBaseUrlManagedBy"],
+    });
+
+    expect(isOnlyVelayTwilioIngressChange(event)).toBe(true);
+    expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
+  });
+
+  test("does not sync when only the Velay manager marker changes", () => {
+    const event = makeEvent(["ingress"], {
+      ingress: ["twilioPublicBaseUrlManagedBy"],
+    });
+
+    expect(isOnlyVelayTwilioIngressChange(event)).toBe(true);
+    expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(false);
   });
 });
