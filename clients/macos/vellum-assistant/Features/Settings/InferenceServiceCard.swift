@@ -52,10 +52,10 @@ struct InferenceServiceCard: View {
     /// Whether the API keys management sheet is presented.
     @State private var showAPIKeysSheet = false
     /// Per-provider key-exists status. Loaded async on appear and refreshed
-    /// after the API keys sheet is dismissed.
-    /// Tri-state key status per provider: `true` = key present, `false` = key absent,
-    /// `nil` = not yet loaded or fetch failed. `nil` is treated as "unknown" so a
-    /// transient daemon error never triggers the auto-reset to managed mode.
+    /// after the API keys sheet is dismissed. Used to drive `hasUsableProvider`
+    /// and the API keys section summary.
+    /// Tri-state: `true` = key present, `false` = key absent, `nil` = not yet
+    /// loaded or fetch failed.
     @State private var providerKeyStatuses: [String: Bool?] = [:]
     /// Monotonically increasing counter bumped every time the API keys
     /// sheet is dismissed. Drives `.task(id:)` to re-fetch key statuses
@@ -184,20 +184,6 @@ struct InferenceServiceCard: View {
         }
         .task(id: apiKeysRefreshToken) {
             await loadProviderKeyStatuses()
-            guard !Task.isCancelled else { return }
-            let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            let isManagedCapable = store.isManagedCapable(draftProvider)
-            // Flatten Bool?? → Bool? so nil-valued entries (fetch error) compare
-            // as truly unknown rather than as a present-but-nil outer optional.
-            // A [String: Bool?] subscript returns Bool?? where .some(.none) means
-            // "key exists in dict, value is nil" — `?? nil` collapses that to nil.
-            let flatStatus = providerKeyStatuses[draftProvider] ?? nil
-            let keyStatusKnown = flatStatus != nil
-            let hasConfiguredKey = flatStatus == true
-            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && keyStatusKnown && !hasConfiguredKey {
-                draftMode = "managed"
-                store.setInferenceMode("managed")
-            }
         }
         .onAppear {
             draftMode = store.inferenceMode
@@ -217,9 +203,8 @@ struct InferenceServiceCard: View {
                 }
             }
 
-            // The task(id: apiKeysRefreshToken) block handles the "logged-in +
-            // your-own + no key configured" auto-reset using daemon-sourced
-            // key statuses. The task fires automatically on initial appearance.
+            // The task(id: apiKeysRefreshToken) fires automatically on
+            // initial appearance to populate providerKeyStatuses.
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),
@@ -243,8 +228,8 @@ struct InferenceServiceCard: View {
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
             } else if isAuthenticated && store.inferenceMode == "your-own" {
-                // Trigger the task to re-fetch daemon-sourced key statuses and
-                // apply the auto-reset check with accurate data.
+                // Re-fetch key statuses now that auth is available so
+                // hasUsableProvider and the API keys section reflect reality.
                 apiKeysRefreshToken += 1
             }
         }
