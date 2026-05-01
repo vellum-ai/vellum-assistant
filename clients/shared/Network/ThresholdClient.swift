@@ -43,13 +43,33 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// Global threshold configuration returned by the gateway API.
-public struct GlobalThresholds: Codable, Sendable, Equatable {
+public struct GlobalThresholds: Sendable, Equatable {
     public let interactive: String
     public let autonomous: String
+    /// Threshold for headless (externally-triggered) execution contexts.
+    /// Defaults to "none" (Strict) when absent from the gateway response
+    /// for backward compatibility with older gateway versions.
+    public let headless: String
 
-    public init(interactive: String, autonomous: String) {
+    public init(interactive: String, autonomous: String, headless: String = "none") {
         self.interactive = interactive
         self.autonomous = autonomous
+        self.headless = headless
+    }
+}
+
+extension GlobalThresholds: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case interactive, autonomous, headless
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        interactive = try container.decode(String.self, forKey: .interactive)
+        autonomous = try container.decode(String.self, forKey: .autonomous)
+        // headless was added in a later gateway release; fall back to "none"
+        // (Strict) when decoding responses from older gateway versions.
+        headless = (try? container.decode(String.self, forKey: .headless)) ?? "none"
     }
 }
 
@@ -103,6 +123,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
         let body: [String: Any] = [
             "interactive": thresholds.interactive,
             "autonomous": thresholds.autonomous,
+            "headless": thresholds.headless,
         ]
         let response = try await GatewayHTTPClient.put(
             path: "assistants/{assistantId}/permissions/thresholds", json: body, timeout: 10

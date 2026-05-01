@@ -122,14 +122,14 @@ import * as platformModule from "../util/platform.js";
 /** Default gateway thresholds matching the old config fallback defaults. */
 const DEFAULT_GATEWAY_THRESHOLDS = {
   interactive: "low",
-  background: "medium",
+  autonomous: "medium",
   headless: "none",
 } as const;
 
 /** Strict gateway thresholds — equivalent to autoApproveUpTo: "none". */
 const STRICT_GATEWAY_THRESHOLDS = {
   interactive: "none",
-  background: "none",
+  autonomous: "none",
   headless: "none",
 } as const;
 
@@ -206,7 +206,7 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset IPC mock to low risk (tests override as needed)
     mockRisk("low");
-    // Default gateway threshold (conversation: low, background: medium, headless: none)
+    // Default gateway threshold (interactive: low, autonomous: medium, headless: none)
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     // Clear the gateway threshold cache so each test gets a fresh threshold read
     _clearGlobalCacheForTesting();
