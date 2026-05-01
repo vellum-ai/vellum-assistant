@@ -232,9 +232,10 @@ function isNonLiteralGenericValue(value: string): boolean {
   if (/^\$\{\{.*\}\}$/s.test(value)) return true;
 
   // Shell / env variable references: $GITHUB_TOKEN, ${DB_PASSWORD}
-  // Requires valid POSIX variable name (letter/underscore start, word chars only)
-  // to avoid suppressing passwords like $uperSecret123 or $4ltyP4ssw0rd!
-  if (/^\$[A-Za-z_]\w*$/.test(value) || /^\$\{[^}]+\}$/.test(value))
+  // Only ALL_CAPS names (SCREAMING_SNAKE_CASE) are suppressed for the bare
+  // $VAR form — this avoids passwords like $uperSecret123 which are valid
+  // POSIX names but clearly not env var references.
+  if (/^\$[A-Z_][A-Z0-9_]*$/.test(value) || /^\$\{[^}]+\}$/.test(value))
     return true;
 
   // UUIDs: generated identifiers, not credential values
