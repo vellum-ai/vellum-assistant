@@ -436,20 +436,103 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(profile.maxTokens, 64_000)
     }
 
-    func testContextWindowMaxInputTokensRoundTripsThroughProfileJSON() {
-        let profile = InferenceProfile(
+    func testGPT55ContextWindowSliderLimitIs1050K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(limit, 1_050_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_050_000
+        )
+    }
+
+    func testGPT54ContextWindowSliderLimitIs1050K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "openai",
+            model: "gpt-5.4"
+        )
+
+        XCTAssertEqual(limit, 1_050_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_050_000
+        )
+    }
+
+    func testSonnet46ContextWindowSliderLimitIs1000K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertEqual(limit, 1_000_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_000_000
+        )
+    }
+
+    func testHaiku45ContextWindowSliderLimitIs200K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001"
+        )
+
+        XCTAssertEqual(limit, 200_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            200_000
+        )
+    }
+
+    func testContextWindowSliderDefaultsToEffectiveDefaultBudget() {
+        let model = InferenceProfileEditor.modelEntry(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderValue(maxInputTokens: nil, model: model),
+            200_000
+        )
+    }
+
+    func testSwitchingToLowerContextModelClampsExistingOverride() {
+        var profile = InferenceProfile(
             name: "long-context",
             provider: "openai",
             model: "gpt-5.5",
-            contextWindowMaxInputTokens: 150000
+            contextWindowMaxInputTokens: 1_000_000
+        )
+
+        profile.provider = "anthropic"
+        profile.model = "claude-haiku-4-5-20251001"
+        InferenceProfileEditor.clampContextWindowForSelectedModel(&profile)
+
+        XCTAssertEqual(profile.contextWindowMaxInputTokens, 200_000)
+    }
+
+    func testCustomContextWindow150KRoundTripsAndAppearsInSummary() {
+        let profile = InferenceProfile(
+            name: "custom-context",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            contextWindowMaxInputTokens: 150_000
         )
 
         let json = profile.toJSON()
         let contextWindow = json["contextWindow"] as? [String: Any]
 
-        XCTAssertEqual(contextWindow?["maxInputTokens"] as? Int, 150000)
-        let decoded = InferenceProfile(name: "long-context", json: json)
-        XCTAssertEqual(decoded.contextWindowMaxInputTokens, 150000)
+        XCTAssertEqual(contextWindow?["maxInputTokens"] as? Int, 150_000)
+        let decoded = InferenceProfile(name: "custom-context", json: json)
+        XCTAssertEqual(decoded.contextWindowMaxInputTokens, 150_000)
+        XCTAssertEqual(
+            InferenceProfilesSheet.summary(for: decoded, store: store),
+            "Claude Sonnet 4.6 \u{00B7} 150K context"
+        )
     }
 
     func testOmittedContextWindowContinuesToInheritDefaults() {
