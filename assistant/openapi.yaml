@@ -4431,6 +4431,8 @@ paths:
                 additionalProperties: false
         "400":
           description: Incorrect confirmation phrase.
+        "409":
+          description: Disk is not currently locked or override is already active.
       requestBody:
         required: true
         content:
@@ -6780,8 +6782,8 @@ paths:
       operationId: memory_v2_backfill_post
       summary: Enqueue a memory v2 backfill job
       description:
-        Enqueues one of four operator-triggered backfill jobs (migrate, rebuild-edges, reembed,
-        activation-recompute) against the memory jobs queue.
+        Enqueues one of three operator-triggered backfill jobs (migrate, reembed, activation-recompute) against the
+        memory jobs queue.
       tags:
         - memory
       responses:

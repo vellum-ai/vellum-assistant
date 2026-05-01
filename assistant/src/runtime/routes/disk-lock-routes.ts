@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
   getDiskLockStatus,
+  isDiskSpacePressure,
   OVERRIDE_CONFIRMATION_PHRASE,
   overrideDiskLock,
 } from "../../daemon/disk-space-guard.js";
@@ -20,6 +21,21 @@ function handleGetStatus() {
 }
 
 function handleOverride(args: RouteHandlerArgs) {
+  const status = getDiskLockStatus();
+  if (!status.locked) {
+    throw new RouteError(
+      "Disk is not currently locked — no override needed.",
+      "NOT_LOCKED",
+      409,
+    );
+  }
+  if (!isDiskSpacePressure()) {
+    throw new RouteError(
+      "Override is already active.",
+      "ALREADY_OVERRIDDEN",
+      409,
+    );
+  }
   const confirmation = (args.body?.confirmation as string | undefined) ?? "";
   const accepted = overrideDiskLock(confirmation);
   if (!accepted) {
@@ -75,6 +91,10 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "400": { description: "Incorrect confirmation phrase." },
+      "409": {
+        description:
+          "Disk is not currently locked or override is already active.",
+      },
     },
   },
 ];

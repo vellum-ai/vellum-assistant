@@ -14,6 +14,7 @@ import {
 } from "../daemon/conversation-agent-loop.js";
 import {
   _resetForTests,
+  _setLockedForTests,
   getDiskLockStatus,
   isDiskSpacePressure,
   OVERRIDE_CONFIRMATION_PHRASE,
@@ -64,8 +65,19 @@ describe("disk-space-guard state machine", () => {
     stopDiskSpaceGuard();
   });
 
+  test("override rejected when not locked", () => {
+    // GIVEN disk is not locked
+    // WHEN we try to override with the correct phrase
+    const result = overrideDiskLock(OVERRIDE_CONFIRMATION_PHRASE);
+
+    // THEN the override should be rejected (not locked)
+    expect(result).toBe(false);
+  });
+
   test("override with wrong phrase is rejected", () => {
-    // GIVEN disk pressure is not active (no lock)
+    // GIVEN disk is locked
+    _setLockedForTests(true);
+
     // WHEN we try to override with the wrong phrase
     const result = overrideDiskLock("wrong phrase");
 
@@ -74,7 +86,9 @@ describe("disk-space-guard state machine", () => {
   });
 
   test("override with correct phrase is accepted", () => {
-    // GIVEN the override phrase matches
+    // GIVEN disk is locked
+    _setLockedForTests(true);
+
     // WHEN we call override with the exact phrase
     const result = overrideDiskLock(OVERRIDE_CONFIRMATION_PHRASE);
 
@@ -83,7 +97,9 @@ describe("disk-space-guard state machine", () => {
   });
 
   test("override phrase requires exact match (no extra whitespace)", () => {
-    // GIVEN the phrase has leading/trailing whitespace
+    // GIVEN disk is locked and the phrase has leading/trailing whitespace
+    _setLockedForTests(true);
+
     // WHEN we call override with padded phrase
     const result = overrideDiskLock(`  ${OVERRIDE_CONFIRMATION_PHRASE}  `);
 
@@ -117,14 +133,17 @@ describe("disk-lock route handlers", () => {
   });
 
   test("status reflects override state after successful override", () => {
-    // GIVEN a successful override
+    // GIVEN disk is locked and a successful override
+    _setLockedForTests(true);
     overrideDiskLock(OVERRIDE_CONFIRMATION_PHRASE);
 
     // WHEN we get status
     const status = getDiskLockStatus();
 
-    // THEN overrideActive should be true
+    // THEN overrideActive should be true and effectivelyLocked false
+    expect(status.locked).toBe(true);
     expect(status.overrideActive).toBe(true);
+    expect(status.effectivelyLocked).toBe(false);
   });
 });
 

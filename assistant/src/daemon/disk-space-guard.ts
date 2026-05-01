@@ -137,9 +137,14 @@ export function isDiskSpacePressure(): boolean {
  * without restrictions despite high disk usage. Requires the caller to
  * supply the correct confirmation phrase.
  *
- * Returns `true` if the override was accepted, `false` if the phrase was wrong.
+ * Returns `true` if the override was accepted, `false` if not currently locked
+ * or if the phrase was wrong.
  */
 export function overrideDiskLock(confirmationPhrase: string): boolean {
+  if (!locked) {
+    log.info("Disk lock override ignored — not currently locked");
+    return false;
+  }
   if (confirmationPhrase.trim() !== OVERRIDE_CONFIRMATION_PHRASE) {
     log.warn("Disk lock override rejected — incorrect confirmation phrase");
     return false;
@@ -176,4 +181,8 @@ export function _resetForTests(): void {
   locked = false;
   overrideActive = false;
   lastUsageFraction = null;
+}
+
+export function _setLockedForTests(value: boolean): void {
+  locked = value;
 }
