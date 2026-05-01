@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { CredentialCache } from "../credential-cache.js";
 
@@ -32,6 +33,37 @@ const { RemoteFeatureFlagSync } =
   await import("../remote-feature-flag-sync.js");
 const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
+const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
+  await import("../feature-flag-defaults.js");
+
+// ---------------------------------------------------------------------------
+// Test-local registry with a GA flag (defaultEnabled: true) for the
+// "ignores remote false for GA flags" test. Written to an isolated temp path
+// so we never touch the committed registry file.
+// ---------------------------------------------------------------------------
+const testRegistryPath = join(protectedDir, "feature-flag-registry.json");
+
+const TEST_REGISTRY = {
+  version: 1,
+  flags: [
+    {
+      id: "test-ga-flag",
+      scope: "assistant",
+      key: "test-ga-flag",
+      label: "Test GA Flag",
+      description: "A test flag that is GA (defaultEnabled: true)",
+      defaultEnabled: true,
+    },
+    {
+      id: "email-channel",
+      scope: "assistant",
+      key: "email-channel",
+      label: "Email Channel",
+      description: "Email channel integration",
+      defaultEnabled: false,
+    },
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,6 +124,10 @@ beforeEach(() => {
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.PLATFORM_INTERNAL_API_KEY;
   mkdirSync(protectedDir, { recursive: true });
+  // Write the test registry and point resolution at it
+  writeFileSync(testRegistryPath, JSON.stringify(TEST_REGISTRY, null, 2));
+  _setRegistryCandidateOverrides([testRegistryPath]);
+  resetFeatureFlagDefaultsCache();
   clearRemoteFeatureFlagStoreCache();
   fetchMock = mock(async () => new Response());
 });
@@ -113,6 +149,8 @@ afterEach(() => {
   } catch {
     // best effort cleanup
   }
+  _setRegistryCandidateOverrides(null);
+  resetFeatureFlagDefaultsCache();
   clearRemoteFeatureFlagStoreCache();
 });
 
@@ -423,15 +461,17 @@ describe("RemoteFeatureFlagSync", () => {
     // The platform sends false for all flags it knows about (blanket-deny).
     // GA flags (defaultEnabled: true in the registry) should not be disabled
     // by remote overrides — only local persisted overrides can do that.
+    // Uses the test-local registry which defines test-ga-flag as GA
+    // (defaultEnabled: true) and email-channel as gated (defaultEnabled: false).
     fetchMock = mock(async () =>
       Response.json({
         flags: {
           // GA flag (defaultEnabled: true) — remote false should be dropped
-          "conversation-starters": false,
+          "test-ga-flag": false,
           // Gated flag (defaultEnabled: false) — remote false is kept
           "email-channel": false,
           // GA flag set to true — should be kept (redundant but harmless)
-          browser: true,
+          "test-ga-flag-true": true,
           // Unknown flag — remote false is kept (not in registry)
           "unknown-flag": false,
         },
@@ -446,12 +486,12 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    // conversation-starters (GA, remote false) should be absent
-    expect(cached["conversation-starters"]).toBeUndefined();
+    // test-ga-flag (GA, remote false) should be absent
+    expect(cached["test-ga-flag"]).toBeUndefined();
     // email-channel (gated, remote false) should be present
     expect(cached["email-channel"]).toBe(false);
-    // browser (GA, remote true) should be present
-    expect(cached.browser).toBe(true);
+    // test-ga-flag-true (unknown but true) should be present
+    expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present
     expect(cached["unknown-flag"]).toBe(false);
   });

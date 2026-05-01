@@ -380,8 +380,7 @@ struct ChatBubble: View, Equatable {
                         )
                     } else if shouldShowBubble {
                         if !isUser,
-                           containsInlineThinkingTag(message.text),
-                           MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                           containsInlineThinkingTag(message.text) {
                             bubbleContentWithInlineThinking
                         } else {
                             bubbleContent

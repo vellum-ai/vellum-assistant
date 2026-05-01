@@ -488,12 +488,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/browser", {
+      new Request("http://gateway.test/v1/feature-flags/email-channel", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled: true }),
       }),
-      "browser",
+      "email-channel",
     );
 
     expect(res.status).toBe(200);
@@ -501,7 +501,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["browser"]).toBe(true);
+    expect(persisted["email-channel"]).toBe(true);
   });
 
   // Validation tests

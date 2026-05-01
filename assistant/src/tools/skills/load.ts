@@ -29,9 +29,6 @@ import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
-/** Canonical feature flag key for inline skill command expansion. */
-const INLINE_COMMANDS_FLAG_KEY = "inline-skill-commands";
-
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
   "bundled",
@@ -300,20 +297,6 @@ export class SkillLoadTool implements Tool {
       skill.inlineCommandExpansions && skill.inlineCommandExpansions.length > 0;
 
     if (hasInlineCommands) {
-      const inlineFlagEnabled = isAssistantFeatureFlagEnabled(
-        INLINE_COMMANDS_FLAG_KEY,
-        config,
-      );
-
-      if (!inlineFlagEnabled) {
-        // Feature flag is off: fail closed instead of leaving live tokens in
-        // the prompt that the LLM might try to interpret.
-        return {
-          content: `Error: skill "${skill.id}" contains inline command expansions but the inline-skill-commands feature flag is disabled. Enable the flag to use this skill.`,
-          isError: true,
-        };
-      }
-
       if (skill.source === "extra") {
         // Third-party extra roots are out of scope for inline command
         // expansion in v1. Reject explicitly so the failure is clear.
@@ -391,21 +374,6 @@ export class SkillLoadTool implements Tool {
             childLoaded.skill.inlineCommandExpansions.length > 0;
 
           if (childHasInlineCommands) {
-            const childInlineFlagEnabled = isAssistantFeatureFlagEnabled(
-              INLINE_COMMANDS_FLAG_KEY,
-              config,
-            );
-
-            // Fail closed: if the flag is off, reject the entire skill_load
-            // just like we do for root skills. Leaving raw !`...` tokens in
-            // the prompt would violate the documented fail-closed contract.
-            if (!childInlineFlagEnabled) {
-              return {
-                content: `Error: included skill "${childId}" contains inline command expansions but the inline-skill-commands feature flag is disabled. Enable the flag to use skill "${skill.id}".`,
-                isError: true,
-              };
-            }
-
             if (childLoaded.skill.source === "extra") {
               return {
                 content: `Error: included skill "${childId}" contains inline command expansions but inline commands are not supported for third-party (extra) skill sources.`,

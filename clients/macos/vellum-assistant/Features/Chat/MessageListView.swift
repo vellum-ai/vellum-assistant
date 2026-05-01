@@ -106,12 +106,11 @@ struct MessageListView: View {
     /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
     /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
-    /// Caches each transcript row's measured height so the LazyVStack reports
-    /// an accurate `contentSize` for off-screen cells. Gated on the
-    /// `message-height-cache` macOS feature flag. `.id(conversationId)` is
-    /// applied to the inner `ScrollView` (not `MessageListView`), so SwiftUI
-    /// preserves this `@State` across conversation switches — the cache must
-    /// be cleared explicitly in `handleConversationSwitched()` to avoid
+    /// Caches each transcript row's measured height so the VStack reports
+    /// an accurate `contentSize`. `.id(conversationId)` is applied to the
+    /// inner `ScrollView` (not `MessageListView`), so SwiftUI preserves
+    /// this `@State` across conversation switches — the cache must be
+    /// cleared explicitly in `handleConversationSwitched()` to avoid
     /// reusing heights keyed by fixed-sentinel UUIDs (e.g. queuedMarker)
     /// across conversations. Also reset on column-width and typography
     /// changes, which reflow every row.

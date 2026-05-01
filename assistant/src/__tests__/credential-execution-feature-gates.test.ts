@@ -17,12 +17,10 @@ import {
 import type { AssistantConfig } from "../config/schema.js";
 import {
   CES_GRANT_AUDIT_FLAG_KEY,
-  CES_MANAGED_SIDECAR_FLAG_KEY,
   CES_SECURE_INSTALL_FLAG_KEY,
   CES_SHELL_LOCKDOWN_FLAG_KEY,
   CES_TOOLS_FLAG_KEY,
   isCesGrantAuditEnabled,
-  isCesManagedSidecarEnabled,
   isCesSecureInstallEnabled,
   isCesShellLockdownEnabled,
   isCesToolsEnabled,
@@ -51,7 +49,6 @@ const ALL_CES_FLAG_KEYS = [
   CES_SHELL_LOCKDOWN_FLAG_KEY,
   CES_SECURE_INSTALL_FLAG_KEY,
   CES_GRANT_AUDIT_FLAG_KEY,
-  CES_MANAGED_SIDECAR_FLAG_KEY,
 ] as const;
 
 /** All CES predicate functions paired with their flag keys and expected defaults. */
@@ -79,12 +76,6 @@ const ALL_CES_PREDICATES = [
     fn: isCesGrantAuditEnabled,
     key: CES_GRANT_AUDIT_FLAG_KEY,
     defaultEnabled: false,
-  },
-  {
-    name: "isCesManagedSidecarEnabled",
-    fn: isCesManagedSidecarEnabled,
-    key: CES_MANAGED_SIDECAR_FLAG_KEY,
-    defaultEnabled: true,
   },
 ] as const;
 
@@ -180,7 +171,7 @@ describe("CES flags do not affect unrelated flags", () => {
     expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
   });
 
-  test("enabling all CES flags does not change sounds flag (defaultEnabled: true)", () => {
+  test("enabling all CES flags does not change app-builder-multifile flag (defaultEnabled: true)", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -188,7 +179,9 @@ describe("CES flags do not affect unrelated flags", () => {
     _setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // sounds defaults to true in the registry and should stay true
-    expect(isAssistantFeatureFlagEnabled("sounds", config)).toBe(true);
+    // app-builder-multifile defaults to true in the registry and should stay true
+    expect(isAssistantFeatureFlagEnabled("app-builder-multifile", config)).toBe(
+      true,
+    );
   });
 });

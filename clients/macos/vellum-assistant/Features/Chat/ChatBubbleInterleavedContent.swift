@@ -456,23 +456,21 @@ extension ChatBubble {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                 }
             case .thinking(let indices):
-                if MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
-                    let joined = indices
-                        .compactMap { i in
-                            i < message.thinkingSegments.count
-                                ? message.thinkingSegments[i]
-                                : nil
-                        }
-                        .filter { !$0.isEmpty }
-                        .joined(separator: "\n")
-                    if !joined.isEmpty {
-                        ThinkingBlockView(
-                            content: joined,
-                            isStreaming: message.isStreaming,
-                            expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
-                            typographyGeneration: typographyGeneration
-                        )
+                let joined = indices
+                    .compactMap { i in
+                        i < message.thinkingSegments.count
+                            ? message.thinkingSegments[i]
+                            : nil
                     }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                if !joined.isEmpty {
+                    ThinkingBlockView(
+                        content: joined,
+                        isStreaming: message.isStreaming,
+                        expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
+                        typographyGeneration: typographyGeneration
+                    )
                 }
             }
         }

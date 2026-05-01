@@ -174,7 +174,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:42-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "google-calendar",
@@ -244,7 +244,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:42-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "inbox-management",
@@ -271,7 +271,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:22-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "influencer",
@@ -360,7 +360,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-04-30T17:02:02Z"
+      "updatedAt": "2026-05-01T11:27:13-04:00"
     },
     {
       "id": "meme-generator",
@@ -719,14 +719,13 @@
         "emoji": "🌐",
         "vellum": {
           "display-name": "Browser",
-          "feature-flag": "browser",
           "activation-hints": [
             "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T15:26:17-04:00"
+      "updatedAt": "2026-05-01T15:46:41-04:00"
     },
     {
       "id": "vellum-conversation-management",

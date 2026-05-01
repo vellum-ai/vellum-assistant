@@ -69,16 +69,7 @@ For `formatVersion: 2` apps, source files live under `src/` and compiled output 
 
 **Make creative decisions on behalf of the user.** They want to be delighted, not consulted. Pick the accent color. Choose between a dark moody aesthetic or a light airy one. Decide if cards should have glassmorphism or layered shadows. Add a background pattern or gradient. These are YOUR decisions as the designer.
 
-<!-- feature:app-builder-multifile:start -->
-
 **Prefer multi-file TSX projects** for any non-trivial app. They give you component reuse, TypeScript safety, and cleaner organization. Fall back to single-file HTML only for the simplest one-off pages.
-
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-
-**Always build single-file HTML apps.** Write a complete, self-contained HTML document with all CSS in `<style>` and all JavaScript in `<script>`. Do not use multi-file projects or TSX.
-
-<!-- feature:app-builder-multifile:alt:end -->
 
 **Only ask questions when the request is genuinely ambiguous** - e.g., "build me an app" with no indication of what kind. Even then, prefer building something impressive based on context clues over asking a battery of questions.
 
@@ -123,8 +114,6 @@ Example schema for a project tracker:
 ### 3. Build the App
 
 Apps are rendered inside a sandboxed WebView on macOS.
-
-<!-- feature:app-builder-multifile:start -->
 
 #### Multi-file TSX projects
 
@@ -262,23 +251,6 @@ app_refresh(app_id)
 - No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
 - Design responsively. Apps render at fluid, user-resizable widths — avoid fixed-pixel layouts
 - The WebView blocks all navigation - links and form `action` attributes won't work
-<!-- feature:app-builder-multifile:end -->
-
-<!-- feature:app-builder-multifile:alt -->
-
-#### Single HTML file
-
-Write a complete, self-contained HTML document.
-
-**Technical constraints (single-file):**
-
-- Single HTML string - no external files, CDNs, or imports
-- All CSS in `<style>` in `<head>`, all JavaScript in `<script>` before `</body>`
-- No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
-- Design responsively. Apps render at fluid, user-resizable widths — avoid fixed-pixel layouts
-- The WebView blocks all navigation - links and form `action` attributes won't work
-
-<!-- feature:app-builder-multifile:alt:end -->
 
 #### Injected design system
 
@@ -352,70 +324,7 @@ For handler conventions, examples, key rules, and frontend usage patterns, see *
 
 `localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use custom routes for persistent app records, `localStorage` for UI preferences.
 
-<!-- feature:app-builder-multifile:alt -->
-
-#### JavaScript patterns
-
-Initialize apps with clean state management:
-
-```javascript
-document.addEventListener("DOMContentLoaded", async () => {
-  await loadRecords();
-});
-
-let allRecords = [];
-
-async function loadRecords() {
-  try {
-    const res = await window.vellum.fetch("/v1/x/records");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    allRecords = await res.json();
-    render();
-  } catch (err) {
-    console.error("Failed to load:", err);
-  }
-}
-
-function render() {
-  // Re-render UI from allRecords
-}
-```
-
-**HTML escaping:** Always escape user-controlled data before inserting into the DOM via `innerHTML`:
-
-```javascript
-function esc(s) {
-  const d = document.createElement("div");
-  d.textContent = String(s);
-  return d.innerHTML;
-}
-```
-
-### 4. Single-Page App Views
-
-Apps run inside a sandboxed WebView that blocks all navigation. All apps are effectively single-page. When an app needs multiple views, use JavaScript to swap content:
-
-```javascript
-function showView(name) {
-  document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
-  document.getElementById("view-" + name).hidden = false;
-  document
-    .querySelectorAll(".nav-link")
-    .forEach((btn) => btn.classList.remove("active"));
-  document
-    .querySelector(`[onclick="showView('${name}')"]`)
-    ?.classList.add("active");
-}
-```
-
-<!-- feature:app-builder-multifile:alt:end -->
-
-<!-- feature:app-builder-multifile:start -->
 ### 4. Create and Open the App
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-### 5. Create and Open the App
-<!-- feature:app-builder-multifile:alt:end -->
 
 Call `app_create` with:
 
@@ -428,12 +337,7 @@ Call `app_create` with:
 
 The app is NOT opened in a workspace panel automatically - users open it via the 'Open App' button on the inline card.
 
-<!-- feature:app-builder-multifile:start -->
 ### 5. Handle Iteration
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-### 6. Handle Iteration
-<!-- feature:app-builder-multifile:alt:end -->
 
 When the user requests changes, prefer **`file_edit`** over rewriting the entire file.
 
