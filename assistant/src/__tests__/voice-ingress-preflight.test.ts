@@ -33,4 +33,27 @@ describe("voice ingress preflight", () => {
       expect(result.ingressConfig.ingress?.enabled).toBe(false);
     }
   });
+
+  test("accepts Twilio-specific public base URL when generic ingress URL is absent", async () => {
+    mockLoadConfig = () => ({
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "",
+        twilioPublicBaseUrl: "https://twilio.example.com/",
+      },
+    });
+
+    const result = await preflightVoiceIngress();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.publicBaseUrl).toBe("https://twilio.example.com");
+      expect(result.ingressConfig.ingress?.publicBaseUrl).toBe(
+        "https://twilio.example.com",
+      );
+      expect(result.ingressConfig.ingress?.twilioPublicBaseUrl).toBe(
+        "https://twilio.example.com/",
+      );
+    }
+  });
 });
