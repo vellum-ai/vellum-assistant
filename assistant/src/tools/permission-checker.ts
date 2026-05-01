@@ -410,6 +410,7 @@ export class PermissionChecker {
             ...mapApprovalProvenance(decision, {
               wasTimeout: response.wasTimeout,
               wasSystemCancel: response.wasSystemCancel,
+              wasAbort: response.wasAbort,
             }),
             riskThreshold,
           };
