@@ -31,62 +31,6 @@ export interface ApprovalContext {
   autoApproveUpTo?: "none" | "low" | "medium" | "high";
 }
 
-// ── Threshold resolution ─────────────────────────────────────────────────────
-
-/**
- * Per-context defaults when no threshold is provided by the gateway. These
- * mirror the gateway's own defaults and serve as defense-in-depth for tests /
- * direct callers that bypass the IPC path.
- *
- * Note: when a scalar value (e.g. `"low"`) is passed, it applies uniformly to
- * ALL contexts — including autonomous, whose default here is `"low"`. A scalar
- * `"none"` is therefore *more strict* than the autonomous default. This is
- * intentional: the caller explicitly chose a uniform threshold.
- */
-const CONTEXT_DEFAULTS: Record<
-  ExecutionContext,
-  "none" | "low" | "medium" | "high"
-> = {
-  conversation: "medium",
-  background: "low",
-  headless: "none",
-};
-
-type ThresholdScalar = "none" | "low" | "medium" | "high";
-type ThresholdConfig =
-  | ThresholdScalar
-  | { conversation: ThresholdScalar; autonomous: ThresholdScalar };
-
-/**
- * Resolve a threshold config to a scalar threshold for the given execution
- * context.
- *
- * - Scalar string → returned as-is for non-headless contexts
- * - Object with per-context overrides → returns the value for the context
- *   (`background` resolves to the `autonomous` field)
- * - Headless context always returns `"none"` regardless of `configValue` —
- *   this function handles the legacy `{ conversation, autonomous }` config
- *   shape which has no headless key. Headless is configurable only via the
- *   gateway settings UI path (see gateway-threshold-reader.ts).
- *
- * When `executionContext` is omitted, defaults to `"conversation"`.
- */
-export function resolveThreshold(
-  configValue: ThresholdConfig | undefined,
-  executionContext?: ExecutionContext,
-): ThresholdScalar {
-  if (executionContext === "headless") return "none";
-  if (configValue == null) {
-    return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
-  }
-  if (typeof configValue === "string") {
-    return configValue;
-  }
-  const ctx = executionContext ?? "conversation";
-  if (ctx === "conversation") return configValue.conversation;
-  return configValue.autonomous;
-}
-
 // ── Ordinal maps for threshold comparison ─────────────────────────────────────
 // Hoisted to module level since these are constant. Unknown enum values
 // conservatively map to the strictest interpretation: risk defaults to 2 (high)
