@@ -237,6 +237,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.onAssistantActivityChange = { [weak self] conversationId, previousSnapshot, currentSnapshot in
             self?.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: currentSnapshot)
         }
+        activityStore.onTurnComplete = { [weak self] conversationId in
+            self?.postTurnCompleteNotificationIfNeeded(conversationId: conversationId)
+        }
 
         enterDraftMode()
         conversationRestorer.delegate = self
@@ -480,6 +483,41 @@ final class ConversationManager: ConversationRestorerDelegate {
             self.conversationRestorer.requestReconnectHistory(conversationId: conversationId)
         }
         return viewModel
+    }
+
+    // MARK: - Turn-end notification
+
+    private func postTurnCompleteNotificationIfNeeded(conversationId: UUID) {
+        guard !NSApp.isActive else { return }
+        guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return }
+        if conversation.shouldSuppressUnreadIndicator { return }
+        guard let vm = selectionStore.chatViewModels[conversationId] else { return }
+        // Voice path posts its own VOICE_RESPONSE_COMPLETE notification; skip to avoid duplicates.
+        if vm.isVoiceModeActive { return }
+
+        let lastAssistantText = vm.messages.last(where: { $0.role == .assistant })?.text ?? ""
+        let bodyText = lastAssistantText.isEmpty ? "Response complete" : String(lastAssistantText.prefix(200))
+
+        let content = UNMutableNotificationContent()
+        content.title = conversation.title
+        content.subtitle = "Response ready"
+        content.body = bodyText
+        content.sound = .default
+        content.categoryIdentifier = "ACTIVITY_COMPLETE"
+        content.threadIdentifier = conversationId.uuidString
+        content.userInfo = ["conversationId": conversationId.uuidString]
+        content.attachAppIcon()
+
+        let request = UNNotificationRequest(
+            identifier: "turn-complete-\(conversationId.uuidString)-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        Task { @MainActor in
+            if let error = await UNUserNotificationCenter.current().safeAdd(request) {
+                log.error("Failed to post turn-complete notification: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Conversation CRUD
