@@ -1116,7 +1116,19 @@ struct ToolCallStepDetailRow: View {
     @ViewBuilder
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
-            RiskBadgeView(riskLevel: risk, hasExistingRule: toolCall.matchedTrustRuleId != nil) {
+            let unexpected = !wasExpected(
+                approvalMode: toolCall.approvalMode,
+                riskLevel: toolCall.riskLevel,
+                riskThreshold: toolCall.riskThreshold
+            )
+            let provenance = unexpected
+                ? approvalProvenanceText(approvalReason: toolCall.approvalReason)
+                : nil
+            RiskBadgeView(
+                riskLevel: risk,
+                hasExistingRule: toolCall.matchedTrustRuleId != nil,
+                provenanceText: provenance
+            ) {
                 ruleEditorTask?.cancel()
                 ruleEditorTask = Task { await openRuleEditorForCompletedCall(toolCall) }
             }
