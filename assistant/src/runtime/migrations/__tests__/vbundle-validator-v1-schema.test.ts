@@ -19,9 +19,10 @@ import {
   canonicalizeJson,
   computeLegacyManifestSha256,
   computeManifestChecksum,
+  ManifestSchema,
   validateVBundle,
 } from "../vbundle-validator.js";
-import { defaultV1Options } from "./v1-test-helpers.js";
+import { buildTestManifest, defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Tar helpers — minimum-viable to wrap a manifest object into a vbundle.
@@ -350,6 +351,55 @@ describe("ManifestSchema — legacy fallback (backwards compatibility)", () => {
     expect(result.errors.some((e) => e.code === "FILE_CHECKSUM_MISMATCH")).toBe(
       true,
     );
+  });
+});
+
+describe("ManifestFileEntry — link_target field", () => {
+  test("accepts manifest entry with link_target", () => {
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "workspace/data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size_bytes: 1,
+          link_target: "bar.md",
+        },
+      ],
+    });
+    const result = ManifestSchema.safeParse(manifest);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.contents[0]?.link_target).toBe("bar.md");
+    }
+  });
+
+  test("accepts manifest entry without link_target (backwards-compat)", () => {
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "workspace/data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size_bytes: 1,
+        },
+      ],
+    });
+    const result = ManifestSchema.safeParse(manifest);
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects manifest entry with empty link_target", () => {
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "workspace/data/db/assistant.db",
+          sha256: sha256Hex(DB_BYTES),
+          size_bytes: 1,
+          link_target: "",
+        },
+      ],
+    });
+    const result = ManifestSchema.safeParse(manifest);
+    expect(result.success).toBe(false);
   });
 });
 
