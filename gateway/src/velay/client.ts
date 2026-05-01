@@ -1,5 +1,6 @@
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import {
   TWILIO_PUBLIC_BASE_URL_FIELD,
   TWILIO_PUBLIC_BASE_URL_MANAGED_BY_FIELD,
@@ -10,11 +11,7 @@ import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
-import {
-  enqueueConfigWrite,
-  readConfigFile,
-  writeConfigFileAtomic,
-} from "../config-file-utils.js";
+import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { bridgeVelayHttpRequest } from "./http-bridge.js";
 import { closeWebSocket } from "./bridge-utils.js";
@@ -291,7 +288,7 @@ export class VelayTunnelClient {
       return;
     }
 
-    const publicUrl = normalizeRegisteredPublicUrl(frame.public_url);
+    const publicUrl = normalizeHttpPublicBaseUrl(frame.public_url);
     if (!publicUrl) {
       log.error(
         { publicUrl: frame.public_url },
@@ -446,41 +443,27 @@ function defaultWebSocketBridgeFactory(
   return new VelayWebSocketBridge(gatewayLoopbackBaseUrl, sendFrame);
 }
 
-async function mutateConfigFile(
+async function mutateGatewayConfigFile(
   configFile: ConfigFileCache,
   malformedLogMessage: string,
   mutate: (data: Record<string, unknown>) => boolean,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    enqueueConfigWrite(() => {
-      try {
-        const result = readConfigFile();
-        if (!result.ok) {
-          log.error({ detail: result.detail }, malformedLogMessage);
-          resolve();
-          return;
-        }
-
-        if (!mutate(result.data)) {
-          resolve();
-          return;
-        }
-
-        writeConfigFileAtomic(result.data);
-        configFile.invalidate();
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-    });
+  const result = await mutateConfigFile(mutate, {
+    shouldWrite: (changed) => changed,
+    onWritten: () => {
+      configFile.invalidate();
+    },
   });
+  if (!result.ok) {
+    log.error({ detail: result.detail }, malformedLogMessage);
+  }
 }
 
 async function writeManagedTwilioPublicBaseUrl(
   publicUrl: string,
   configFile: ConfigFileCache,
 ): Promise<void> {
-  return mutateConfigFile(
+  return mutateGatewayConfigFile(
     configFile,
     "Cannot publish Velay public URL because config.json is malformed",
     (data) => {
@@ -506,7 +489,7 @@ async function clearManagedTwilioPublicBaseUrl(
   configFile: ConfigFileCache,
   expectedPublicUrl?: string,
 ): Promise<void> {
-  return mutateConfigFile(
+  return mutateGatewayConfigFile(
     configFile,
     "Cannot clear Velay public URL because config.json is malformed",
     (data) => {
@@ -550,22 +533,6 @@ function getMutableIngress(
     !Array.isArray(data.ingress)
     ? { ...(data.ingress as Record<string, unknown>) }
     : {};
-}
-
-function normalizeRegisteredPublicUrl(value: string): string | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return undefined;
-    }
-    if (!url.hostname) return undefined;
-    return url.toString();
-  } catch {
-    return undefined;
-  }
 }
 
 function buildRegisterWebSocketUrl(baseUrl: string): string {
