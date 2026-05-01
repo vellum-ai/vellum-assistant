@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // Test-scoped config state
 // ---------------------------------------------------------------------------
 
-const DECLARED_FLAG_ID = "sounds";
+const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 
 const { isAssistantFeatureFlagEnabled, _setOverridesForTesting } =
@@ -54,10 +54,12 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: true for sounds
+    // which has defaultEnabled: false for email-channel
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
   test("unknown flag defaults to true when no persisted override", () => {
@@ -89,7 +91,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     ).toBe(false);
   });
 
-  test("enabled when no override set (registry default is true)", () => {
+  test("disabled when no override set (registry default is false)", () => {
     const config = {} as any;
 
     expect(
@@ -97,6 +99,6 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
         config,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

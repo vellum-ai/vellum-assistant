@@ -162,11 +162,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "sounds",
+      "id": "channel-voice-transcription",
       "scope": "assistant",
-      "key": "sounds",
-      "label": "Sounds",
-      "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
+      "key": "channel-voice-transcription",
+      "label": "Channel Voice Transcription",
+      "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
       "defaultEnabled": true
     },
     {

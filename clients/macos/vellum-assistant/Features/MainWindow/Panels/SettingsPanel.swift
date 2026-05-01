@@ -33,7 +33,7 @@ enum SettingsTab: String {
     }
 
     static func sidebarTopTabs(
-        soundsEnabled: Bool = true,
+        billingEnabled: Bool = false,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false
     ) -> [SettingsTab] {
@@ -43,8 +43,8 @@ enum SettingsTab: String {
         }
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
-        if soundsEnabled { tabs.append(.sounds) }
-        tabs.append(.billing)
+        tabs.append(.sounds)
+        if billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         tabs.append(.schedules)
@@ -89,10 +89,10 @@ struct SettingsPanel: View {
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
-        // Pre-compute the sounds flag so deep-link validation below uses
-        // the actual config value instead of the @State default (true).
-        let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
-        _isSoundsEnabled = State(initialValue: soundsEnabled)
+        // Pre-compute the billing flag so the first render already has the
+        // correct tab list in the sidebar nav.
+        let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+        _isBillingEnabled = State(initialValue: billingEnabled)
 
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
@@ -114,7 +114,6 @@ struct SettingsPanel: View {
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
             var visibleTabs = SettingsTab.sidebarTopTabs(
                 billingEnabled: canShowBilling,
-                soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false
             )
@@ -150,7 +149,6 @@ struct SettingsPanel: View {
     @State private var hasLoadedFeatureFlags: Bool = false
     @State private var isBillingEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
-    @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
     @State private var bootstrapGeneration: Int = 0
@@ -159,7 +157,6 @@ struct SettingsPanel: View {
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
-    private static let soundsFeatureFlagKey = "sounds"
     private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
 
     var body: some View {
@@ -226,7 +223,7 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
+            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -257,9 +254,6 @@ struct SettingsPanel: View {
         .onChange(of: isDebugVisible) { _, _ in
             handleSidebarVisibilityChanged()
         }
-        .onChange(of: isSoundsEnabled) { _, _ in
-            handleSidebarVisibilityChanged()
-        }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
             handleSidebarVisibilityChanged()
         }
@@ -272,8 +266,6 @@ struct SettingsPanel: View {
                     isCompactionPlaygroundEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
-                } else if key == Self.soundsFeatureFlagKey {
-                    isSoundsEnabled = enabled
                 }
             }
         }
@@ -318,7 +310,7 @@ struct SettingsPanel: View {
 
     private var visibleSidebarTopTabs: [SettingsTab] {
         SettingsTab.sidebarTopTabs(
-            soundsEnabled: isSoundsEnabled,
+            billingEnabled: billingVisible,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible
         )
@@ -654,9 +646,6 @@ struct SettingsPanel: View {
                 if let emailChannelFlag = flags.first(where: { $0.key == Self.emailChannelFeatureFlagKey }) {
                     isEmailChannelEnabled = emailChannelFlag.enabled
                 }
-                if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
-                    isSoundsEnabled = soundsFlag.enabled
-                }
                 handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
                 hasLoadedFeatureFlags = true
                 return
@@ -677,9 +666,6 @@ struct SettingsPanel: View {
         }
         if let emailChannelEnabled = resolved[Self.emailChannelFeatureFlagKey] {
             isEmailChannelEnabled = emailChannelEnabled
-        }
-        if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
-            isSoundsEnabled = soundsEnabled
         }
         handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
         hasLoadedFeatureFlags = true
