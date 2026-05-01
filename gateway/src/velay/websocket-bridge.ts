@@ -1,12 +1,18 @@
 import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
-import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
+import { buildUpstreamUrl } from "@vellumai/assistant-client";
 
+import {
+  closeWebSocket,
+  formatRawQuery,
+  isBase64,
+  isSafeOriginRelativePath,
+  websocketHeadersFromVelay,
+} from "./bridge-utils.js";
 import {
   VELAY_FRAME_TYPES,
   VELAY_WEBSOCKET_MESSAGE_TYPES,
   type VelayFrame,
-  type VelayHeaders,
   type VelayWebSocketCloseFrame,
   type VelayWebSocketInboundFrame,
   type VelayWebSocketMessageFrame,
@@ -24,7 +30,7 @@ type WebSocketConstructorWithHeaders = {
     url: string,
     options?: {
       headers?: OutgoingHttpHeaders;
-      protocol?: string;
+      protocols?: string | string[];
     },
   ): WebSocket;
 };
@@ -75,8 +81,8 @@ export class VelayWebSocketBridge {
       const WebSocketWithHeaders =
         WebSocket as unknown as WebSocketConstructorWithHeaders;
       ws = new WebSocketWithHeaders(url, {
-        headers: headersFromVelay(frame.headers),
-        ...(frame.subprotocol ? { protocol: frame.subprotocol } : {}),
+        headers: websocketHeadersFromVelay(frame.headers),
+        ...(frame.subprotocol ? { protocols: [frame.subprotocol] } : {}),
       });
     } catch {
       this.sendOpenError(frame.connection_id, "WebSocket connection failed");
@@ -283,9 +289,11 @@ function buildLoopbackWebSocketUrl(
 ): string | undefined {
   if (!isSafeOriginRelativePath(frame.path)) return undefined;
 
-  const rawQuery = frame.raw_query ?? "";
-  const query = rawQuery === "" ? "" : `?${rawQuery.replace(/^\?/, "")}`;
-  const httpUrl = buildUpstreamUrl(gatewayLoopbackBaseUrl, frame.path, query);
+  const httpUrl = buildUpstreamUrl(
+    gatewayLoopbackBaseUrl,
+    frame.path,
+    formatRawQuery(frame.raw_query),
+  );
 
   try {
     const url = new URL(httpUrl);
@@ -296,40 +304,6 @@ function buildLoopbackWebSocketUrl(
   } catch {
     return undefined;
   }
-}
-
-function isSafeOriginRelativePath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("?") || path.includes("#")) {
-    return false;
-  }
-  try {
-    const parsed = new URL(path, "http://127.0.0.1");
-    return parsed.origin === "http://127.0.0.1" && parsed.pathname === path;
-  } catch {
-    return false;
-  }
-}
-
-function headersFromVelay(headers: VelayHeaders): OutgoingHttpHeaders {
-  const cleaned = stripHopByHop(headersToWeb(headers));
-  const outgoing: OutgoingHttpHeaders = {};
-
-  for (const [name, value] of cleaned.entries()) {
-    if (name.startsWith("sec-websocket-")) continue;
-    outgoing[name] = value;
-  }
-  return outgoing;
-}
-
-function headersToWeb(headers: VelayHeaders): Headers {
-  const webHeaders = new Headers();
-  for (const [name, values] of Object.entries(headers)) {
-    for (const value of values) {
-      webHeaders.append(name, value);
-    }
-  }
-  return webHeaders;
 }
 
 function decodeVelayMessage(
@@ -375,19 +349,4 @@ async function binaryToBytes(data: unknown): Promise<Uint8Array> {
   }
   if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
   return Buffer.from(String(data));
-}
-
-function closeWebSocket(ws: WebSocket, code?: number, reason?: string): void {
-  if (
-    ws.readyState === WebSocket.OPEN ||
-    ws.readyState === WebSocket.CONNECTING
-  ) {
-    ws.close(code, reason);
-  }
-}
-
-function isBase64(value: string): boolean {
-  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-    value,
-  );
 }

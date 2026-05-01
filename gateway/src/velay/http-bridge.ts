@@ -3,8 +3,14 @@ import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
 
 import { fetchImpl } from "../fetch.js";
 import {
+  formatRawQuery,
+  headersFromVelay,
+  headersToVelay,
+  isBase64,
+  isSafeOriginRelativePath,
+} from "./bridge-utils.js";
+import {
   VELAY_FRAME_TYPES,
-  type VelayHeaders,
   type VelayHttpRequestFrame,
   type VelayHttpResponseFrame,
 } from "./protocol.js";
@@ -68,33 +74,18 @@ function buildLoopbackUrl(
   frame: VelayHttpRequestFrame,
 ): string | undefined {
   if (!isSafeOriginRelativePath(frame.path)) return undefined;
-  const rawQuery = frame.raw_query ?? "";
-  const query = rawQuery === "" ? "" : `?${rawQuery.replace(/^\?/, "")}`;
-  return buildUpstreamUrl(gatewayLoopbackBaseUrl, frame.path, query);
-}
-
-function isSafeOriginRelativePath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("?") || path.includes("#")) {
-    return false;
-  }
-  try {
-    const parsed = new URL(path, "http://127.0.0.1");
-    return parsed.origin === "http://127.0.0.1" && parsed.pathname === path;
-  } catch {
-    return false;
-  }
+  return buildUpstreamUrl(
+    gatewayLoopbackBaseUrl,
+    frame.path,
+    formatRawQuery(frame.raw_query),
+  );
 }
 
 function decodeBody(
   bodyBase64: string | undefined,
 ): { ok: true; value?: ArrayBuffer } | { ok: false } {
   if (!bodyBase64) return { ok: true };
-  const isBase64 =
-    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      bodyBase64,
-    );
-  if (!isBase64) {
+  if (!isBase64(bodyBase64)) {
     return { ok: false };
   }
   const bytes = Buffer.from(bodyBase64, "base64");
@@ -105,28 +96,6 @@ function decodeBody(
       bytes.byteOffset + bytes.byteLength,
     ),
   };
-}
-
-function headersFromVelay(headers: VelayHeaders): Headers {
-  return stripHopByHop(headersToWeb(headers));
-}
-
-function headersToWeb(headers: VelayHeaders): Headers {
-  const webHeaders = new Headers();
-  for (const [name, values] of Object.entries(headers)) {
-    for (const value of values) {
-      webHeaders.append(name, value);
-    }
-  }
-  return webHeaders;
-}
-
-function headersToVelay(headers: Headers): VelayHeaders {
-  const velayHeaders: VelayHeaders = {};
-  for (const [name, value] of headers.entries()) {
-    velayHeaders[name] = [value];
-  }
-  return velayHeaders;
 }
 
 function badGatewayFrame(requestId: string): VelayHttpResponseFrame {

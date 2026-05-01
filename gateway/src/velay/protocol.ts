@@ -88,13 +88,6 @@ export type VelayFrame =
   | VelayWebSocketMessageFrame
   | VelayWebSocketCloseFrame;
 
-export type VelayWebSocketFrame =
-  | VelayWebSocketOpenFrame
-  | VelayWebSocketOpenedFrame
-  | VelayWebSocketOpenErrorFrame
-  | VelayWebSocketMessageFrame
-  | VelayWebSocketCloseFrame;
-
 export type VelayWebSocketInboundFrame =
   | VelayWebSocketOpenFrame
   | VelayWebSocketMessageFrame

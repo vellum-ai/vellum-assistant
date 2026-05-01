@@ -38,6 +38,19 @@ class FakeWebSocket {
   }
 
   close(code?: number, reason?: string): void {
+    if (
+      code !== undefined &&
+      code !== 1000 &&
+      (!Number.isInteger(code) || code < 3000 || code > 4999)
+    ) {
+      throw new Error("invalid close code");
+    }
+    if (
+      reason !== undefined &&
+      new TextEncoder().encode(reason).byteLength > 123
+    ) {
+      throw new Error("invalid close reason");
+    }
     this.readyState = WS_CLOSED;
     this.closes.push({ code, reason });
   }
@@ -112,12 +125,12 @@ describe("VelayWebSocketBridge", () => {
 
     const [url, options] = WebSocketMock.mock.calls[0] as [
       string,
-      { headers: Record<string, string>; protocol?: string },
+      { headers: Record<string, string>; protocols?: string[] },
     ];
     expect(url).toBe(
       "ws://127.0.0.1:7830/webhooks/twilio/relay?callSessionId=session-123&token=edge-token",
     );
-    expect(options.protocol).toBe("twilio-relay");
+    expect(options.protocols).toEqual(["twilio-relay"]);
     expect(options.headers.authorization).toBe("Bearer edge-token");
     expect(options.headers.host).toBe("public.example.com");
     expect(options.headers["x-twilio-signature"]).toBe("sig-123");
@@ -230,6 +243,45 @@ describe("VelayWebSocketBridge", () => {
     ).toEqual([]);
   });
 
+  test("sanitizes invalid close codes from Velay before closing locally", () => {
+    bridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+
+    expect(() => {
+      bridge.close({
+        type: VELAY_FRAME_TYPES.websocketClose,
+        connection_id: "conn-123",
+        code: 1006,
+        reason: "invalid reserved code",
+      });
+    }).not.toThrow();
+
+    expect(fakeSocket.closes).toEqual([{ code: undefined, reason: undefined }]);
+    expect(bridge.getConnectionCount()).toBe(0);
+  });
+
+  test("truncates overlong close reasons from Velay without splitting UTF-8 characters", () => {
+    bridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+
+    bridge.close({
+      type: VELAY_FRAME_TYPES.websocketClose,
+      connection_id: "conn-123",
+      code: 1000,
+      reason: "🙂".repeat(40),
+    });
+
+    expect(fakeSocket.closes).toEqual([
+      { code: 1000, reason: "🙂".repeat(30) },
+    ]);
+    expect(
+      new TextEncoder().encode(fakeSocket.closes[0].reason).byteLength,
+    ).toBe(120);
+    expect(bridge.getConnectionCount()).toBe(0);
+  });
+
   test("keeps empty text frames distinct from invalid payloads", () => {
     bridge.open(makeOpenFrame());
     fakeSocket.readyState = WS_OPEN;
@@ -258,9 +310,7 @@ describe("VelayWebSocketBridge", () => {
       body_base64: "not base64",
     });
 
-    expect(fakeSocket.closes).toEqual([
-      { code: 1003, reason: "Invalid message" },
-    ]);
+    expect(fakeSocket.closes).toEqual([{ code: undefined, reason: undefined }]);
     expect(bridge.getConnectionCount()).toBe(0);
   });
 
