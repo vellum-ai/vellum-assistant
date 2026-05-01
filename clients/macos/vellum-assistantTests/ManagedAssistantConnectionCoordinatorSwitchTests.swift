@@ -168,6 +168,7 @@ final class ManagedAssistantConnectionCoordinatorSwitchTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
+        XCTAssertFalse(defaults.bool(forKey: "aiDataConsent"), "Managed coordinator must NOT auto-accept AI Data Sharing consent (Apple Guideline 5.1.2(i))")
         // With no connection controller, bring-up must be a no-op.
         XCTAssertEqual(controller.teardownCount, 0)
         XCTAssertEqual(controller.bringUpCount, 0)
