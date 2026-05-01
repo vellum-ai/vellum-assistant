@@ -2213,6 +2213,8 @@ jobs:
     if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.release.result == 'success' && needs.register-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      outcome: ${{ steps.merge.outcome }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -2227,6 +2229,8 @@ jobs:
           fetch-depth: 0
 
       - name: Merge release branch and delete
+        id: merge
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -2956,6 +2960,8 @@ jobs:
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
+          MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"
+          MB=$(ci_icon "$MERGE_OUTCOME")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -2968,7 +2974,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -3017,6 +3023,12 @@ jobs:
           # CI checks + metadata
           BODY=$(printf '%s\n\n%s' "$CI_LINE" "$META_LINE")
           BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          # Warning if merge-release-branch failed
+          if [ "$MERGE_OUTCOME" != "success" ] && [ "$MERGE_OUTCOME" != "skipped" ] && [ "$IS_STAGING" != "true" ] && [ "$RELEASE_FAILED" != "true" ]; then
+            MERGE_WARNING="⚠️ *The release branch failed to merge to main and must be merged manually.* Run \`gh pr create --base main --head release/v${VERSION}\` and merge."
+            BLOCKS=$(echo "$BLOCKS" | jq --arg warning "$MERGE_WARNING" '. + [{ type: "section", text: { type: "mrkdwn", text: $warning } }]')
+          fi
 
           # Buttons
           VIEW_RUN=$(jq -n --arg url "$RUN_URL" --arg style "$STYLE" '{
