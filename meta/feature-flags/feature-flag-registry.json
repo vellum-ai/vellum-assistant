@@ -266,14 +266,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "channel-avatar-sync",
-      "scope": "assistant",
-      "key": "channel-avatar-sync",
-      "label": "Channel Avatar Sync",
-      "description": "Automatically sync the assistant's avatar to connected channels (Slack) when the avatar changes or a new channel is connected",
-      "defaultEnabled": true
-    },
-    {
       "id": "meet",
       "scope": "assistant",
       "key": "meet",
