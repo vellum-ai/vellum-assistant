@@ -106,11 +106,27 @@
       "defaultEnabled": true
     },
     {
+<<<<<<< HEAD
+      "id": "ces-credential-backend",
+      "scope": "assistant",
+      "key": "ces-credential-backend",
+      "label": "CES Credential Backend",
+      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
+      "defaultEnabled": true
+    },
+    {
+      "id": "referral-codes",
+      "scope": "client",
+      "key": "referral-codes",
+      "label": "Referral Codes",
+      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
+=======
       "id": "settings-billing",
       "scope": "client",
       "key": "settings-billing",
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
+>>>>>>> origin/noanflaherty/ga-default-on-flags
       "defaultEnabled": true
     },
     {
