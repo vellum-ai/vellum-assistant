@@ -151,22 +151,11 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("respects persisted overrides for undeclared keys", () => {
-    _setOverridesForTesting({ browser: false });
+    _setOverridesForTesting({ "some-undeclared-flag": false });
     const config = makeConfig();
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(false);
-  });
-
-  test("declared keys with no persisted override use registry default", () => {
-    const config = makeConfig();
-    // browser is declared in the registry with defaultEnabled: true
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
-  });
-
-  test("app-builder-multifile defaults to enabled when no override is set", () => {
-    const config = makeConfig();
-    expect(
-      isAssistantFeatureFlagEnabled(APP_BUILDER_MULTIFILE_FLAG_KEY, config),
-    ).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
+      false,
+    );
   });
 });
 
@@ -178,11 +167,15 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      browser: true,
+      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("browser", "bundled", "browser"),
+      makeSkill(
+        "app-builder-multifile",
+        "bundled",
+        APP_BUILDER_MULTIFILE_FLAG_KEY,
+      ),
     ];
     const config = makeConfig();
 
@@ -190,17 +183,21 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).not.toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("browser");
+    expect(ids).toContain("app-builder-multifile");
   });
 
   test("flag ON skill appears normally", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: true,
-      browser: true,
+      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("browser", "bundled", "browser"),
+      makeSkill(
+        "app-builder-multifile",
+        "bundled",
+        APP_BUILDER_MULTIFILE_FLAG_KEY,
+      ),
     ];
     const config = makeConfig();
 
@@ -208,7 +205,7 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("browser");
+    expect(ids).toContain("app-builder-multifile");
   });
 
   test("declared flag key defaults to registry value (false)", () => {
@@ -260,12 +257,16 @@ describe("resolveSkillStates with feature flags", () => {
   test("multiple skills with mixed flags — persisted overrides respected", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      browser: true,
+      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
       deploy: false,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("browser", "bundled", "browser"),
+      makeSkill(
+        "app-builder-multifile",
+        "bundled",
+        APP_BUILDER_MULTIFILE_FLAG_KEY,
+      ),
       makeSkill("deploy", "bundled", "deploy"),
     ];
     const config = makeConfig();
@@ -273,8 +274,8 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // email-channel and deploy explicitly false; browser explicitly true
-    expect(ids).toEqual(["browser"]);
+    // email-channel and deploy explicitly false; app-builder-multifile explicitly true
+    expect(ids).toEqual(["app-builder-multifile"]);
   });
 });
 

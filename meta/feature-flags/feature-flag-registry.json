@@ -10,14 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -42,28 +34,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "app-builder-multifile",
-      "scope": "assistant",
-      "key": "app-builder-multifile",
-      "label": "App Builder Multi-file",
-      "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
-      "defaultEnabled": true
-    },
-    {
       "id": "mobile-pairing",
       "scope": "client",
       "key": "mobile-pairing",
       "label": "Mobile Pairing",
       "description": "Show the Mobile (iOS) pairing card in Settings > Account",
       "defaultEnabled": false
-    },
-    {
-      "id": "settings-developer-nav",
-      "scope": "assistant",
-      "key": "settings-developer-nav",
-      "label": "Settings Developer Nav",
-      "description": "Control Developer nav visibility in macOS settings",
-      "defaultEnabled": true
     },
     {
       "id": "developer-menu-items",
@@ -106,27 +82,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-managed-sidecar",
-      "scope": "assistant",
-      "key": "ces-managed-sidecar",
-      "label": "CES Managed Sidecar Transport",
-      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
-      "defaultEnabled": true
-    },
-    {
       "id": "ces-credential-backend",
       "scope": "assistant",
       "key": "ces-credential-backend",
       "label": "CES Credential Backend",
       "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
-      "id": "settings-billing",
-      "scope": "client",
-      "key": "settings-billing",
-      "label": "Billing Settings Tab",
-      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
       "defaultEnabled": true
     },
     {
@@ -138,19 +98,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "managed-sign-in",
+      "id": "settings-billing",
       "scope": "client",
-      "key": "managed-sign-in",
-      "label": "Managed Sign In",
-      "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": true
-    },
-    {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
+      "key": "settings-billing",
+      "label": "Billing Settings Tab",
+      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
       "defaultEnabled": true
     },
     {
@@ -226,14 +178,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "backward-releases",
-      "scope": "assistant",
-      "key": "backward-releases",
-      "label": "Backward Releases",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
-    },
-    {
       "id": "voice-mode",
       "scope": "assistant",
       "key": "voice-mode",
@@ -274,14 +218,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "tool-result-truncation",
-      "scope": "assistant",
-      "key": "tool-result-truncation",
-      "label": "Post-Turn Tool Result Truncation",
-      "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
-      "defaultEnabled": true
-    },
-    {
       "id": "managed-gemini-embeddings-enabled",
       "scope": "assistant",
       "key": "managed-gemini-embeddings-enabled",
@@ -298,28 +234,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "onboarding-pre-chat",
-      "scope": "client",
-      "key": "onboarding-pre-chat",
-      "label": "Pre-Chat Onboarding Flow",
-      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
-      "defaultEnabled": true
-    },
-    {
       "id": "home-tab",
       "scope": "client",
       "key": "home-tab",
       "label": "Home Tab",
       "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
       "defaultEnabled": false
-    },
-    {
-      "id": "channel-avatar-sync",
-      "scope": "assistant",
-      "key": "channel-avatar-sync",
-      "label": "Channel Avatar Sync",
-      "description": "Automatically sync the assistant's avatar to connected channels (Slack) when the avatar changes or a new channel is connected",
-      "defaultEnabled": true
     },
     {
       "id": "meet",
@@ -336,14 +256,6 @@
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
       "defaultEnabled": false
-    },
-    {
-      "id": "message-height-cache",
-      "scope": "client",
-      "key": "message-height-cache",
-      "label": "Message Height Cache",
-      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
-      "defaultEnabled": true
     },
     {
       "id": "coding-agents-panel",

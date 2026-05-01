@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
@@ -268,23 +267,17 @@ function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
   const resolved = resolveSkillIdAndHash(selector);
   if (!resolved) return undefined;
 
-  const config = getConfig();
-  const inlineEnabled = isAssistantFeatureFlagEnabled(
-    "inline-skill-commands",
-    config,
-  );
   const inlineExpansions = hasInlineExpansions(resolved.id);
-  const isDynamic = inlineEnabled && inlineExpansions;
 
   return {
     skillId: resolved.id,
     selector,
     versionHash: resolved.versionHash ?? "",
-    transitiveHash: isDynamic
+    transitiveHash: inlineExpansions
       ? computeTransitiveHashSafe(resolved.id)
       : undefined,
     hasInlineExpansions: inlineExpansions,
-    isDynamic,
+    isDynamic: inlineExpansions,
   };
 }
 
@@ -726,14 +719,7 @@ function skillLoadAllowlistStrategy(
   if (rawSelector) {
     const resolved = resolveSkillIdAndHash(rawSelector);
 
-    // Check whether this is a dynamic (inline-command) skill load
-    const config = getConfig();
-    const inlineEnabled = isAssistantFeatureFlagEnabled(
-      "inline-skill-commands",
-      config,
-    );
-
-    if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
+    if (resolved && hasInlineExpansions(resolved.id)) {
       const transitiveHash = computeTransitiveHashSafe(resolved.id);
       const options: AllowlistOption[] = [];
       if (transitiveHash) {

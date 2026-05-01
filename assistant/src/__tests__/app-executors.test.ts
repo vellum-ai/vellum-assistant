@@ -71,38 +71,7 @@ function mockStore(
 // ---------------------------------------------------------------------------
 
 describe("executeAppCreate", () => {
-  test("flag off: creates legacy app with root index.html", async () => {
-    const files: Record<string, string> = {};
-    let createdParams: Record<string, unknown> | undefined;
-    const app = makeLegacyApp();
-    const store: AppStore = {
-      ...mockStore(app, files),
-      createApp: (params) => {
-        createdParams = params as unknown as Record<string, unknown>;
-        return app;
-      },
-    };
-
-    const result = await executeAppCreate(
-      {
-        name: "Test App",
-        html: "<html><body>Hello</body></html>",
-      },
-      store,
-    );
-
-    expect(result.isError).toBe(false);
-    // Legacy path: no formatVersion set, htmlDefinition is the provided html
-    expect(createdParams?.formatVersion).toBeUndefined();
-    expect(createdParams?.htmlDefinition).toBe(
-      "<html><body>Hello</body></html>",
-    );
-    // No src/ files should be written
-    expect(files["src/index.html"]).toBeUndefined();
-    expect(files["src/main.tsx"]).toBeUndefined();
-  });
-
-  test("flag on: creates multifile app with src/ scaffold", async () => {
+  test("creates multifile app with src/ scaffold", async () => {
     const files: Record<string, string> = {};
     let createdParams: Record<string, unknown> | undefined;
     const app = makeMultifileApp({ name: "New App" });
@@ -117,7 +86,6 @@ describe("executeAppCreate", () => {
     const result = await executeAppCreate(
       {
         name: "New App",
-        featureFlags: { multifileEnabled: true },
       },
       store,
     );
@@ -136,7 +104,7 @@ describe("executeAppCreate", () => {
     expect(files["src/main.tsx"]).toContain('{"Hello, New App!"}');
   });
 
-  test("flag on with explicit html: uses provided html as src/index.html", async () => {
+  test("with explicit html: uses provided html as src/index.html", async () => {
     const files: Record<string, string> = {};
     const app = makeMultifileApp({ name: "Custom App" });
     const store: AppStore = {
@@ -150,7 +118,6 @@ describe("executeAppCreate", () => {
       {
         name: "Custom App",
         html: customHtml,
-        featureFlags: { multifileEnabled: true },
       },
       store,
     );

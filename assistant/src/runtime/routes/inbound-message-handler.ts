@@ -442,7 +442,7 @@ export async function handleChannelInbound({
           `[Voice message received — ${transcribeResult.reason}]` +
           (trimmedContent ? `\n\n${trimmedContent}` : "");
         break;
-      // "no_audio", "disabled" — no action needed
+      // "no_audio" — no action needed
     }
   }
 
