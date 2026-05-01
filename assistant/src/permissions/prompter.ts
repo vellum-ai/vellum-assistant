@@ -75,8 +75,9 @@ export class PermissionPrompter {
     decisionContext?: string;
     wasTimeout?: boolean;
     wasSystemCancel?: boolean;
+    wasAbort?: boolean;
   }> {
-    if (signal?.aborted) return { decision: "deny" };
+    if (signal?.aborted) return { decision: "deny", wasAbort: true };
 
     const requestId = uuid();
 
@@ -108,7 +109,7 @@ export class PermissionPrompter {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            resolve({ decision: "deny" });
+            resolve({ decision: "deny", wasAbort: true });
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
