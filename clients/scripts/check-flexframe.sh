@@ -49,7 +49,7 @@ for arg in "$@"; do
   case "$arg" in
     --update-baseline) UPDATE_BASELINE=1 ;;
     -h|--help)
-      sed -n '2,25p' "$0" | sed 's/^# \?//'
+      sed -n '2,40p' "$0" | sed 's/^# \?//'
       exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
