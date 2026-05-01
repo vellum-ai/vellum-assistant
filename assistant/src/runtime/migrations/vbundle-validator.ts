@@ -26,6 +26,7 @@ const ManifestFileEntry = z.object({
   path: z.string().min(1),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   size_bytes: z.number().int().nonnegative(),
+  link_target: z.string().min(1).optional(),
 });
 
 const AssistantInfo = z.object({

@@ -41,6 +41,8 @@ import type {
 export interface VBundleFileEntry {
   path: string;
   data: Uint8Array;
+  /** When set, `data` is ignored: the entry is emitted as a tar typeflag-2 (symlink) record with empty body, and `linkTarget` is the symlink target encoded relative to the symlink's own directory inside the archive. */
+  linkTarget?: string;
 }
 
 /** v1 manifest `assistant` block. */
@@ -109,11 +111,22 @@ interface InMemoryEntry {
   size: number;
 }
 
-/** Union of disk-backed and in-memory tar stream entries. */
-type TarStreamEntry = FileMetadata | InMemoryEntry;
+/** Symlink entry — emitted as a tar typeflag-2 record with empty body. */
+interface SymlinkMetadata {
+  archivePath: string;
+  linkTarget: string;
+  size: 0;
+}
+
+/** Union of disk-backed, in-memory, and symlink tar stream entries. */
+type TarStreamEntry = FileMetadata | InMemoryEntry | SymlinkMetadata;
 
 function isInMemoryEntry(entry: TarStreamEntry): entry is InMemoryEntry {
   return "data" in entry;
+}
+
+function isSymlinkEntry(entry: TarStreamEntry): entry is SymlinkMetadata {
+  return "linkTarget" in entry;
 }
 
 // ---------------------------------------------------------------------------
@@ -791,10 +804,12 @@ async function* generateTarStream(
 
   // File entries
   for (const file of files) {
-    const entrySize = isInMemoryEntry(file) ? file.size : file.size;
+    const entrySize = file.size;
     yield createPaxAndHeaderBlocks(file.archivePath, entrySize);
 
-    if (isInMemoryEntry(file)) {
+    if (isSymlinkEntry(file)) {
+      // Symlink entry — empty body; the link target lives in the tar header.
+    } else if (isInMemoryEntry(file)) {
       // In-memory entry — yield data directly
       if (file.size > 0) {
         yield file.data;
