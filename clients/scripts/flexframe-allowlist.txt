@@ -1,4 +1,4 @@
-# FlexFrame allowlist — intentional `.frame(maxWidth:)` / `.frame(maxHeight:)` usages.
+# FlexFrame allowlist — intentional `.frame(max/minWidth:)` / `.frame(max/minHeight:)` usages.
 #
 # Each line is `<path>|<trimmed-line-content>` for one occurrence. Line numbers
 # are intentionally omitted so entries survive unrelated line drift.
@@ -15,7 +15,8 @@
 #     and no animated transition in the parent).
 #
 # Adding a new entry: BEFORE allowlisting, first try a safe alternative:
-#   .widthCap(N), .frame(width: N), HStack+Spacer, BottomAlignedMinHeightLayout.
+#   .widthCap(N), .fixedWidth(N), .topAlignedMinHeight(N),
+#   .bottomAlignedMinHeight(N), HStack+Spacer.
 # If and only if none of those preserve required semantics (truncation, exact
 # alignment, fill-parent for a modal root), add the entry and a one-line note
 # in the PR description explaining why. The default answer is "use a safe
@@ -24,7 +25,7 @@
 # Regenerate this file after an intentional bulk refactor with:
 #   bash clients/scripts/check-flexframe.sh --update-baseline
 #
-# See clients/macos/AGENTS.md §§ "No `.frame(maxWidth:)` ... in LazyVStack/
+# See clients/macos/AGENTS.md §§ "No `_FlexFrameLayout` ... in LazyVStack/
 # LazyHStack/LazyVGrid cell hierarchy" for the underlying rule.
 clients/macos/vellum-assistant/Features/Chat/AssistantConnectionTimeoutView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/Chat/AssistantConnectionTimeoutView.swift|.frame(maxWidth: 380)
@@ -37,6 +38,8 @@ clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(max
 clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(minHeight: 32)
+clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(minHeight: 32)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: .infinity, alignment: .trailing)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
@@ -52,6 +55,8 @@ clients/macos/vellum-assistant/Features/Chat/ComposerAttachments.swift|.frame(ma
 clients/macos/vellum-assistant/Features/Chat/ComposerView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/Chat/ComposerView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/Chat/ComposerView.swift|.frame(maxWidth: .infinity)
+clients/macos/vellum-assistant/Features/Chat/ComposerView.swift|.frame(minHeight: composerActionButtonSize)
+clients/macos/vellum-assistant/Features/Chat/ConversationArtifactsButton.swift|.frame(maxHeight: 300)
 clients/macos/vellum-assistant/Features/Chat/ImageLightbox/ZoomableImageView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity)
@@ -59,8 +64,12 @@ clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.fr
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(minHeight: 120)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(minHeight: 280)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryTab.swift|.frame(minHeight: 80)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryV2Tab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryV2Tab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorMemoryV2Tab.swift|.frame(minHeight: 280)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorOverviewTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorOverviewTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorPayloadView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,6 +81,8 @@ clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.fr
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.frame(minHeight: 120)
+clients/macos/vellum-assistant/Features/Chat/MessageInspectorPromptTab.swift|.frame(minHeight: 280)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorResponseTab.swift|.frame(maxWidth: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorResponseTab.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift|.frame(maxHeight: .infinity, alignment: .topLeading)
@@ -92,10 +103,27 @@ clients/macos/vellum-assistant/Features/Chat/PlatformURLMismatchView.swift|.fram
 clients/macos/vellum-assistant/Features/Chat/PlatformURLMismatchView.swift|.frame(maxWidth: 380)
 clients/macos/vellum-assistant/Features/Chat/QueuedMessageRow.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/Chat/RecoveryModeBanner.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Chat/ScrollDebugOverlayView.swift|.frame(minWidth: 80, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/DetailPanel/HomeEmailEditor.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/Home/HomeFeedGroupHeader.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/HomeGallerySection.swift|.frame(maxWidth: .infinity)
+clients/macos/vellum-assistant/Features/Home/HomeGallerySection.swift|.frame(maxWidth: 320)
+clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: .infinity, alignment: .top)
+clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: maxContentWidth, alignment: .top)
+clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: maxContentWidth, alignment: .top)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomeEmailPreviewCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomeEmailPreviewCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomeImageCard.swift|.frame(maxWidth: .infinity)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomePermissionCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomePermissionCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Home/RecapCards/HomeReplyCard.swift|.frame(minHeight: 40)
 clients/macos/vellum-assistant/Features/MainWindow/DaemonLoadingOverlay.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/DaemonLoadingOverlay.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
 clients/macos/vellum-assistant/Features/MainWindow/MainWindowErrorOverlay.swift|.frame(maxWidth: .infinity, alignment: .center)
 clients/macos/vellum-assistant/Features/MainWindow/MainWindowView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/MainWindowView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/MainWindow/MainWindowView.swift|.frame(minWidth: 800, minHeight: 600)
 clients/macos/vellum-assistant/Features/MainWindow/PanelCoordinator.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/PanelCoordinator.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/PanelCoordinator.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -103,6 +131,8 @@ clients/macos/vellum-assistant/Features/MainWindow/PanelCoordinator.swift|.frame
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AgentPanel.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AgentPanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AgentPanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/AppVersionHistoryPanel.swift|.frame(minWidth: 280, idealWidth: 320)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/AppVersionHistoryPanel.swift|.frame(minWidth: 300)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AppsGridView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AppsGridView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/AppsGridView.swift|.frame(maxWidth: .infinity)
@@ -126,9 +156,11 @@ clients/macos/vellum-assistant/Features/MainWindow/Panels/IntelligencePanel.swif
 clients/macos/vellum-assistant/Features/MainWindow/Panels/IntelligencePanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/IntelligencePanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/IntelligencePanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/JSONTreeView.swift|.frame(
 clients/macos/vellum-assistant/Features/MainWindow/Panels/JSONTreeView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/JSONTreeView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/JSONTreeView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/JSONTreeView.swift|minWidth: proxy.size.width,
 clients/macos/vellum-assistant/Features/MainWindow/Panels/LogsAndUsagePanel.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/LogsAndUsagePanel.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/LogsAndUsagePanel.swift|.frame(maxWidth: .infinity)
@@ -149,7 +181,9 @@ clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoriesPanel.swift|.f
 clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoriesPanel.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoriesPanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoryImportSheet.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoryImportSheet.swift|.frame(minHeight: 140)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoryItemDetailSheet+Content.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/MemoryItemDetailSheet+Content.swift|.frame(minHeight: 100)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/SettingsPanel.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/SettingsPanel.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/SettingsPanel.swift|.frame(maxWidth: .infinity, alignment: .leading)
@@ -178,30 +212,25 @@ clients/macos/vellum-assistant/Features/MainWindow/Panels/WorkspacePanel.swift|.
 clients/macos/vellum-assistant/Features/MainWindow/Panels/WorkspacePanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/WorkspacePanel.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/ConversationSwitcherDrawer.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/ConversationSwitcherDrawer.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/DrawerMenuView.swift|.frame(minHeight: VSize.rowMinHeight)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .center)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .center)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Home/DetailPanel/HomeEmailEditor.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-clients/macos/vellum-assistant/Features/Home/HomeFeedGroupHeader.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Home/HomeGallerySection.swift|.frame(maxWidth: .infinity)
-clients/macos/vellum-assistant/Features/Home/HomeGallerySection.swift|.frame(maxWidth: 320)
-clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: .infinity, alignment: .top)
-clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: maxContentWidth, alignment: .top)
-clients/macos/vellum-assistant/Features/Home/HomePageView.swift|.frame(maxWidth: maxContentWidth, alignment: .top)
-clients/macos/vellum-assistant/Features/Home/RecapCards/HomeEmailPreviewCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Home/RecapCards/HomeEmailPreviewCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Home/RecapCards/HomeImageCard.swift|.frame(maxWidth: .infinity)
-clients/macos/vellum-assistant/Features/Home/RecapCards/HomePermissionCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Home/RecapCards/HomePermissionCard.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/EarnCreditsModal.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarConversationItem.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarConversationItem.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarSectionHeader.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarSectionView.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarSectionView.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarView.swift|.frame(maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarView.swift|.frame(maxWidth: .infinity)
+clients/macos/vellum-assistant/Features/MainWindow/Sidebar/SidebarView.swift|.frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
 clients/macos/vellum-assistant/Features/MainWindow/ThreadWindow.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
-clients/macos/vellum-assistant/Features/Chat/ConversationArtifactsButton.swift|.frame(maxHeight: 300)
+clients/macos/vellum-assistant/Features/MainWindow/ThreadWindow.swift|.frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/MainWindow/TopBarView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
+clients/macos/vellum-assistant/Features/MainWindow/UpgradeProgressOverlay.swift|.frame(minWidth: 320)
+clients/macos/vellum-assistant/Features/MainWindow/UpgradeProgressOverlay.swift|.frame(minWidth: 320)
