@@ -7,8 +7,6 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
-import { ensureGuardianPersonaFile } from "../prompts/persona-resolver.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -32,109 +30,7 @@ import type {
 
 const log = getLogger("contacts-write");
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function parseDisplayNameFromMetadata(
-  metadataJson: string | null | undefined,
-): string | null {
-  if (!metadataJson) return null;
-  try {
-    const parsed = JSON.parse(metadataJson);
-    if (
-      typeof parsed.displayName === "string" &&
-      parsed.displayName.length > 0
-    ) {
-      return parsed.displayName;
-    }
-  } catch {
-    // Malformed JSON — fall through
-  }
-  return null;
-}
-
 // ── Guardian operations ──────────────────────────────────────────────
-
-/**
- * Create a guardian binding by writing to the contacts table.
- * Returns a GuardianBinding-compatible object synthesized from the input params
- * (so callers expecting binding.id still work).
- */
-export function createGuardianBinding(params: {
-  channel: string;
-  guardianExternalUserId: string;
-  guardianDeliveryChatId: string;
-  guardianPrincipalId: string;
-  verifiedVia?: string;
-  metadataJson?: string | null;
-}): GuardianBinding {
-  const canonicalId =
-    canonicalizeInboundIdentity(
-      params.channel as ChannelId,
-      params.guardianExternalUserId,
-    ) ?? params.guardianExternalUserId;
-
-  const displayName =
-    parseDisplayNameFromMetadata(params.metadataJson) ??
-    params.guardianExternalUserId;
-
-  const contact = upsertContact({
-    displayName,
-    role: "guardian",
-    notes: "guardian",
-    principalId: params.guardianPrincipalId,
-    channels: [
-      {
-        type: params.channel,
-        address: canonicalId,
-        externalUserId: canonicalId,
-        externalChatId: params.guardianDeliveryChatId,
-        status: "active",
-        verifiedAt: Date.now(),
-        verifiedVia: params.verifiedVia ?? "challenge",
-      },
-    ],
-  });
-
-  // Seed the per-user persona file so downstream readers (journaling,
-  // persona resolution) can rely on `users/<slug>.md` existing on disk.
-  // Idempotent: pre-existing customized files are preserved.
-  //
-  // Seeding is restricted to the guardian-creation path only — it must
-  // NOT run from inbound-message upsertContactChannel calls, since the
-  // `users/` directory watcher would fire on every new contact and
-  // evict live conversations.
-  if (contact.userFile) {
-    // Tolerate filesystem failures (read-only or full workspace) so a
-    // disk error doesn't leave the DB commit orphaned. The persona file
-    // can be reseeded later; failing the binding here would be worse.
-    try {
-      ensureGuardianPersonaFile(contact.userFile);
-    } catch (err) {
-      log.warn(
-        { err, userFile: contact.userFile },
-        "failed to seed guardian persona file; continuing",
-      );
-    }
-  }
-
-  const now = Date.now();
-  const result: GuardianBinding = {
-    id: `contact-binding-${params.channel}`,
-    assistantId: "self",
-    channel: params.channel,
-    guardianExternalUserId: params.guardianExternalUserId,
-    guardianDeliveryChatId: params.guardianDeliveryChatId,
-    guardianPrincipalId: params.guardianPrincipalId,
-    status: "active",
-    verifiedAt: now,
-    verifiedVia: params.verifiedVia ?? "challenge",
-    metadataJson: params.metadataJson ?? null,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  return result;
-}
 
 /**
  * Revoke a guardian binding by updating the contacts table.
@@ -237,7 +133,7 @@ export function upsertContactChannel(params: {
   // inbound-message hot path — every new contact (Slack, phone, email, etc)
   // would otherwise fire the `users/` directory watcher in
   // config-watcher.ts and evict live conversations. Persona-file seeding
-  // is the sole responsibility of `createGuardianBinding`.
+  // is handled by the gateway's guardian bootstrap flow.
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,

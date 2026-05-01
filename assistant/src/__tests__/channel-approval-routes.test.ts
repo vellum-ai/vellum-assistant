@@ -70,7 +70,6 @@ mock.module("../daemon/approval-generators.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
@@ -92,6 +91,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { sweepExpiredGuardianApprovals } from "../runtime/routes/channel-guardian-routes.js";
 import { _setTestPollMaxWait } from "../runtime/routes/channel-route-shared.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
