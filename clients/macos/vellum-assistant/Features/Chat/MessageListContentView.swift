@@ -317,16 +317,11 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
-        // WARNING: This LazyVStack uses .transaction { $0.animation = nil } to suppress
+        // WARNING: This VStack uses .transaction { $0.animation = nil } to suppress
         // all insertion/removal animations. Without this, SwiftUI calls motionVectors()
         // during any item insertion, which measures ALL children via sizeThatFits —
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
-        //
-        // `MessageTranscriptStack` is `LazyVStack` by default, and swaps to a
-        // plain `VStack` when the `message-height-cache` flag is on — that's
-        // the experimental path for fixing contentH drift at the cost of
-        // eager layout. Same `.transaction` guard covers both.
         MessageTranscriptStack(spacing: VSpacing.md) {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)

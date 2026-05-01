@@ -258,14 +258,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "message-height-cache",
-      "scope": "client",
-      "key": "message-height-cache",
-      "label": "Message Height Cache",
-      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned \u2014 the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout \u2014 every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
-      "defaultEnabled": true
-    },
-    {
       "id": "coding-agents-panel",
       "scope": "client",
       "key": "coding-agents-panel",
