@@ -354,6 +354,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "coding-agents-panel",
+      "scope": "client",
+      "key": "coding-agents-panel",
+      "label": "Coding Agents Panel",
+      "description": "Gate native macOS/iOS Coding Agents panel entry points and inline ACP session deep links.",
+      "defaultEnabled": false
+    },
+    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",
