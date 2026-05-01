@@ -27,8 +27,6 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import { initializeProviders } from "../../providers/registry.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
@@ -49,12 +47,14 @@ import {
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
+import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import {
   getRequestLogById,
   getRequestLogsByMessageId,
 } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
+import { initializeProviders } from "../../providers/registry.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
