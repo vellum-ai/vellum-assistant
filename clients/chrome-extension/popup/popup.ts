@@ -295,7 +295,6 @@ function applyMainScreenMode(paired?: boolean): void {
   } else {
     // self-hosted
     assistantInfo.style.display = 'none';
-    signOutBtn.textContent = 'Disconnect';
     if (paired) {
       // Already paired — show connected state, hide URL input, show re-pair
       selfHostedSettings.style.display = 'none';
@@ -303,14 +302,16 @@ function applyMainScreenMode(paired?: boolean): void {
       troubleshootSection.style.display = 'block';
       sessionActions.style.display = 'flex';
       activityCard.style.display = 'flex';
+      signOutBtn.textContent = 'Disconnect';
     } else {
-      // Not yet paired — show URL input, hide connection status,
-      // activity card, and disconnect button until paired
+      // Not yet paired — show URL input and a back button,
+      // hide connection status and activity card
       selfHostedSettings.style.display = 'block';
       connectionAreaEl.style.display = 'none';
       troubleshootSection.style.display = 'none';
-      sessionActions.style.display = 'none';
+      sessionActions.style.display = 'flex';
       activityCard.style.display = 'none';
+      signOutBtn.textContent = 'Back';
     }
   }
 }
