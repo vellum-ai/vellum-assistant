@@ -1172,7 +1172,7 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [compute-version, ci-assistant]
+    needs: [compute-version, register-release, publish-sparkle, build-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev

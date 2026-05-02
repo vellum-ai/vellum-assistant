@@ -2331,7 +2331,8 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [extract-version, ci-assistant]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
