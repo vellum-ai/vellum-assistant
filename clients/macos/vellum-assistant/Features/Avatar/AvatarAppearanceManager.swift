@@ -558,8 +558,17 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
-    private static let bundledAppIcon: NSImage = {
+    /// `nonisolated` so `start()` can warm the lazy initializer from a
+    /// `Task.detached`. The enclosing class is `@MainActor`, which would
+    /// otherwise main-actor-isolate this static and force the detached task
+    /// to hop to the main actor — defeating the prefetch. `NSImage` is
+    /// `Sendable` as of Swift 6.2 (Xcode 26.0), so plain `nonisolated`
+    /// suffices and `(unsafe)` is not required.
+    ///
+    /// References:
+    /// - https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+    /// - https://github.com/swiftlang/swift-evolution/blob/main/proposals/0434-global-actor-isolated-types-usability.md
+    private nonisolated static let bundledAppIcon: NSImage = {
         NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
