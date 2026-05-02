@@ -363,7 +363,6 @@ export function dockerResourceNames(instanceName: string) {
     assistantIpcVolume: `${instanceName}-assistant-ipc`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
-    dockerdDataVolume: `${instanceName}-dockerd-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewayIpcVolume: `${instanceName}-gateway-ipc`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
@@ -426,7 +425,6 @@ export async function retireDocker(name: string): Promise<void> {
     res.workspaceVolume,
     res.cesSecurityVolume,
     res.gatewaySecurityVolume,
-    res.dockerdDataVolume,
   ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
@@ -590,40 +588,10 @@ export function serviceDockerRunArgs(opts: {
   } = opts;
   return {
     assistant: () => {
-      // Run the assistant container in Docker-in-Docker (DinD) mode: the
-      // container runs its own `dockerd` so the Meet subsystem can spawn
-      // sibling meet-bot containers without needing access to the host's
-      // Docker engine. This requires:
-      //   - `CAP_SYS_ADMIN` + `CAP_NET_ADMIN` so the inner dockerd can
-      //     configure cgroups, overlay mounts, network namespaces, and
-      //     iptables. We deliberately avoid `--privileged` (which grants the
-      //     full host capability set and access to every host device node)
-      //     to shrink the escape surface from any code running inside the
-      //     assistant container. See the "Security tradeoff for Docker mode"
-      //     note in AGENTS.md.
-      //   - `seccomp=unconfined` + `apparmor=unconfined` because Docker's
-      //     default seccomp profile blocks syscalls dockerd needs (e.g.
-      //     certain clone/unshare and pivot_root flags) and the default
-      //     AppArmor profile on Debian/Ubuntu hosts denies the mount
-      //     operations dockerd performs while launching bot containers. On
-      //     hosts where these LSMs are inactive, the options are no-ops.
-      //   - A dedicated named volume mounted at `/var/lib/docker` so the
-      //     inner Docker image cache and container state survive restarts of
-      //     the assistant container.
-      // The host's `/var/run/docker.sock` is intentionally NOT mounted — all
-      // Meet-bot spawning happens against the inner dockerd.
       const args: string[] = [
         "run",
         "--init",
         "-d",
-        "--cap-add",
-        "SYS_ADMIN",
-        "--cap-add",
-        "NET_ADMIN",
-        "--security-opt",
-        "seccomp=unconfined",
-        "--security-opt",
-        "apparmor=unconfined",
         "--name",
         res.assistantContainer,
         `--network=${res.network}`,
@@ -657,8 +625,6 @@ export function serviceDockerRunArgs(opts: {
         `${res.assistantIpcVolume}:/run/assistant-ipc`,
         "-v",
         `${res.gatewayIpcVolume}:/run/gateway-ipc`,
-        "-v",
-        `${res.dockerdDataVolume}:/var/lib/docker`,
         "-e",
         "IS_CONTAINERIZED=true",
         "-e",
@@ -835,16 +801,6 @@ export async function startContainers(
   },
   log: (msg: string) => void,
 ): Promise<void> {
-  // Ensure the inner dockerd's data volume exists before mounting it.
-  // For instances hatched on Phase 1.10+, this is created in hatchDocker and
-  // is a no-op here. For instances that pre-date Phase 1.10 (DinD) and are
-  // upgrading in place, Docker would otherwise auto-create the volume on
-  // first `-v` mount without our standard ownership/labeling. Creating it
-  // explicitly keeps volume provenance consistent across fresh and upgraded
-  // instances. `docker volume create` is idempotent for an existing volume
-  // of the same name, so this is safe to run on every start.
-  await exec("docker", ["volume", "create", opts.res.dockerdDataVolume]);
-
   const runArgs = serviceDockerRunArgs(opts);
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
@@ -1257,7 +1213,6 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
-    await exec("docker", ["volume", "create", res.dockerdDataVolume]);
 
     // Set volume ownership so non-root containers (UID 1001) can write.
     await exec("docker", [

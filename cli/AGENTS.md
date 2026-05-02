@@ -57,20 +57,12 @@ For example, the signing key used for JWT auth between the daemon and gateway is
 
 The CLI creates and manages Docker volumes for containerized instances. See the root `AGENTS.md` § Docker Volume Architecture for the full volume layout.
 
-**Volume creation** (`hatch`): Creates five volumes per instance — workspace, gateway-security, ces-security, socket, and dockerd-data (the last backs the inner Docker engine used for Meet; see below). The legacy data volume is no longer created.
+**Volume creation** (`hatch`): Creates six volumes per instance — workspace, gateway-security, ces-security, socket, assistant-ipc, and gateway-ipc. The legacy data volume is no longer created.
 
 **Volume migration** (`wake`/`hatch`): On startup, existing instances that still have a legacy data volume are migrated. `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `lib/docker.ts` copy security files from the data volume to their respective security volumes. Migrations are idempotent and non-fatal.
 
 **Volume cleanup** (`retire`): All volumes (including the legacy data volume if it exists) are removed when an instance is retired.
 
-**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only. The `dockerd-data` volume is mounted only on the assistant container.
+**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.
 
-**Meet Docker-in-Docker support** (assistant container only): The assistant container runs an inner `dockerd` that hosts the Meet-bot containers as nested children. The CLI supports this by:
-
-- Creating a dedicated `<name>-dockerd-data` volume mounted at `/var/lib/docker` so pulled images and container state persist across assistant restarts.
-- Running the assistant container with `CAP_SYS_ADMIN` + `CAP_NET_ADMIN` plus `--security-opt seccomp=unconfined` + `--security-opt apparmor=unconfined` so the inner dockerd can configure cgroups, overlay mounts, and container networking without the default seccomp profile blocking clone/unshare/pivot_root syscalls or the default AppArmor profile denying its mount operations. `--privileged` is deliberately avoided — dropping it shrinks the escape surface by withholding the rest of the host capability set and access to host device nodes.
-- No longer bind-mounting the host's `/var/run/docker.sock`; Meet-bot spawning happens entirely inside the assistant container.
-
-Both are wired in `serviceDockerRunArgs()` in `lib/docker.ts`.
-
-This capability + security-opt set is acceptable for single-user local deployments. Managed/multi-tenant mode needs a different spawn model (e.g. a Kubernetes job runner) and is out of scope for this CLI.
+**Container security posture**: The assistant container runs as a non-root user (UID 1001) with no elevated capabilities. `--privileged`, `--cap-add`, and `--security-opt` overrides are NOT used. The host Docker socket is NOT bind-mounted. Do NOT re-add elevated capabilities without a concrete runtime requirement — the Docker Engine packages and inner `dockerd` supervisor were reverted (PR #26028) and the capabilities they required are no longer needed.
