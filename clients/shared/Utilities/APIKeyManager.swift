@@ -1,10 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-import Security
-#elseif os(macOS)
-import AppKit
-#endif
 
 public class APIKeyManager {
     public static let shared = APIKeyManager()

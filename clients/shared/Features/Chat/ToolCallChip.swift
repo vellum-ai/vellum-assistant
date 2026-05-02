@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#endif
 
 public struct ToolCallChip: View {
     public let toolCall: ToolCallData
@@ -151,7 +149,6 @@ public struct ToolCallChip: View {
 
                     // Image preview (for browser_screenshot, image generation etc.)
                     ForEach(Array(toolCall.cachedImages.enumerated()), id: \.offset) { _, cachedImage in
-                        #if os(macOS)
                         let canOpenImage = !toolCall.inputRawValue.isEmpty
                             && FileManager.default.fileExists(atPath: toolCall.inputRawValue)
                         if canOpenImage {
@@ -177,16 +174,6 @@ public struct ToolCallChip: View {
                             }
                             .padding(.horizontal, VSpacing.sm)
                         }
-                        #elseif os(iOS)
-                        HStack(spacing: 0) {
-                            Image(uiImage: cachedImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, VSpacing.sm)
-                        #endif
                     }
 
                     // Output section

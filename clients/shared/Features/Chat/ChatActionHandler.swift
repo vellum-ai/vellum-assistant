@@ -1,12 +1,5 @@
 import Foundation
 import os
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatActionHandler")
 
@@ -477,12 +470,6 @@ final class ChatActionHandler {
             }
             return
         }
-        // Haptic on first text chunk (thinking → streaming transition)
-        if vm.isThinking {
-            #if os(iOS)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            #endif
-        }
         vm.isThinking = false
         vm.currentAssistantHasText = true
         if vm.pendingVoiceMessage {
@@ -617,9 +604,6 @@ final class ChatActionHandler {
         } else if vm.pendingQueuedCount == 0 {
             // Only clear isSending if no messages are still queued
             vm.isSending = false
-            #if os(iOS)
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            #endif
         }
         // Cancel the throttled refinement flush and do a final immediate
         // flush so the complete buffer is available for the logic below.
@@ -1151,9 +1135,6 @@ final class ChatActionHandler {
                   vm.shouldAcceptConfirmation?() ?? false else { return }
         }
         vm.isThinking = false
-        #if os(iOS)
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        #endif
         let confirmation = ToolConfirmationData(
             requestId: msg.requestId,
             toolName: msg.toolName,

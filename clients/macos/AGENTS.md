@@ -242,7 +242,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen`, `funBlue` (non-adaptive, decorative)
 - Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
-**VFont** — Figma-sourced type scale. Sizes use `adaptiveSize()` (slightly smaller on iOS):
+**VFont** — Figma-sourced type scale:
 - Brand (Instrument Serif): `brandMedium` (32pt), `brandSmall` (22pt), `brandMini` (16pt)
 - Display (DM Sans): `displayLarge` (32pt 400)
 - Title (DM Sans): `titleLarge` (24pt 400), `titleMedium` (20pt 400), `titleSmall` (16pt 500)

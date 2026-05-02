@@ -66,7 +66,6 @@ public final class GatewayConnectionManager {
 
     // MARK: - Connection State (internal)
 
-    #if os(macOS)
     /// Cached snapshot of the active assistant from the lockfile.
     /// Refreshed on connect, reconfigure, and when the active assistant changes
     /// externally (e.g. CLI `vellum use`). Reads from this cache replace the
@@ -74,26 +73,17 @@ public final class GatewayConnectionManager {
     /// the main thread on every health check cycle.
     @ObservationIgnored private var cachedAssistant: LockfileAssistant?
     @ObservationIgnored private var assistantChangeObserver: NSObjectProtocol?
-    #endif
 
     /// Whether auto-wake should be attempted on disconnect.
     /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
-        #if os(macOS)
         guard let assistant = cachedAssistant else { return false }
         return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
-        #else
-        return false
-        #endif
     }
 
     /// Whether the connected assistant is a managed (platform-hosted) assistant.
     private var isManaged: Bool {
-        #if os(macOS)
         return cachedAssistant?.isManaged ?? false
-        #else
-        return false
-        #endif
     }
 
     // MARK: - Health Check
@@ -138,12 +128,10 @@ public final class GatewayConnectionManager {
     @ObservationIgnored public var recoveryPlatform: String?
     @ObservationIgnored public var recoveryDeviceId: String?
 
-    #if os(macOS)
     @ObservationIgnored var lastAutoWakeAttempt: Date?
     @ObservationIgnored var autoWakeTask: Task<Void, Never>?
     @ObservationIgnored var reconnectionTask: Task<Void, Never>?
     @ObservationIgnored var reconnectionGeneration: Int = 0
-    #endif
 
     // MARK: - Event Stream
 
@@ -165,14 +153,9 @@ public final class GatewayConnectionManager {
 
         // Persist refreshed bearer tokens so the client survives app restarts.
         eventStreamClient.onTokenRefreshed = { newToken in
-            #if os(iOS)
-            let _ = APIKeyManager.shared.setAPIKey(newToken, provider: "runtime-bearer-token")
-            #elseif os(macOS)
             // macOS re-reads from disk on each request; no persistence needed here.
-            #endif
         }
 
-        #if os(macOS)
         assistantChangeObserver = NotificationCenter.default.addObserver(
             forName: LockfileAssistant.activeAssistantDidChange,
             object: nil,
@@ -182,7 +165,6 @@ public final class GatewayConnectionManager {
                 self?.refreshCachedAssistant()
             }
         }
-        #endif
     }
 
     // MARK: - Connect
@@ -192,16 +174,12 @@ public final class GatewayConnectionManager {
     }
 
     func connectImpl(cancelAutoWake: Bool) async throws {
-        #if os(macOS)
         reconnectionTask?.cancel()
         reconnectionTask = nil
-        #endif
         disconnectInternal(cancelAutoWake: cancelAutoWake)
 
-        #if os(macOS)
         refreshCachedAssistant()
         LockfileAssistant.startWatching()
-        #endif
 
         isConnecting = true
 
@@ -221,7 +199,6 @@ public final class GatewayConnectionManager {
 
             eventStreamClient.startSSE()
         } catch {
-            #if os(macOS)
             guard !Task.isCancelled else {
                 isConnecting = false
                 log.info("connect: task cancelled — skipping auto-wake")
@@ -248,7 +225,6 @@ public final class GatewayConnectionManager {
             }
 
             startReconnectionLoop()
-            #endif
 
             isConnecting = false
             log.error("connect: connection failed: \(error)")
@@ -259,22 +235,18 @@ public final class GatewayConnectionManager {
     // MARK: - Disconnect
 
     public func disconnect() {
-        #if os(macOS)
         reconnectionTask?.cancel()
         reconnectionTask = nil
-        #endif
         disconnectInternal()
     }
 
     func disconnectInternal(cancelAutoWake: Bool = true) {
         isAuthenticated = false
 
-        #if os(macOS)
         if cancelAutoWake {
             autoWakeTask?.cancel()
             autoWakeTask = nil
         }
-        #endif
 
         shouldReconnect = false
         healthCheckTask?.cancel()
@@ -303,22 +275,16 @@ public final class GatewayConnectionManager {
     /// Callers must call `connect()` after reconfiguring.
     public func reconfigure(conversationKey: String? = nil) {
         self.conversationKey = conversationKey
-        #if os(macOS)
         reconnectionTask?.cancel()
         reconnectionTask = nil
         autoWakeTask?.cancel()
         autoWakeTask = nil
-        #endif
-        #if os(macOS)
         cachedAssistant = nil
-        #endif
         disconnect()
         isAuthenticated = false
         refreshTask?.cancel()
         refreshTask = nil
-        #if os(macOS)
         lastAutoWakeAttempt = nil
-        #endif
 
         // Reset published state. `isAuthFailed` + the underlying tracker are
         // cleared by `disconnectInternal()` (called via `disconnect()` above),
@@ -451,11 +417,7 @@ public final class GatewayConnectionManager {
     }
 
     private func isManagedConnectionForHealthCheck() -> Bool {
-        #if os(macOS)
         return cachedAssistant?.isManaged ?? false
-        #else
-        return (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-        #endif
     }
 
     /// Reconciles `isAuthFailed` against the tracker's current state and logs
@@ -692,11 +654,7 @@ public final class GatewayConnectionManager {
     // MARK: - 401 Recovery
 
     private func handleAuthenticationFailure() {
-        #if os(macOS)
         let managedConnection = cachedAssistant?.isManaged ?? false
-        #else
-        let managedConnection = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-        #endif
         if managedConnection {
             log.warning("401 in managed mode — session token may be expired")
             eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -718,13 +676,8 @@ public final class GatewayConnectionManager {
             guard let self else { return }
             defer { self.refreshTask = nil }
 
-            #if os(macOS)
             let platform = "macos"
             let deviceId = HostIdComputer.computeHostId()
-            #else
-            let platform = "ios"
-            let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
-            #endif
 
             let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                 platform: platform,
@@ -828,7 +781,6 @@ public final class GatewayConnectionManager {
 
     // MARK: - Auto-Wake
 
-    #if os(macOS)
     private static let autoWakeCooldown: TimeInterval = 60.0
 
     private func autoWakeIfAssistantDied() {
@@ -960,11 +912,9 @@ public final class GatewayConnectionManager {
             }
         }
     }
-    #endif
 
     // MARK: - Post-Sparkle Update Detection
 
-    #if os(macOS)
     /// Detects whether the app was relaunched after a Sparkle update by checking
     /// the `preUpdateVersion` UserDefaults flag (set before the update started).
     /// If the version has changed, runs the CLI finalize command which broadcasts
@@ -987,7 +937,6 @@ public final class GatewayConnectionManager {
             await handler(name, preUpdateVersion)
         }
     }
-    #endif
 
     // MARK: - Async Observation
 
@@ -1017,15 +966,11 @@ public final class GatewayConnectionManager {
                 guard let self, self.isConnected else { return }
                 NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             }
-            #if os(macOS)
             handlePostSparkleUpdate()
-            #endif
         }
-        #if os(macOS)
         if !connected {
             autoWakeIfAssistantDied()
         }
-        #endif
     }
 
     // MARK: - Errors
@@ -1062,7 +1007,6 @@ public final class GatewayConnectionManager {
 
     // MARK: - Cached Assistant
 
-    #if os(macOS)
     /// Synchronously refreshes the cached assistant snapshot from the lockfile.
     /// Called during connect and when `activeAssistantDidChange` fires.
     private func refreshCachedAssistant() {
@@ -1080,16 +1024,13 @@ public final class GatewayConnectionManager {
         }
         cachedAssistant = LockfileAssistant.loadByName(id)
     }
-    #endif
 
     deinit {
-        #if os(macOS)
         autoWakeTask?.cancel()
         reconnectionTask?.cancel()
         if let observer = assistantChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         LockfileAssistant.stopWatching()
-        #endif
     }
 }
