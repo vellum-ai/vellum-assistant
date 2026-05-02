@@ -577,11 +577,8 @@ struct HatchingStepView: View {
     /// Build the --config key=value pairs for the onboarding selections.
     /// Build config overrides to pass as --config flags during hatch.
     ///
-    /// Service modes are intentionally omitted here. Platform-managed assistants
-    /// (IS_PLATFORM=true) receive managed-mode defaults directly from the daemon
-    /// via `getDeploymentContextDefaults()` at first startup. Self-hosted
-    /// assistants (IS_CONTAINERIZED without IS_PLATFORM) should default to
-    /// "your-own" since those users manage their own keys.
+    /// Most config default values are determined by the daemon process and may
+    /// depend on whether the assistant is hatched on the Vellum Platform or not.
     private func buildOnboardingConfigValues() -> [String: String] {
         var configValues: [String: String] = [:]
         if !state.selectedProvider.isEmpty {
