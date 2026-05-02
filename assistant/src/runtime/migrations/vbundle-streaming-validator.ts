@@ -20,6 +20,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { posix } from "node:path";
 import { Transform, type TransformCallback } from "node:stream";
 
 import type { StreamedTarEntry } from "./vbundle-tar-stream.js";
@@ -38,8 +39,16 @@ import {
 
 export interface ManifestReadResult {
   manifest: ManifestType;
-  /** Fast lookup from archive path -> expected sha256 + size (from manifest.contents). */
-  expected: Map<string, { sha256: string; size: number }>;
+  /**
+   * Fast lookup from archive path -> expected sha256 + size + linkTarget
+   * (from manifest.contents). `linkTarget` is non-null only for symlink
+   * entries — regular file entries carry `null` so callers can branch on
+   * type without a separate map.
+   */
+  expected: Map<
+    string,
+    { sha256: string; size: number; linkTarget: string | null }
+  >;
 }
 
 /**
@@ -177,7 +186,10 @@ export async function readAndValidateManifest(
     manifest = translateLegacyManifest(legacy);
   }
 
-  const expected = new Map<string, { sha256: string; size: number }>();
+  const expected = new Map<
+    string,
+    { sha256: string; size: number; linkTarget: string | null }
+  >();
   for (const file of manifest.contents) {
     if (expected.has(file.path)) {
       throw new StreamingValidationError(
@@ -185,10 +197,151 @@ export async function readAndValidateManifest(
         `Manifest contains duplicate entry for path: ${file.path}`,
       );
     }
-    expected.set(file.path, { sha256: file.sha256, size: file.size_bytes });
+    expected.set(file.path, {
+      sha256: file.sha256,
+      size: file.size_bytes,
+      linkTarget: file.link_target ?? null,
+    });
   }
 
   return { manifest, expected };
+}
+
+// ---------------------------------------------------------------------------
+// Symlink entry verifier
+// ---------------------------------------------------------------------------
+
+/** SHA-256 hex digest of UTF-8 bytes / Uint8Array — local mirror of the helper in vbundle-streaming-importer.ts. */
+function sha256Hex(data: Uint8Array | string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+/**
+ * Verify a streaming tar entry whose manifest declared it as a symlink.
+ *
+ * Throws `StreamingValidationError` with stable codes for each failure mode:
+ *   - `entry_size`: tar header declared a non-zero size (symlink bodies must be empty).
+ *   - `symlink_not_declared`: manifest entry didn't carry a `link_target` so the
+ *     tar typeflag-2 record is unauthorized.
+ *   - `link_target_mismatch`: tar header `linkname` doesn't equal the manifest's
+ *     declared `link_target`. Either the bundle was tampered with or the producer
+ *     and writer disagreed.
+ *   - `entry_hash`: manifest's declared sha256 does not match the sha256 of the
+ *     declared link target string. Catches manifest tampering where the attacker
+ *     adjusted `link_target` but forgot to recompute the digest.
+ *   - `symlink_target_escapes_archive`: the resolved link target points outside
+ *     the archive root (e.g. `../../etc/passwd`). Importer would otherwise
+ *     follow the symlink to a privileged path on the host.
+ *
+ * On success, drains the entry body via `entry.body.resume()` so the tar
+ * extractor's `next` callback fires and the parser can advance to the next
+ * entry — symlink bodies are size=0, but `tar-stream` still emits a Readable
+ * that needs to be consumed.
+ */
+export function verifySymlinkEntry(input: {
+  entry: StreamedTarEntry;
+  expectedEntry: { sha256: string; size: number; linkTarget: string | null };
+}): void {
+  const { entry, expectedEntry } = input;
+  const archivePath = entry.header.name;
+
+  if (entry.header.size !== 0) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "entry_size",
+      `Symlink entry ${archivePath} declared size ${entry.header.size}; symlink bodies must be empty`,
+      archivePath,
+    );
+  }
+
+  // Reject manifest-declared size_bytes != 0 for symlink entries. The buffered
+  // validator catches this via FILE_SIZE_MISMATCH; without this guard a
+  // crafted bundle could declare `link_target` plus `size_bytes: 100` and the
+  // streaming side would accept (header.size is independent of the manifest's
+  // size_bytes).
+  if (expectedEntry.size !== 0) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "entry_size",
+      `Symlink ${archivePath} has non-zero manifest-declared size ${expectedEntry.size} (expected 0)`,
+      archivePath,
+    );
+  }
+
+  if (expectedEntry.linkTarget == null) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "symlink_not_declared",
+      `Tar entry ${archivePath} is a symlink but the manifest did not declare a link_target`,
+      archivePath,
+    );
+  }
+
+  const tarLinkname = entry.header.linkname;
+  if (tarLinkname !== expectedEntry.linkTarget) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "link_target_mismatch",
+      `Symlink target mismatch for ${archivePath}: tar header linkname=${JSON.stringify(
+        tarLinkname,
+      )}, manifest link_target=${JSON.stringify(expectedEntry.linkTarget)}`,
+      archivePath,
+    );
+  }
+
+  const computedSha = sha256Hex(expectedEntry.linkTarget);
+  if (computedSha !== expectedEntry.sha256) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "entry_hash",
+      `Symlink hash mismatch for ${archivePath}: manifest sha256=${expectedEntry.sha256}, computed over link_target=${computedSha}`,
+      archivePath,
+    );
+  }
+
+  // Absolute targets escape the archive root unconditionally — and would
+  // bypass the resolution check below because `posix.join("workspace",
+  // "/etc/passwd")` normalizes the leading `/` away and returns
+  // `"workspace/etc/passwd"`. Reject these explicitly before resolution so
+  // a symlink with target `/etc/passwd` cannot be imported as a real
+  // host-filesystem symlink.
+  if (expectedEntry.linkTarget.startsWith("/")) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "symlink_target_escapes_archive",
+      `Symlink ${archivePath} has absolute target ${JSON.stringify(
+        expectedEntry.linkTarget,
+      )}, which escapes the archive root`,
+      archivePath,
+    );
+  }
+
+  // Path traversal: resolve the symlink target relative to the symlink's own
+  // directory inside the archive. If the resolved path escapes the archive
+  // root (begins with `..` or equals `..`), the target points outside the
+  // bundle — refuse to import. Also reject a resolved path that is itself
+  // absolute as defense-in-depth (dirname could in theory yield an absolute
+  // path; cheap to guard).
+  const resolved = posix.normalize(
+    posix.join(posix.dirname(archivePath), expectedEntry.linkTarget),
+  );
+  if (
+    resolved === ".." ||
+    resolved.startsWith("../") ||
+    resolved.startsWith("/")
+  ) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "symlink_target_escapes_archive",
+      `Symlink ${archivePath} target ${JSON.stringify(
+        expectedEntry.linkTarget,
+      )} resolves to ${resolved}, which escapes the archive root`,
+      archivePath,
+    );
+  }
+
+  // All checks pass — drain the (empty) body so the tar extractor advances.
+  entry.body.resume();
 }
 
 // ---------------------------------------------------------------------------

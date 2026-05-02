@@ -67,6 +67,7 @@ import {
   createHashVerifier,
   readAndValidateManifest,
   StreamingValidationError,
+  verifySymlinkEntry,
 } from "./vbundle-streaming-validator.js";
 import { parseVBundleStream } from "./vbundle-tar-stream.js";
 import type { ManifestType } from "./vbundle-validator.js";
@@ -302,7 +303,10 @@ export async function streamCommitImport(
   let entryIndex = 0;
   try {
     const entries = parseVBundleStream(source);
-    let expected: Map<string, { sha256: string; size: number }> | null = null;
+    let expected: Map<
+      string,
+      { sha256: string; size: number; linkTarget: string | null }
+    > | null = null;
 
     for await (const entry of entries) {
       if (entryIndex === 0) {
@@ -391,7 +395,7 @@ export async function streamCommitImport(
         continue;
       }
 
-      if (entry.header.type !== "file") {
+      if (entry.header.type !== "file" && entry.header.type !== "symlink") {
         // pax-header / other — drain and skip. Non-file payloads are
         // metadata for the tar extractor itself, not user data.
         entry.body.resume();
@@ -409,6 +413,164 @@ export async function streamCommitImport(
           `Archive entry "${archivePath}" is not declared in the manifest`,
           archivePath,
         );
+      }
+
+      // Symlink branch: typeflag-2 entry, OR a regular-file tar entry whose
+      // manifest declared `link_target`. `verifySymlinkEntry` cross-validates
+      // both directions — tar symlink without manifest link_target,
+      // tar regular file with manifest link_target, linkname/manifest
+      // disagreement, sha mismatch, traversal, absolute target. It also
+      // drains the body so the tar extractor advances.
+      if (
+        entry.header.type === "symlink" ||
+        expectedEntry.linkTarget !== null
+      ) {
+        verifySymlinkEntry({ entry, expectedEntry });
+
+        // Defense-in-depth: even though verifySymlinkEntry rejected absolute
+        // / `..` traversal, re-check from the IMPORTER perspective using the
+        // resolved disk path (which maps archive paths through the resolver,
+        // e.g. legacy `prompts/USER.md` -> `users/<slug>.md`).
+        const linkTargetStr = expectedEntry.linkTarget as string;
+        const diskPath = pathResolver.resolve(archivePath);
+        if (!diskPath) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: "",
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": no known disk target for this archive path`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        const wsResolved = resolve(realWorkspaceDir);
+        const targetResolved = resolve(dirname(diskPath), linkTargetStr);
+        if (
+          linkTargetStr.startsWith("/") ||
+          (targetResolved !== wsResolved &&
+            !targetResolved.startsWith(wsResolved + sep))
+        ) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": symlink target "${linkTargetStr}" escapes workspace`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        // Legacy guardian persona protection — match commitImport's
+        // behavior. If the bundle ships `prompts/USER.md` as a symlink and
+        // the destination guardian persona is already user-customized,
+        // skip rather than clobber.
+        if (
+          archivePath === LEGACY_USER_MD_ARCHIVE_PATH &&
+          isGuardianPersonaCustomized(diskPath)
+        ) {
+          log.warn(
+            { archivePath, diskPath },
+            "Skipping legacy prompts/USER.md symlink import: guardian persona is already customized",
+          );
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": guardian persona at "${diskPath}" is already customized`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        // Rebase onto temp workspace so the swap moves the symlink into the
+        // live workspace atomically.
+        const tempDiskPath = rebaseOntoTempWorkspace(
+          diskPath,
+          realWorkspaceDir,
+          tempWorkspaceDir,
+        );
+        if (!tempDiskPath) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": disk target "${diskPath}" falls outside the workspace directory`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        try {
+          await mkdir(dirname(tempDiskPath), { recursive: true });
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create parent directory for "${tempDiskPath}"`,
+            err,
+          );
+        }
+
+        try {
+          await symlink(linkTargetStr, tempDiskPath);
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create symlink "${tempDiskPath}" -> "${linkTargetStr}"`,
+            err,
+          );
+        }
+
+        const isWorkspaceNamespaced = archivePath.startsWith("workspace/");
+        const importedFileIndex = importedFiles.length;
+        importedFiles.push({
+          path: archivePath,
+          disk_path: diskPath,
+          action: "created",
+          size: 0,
+          sha256: expectedEntry.sha256,
+          backup_path: null,
+        });
+        if (isWorkspaceNamespaced) {
+          hasWorkspaceNamespacedEntry = true;
+        } else {
+          legacyStaged.push({
+            tempPath: tempDiskPath,
+            livePath: diskPath,
+            archivePath,
+            importedFileIndex,
+          });
+        }
+        seen.add(archivePath);
+        onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+        entryIndex += 1;
+        continue;
       }
 
       // Reject tar entries whose declared size disagrees with the manifest.
@@ -1165,10 +1327,37 @@ async function promoteLegacyStagedFiles(
 ): Promise<void> {
   for (const entry of staged) {
     // Backup before overwrite, matching commitImport.
+    //
+    // Use lstat (not existsSync) to detect a pre-existing entry: existsSync
+    // follows symlinks, so a dangling pre-existing symlink at livePath would
+    // report `false` and we'd skip the backup before later atomically
+    // replacing it via rename.
+    let preExisting: boolean;
+    try {
+      await lstat(entry.livePath);
+      preExisting = true;
+    } catch (err) {
+      if (isENOENT(err)) {
+        preExisting = false;
+      } else {
+        throw err;
+      }
+    }
+
     let backupPath: string | null = null;
-    if (existsSync(entry.livePath)) {
+    if (preExisting) {
       backupPath = generateBackupPath(entry.livePath);
-      await copyFile(entry.livePath, backupPath);
+      // copyFile follows symlinks and copies the resolved file's content, so
+      // backing up a pre-existing symlink with copyFile would lose the
+      // symlink shape. Recreate the link via readlink + symlink instead;
+      // fall back to copyFile for regular files.
+      const liveStat = await lstat(entry.livePath);
+      if (liveStat.isSymbolicLink()) {
+        const target = await readlink(entry.livePath);
+        await symlink(target, backupPath);
+      } else {
+        await copyFile(entry.livePath, backupPath);
+      }
     }
 
     await mkdir(dirname(entry.livePath), { recursive: true });
@@ -1192,7 +1381,25 @@ async function promoteLegacyStagedFiles(
       await rename(entry.tempPath, entry.livePath);
     } catch (err) {
       if (isEXDEV(err)) {
-        await copyFile(entry.tempPath, entry.livePath);
+        // copyFile follows symlinks and copies the target's CONTENT — so a
+        // legacy-format symlink entry (e.g. `prompts/USER.md` encoded as a
+        // typeflag-2 record) would land as a regular file containing the
+        // linked target's bytes. lstat the source first; if it's a symlink,
+        // recreate the symlink shape via readlink + symlink. Mirrors the
+        // verbatimSymlinks: true contract that copyTreeSkippingTransient
+        // already uses on the atomic-swap path.
+        const srcStat = await lstat(entry.tempPath);
+        if (srcStat.isSymbolicLink()) {
+          const target = await readlink(entry.tempPath);
+          // Unlike rename (which atomically overwrites), fs.promises.symlink
+          // fails with EEXIST if the destination already exists. Remove any
+          // pre-existing entry at livePath first — the backup above
+          // preserved its contents.
+          await rm(entry.livePath, { force: true });
+          await symlink(target, entry.livePath);
+        } else {
+          await copyFile(entry.tempPath, entry.livePath);
+        }
         await rm(entry.tempPath, { force: true });
       } else {
         throw err;
@@ -1584,6 +1791,9 @@ async function swapWorkspaceContents(
   tempWorkspaceDir: string,
   backupDir: string,
 ): Promise<void> {
+  // Symlinks in the temp tree pass through unchanged: `rename` moves the
+  // symlink inode without dereferencing, and the EXDEV fallback (`fs.cp`
+  // with `verbatimSymlinks: true`) preserves them too.
   await mkdir(backupDir, { recursive: true });
 
   // Phase 1: move every top-level entry out of real into backup. Skip
@@ -1794,6 +2004,13 @@ async function copyTreeSkippingTransient(
     await cp(src, dst, {
       recursive: true,
       preserveTimestamps: true,
+      // Preserve symlinks instead of dereferencing. Without this, an
+      // EXDEV-fallback copy of a tree containing a class-1 symlink would
+      // resolve the symlink to its target's bytes — wrong both for the
+      // streaming importer's symlink entries (which must land on disk as
+      // real symlinks) and for any pre-existing symlinks in carried
+      // preserved subtrees.
+      verbatimSymlinks: true,
       filter: async (source) => {
         try {
           const info = await lstat(source);

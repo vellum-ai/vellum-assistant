@@ -16,13 +16,16 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
@@ -152,6 +155,28 @@ function sha256Hex(data: Uint8Array): string {
 function generateBackupPath(diskPath: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${diskPath}.backup-${timestamp}`;
+}
+
+/**
+ * Defense-in-depth: returns true if `linkTarget`, when resolved relative to
+ * the symlink's own directory (`dirname(diskPath)`), lands outside the
+ * supplied `workspaceDir`. The validator (`validateVBundle`) already enforces
+ * archive-relative containment, but we re-check here so the buffer importer
+ * is safe even if a caller passes a hand-built `preValidatedManifest`.
+ *
+ * Returns false when `workspaceDir` is undefined — the importer is permitted
+ * to write outside any workspace in that mode (e.g. legacy hooks-only
+ * imports).
+ */
+function isOutsideWorkspace(
+  diskPath: string,
+  linkTarget: string,
+  workspaceDir: string | undefined,
+): boolean {
+  if (!workspaceDir) return false;
+  const resolved = resolve(dirname(diskPath), linkTarget);
+  const ws = resolve(workspaceDir);
+  return resolved !== ws && !resolved.startsWith(ws + sep);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +361,185 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       warnings.push(
         `Skipped "${fileEntry.path}": no known disk target for this archive path`,
       );
+      continue;
+    }
+
+    // Symlink branch: recreate the entry on disk as a real symlink so the
+    // post-import workspace mirrors the source's link topology rather than
+    // duplicating bytes. The validator already enforces archive-relative
+    // containment, sha256-over-target, and size==0 — we still reapply
+    // absolute-target and workspace-escape gates here so a hand-built
+    // `preValidatedManifest` cannot bypass them.
+    if (fileEntry.link_target !== undefined) {
+      const archiveEntry = entryMap.get(fileEntry.path);
+      if (!archiveEntry) {
+        importedFiles.push({
+          path: fileEntry.path,
+          disk_path: diskPath,
+          action: "skipped",
+          size: 0,
+          sha256: fileEntry.sha256,
+          backup_path: null,
+        });
+        warnings.push(
+          `Skipped "${fileEntry.path}": declared in manifest but not found in archive`,
+        );
+        continue;
+      }
+
+      // Legacy guardian persona (prompts/USER.md) is translated to the
+      // current guardian's users/<slug>.md by DefaultPathResolver. If the
+      // bundle ships USER.md as a symlink and the target already holds
+      // user-authored content, skip rather than clobber — mirrors the
+      // protection in the regular-file branch below.
+      if (
+        fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+        isGuardianPersonaCustomized(diskPath)
+      ) {
+        log.warn(
+          { archivePath: fileEntry.path, diskPath },
+          "Skipping legacy prompts/USER.md symlink import: guardian persona is already customized",
+        );
+        warnings.push(
+          `Skipped "${fileEntry.path}": guardian persona at "${diskPath}" is already customized`,
+        );
+        importedFiles.push({
+          path: fileEntry.path,
+          disk_path: diskPath,
+          action: "skipped",
+          size: 0,
+          sha256: fileEntry.sha256,
+          backup_path: null,
+        });
+        continue;
+      }
+
+      // Defense-in-depth path-traversal gate.
+      if (
+        fileEntry.link_target.startsWith("/") ||
+        isOutsideWorkspace(diskPath, fileEntry.link_target, workspaceDir)
+      ) {
+        importedFiles.push({
+          path: fileEntry.path,
+          disk_path: diskPath,
+          action: "skipped",
+          size: 0,
+          sha256: fileEntry.sha256,
+          backup_path: null,
+        });
+        warnings.push(
+          `Skipped "${fileEntry.path}": symlink target "${fileEntry.link_target}" escapes workspace`,
+        );
+        continue;
+      }
+
+      // Back up an existing entry at diskPath, if any. Use `lstatSync` so we
+      // detect a pre-existing dangling symlink (which `existsSync` reports
+      // as missing) — `symlinkSync` would otherwise fail with EEXIST. For
+      // regular files and resolvable symlinks we copy the file contents into
+      // the backup, matching the existing contract; for dangling symlinks
+      // we preserve the linkname via `readlinkSync`+`symlinkSync` so the
+      // original entry can be inspected after the import. The pre-existing
+      // entry is removed before `symlinkSync` so the new symlink can land.
+      let backupPath: string | null = null;
+      let action: ImportFileAction;
+      let preExistingEntry = false;
+      let preExistingIsSymlink = false;
+      try {
+        const stats = lstatSync(diskPath);
+        preExistingEntry = true;
+        preExistingIsSymlink = stats.isSymbolicLink();
+      } catch {
+        // ENOENT — no pre-existing entry at this path.
+      }
+      if (preExistingEntry) {
+        backupPath = generateBackupPath(diskPath);
+        try {
+          if (preExistingIsSymlink) {
+            const oldTarget = readlinkSync(diskPath);
+            symlinkSync(oldTarget, backupPath);
+          } else {
+            copyFileSync(diskPath, backupPath);
+          }
+          backupsCreated++;
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "write_failed",
+            message: `Failed to back up "${diskPath}": ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            partial_report: buildPartialReport(
+              importedFiles,
+              manifest,
+              warnings,
+              backupsCreated,
+            ),
+          };
+        }
+        action = "overwritten";
+        try {
+          rmSync(diskPath, { force: true });
+        } catch {
+          /* best effort — symlinkSync below will surface the real error */
+        }
+      } else {
+        action = "created";
+      }
+
+      // Ensure parent directory exists.
+      const parentDir = dirname(diskPath);
+      if (!existsSync(parentDir)) {
+        try {
+          mkdirSync(parentDir, { recursive: true });
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "write_failed",
+            message: `Failed to create directory "${parentDir}": ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            partial_report: buildPartialReport(
+              importedFiles,
+              manifest,
+              warnings,
+              backupsCreated,
+            ),
+          };
+        }
+      }
+
+      // Create the symlink. The target is stored verbatim — OS symlink
+      // semantics resolve it relative to the symlink's own directory at
+      // use time.
+      try {
+        symlinkSync(fileEntry.link_target, diskPath);
+      } catch (err) {
+        return {
+          ok: false,
+          reason: "write_failed",
+          message: `Failed to create symlink "${diskPath}" -> "${fileEntry.link_target}": ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          partial_report: buildPartialReport(
+            importedFiles,
+            manifest,
+            warnings,
+            backupsCreated,
+          ),
+        };
+      }
+
+      importedFiles.push({
+        path: fileEntry.path,
+        disk_path: diskPath,
+        action,
+        size: 0,
+        sha256: fileEntry.sha256,
+        backup_path: backupPath,
+      });
+      // Skip the regular-file branches (and the post-write integrity check,
+      // which would dereference the symlink and read the target's bytes).
       continue;
     }
 

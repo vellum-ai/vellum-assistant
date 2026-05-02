@@ -14,6 +14,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { z } from "zod";
@@ -26,6 +27,7 @@ const ManifestFileEntry = z.object({
   path: z.string().min(1),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   size_bytes: z.number().int().nonnegative(),
+  link_target: z.string().min(1).optional(),
 });
 
 const AssistantInfo = z.object({
@@ -201,6 +203,9 @@ export interface VBundleTarEntry {
   name: string;
   data: Uint8Array;
   size: number;
+  /** Set when the tar entry is typeflag-2 (symlink); carries the link target
+   *  decoded from the ustar linkname field. */
+  linkname?: string;
 }
 
 export interface VBundleValidationResult {
@@ -220,6 +225,9 @@ interface TarEntry {
   name: string;
   data: Uint8Array;
   size: number;
+  /** Set when the tar entry is typeflag-2 (symlink); carries the link target
+   *  decoded from the ustar linkname field. */
+  linkname?: string;
 }
 
 /**
@@ -278,6 +286,25 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
       if (pathMatch) {
         longName = pathMatch[1];
       }
+      offset = dataStart + dataBlocks * BLOCK_SIZE;
+      continue;
+    }
+
+    // Symlink (type '2') — empty body regardless of declared size; the link
+    // target lives in the ustar linkname field (157..256). We preserve the
+    // tar-declared `size` here (rather than forcing it to 0) so the
+    // downstream `archiveEntry.size !== 0` check can surface
+    // `FILE_SIZE_MISMATCH` on malformed symlink headers. The body itself is
+    // always an empty buffer — symlinks have no data body even if the
+    // header lies about it.
+    if (typeFlag === "2") {
+      const linkname = decodeNullTerminated(header, 157, 100);
+      entries.push({
+        name: normalizePath(name),
+        data: new Uint8Array(0),
+        size,
+        linkname,
+      });
       offset = dataStart + dataBlocks * BLOCK_SIZE;
       continue;
     }
@@ -504,6 +531,93 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
       errors.push({
         code: "MISSING_DECLARED_FILE",
         message: `File declared in manifest not found in archive: ${fileEntry.path}`,
+        path: fileEntry.path,
+      });
+      continue;
+    }
+
+    if (fileEntry.link_target !== undefined) {
+      // Symlink branch: typeflag agreement, linkname agreement, sha over the
+      // link target string, size==0 on both sides, and path-traversal rejection.
+      if (archiveEntry.linkname === undefined) {
+        errors.push({
+          code: "SYMLINK_TYPEFLAG_MISMATCH",
+          message: `Manifest declares symlink for ${fileEntry.path} but tar entry is not typeflag-2`,
+          path: fileEntry.path,
+        });
+        continue;
+      }
+
+      if (archiveEntry.linkname !== fileEntry.link_target) {
+        errors.push({
+          code: "LINK_TARGET_MISMATCH",
+          message: `Symlink linkname mismatch for ${fileEntry.path}: manifest declares "${fileEntry.link_target}", tar carries "${archiveEntry.linkname}"`,
+          path: fileEntry.path,
+        });
+        continue;
+      }
+
+      if (archiveEntry.size !== 0) {
+        errors.push({
+          code: "FILE_SIZE_MISMATCH",
+          message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size_bytes} bytes, archive has ${archiveEntry.size} bytes`,
+          path: fileEntry.path,
+        });
+      }
+
+      if (fileEntry.size_bytes !== 0) {
+        errors.push({
+          code: "FILE_SIZE_MISMATCH",
+          message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size_bytes} bytes, archive has ${archiveEntry.size} bytes`,
+          path: fileEntry.path,
+        });
+      }
+
+      const expected = sha256Hex(fileEntry.link_target);
+      if (expected !== fileEntry.sha256) {
+        errors.push({
+          code: "FILE_CHECKSUM_MISMATCH",
+          message: `Checksum mismatch for ${fileEntry.path}: expected ${fileEntry.sha256}, computed ${expected}`,
+          path: fileEntry.path,
+        });
+      }
+
+      // Absolute POSIX targets are unconstrained by the bundle root — reject
+      // them up front. The `posix.normalize` guard below only catches
+      // `..`-based escapes; an absolute path like `/etc/passwd` survives
+      // normalization unchanged and would otherwise pass.
+      if (fileEntry.link_target.startsWith("/")) {
+        errors.push({
+          code: "SYMLINK_TARGET_ESCAPES_ARCHIVE",
+          message: `Symlink target is absolute, which escapes the archive root for ${fileEntry.path}: target=${fileEntry.link_target}`,
+          path: fileEntry.path,
+        });
+      } else {
+        const normalized = posix.normalize(
+          posix.join(posix.dirname(fileEntry.path), fileEntry.link_target),
+        );
+        // Defense-in-depth: also reject if the joined+normalized path is
+        // absolute, in case `dirname` ever resolves to an absolute root.
+        if (
+          normalized.startsWith("../") ||
+          normalized === ".." ||
+          normalized.startsWith("/")
+        ) {
+          errors.push({
+            code: "SYMLINK_TARGET_ESCAPES_ARCHIVE",
+            message: `Symlink target escapes archive root for ${fileEntry.path}: target=${fileEntry.link_target}, normalized=${normalized}`,
+            path: fileEntry.path,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (archiveEntry.linkname !== undefined) {
+      // Tar carries a typeflag-2 entry but manifest declares a regular file.
+      errors.push({
+        code: "SYMLINK_NOT_DECLARED",
+        message: `Tar entry ${fileEntry.path} is typeflag-2 but manifest does not declare link_target`,
         path: fileEntry.path,
       });
       continue;

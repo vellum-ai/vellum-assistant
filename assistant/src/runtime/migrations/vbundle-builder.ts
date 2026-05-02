@@ -19,15 +19,17 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  realpathSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import { getLogger } from "../../util/logger.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
 import type {
   ManifestFileEntryType,
@@ -41,6 +43,8 @@ import type {
 export interface VBundleFileEntry {
   path: string;
   data: Uint8Array;
+  /** When set, `data` is ignored: the entry is emitted as a tar typeflag-2 (symlink) record with empty body, and `linkTarget` is the symlink target encoded relative to the symlink's own directory inside the archive. */
+  linkTarget?: string;
 }
 
 /** v1 manifest `assistant` block. */
@@ -109,11 +113,22 @@ interface InMemoryEntry {
   size: number;
 }
 
-/** Union of disk-backed and in-memory tar stream entries. */
-type TarStreamEntry = FileMetadata | InMemoryEntry;
+/** Symlink entry — emitted as a tar typeflag-2 record with empty body. */
+interface SymlinkMetadata {
+  archivePath: string;
+  linkTarget: string;
+  size: 0;
+}
+
+/** Union of disk-backed, in-memory, and symlink tar stream entries. */
+type TarStreamEntry = FileMetadata | InMemoryEntry | SymlinkMetadata;
 
 function isInMemoryEntry(entry: TarStreamEntry): entry is InMemoryEntry {
   return "data" in entry;
+}
+
+function isSymlinkEntry(entry: TarStreamEntry): entry is SymlinkMetadata {
+  return "linkTarget" in entry;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +249,11 @@ function createPaxPathEntry(name: string): Uint8Array {
   return result;
 }
 
-function createTarEntry(name: string, data: Uint8Array): Uint8Array {
+function createTarEntry(
+  name: string,
+  data: Uint8Array,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
 
@@ -242,6 +261,14 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   // so that the full path is preserved in the archive.
   const needsPax = nameBytes.length > 100;
   const paxEntry = needsPax ? createPaxPathEntry(name) : null;
+
+  const isSymlink = linkTarget !== undefined;
+  const linkTargetBytes = isSymlink ? encoder.encode(linkTarget) : null;
+  if (linkTargetBytes && linkTargetBytes.length > 100) {
+    throw new Error(
+      `Symlink target "${linkTarget}" is ${linkTargetBytes.length} bytes, exceeding the ustar linkname-field 100-byte limit. The walker should guard against this case before calling createTarEntry.`,
+    );
+  }
 
   const header = new Uint8Array(BLOCK_SIZE);
 
@@ -257,14 +284,19 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   // Group ID (116-123)
   writeOctal(header, 116, 8, 0);
 
-  // File size (124-135)
-  writeOctal(header, 124, 12, data.length);
+  // File size (124-135) — symlink entries always carry size 0
+  writeOctal(header, 124, 12, isSymlink ? 0 : data.length);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
 
-  // Type flag (156): regular file
-  header[156] = "0".charCodeAt(0);
+  // Type flag (156): regular file ("0") or symlink ("2")
+  header[156] = (isSymlink ? "2" : "0").charCodeAt(0);
+
+  // Linkname (157-256) — only set for symlinks; null-padded by default
+  if (linkTargetBytes) {
+    header.set(linkTargetBytes, 157);
+  }
 
   // USTAR magic (257-262)
   const magic = encoder.encode("ustar\0");
@@ -274,16 +306,22 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
   header[263] = "0".charCodeAt(0);
   header[264] = "0".charCodeAt(0);
 
-  // Compute and write checksum (148-155)
+  // Compute and write checksum (148-155) — must be last so the linkname
+  // (and every other field) contributes to the sum.
   const checksum = computeHeaderChecksum(header);
   writeOctal(header, 148, 7, checksum);
   header[155] = 0x20; // trailing space
 
-  // Combine header + padded data
-  const paddedData = padToBlock(data);
-  const fileEntry = new Uint8Array(header.length + paddedData.length);
-  fileEntry.set(header, 0);
-  fileEntry.set(paddedData, header.length);
+  // Symlink entries are header-only — no body, no padding.
+  const fileEntry = isSymlink
+    ? header
+    : (() => {
+        const paddedData = padToBlock(data);
+        const combined = new Uint8Array(header.length + paddedData.length);
+        combined.set(header, 0);
+        combined.set(paddedData, header.length);
+        return combined;
+      })();
 
   if (paxEntry) {
     const result = new Uint8Array(paxEntry.length + fileEntry.length);
@@ -296,11 +334,11 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
 }
 
 function createTarArchive(
-  entries: Array<{ name: string; data: Uint8Array }>,
+  entries: Array<{ name: string; data: Uint8Array; linkTarget?: string }>,
 ): Uint8Array {
   const parts: Uint8Array[] = [];
   for (const entry of entries) {
-    parts.push(createTarEntry(entry.name, entry.data));
+    parts.push(createTarEntry(entry.name, entry.data, entry.linkTarget));
   }
   // End-of-archive: two zero blocks
   parts.push(new Uint8Array(BLOCK_SIZE * 2));
@@ -374,12 +412,22 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
     secretsRedacted,
   } = options;
 
-  // Build file entries for the manifest
-  const fileEntries: ManifestFileEntryType[] = files.map((f) => ({
-    path: f.path,
-    sha256: sha256Hex(f.data),
-    size_bytes: f.data.length,
-  }));
+  // Build file entries for the manifest. Symlink entries hash the link target
+  // string (not the empty data buffer) and declare size_bytes: 0.
+  const fileEntries: ManifestFileEntryType[] = files.map((f) =>
+    f.linkTarget !== undefined
+      ? {
+          path: f.path,
+          sha256: sha256Hex(f.linkTarget),
+          size_bytes: 0,
+          link_target: f.linkTarget,
+        }
+      : {
+          path: f.path,
+          sha256: sha256Hex(f.data),
+          size_bytes: f.data.length,
+        },
+  );
 
   const { manifest, manifestData } = buildManifestObject({
     contents: fileEntries,
@@ -391,10 +439,16 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
     now: new Date(),
   });
 
-  // Build tar entries: manifest first, then all files
+  // Build tar entries: manifest first, then all files. Symlink entries forward
+  // `linkTarget` so createTarEntry emits a typeflag-2 header; `data` is unused
+  // in that branch but must still be a valid Uint8Array.
   const tarEntries = [
     { name: "manifest.json", data: manifestData },
-    ...files.map((f) => ({ name: f.path, data: f.data })),
+    ...files.map((f) =>
+      f.linkTarget !== undefined
+        ? { name: f.path, data: new Uint8Array(0), linkTarget: f.linkTarget }
+        : { name: f.path, data: f.data },
+    ),
   ];
 
   const tar = createTarArchive(tarEntries);
@@ -415,28 +469,136 @@ interface WalkDirectoryOptions {
 }
 
 /**
- * Recursively walk a directory and return all non-symlink files as
- * VBundleFileEntry objects with paths prefixed by `archivePrefix`.
+ * Resolve and classify a symlink encountered during a walk.
+ *
+ * Returns one of:
+ *   { kind: "class1", linkTarget } — emit as a tar typeflag-2 entry whose
+ *     `linkname` field holds `linkTarget` (the symlink target encoded as a
+ *     POSIX path relative to the symlink's own directory).
+ *   { kind: "drop", reason }       — drop the symlink. Reasons cover broken
+ *     links, targets outside the workspace (class 2), targets inside a
+ *     skipped directory (class 3), directory targets (out of scope), and
+ *     link targets whose UTF-8 encoding exceeds the 100-byte ustar
+ *     `linkname` field limit.
+ */
+type SymlinkClassification =
+  | { kind: "class1"; linkTarget: string }
+  | { kind: "drop"; reason: string };
+
+function classifySymlink(args: {
+  fullPath: string;
+  walkRoot: string;
+  skipDirs: readonly string[];
+}): SymlinkClassification {
+  const { fullPath, walkRoot, skipDirs } = args;
+
+  let absoluteTarget: string;
+  try {
+    absoluteTarget = realpathSync(fullPath);
+  } catch {
+    return { kind: "drop", reason: "broken symlink (realpath failed)" };
+  }
+
+  let targetStat;
+  try {
+    targetStat = lstatSync(absoluteTarget);
+  } catch {
+    return { kind: "drop", reason: "broken symlink (target stat failed)" };
+  }
+  if (!targetStat.isFile()) {
+    return { kind: "drop", reason: "target is not a regular file" };
+  }
+
+  let dirAbs: string;
+  try {
+    dirAbs = realpathSync(walkRoot);
+  } catch {
+    dirAbs = resolve(walkRoot);
+  }
+  const targetAbs = resolve(absoluteTarget);
+  const insideWorkspace =
+    targetAbs === dirAbs || targetAbs.startsWith(dirAbs + sep);
+  if (!insideWorkspace) {
+    return { kind: "drop", reason: "target outside workspace" };
+  }
+
+  const targetRelToWorkspace = relative(dirAbs, targetAbs);
+  if (
+    skipDirs.some(
+      (s) =>
+        targetRelToWorkspace === s || targetRelToWorkspace.startsWith(s + "/"),
+    )
+  ) {
+    return { kind: "drop", reason: "target inside skipDir" };
+  }
+
+  // Canonicalize the symlink's parent directory so the relative linkTarget
+  // computation lines up with `absoluteTarget` (which is canonical from
+  // realpathSync). On macOS, walking through /var/folders/... and resolving
+  // the target through /private/var/folders/... would otherwise produce a
+  // long ../../../private/... path that exceeds the 100-byte ustar limit.
+  let parentAbs: string;
+  try {
+    parentAbs = realpathSync(dirname(fullPath));
+  } catch {
+    parentAbs = resolve(dirname(fullPath));
+  }
+  const linkTarget = relative(parentAbs, absoluteTarget);
+  if (new TextEncoder().encode(linkTarget).length > 100) {
+    return {
+      kind: "drop",
+      reason: "encoded link target exceeds 100-byte ustar limit",
+    };
+  }
+
+  return { kind: "class1", linkTarget };
+}
+
+/**
+ * Recursively walk a directory and return all regular files (and bundleable
+ * symlinks) as VBundleFileEntry objects with paths prefixed by
+ * `archivePrefix`. Symlinks that resolve to a regular file inside the walk
+ * root and outside any skipDir are emitted as typeflag-2 entries (data
+ * empty, `linkTarget` populated). All other symlinks (broken, directory
+ * target, target outside workspace, target inside skipDir, encoded
+ * linkTarget over 100 bytes) are reported via the returned `droppedSymlinks`
+ * array as workspace-relative paths of the symlink itself.
  *
  * By default, binary files (detected via null-byte heuristic in the first
  * 8 KB) are skipped. Pass `includeBinary: true` to include them.
  */
-function walkDirectory(
+export function walkDirectory(
   dir: string,
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
-): VBundleFileEntry[] {
+): { files: VBundleFileEntry[]; droppedSymlinks: string[] } {
   const { includeBinary = false, skipDirs = [] } = options;
   const entries: VBundleFileEntry[] = [];
+  const droppedSymlinks: string[] = [];
 
   function walk(currentDir: string): void {
     const dirEntries = readdirSync(currentDir, { withFileTypes: true });
     for (const entry of dirEntries) {
       const fullPath = join(currentDir, entry.name);
 
-      // Skip symlinks
       const stat = lstatSync(fullPath);
-      if (stat.isSymbolicLink()) continue;
+      if (stat.isSymbolicLink()) {
+        const classification = classifySymlink({
+          fullPath,
+          walkRoot: dir,
+          skipDirs,
+        });
+        if (classification.kind === "class1") {
+          entries.push({
+            path: `${archivePrefix}/${relative(dir, fullPath)}`,
+            data: new Uint8Array(0),
+            linkTarget: classification.linkTarget,
+          });
+        } else {
+          droppedSymlinks.push(relative(dir, fullPath));
+        }
+        continue;
+      }
 
       if (stat.isDirectory()) {
         // Check skip list against the relative path from the walk root
@@ -482,7 +644,7 @@ function walkDirectory(
   }
 
   walk(dir);
-  return entries;
+  return { files: entries, droppedSymlinks };
 }
 
 // ---------------------------------------------------------------------------
@@ -561,12 +723,21 @@ export function buildExportVBundle(
     existsSync(workspaceDir) &&
     lstatSync(workspaceDir).isDirectory()
   ) {
-    files.push(
-      ...walkDirectory(workspaceDir, "workspace", {
+    const { files: walkedFiles, droppedSymlinks } = walkDirectory(
+      workspaceDir,
+      "workspace",
+      {
         includeBinary: true,
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
-      }),
+      },
     );
+    files.push(...walkedFiles);
+    if (droppedSymlinks.length > 0) {
+      getLogger("vbundle-builder").warn(
+        { count: droppedSymlinks.length, paths: droppedSymlinks },
+        `Dropped ${droppedSymlinks.length} symlinks pointing outside workspace or into skipped directories`,
+      );
+    }
   }
 
   // Sanitize workspace/config.json to strip environment-specific fields
@@ -601,26 +772,48 @@ export function buildExportVBundle(
 
 /**
  * Walk a directory tree and collect file metadata (paths + sizes) without
- * reading file contents into memory. Uses the same filtering logic as
- * `walkDirectory` (symlink skip, SQLite auxiliary skip, binary detection,
- * skip dirs).
+ * reading file contents into memory. Mirrors `walkDirectory`'s filtering
+ * logic (SQLite auxiliary skip, binary detection, skipDirs) and symlink
+ * classification — bundleable symlinks are emitted as `SymlinkMetadata`
+ * entries; non-bundleable symlinks are reported via `droppedSymlinks`.
  */
-function walkDirectoryForMetadata(
+export function walkDirectoryForMetadata(
   dir: string,
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
-): FileMetadata[] {
+): {
+  files: FileMetadata[];
+  symlinks: SymlinkMetadata[];
+  droppedSymlinks: string[];
+} {
   const { includeBinary = false, skipDirs = [] } = options;
   const entries: FileMetadata[] = [];
+  const symlinks: SymlinkMetadata[] = [];
+  const droppedSymlinks: string[] = [];
 
   function walk(currentDir: string): void {
     const dirEntries = readdirSync(currentDir, { withFileTypes: true });
     for (const entry of dirEntries) {
       const fullPath = join(currentDir, entry.name);
 
-      // Skip symlinks
       const fileStat = lstatSync(fullPath);
-      if (fileStat.isSymbolicLink()) continue;
+      if (fileStat.isSymbolicLink()) {
+        const classification = classifySymlink({
+          fullPath,
+          walkRoot: dir,
+          skipDirs,
+        });
+        if (classification.kind === "class1") {
+          symlinks.push({
+            archivePath: `${archivePrefix}/${relative(dir, fullPath)}`,
+            linkTarget: classification.linkTarget,
+            size: 0,
+          });
+        } else {
+          droppedSymlinks.push(relative(dir, fullPath));
+        }
+        continue;
+      }
 
       if (fileStat.isDirectory()) {
         // Check skip list against the relative path from the walk root
@@ -673,7 +866,7 @@ function walkDirectoryForMetadata(
   }
 
   walk(dir);
-  return entries;
+  return { files: entries, symlinks, droppedSymlinks };
 }
 
 /**
@@ -699,8 +892,18 @@ async function computeFileSha256(
 /**
  * Create just the 512-byte tar header block for a regular file entry.
  * Extracted from `createTarEntry` logic — does NOT include data or padding.
+ *
+ * When `linkTarget` is provided, the header is emitted as a tar typeflag-2
+ * (symlink) record: typeflag is "2", the link target is written into the
+ * `linkname` field (header[157..256], 100-byte limit), and `size` is forced
+ * to 0 in the header field. Caller is responsible for not yielding any body
+ * or padding bytes for symlink entries.
  */
-function createTarHeaderBlock(name: string, size: number): Uint8Array {
+function createTarHeaderBlock(
+  name: string,
+  size: number,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
 
@@ -718,14 +921,26 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
   // Group ID (116-123)
   writeOctal(header, 116, 8, 0);
 
-  // File size (124-135)
-  writeOctal(header, 124, 12, size);
+  // File size (124-135) — symlink entries always declare size=0
+  writeOctal(header, 124, 12, linkTarget !== undefined ? 0 : size);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
 
-  // Type flag (156): regular file
-  header[156] = "0".charCodeAt(0);
+  // Type flag (156): regular file ("0") or symlink ("2")
+  header[156] =
+    linkTarget !== undefined ? "2".charCodeAt(0) : "0".charCodeAt(0);
+
+  // Linkname (157-256, 100 bytes) — only set for symlink entries
+  if (linkTarget !== undefined) {
+    const linkBytes = encoder.encode(linkTarget);
+    if (linkBytes.length > 100) {
+      throw new Error(
+        `symlink target exceeds 100-byte ustar linkname limit (${linkBytes.length} bytes): ${linkTarget}`,
+      );
+    }
+    header.set(linkBytes, 157);
+  }
 
   // USTAR magic (257-262)
   const magic = encoder.encode("ustar\0");
@@ -735,7 +950,8 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
   header[263] = "0".charCodeAt(0);
   header[264] = "0".charCodeAt(0);
 
-  // Compute and write checksum (148-155)
+  // Compute and write checksum (148-155). Must run AFTER linkname is set
+  // so the checksum covers the symlink target bytes.
   const checksum = computeHeaderChecksum(header);
   writeOctal(header, 148, 7, checksum);
   header[155] = 0x20; // trailing space
@@ -747,13 +963,21 @@ function createTarHeaderBlock(name: string, size: number): Uint8Array {
  * If name exceeds 100 bytes, returns the PAX extended header entry
  * concatenated with the regular header block. Otherwise returns just
  * the header block.
+ *
+ * `linkTarget` is forwarded to `createTarHeaderBlock` so symlink entries
+ * still get a PAX path header for long names while emitting a typeflag-2
+ * ustar block.
  */
-function createPaxAndHeaderBlocks(name: string, size: number): Uint8Array {
+function createPaxAndHeaderBlocks(
+  name: string,
+  size: number,
+  linkTarget?: string,
+): Uint8Array {
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
   const needsPax = nameBytes.length > 100;
 
-  const header = createTarHeaderBlock(name, size);
+  const header = createTarHeaderBlock(name, size, linkTarget);
 
   if (needsPax) {
     const paxEntry = createPaxPathEntry(name);
@@ -791,7 +1015,15 @@ async function* generateTarStream(
 
   // File entries
   for (const file of files) {
-    const entrySize = isInMemoryEntry(file) ? file.size : file.size;
+    if (isSymlinkEntry(file)) {
+      // Symlink entry: typeflag-2 header carries the linkname; no body, no
+      // padding. Skip the entrySize/body/padding logic entirely so the
+      // surrounding stream stays block-aligned.
+      yield createPaxAndHeaderBlocks(file.archivePath, 0, file.linkTarget);
+      continue;
+    }
+
+    const entrySize = file.size;
     yield createPaxAndHeaderBlocks(file.archivePath, entrySize);
 
     if (isInMemoryEntry(file)) {
@@ -885,6 +1117,7 @@ export async function streamExportVBundle(
   }
 
   const allFileMetadata: FileMetadata[] = [];
+  const symlinkEntries: SymlinkMetadata[] = [];
 
   // Walk the entire workspace directory, including binary files
   if (
@@ -892,12 +1125,22 @@ export async function streamExportVBundle(
     existsSync(workspaceDir) &&
     lstatSync(workspaceDir).isDirectory()
   ) {
-    allFileMetadata.push(
-      ...walkDirectoryForMetadata(workspaceDir, "workspace", {
-        includeBinary: true,
-        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
-      }),
-    );
+    const {
+      files: walkedFiles,
+      symlinks: walkedSymlinks,
+      droppedSymlinks,
+    } = walkDirectoryForMetadata(workspaceDir, "workspace", {
+      includeBinary: true,
+      skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+    });
+    allFileMetadata.push(...walkedFiles);
+    symlinkEntries.push(...walkedSymlinks);
+    if (droppedSymlinks.length > 0) {
+      getLogger("vbundle-builder").warn(
+        { count: droppedSymlinks.length, paths: droppedSymlinks },
+        `Dropped ${droppedSymlinks.length} symlinks pointing outside workspace or into skipped directories`,
+      );
+    }
   }
 
   // Sanitize workspace/config.json: read from disk, sanitize, and replace the
@@ -960,6 +1203,19 @@ export async function streamExportVBundle(
     });
   }
 
+  // Add symlink entries to the manifest. The sha256 is computed over the
+  // link target string (UTF-8 encoded) so the streaming validator can
+  // verify the manifest declared the same target the tar header carries.
+  // size_bytes is always 0 for symlink entries.
+  for (const entry of symlinkEntries) {
+    fileEntries.push({
+      path: entry.archivePath,
+      sha256: sha256Hex(entry.linkTarget),
+      size_bytes: 0,
+      link_target: entry.linkTarget,
+    });
+  }
+
   const { manifest, manifestData } = buildManifestObject({
     contents: fileEntries,
     assistant,
@@ -980,6 +1236,7 @@ export async function streamExportVBundle(
     ...allFileMetadata,
     ...sanitizedConfigEntries,
     ...inMemoryEntries,
+    ...symlinkEntries,
   ];
   const tarGenerator = generateTarStream(manifestData, allEntries);
   const tarReadable = Readable.from(tarGenerator);
