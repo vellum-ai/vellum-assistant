@@ -160,42 +160,6 @@ async function updateExtensionIcon(env: ExtensionEnvironment): Promise<void> {
   }
 }
 
-// ── Stable client instance id ──────────────────────────────────────
-//
-// Generated once per extension install and persisted in
-// chrome.storage.local so it survives service-worker teardown and
-// browser restarts. Sent as the `X-Vellum-Client-Id` header on the
-// SSE `/v1/events` connection. The runtime uses it to identify the
-// extension instance so multiple parallel installs for the same
-// guardian (two Chrome profiles, two desktops) can coexist.
-//
-// The value is a UUIDv4, generated via crypto.randomUUID() which is
-// available in MV3 service workers.
-const CLIENT_INSTANCE_ID_KEY = "vellum.clientInstanceId";
-
-/**
- * Read-through cache for the stable client instance id. The value is
- * lazily materialized on first access and persisted in
- * chrome.storage.local; subsequent reads hit the in-memory cache so
- * the hot connect path doesn't have to await storage.
- */
-let cachedClientInstanceId: string | null = null;
-
-async function getOrCreateClientInstanceId(): Promise<string> {
-  if (cachedClientInstanceId) return cachedClientInstanceId;
-  const stored = await chrome.storage.local.get(CLIENT_INSTANCE_ID_KEY);
-  const existing = stored[CLIENT_INSTANCE_ID_KEY];
-  if (typeof existing === "string" && existing.length > 0) {
-    cachedClientInstanceId = existing;
-    return existing;
-  }
-  const fresh = crypto.randomUUID();
-  await chrome.storage.local.set({ [CLIENT_INSTANCE_ID_KEY]: fresh });
-  cachedClientInstanceId = fresh;
-  console.log(`[vellum-relay] Generated stable clientInstanceId: ${fresh}`);
-  return fresh;
-}
-
 // Storage key that controls auto-connect on service-worker startup.
 // Set to `true` after a successful user-initiated connect, cleared to
 // `false` by the `pause` action so the extension stays quiet until
@@ -729,24 +693,6 @@ class MissingTokenError extends Error {
   }
 }
 
-/**
- * Generate an actionable error message for a missing token, scoped
- * to the selected assistant's auth profile.
- */
-function missingTokenMessage(profile: AssistantAuthProfile | null): string {
-  if (profile === "self-hosted") {
-    return "Pairing with gateway failed \u2014 check the Gateway URL and make sure the assistant is running, then try again";
-  }
-  if (profile === "vellum-cloud") {
-    return "Vellum cloud session expired or unavailable. Sign in again to reconnect.";
-  }
-  if (profile === "unsupported") {
-    return "This assistant uses an unsupported topology. Please update the Vellum extension.";
-  }
-  return "Configure a gateway URL and turn Connection on to connect";
-}
-
-// ── Connect options ────────────────────────────────────────────────
 //
 // Threading an explicit `interactive` flag through the connect flow
 // lets the serialization lock decide whether a new call should supersede
@@ -795,7 +741,7 @@ function isAnyConnectionOpen(): boolean {
   );
 }
 
-async function doConnect(options: ConnectOptions): Promise<void> {
+async function doConnect(_options: ConnectOptions): Promise<void> {
   if (isAnyConnectionOpen()) return;
   setConnectionHealth("connecting");
 
