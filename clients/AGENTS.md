@@ -244,7 +244,7 @@ Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (
 
 **Two failure modes to avoid:**
 1. **Over-isolation** — putting `@MainActor` on a type is correct, but running CPU-bound work *inside* it without offloading blocks the UI. Fix: offload the expensive method, not the whole type.
-2. **Under-isolation** — making a stateful class `nonisolated` removes all thread safety. Concurrent access to its stored properties is a data race. Only use `nonisolated` for truly stateless types (enums with static methods, structs, pure-function utilities).
+2. **Under-isolation** — making a stateful class itself `nonisolated` removes all thread safety. Concurrent access to its stored properties is a data race. `nonisolated` is appropriate for stateless types (enums with static methods, structs, pure-function utilities) and for individual `static let` constants of `Sendable` type when they need to be read from off-actor contexts (e.g. a `Task.detached` prefetch). See [SE-0434](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0434-global-actor-isolated-types-usability.md).
 
 **Offloading CPU-bound work:** Use `Task.detached(priority:)` to escape `@MainActor` for the smallest piece of work that needs it. This is the correct approach for the project's current Swift 5 language mode. If the project later enables the `NonisolatedNonsendingByDefault` feature flag (or migrates to Swift 6 language mode), `Task.detached` calls can be replaced with [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md), which achieve the same isolation escape with structured concurrency benefits.
 
