@@ -190,6 +190,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// both `assistantActivityState(idle)` and `messageComplete` are lost.
     @ObservationIgnored private var thinkingWatchdogTask: Task<Void, Never>?
 
+    /// Fallback task scheduled by the `assistantActivityState("idle")` handler.
+    /// Clears `currentAssistantMessageId` after 5 seconds if `messageComplete`
+    /// hasn't arrived to do it. Cancelled by `handleMessageComplete`.
+    @ObservationIgnored var idleFallbackTask: Task<Void, Never>?
+
     /// Per-requestId safety-net timeouts that clear the submitting spinner if
     /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
     /// by requestId so concurrent submissions each get an independent timeout.
@@ -269,6 +274,22 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
     }
+    /// Schedule a 5-second fallback to clear `currentAssistantMessageId` if
+    /// `messageComplete` never arrives after the daemon reported idle.
+    func scheduleIdleFallbackCleanup() {
+        idleFallbackTask?.cancel()
+        guard currentAssistantMessageId != nil else { return }
+        idleFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self else { return }
+            guard self.currentAssistantMessageId != nil else { return }
+            log.warning("idle fallback: messageComplete not received within 5s — clearing currentAssistantMessageId")
+            self.currentAssistantMessageId = nil
+            self.currentTurnUserText = nil
+            self.currentAssistantHasText = false
+        }
+    }
+
     /// Whether the assistant is actively working on a response — covers sending,
     /// extended-thinking, any in-progress assistant message, and orphaned tool
     /// calls that haven't received their `tool_result` event yet (e.g. tool
@@ -2498,6 +2519,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
         thinkingWatchdogTask?.cancel()
+        idleFallbackTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         if let token = memoryPressureListener {
             MemoryPressureMonitor.shared.removeListener(token)

@@ -509,6 +509,8 @@ final class ChatActionHandler {
         if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
+        vm.idleFallbackTask?.cancel()
+        vm.idleFallbackTask = nil
         // Capture before dispatchPendingSendDirect clears the flag so we can
         // tell a real turn end from a cancel-acknowledgement completion.
         let wasCancelAck = vm.pendingSendDirectText != nil
@@ -1512,12 +1514,14 @@ final class ChatActionHandler {
                     vm.messages[idx].toolCalls[j].completedAt = Date()
                 }
             }
-            vm.currentAssistantMessageId = nil
-            vm.currentTurnUserText = nil
-            vm.currentAssistantHasText = false
             if vm.pendingQueuedCount == 0 {
                 vm.isSending = false
             }
+            // Leave currentAssistantMessageId for messageComplete — it needs
+            // it for daemonMessageId backfill, attachment ingestion, and voice
+            // callbacks. Schedule a short fallback to clear it if messageComplete
+            // never arrives (lost event).
+            vm.scheduleIdleFallbackCleanup()
         case "awaiting_confirmation":
             vm.isThinking = false
             vm.isSending = false
