@@ -29,6 +29,7 @@ mock.module("../../../config/loader.js", () => ({
   },
 }));
 
+import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
@@ -39,8 +40,10 @@ import {
   recordMemoryV2ActivationLog,
 } from "../../../memory/memory-v2-activation-log-store.js";
 import {
+  conversations,
   llmRequestLogs,
   memoryV2ActivationLogs,
+  messages,
 } from "../../../memory/schema.js";
 import { ROUTES } from "../conversation-query-routes.js";
 
@@ -68,6 +71,40 @@ function clearTables(): void {
   const db = getDb();
   db.delete(llmRequestLogs).run();
   db.delete(memoryV2ActivationLogs).run();
+  db.delete(messages).run();
+  db.delete(conversations).run();
+}
+
+function seedConversationAndMessage(args: {
+  conversationId: string;
+  messageId: string;
+  source: string;
+  conversationType: ConversationCreateType;
+}): void {
+  const now = Date.now();
+  getDb()
+    .insert(conversations)
+    .values({
+      id: args.conversationId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      source: args.source,
+      conversationType: args.conversationType,
+      memoryScopeId: "default",
+    })
+    .run();
+  getDb()
+    .insert(messages)
+    .values({
+      id: args.messageId,
+      conversationId: args.conversationId,
+      role: "assistant",
+      content: "",
+      createdAt: now,
+      metadata: null,
+    })
+    .run();
 }
 
 function seedRequestLog(messageId: string, id: string): void {
@@ -140,6 +177,67 @@ describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
     expect(body.memoryV2Activation!.config).toEqual(sampleConfig);
     // Backwards-compat: memoryRecall field still present.
     expect(body).toHaveProperty("memoryRecall");
+  });
+});
+
+describe("GET /v1/messages/:id/llm-context — conversationKind", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns 'background_memory_consolidation' for memory_v2_consolidation source", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-mem-consol",
+      messageId: "msg-mem-consol",
+      source: "memory_v2_consolidation",
+      conversationType: "background",
+    });
+
+    const body = (await dispatchLlmContext("msg-mem-consol")) as {
+      conversationKind: string;
+      logs: unknown[];
+    };
+
+    expect(body.conversationKind).toBe("background_memory_consolidation");
+    expect(body.logs).toEqual([]);
+  });
+
+  test("returns 'background' for non-consolidation background conversations", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-bg",
+      messageId: "msg-bg",
+      source: "memory_consolidation",
+      conversationType: "background",
+    });
+
+    const body = (await dispatchLlmContext("msg-bg")) as {
+      conversationKind: string;
+    };
+
+    expect(body.conversationKind).toBe("background");
+  });
+
+  test("returns 'user' for standard conversations", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-user",
+      messageId: "msg-user",
+      source: "user",
+      conversationType: "standard",
+    });
+
+    const body = (await dispatchLlmContext("msg-user")) as {
+      conversationKind: string;
+    };
+
+    expect(body.conversationKind).toBe("user");
+  });
+
+  test("falls back to 'user' when the message can't be resolved", async () => {
+    const body = (await dispatchLlmContext("msg-missing")) as {
+      conversationKind: string;
+    };
+
+    expect(body.conversationKind).toBe("user");
   });
 });
 
