@@ -1,5 +1,4 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { buildToolDefinitions } from "../daemon/conversation-tool-setup.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -27,7 +26,7 @@ export interface RunBtwSidechainParams {
   provider?: Provider;
   messages?: Message[];
   systemPrompt?: string;
-  tools?: ToolDefinition[];
+  tools: ToolDefinition[];
   maxTokens?: number;
   /**
    * Unified call-site identifier. The provider layer resolves
@@ -68,7 +67,7 @@ export async function runBtwSidechain(
     throw new Error("BTW side-chain requires a provider");
   }
 
-  const tools = params.tools ?? buildToolDefinitions();
+  const tools = params.tools;
   const history = params.messages ?? params.conversation?.getMessages() ?? [];
   const messages = [...history, userMessage(trimmedContent)];
   const systemPrompt =
