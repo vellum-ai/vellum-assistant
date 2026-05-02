@@ -37,6 +37,7 @@ import {
   assistantDbQuery,
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
+import { upsertVerifiedContactChannel } from "../../verification/contact-helpers.js";
 
 const log = getLogger("twilio-voice-verify-callback");
 
@@ -179,6 +180,24 @@ export function createTwilioVoiceVerifyCallbackHandler(
         );
         // Don't fail the call — the verification succeeded even if binding
         // creation had an issue. The caller should still be connected.
+      }
+    } else if (result.verificationType === "trusted_contact") {
+      try {
+        await upsertVerifiedContactChannel({
+          sourceChannel: "phone",
+          externalUserId: fromNumber,
+          externalChatId: fromNumber,
+        });
+
+        log.info(
+          { callSid, fromNumber },
+          "Trusted contact phone channel activated by gateway",
+        );
+      } catch (err) {
+        log.error(
+          { err, callSid, fromNumber },
+          "Failed to upsert trusted contact channel after voice verification",
+        );
       }
     }
 
