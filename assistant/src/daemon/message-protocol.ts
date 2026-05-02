@@ -34,7 +34,6 @@ export * from "./message-types/meet.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
-export * from "./message-types/pairing.js";
 export * from "./message-types/schedules.js";
 export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
@@ -107,10 +106,6 @@ import type {
   _NotificationsServerMessages,
 } from "./message-types/notifications.js";
 import type {
-  _PairingClientMessages,
-  _PairingServerMessages,
-} from "./message-types/pairing.js";
-import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
 } from "./message-types/schedules.js";
@@ -170,7 +165,6 @@ export type ClientMessage =
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
   | _InboxClientMessages
-  | _PairingClientMessages
   | _NotificationsClientMessages
   | _SettingsClientMessages;
 
@@ -203,7 +197,6 @@ export type ServerMessage =
   | _SettingsServerMessages
   | _DiagnosticsServerMessages
   | _InboxServerMessages
-  | _PairingServerMessages
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
@@ -215,4 +208,3 @@ export interface ContractSchema {
   client: ClientMessage;
   server: ServerMessage;
 }
-

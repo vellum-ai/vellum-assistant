@@ -54,7 +54,7 @@ final class DeleteAccountTests: XCTestCase {
     /// `account-deletion` key controls visibility.
     func testDangerZoneHiddenForUnrelatedFlag() {
         let manager = MacOSClientFeatureFlagManager(
-            environment: ["VELLUM_FLAG_MOBILE_PAIRING": "1"]
+            environment: ["VELLUM_FLAG_LOCAL_DOCKER_ENABLED": "1"]
         )
         XCTAssertFalse(SettingsGeneralTab.shouldShowDangerZone(
             flagManager: manager,

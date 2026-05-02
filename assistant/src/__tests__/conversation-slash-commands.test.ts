@@ -115,8 +115,6 @@ describe("resolveSlash command contract", () => {
       "/context foo",
       "/models foo",
       "/status foo",
-      "/pair foo",
-      "/pair",
       "/btw",
     ];
 
@@ -138,7 +136,6 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
     input: string;
     kind: "passthrough" | "compact" | "unknown";
   }> = [
-    { input: "/pair", kind: "passthrough" },
     { input: "/models", kind: "unknown" },
     { input: "/context", kind: "unknown" },
     { input: "/status", kind: "unknown" },
@@ -149,7 +146,6 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
     { input: "/opus", kind: "unknown" },
     { input: "hello", kind: "passthrough" },
     { input: "  /compact  ", kind: "compact" },
-    { input: "/pair foo", kind: "passthrough" },
     { input: "/models foo", kind: "passthrough" },
   ];
 

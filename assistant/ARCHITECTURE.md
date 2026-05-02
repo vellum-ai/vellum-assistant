@@ -84,7 +84,6 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
-| `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
 | `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 
@@ -1185,12 +1184,12 @@ graph TB
 
     INPUT --> RESOLVE
     RESOLVE -->|"kind: passthrough"| PASSTHROUGH
-    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands, /pair)"| HANDLED
+    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands)"| HANDLED
 ```
 
 Key behaviors:
 
-- **Built-in commands**: `/models`, `/status`, `/commands`, and `/pair` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Built-in commands**: `/models`, `/status`, and `/commands` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
 - **Passthrough**: Any input that does not match a built-in command passes through to the normal agent loop, including slash-like tokens that are not recognized.
 - **Queue**: Queued messages receive the same slash resolution.
 

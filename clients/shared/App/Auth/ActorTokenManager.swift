@@ -49,7 +49,7 @@ public enum ActorTokenManager {
 
     /// Clear all refresh-related metadata (token, expiry, refreshAfter).
     /// Used when a bootstrap response lacks refresh fields so stale values
-    /// from prior pairings don't trigger invalid refresh attempts.
+    /// from prior bootstraps don't trigger invalid refresh attempts.
     public static func clearRefreshMetadata() {
         _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenProvider)
         _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenExpiresAtProvider)
@@ -87,7 +87,7 @@ public enum ActorTokenManager {
 
     // MARK: - Credential Bundle
 
-    /// Store the full credential set from bootstrap/pairing/refresh response.
+    /// Store the full credential set from bootstrap/refresh response.
     public static func storeCredentials(
         actorToken: String,
         actorTokenExpiresAt: Int,
@@ -106,7 +106,8 @@ public enum ActorTokenManager {
         }
     }
 
-    /// Delete all credentials (used during unpair/logout).
+    /// Delete all credentials. Used during re-bootstrap, fingerprint change,
+    /// or terminal token-refresh failure.
     public static func deleteAllCredentials() {
         _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
         _ = APIKeyManager.shared.deleteAPIKey(provider: guardianPrincipalIdProvider)

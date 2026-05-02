@@ -1234,8 +1234,8 @@ export async function startGateway(
   const gatewayUrl = publicUrl || `http://localhost:${effectiveGatewayPort}`;
 
   // Wait for the gateway to be responsive before returning. Without this,
-  // callers (e.g. displayPairingQRCode) may try to connect before the HTTP
-  // server is listening and get connection-refused errors.
+  // callers may try to connect before the HTTP server is listening and get
+  // connection-refused errors.
   const start = Date.now();
   const timeoutMs = 30000;
   let ready = false;

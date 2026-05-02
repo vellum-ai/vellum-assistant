@@ -231,10 +231,6 @@ struct HatchingStepView: View {
 
     // MARK: - Status Text
 
-    private var isCustomHardware: Bool {
-        state.cloudProvider == "customHardware"
-    }
-
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
@@ -258,11 +254,7 @@ struct HatchingStepView: View {
                     }
                 }
             } else if state.hatchCompleted {
-                Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentDefault)
-            } else if isCustomHardware {
-                Text("Pairing\u{2026}")
+                Text("Your assistant is ready!")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else {
@@ -282,7 +274,7 @@ struct HatchingStepView: View {
     // MARK: - Progress Bar
 
     private var showProgressBar: Bool {
-        !state.hatchFailed && !isCustomHardware && state.hatchStepLabel != nil
+        !state.hatchFailed && state.hatchStepLabel != nil
             && (!state.hatchCompleted || isAnimatingProgress)
     }
 
@@ -431,22 +423,20 @@ struct HatchingStepView: View {
     }
 
     /// Called when the CLI process finishes successfully or when the success
-    /// sentinel is detected in CLI output. Saves the random avatar (for
-    /// non-pairing flows) then signals completion after a brief delay.
-    /// Idempotent — safe to call multiple times.
+    /// sentinel is detected in CLI output. Saves the random avatar then signals
+    /// completion after a brief delay. Idempotent — safe to call multiple times.
     private func handleHatchSuccess() {
         guard !state.hatchCompleted && !state.hatchFailed && completionTask == nil else { return }
 
         log.info("Hatch success detected — starting completion transition")
 
-        // Save the randomly-generated avatar as the user's avatar, but only for
-        // non-pairing flows and only if one hasn't already been uploaded/generated
-        // (preserves existing avatars when replaying onboarding during development).
+        // Save the randomly-generated avatar as the user's avatar, but only if
+        // one hasn't already been uploaded/generated (preserves existing avatars
+        // when replaying onboarding during development).
         // skipWorkspaceSync: the guardian token hasn't been imported yet so gateway
         // requests would 401. The workspace sync happens later in
         // syncOnboardingAvatarIfNeeded() after the daemon connection is authenticated.
-        if !isCustomHardware,
-           AvatarAppearanceManager.shared.customAvatarImage == nil,
+        if AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
             AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor, skipWorkspaceSync: true)
         }
@@ -511,7 +501,7 @@ struct HatchingStepView: View {
             return value
         }
 
-        // Non-managed flows (local / docker / apple-container / pairing) use a
+        // Non-managed flows (local / docker / apple-container) use a
         // time-based asymptotic curve so the bar always appears to be moving.
         if state.hatchCompleted, let compTime = completionTime, let baseProgress = progressAtCompletion {
             // Ease-out ramp from current position to 100%
@@ -534,7 +524,7 @@ struct HatchingStepView: View {
         return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
     }
 
-    // MARK: - Hatching / Pairing
+    // MARK: - Hatching
 
     private func startHatching() {
         // Managed assistants handle daemon connection in OnboardingFlowView;
@@ -542,8 +532,6 @@ struct HatchingStepView: View {
         if state.isManagedHatch { return }
         if state.cloudProvider == "apple-container" {
             startAppleContainerHatch()
-        } else if isCustomHardware {
-            startPairing()
         } else {
             startRemoteHatch()
         }
@@ -662,24 +650,6 @@ struct HatchingStepView: View {
                 handleHatchSuccess()
             } catch {
                 log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")
-                state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                state.hatchFailureReason = friendlyErrorMessage(from: error)
-                state.hatchFailed = true
-            }
-        }
-    }
-
-    private func startPairing() {
-        Task {
-            do {
-                try await cliLauncher.runPair(qrCodeImageData: state.customQRCodeImageData) { line in
-                    Task { @MainActor in
-                        state.hatchLogLines.append(line)
-                    }
-                }
-                handleHatchSuccess()
-            } catch {
-                log.error("Pairing failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 state.hatchFailureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true

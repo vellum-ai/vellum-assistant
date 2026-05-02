@@ -144,15 +144,6 @@ public enum ChatSlashCommandCatalog {
             helpBubblePlatforms: allPlatforms,
             sendPathPlatforms: allPlatforms
         ),
-        ChatSlashCommandDescriptor(
-            name: "pair",
-            description: "Generate pairing info for connecting a mobile device",
-            icon: "qrcode",
-            selectionBehavior: .autoSend,
-            pickerPlatforms: [.macos],
-            helpBubblePlatforms: [.macos],
-            sendPathPlatforms: allPlatforms
-        ),
     ]
 
     public static func commands(

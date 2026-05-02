@@ -274,8 +274,7 @@ export function createChannelVerificationSessionProxyHandler(
           guardianInitInFlight = false;
           return Response.json(
             {
-              error:
-                "Invalid platform. Bootstrap is macOS/CLI/web-only; iOS uses QR pairing.",
+              error: "Invalid platform. Bootstrap is macOS/CLI/web-only.",
             },
             { status: 400 },
           );

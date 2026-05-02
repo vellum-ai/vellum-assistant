@@ -1250,68 +1250,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/pairing/register": {
-        post: {
-          summary: "Register pairing code",
-          description:
-            "Authenticated gateway endpoint that registers a new pairing code for device linking via the assistant runtime.",
-          operationId: "pairingRegister",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Pairing code registered" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "502": { description: "Failed to reach assistant runtime" },
-          },
-        },
-      },
-      "/pairing/request": {
-        post: {
-          summary: "Request pairing",
-          description:
-            "Initiates a pairing request using a pairing code. Auth failures are tracked for rate limiting.",
-          operationId: "pairingRequest",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Pairing request accepted" },
-            "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized" },
-            "403": { description: "Pairing code expired or invalid" },
-            "502": { description: "Failed to reach assistant runtime" },
-          },
-        },
-      },
-      "/pairing/status": {
-        get: {
-          summary: "Check pairing status",
-          description:
-            "Checks the current status of a pairing request. Auth failures are tracked for rate limiting.",
-          operationId: "pairingStatus",
-          responses: {
-            "200": { description: "Pairing status returned" },
-            "401": { description: "Unauthorized" },
-            "403": { description: "Pairing session not found" },
-            "502": { description: "Failed to reach assistant runtime" },
-          },
-        },
-      },
       "/v1/integrations/telegram/config": {
         get: {
           summary: "Get Telegram integration config",

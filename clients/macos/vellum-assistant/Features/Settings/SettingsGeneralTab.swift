@@ -11,7 +11,6 @@ struct SettingsGeneralTab: View {
     var showToast: (String, ToastInfo.Style) -> Void
     var onSignIn: (() -> Void)?
 
-    @State private var showingPairingQR: Bool = false
     @State private var showingDeleteAccountConfirm: Bool = false
 
     // -- Software Update state --
@@ -71,9 +70,6 @@ struct SettingsGeneralTab: View {
                !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
-            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
-                mobilePairingCard
-            }
             SettingsAppearanceTab(store: store)
             uninstallSection
             if Self.shouldShowDangerZone(isAuthenticated: authManager.currentUser != nil) {
@@ -82,7 +78,6 @@ struct SettingsGeneralTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
-            store.refreshApprovedDevices()
             selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
@@ -111,12 +106,6 @@ struct SettingsGeneralTab: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
-        }
-        .sheet(isPresented: $showingPairingQR) {
-            PairingQRCodeSheet(
-                gatewayUrl: store.resolvedIosGatewayUrl,
-                connectionManager: connectionManager
-            )
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
@@ -339,48 +328,6 @@ struct SettingsGeneralTab: View {
             return String(format: "%.1f GB", mb / 1024.0)
         }
         return String(format: "%.0f MB", mb)
-    }
-
-    // MARK: - Mobile Pairing
-
-    private var mobilePairingCard: some View {
-        SettingsCard(title: "Mobile (iOS)", subtitle: "Connect your phone to your assistant through the iOS app") {
-            if !store.approvedDevices.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Devices")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-
-                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(.smartphone, size: 12)
-                                .foregroundStyle(VColor.systemPositiveStrong)
-                            Text(device.deviceName)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentSecondary)
-                            VButton(label: "Remove \(device.deviceName)", iconOnly: VIcon.trash.rawValue, style: .danger) {
-                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
-                            }
-                        }
-                    }
-                }
-            }
-
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            if !hasGateway {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundStyle(VColor.systemNegativeHover)
-                    Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.systemNegativeHover)
-                }
-            } else {
-                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
-                    showingPairingQR = true
-                }
-            }
-        }
     }
 
     // MARK: - Uninstall

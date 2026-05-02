@@ -144,7 +144,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             "/commands foo",
             "/models foo",
             "/status foo",
-            "/pair foo",
             "/btw",
         ]
 
@@ -166,7 +165,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             "/COMMANDS",
             "/MODELS",
             "/STATUS",
-            "/PAIR",
             "/BTW follow up",
         ]
 

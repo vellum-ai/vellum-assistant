@@ -264,64 +264,6 @@ public struct AppRestoreResponse: Codable, Sendable {
     }
 }
 
-public struct ApprovedDeviceRemove: Codable, Sendable {
-    public let type: String
-    public let hashedDeviceId: String
-
-    public init(type: String, hashedDeviceId: String) {
-        self.type = type
-        self.hashedDeviceId = hashedDeviceId
-    }
-}
-
-public struct ApprovedDeviceRemoveResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-
-    public init(type: String, success: Bool) {
-        self.type = type
-        self.success = success
-    }
-}
-
-public struct ApprovedDevicesClear: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct ApprovedDevicesList: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct ApprovedDevicesListResponse: Codable, Sendable {
-    public let type: String
-    public let devices: [ApprovedDevicesListResponseDevice]
-
-    public init(type: String, devices: [ApprovedDevicesListResponseDevice]) {
-        self.type = type
-        self.devices = devices
-    }
-}
-
-public struct ApprovedDevicesListResponseDevice: Codable, Sendable {
-    public let hashedDeviceId: String
-    public let deviceName: String
-    public let lastPairedAt: Int
-
-    public init(hashedDeviceId: String, deviceName: String, lastPairedAt: Int) {
-        self.hashedDeviceId = hashedDeviceId
-        self.deviceName = deviceName
-        self.lastPairedAt = lastPairedAt
-    }
-}
-
 public struct AppsListRequest: Codable, Sendable {
     public let type: String
 
@@ -3111,32 +3053,6 @@ public struct OpenConversation: Codable, Sendable {
         self.title = title
         self.anchorMessageId = anchorMessageId
         self.focus = focus
-    }
-}
-
-public struct PairingApprovalRequest: Codable, Sendable {
-    public let type: String
-    public let pairingRequestId: String
-    public let deviceId: String
-    public let deviceName: String
-
-    public init(type: String, pairingRequestId: String, deviceId: String, deviceName: String) {
-        self.type = type
-        self.pairingRequestId = pairingRequestId
-        self.deviceId = deviceId
-        self.deviceName = deviceName
-    }
-}
-
-public struct PairingApprovalResponse: Codable, Sendable {
-    public let type: String
-    public let pairingRequestId: String
-    public let decision: String
-
-    public init(type: String, pairingRequestId: String, decision: String) {
-        self.type = type
-        self.pairingRequestId = pairingRequestId
-        self.decision = decision
     }
 }
 

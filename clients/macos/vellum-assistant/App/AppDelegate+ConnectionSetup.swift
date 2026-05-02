@@ -121,7 +121,7 @@ extension AppDelegate {
 
         // Set recovery credentials for automatic 401 re-bootstrap
         connectionManager.recoveryPlatform = "macos"
-        connectionManager.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
+        connectionManager.recoveryDeviceId = HostIdComputer.computeHostId()
 
         // Auto-wake: if a connection attempt finds the assistant process dead,
         // wake it via the CLI before retrying.
@@ -272,14 +272,6 @@ extension AppDelegate {
                     self.showPlatformLogin()
                 case .platformDisconnected:
                     self.performLogout()
-                case .pairingApprovalRequest(let msg):
-                    if self.pairingApprovalWindow == nil {
-                        self.pairingApprovalWindow = PairingApprovalWindow()
-                    }
-                    self.pairingApprovalWindow?.show(
-                        pairingRequestId: msg.pairingRequestId,
-                        deviceName: msg.deviceName
-                    )
                 case .taskRunConversationCreated(let msg):
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()

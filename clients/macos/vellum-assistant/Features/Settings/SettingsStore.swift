@@ -381,7 +381,6 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
-    private let pairingClient: PairingClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -451,7 +450,6 @@ public final class SettingsStore: ObservableObject {
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
-        pairingClient: PairingClientProtocol = PairingClient(),
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
@@ -462,7 +460,6 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
-        self.pairingClient = pairingClient
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -4245,64 +4242,6 @@ public final class SettingsStore: ObservableObject {
         } catch {
             return false
         }
-    }
-
-    // MARK: - Approved Devices
-
-    @Published var approvedDevices: [ApprovedDevicesListResponseMessage.Device] = []
-
-    func refreshApprovedDevices() {
-        Task {
-            do {
-                let devices = try await pairingClient.fetchApprovedDevices()
-                self.approvedDevices = devices
-            } catch {
-                // Fetch failed — preserve existing local state
-            }
-        }
-    }
-
-    func removeApprovedDevice(hashedDeviceId: String) {
-        let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
-        approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-        Task {
-            do {
-                let success = try await pairingClient.removeApprovedDevice(hashedDeviceId: hashedDeviceId)
-                if !success {
-                    self.approvedDevices.append(contentsOf: removed)
-                }
-            } catch {
-                // Request failed — restore optimistically removed devices
-                self.approvedDevices.append(contentsOf: removed)
-            }
-        }
-    }
-
-    func clearAllApprovedDevices() {
-        Task {
-            do {
-                let success = try await pairingClient.clearApprovedDevices()
-                if success {
-                    self.approvedDevices = []
-                }
-            } catch {
-                // Request failed — don't clear local state
-            }
-        }
-    }
-
-    // MARK: - iOS Pairing
-
-    /// Gateway URL for iOS pairing.
-    var resolvedIosGatewayUrl: String {
-        ingressPublicBaseUrl
-    }
-
-    /// LAN pairing URL for the gateway, or nil if no LAN IP available.
-    var lanPairingUrl: String? {
-        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        let connectedId = cachedAssistantId
-        return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
     // MARK: - User Timezone Actions

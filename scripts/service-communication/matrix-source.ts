@@ -267,17 +267,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
   {
-    label: "Pairing proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "http",
-    auth: "JWT Bearer (service token)",
-    description:
-      "Gateway proxies /v1/pairing/* (register, request, status) to the assistant's pairing endpoints. The gateway ingress is unauthenticated — secured by a pairingSecret in the request body — while the gateway→assistant hop uses a service token.",
-    callerGlobs: ["gateway/src/http/routes/pairing-proxy.ts"],
-    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
-  },
-  {
     label: "Channel integration control-plane proxies",
     caller: "gateway",
     callee: "assistant",

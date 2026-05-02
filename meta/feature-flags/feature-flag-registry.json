@@ -34,14 +34,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "mobile-pairing",
-      "scope": "client",
-      "key": "mobile-pairing",
-      "label": "Mobile Pairing",
-      "description": "Show the Mobile (iOS) pairing card in Settings > Account",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "client",
       "key": "settings-developer-nav",
@@ -238,7 +230,7 @@
       "scope": "client",
       "key": "coding-agents-panel",
       "label": "Coding Agents Panel",
-      "description": "Gate native macOS/iOS Coding Agents panel entry points and inline ACP session deep links.",
+      "description": "Gate native macOS Coding Agents panel entry points and inline ACP session deep links.",
       "defaultEnabled": false
     },
     {

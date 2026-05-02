@@ -206,7 +206,7 @@ extension AppDelegate {
 
                     let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                         platform: "macos",
-                        deviceId: PairingQRCodeSheet.computeHostId()
+                        deviceId: HostIdComputer.computeHostId()
                     )
 
                     switch result {
@@ -355,7 +355,7 @@ extension AppDelegate {
             log.info("performInitialBootstrap: skipFileImport=true — driving HTTP reprovision path directly")
         }
 
-        let deviceId = PairingQRCodeSheet.computeHostId()
+        let deviceId = HostIdComputer.computeHostId()
         let retryDelay: UInt64 = 500_000_000
 
         // Self-heal path: if a refresh token survives in the keychain (e.g.

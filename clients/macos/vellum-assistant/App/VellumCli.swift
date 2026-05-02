@@ -560,13 +560,12 @@ final class VellumCli: AssistantManagementClient {
         }
 
         log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .public) --remote \(config.remote, privacy: .public)")
-        let cliRemoteForLog = config.remote == "customHardware" ? "custom" : config.remote
-        log.info("[audit] CLI invoke: hatch args=--remote \(cliRemoteForLog, privacy: .public)")
+        log.info("[audit] CLI invoke: hatch args=--remote \(config.remote, privacy: .public)")
         let remoteHatchStartTime = ContinuousClock.now
 
         let proc = Process()
         proc.executableURL = binaryURL
-        let cliRemote = config.remote == "customHardware" ? "custom" : config.remote
+        let cliRemote = config.remote
         var hatchArgs = ["hatch", "--remote", cliRemote]
         #if DEBUG
         if cliRemote == "docker" {
@@ -776,182 +775,6 @@ final class VellumCli: AssistantManagementClient {
 
         log.info("CLI remote hatch completed successfully")
         log.info("[audit] CLI done: hatch(remote) exit=0 duration=\(remoteHatchMs)ms")
-    }
-
-    // MARK: - Pair (custom hardware)
-
-    func runPair(
-        qrCodeImageData: Data,
-        onOutput: @escaping @Sendable (String) -> Void
-    ) async throws {
-        guard let binaryURL = cliBinaryURL else {
-            log.info("No bundled CLI binary found — skipping pair (dev mode)")
-            throw CLIError.binaryNotFound
-        }
-
-        let tmpQRPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vellum-qr-code-\(ProcessInfo.processInfo.processIdentifier).png")
-        try qrCodeImageData.write(to: tmpQRPath)
-        defer { try? FileManager.default.removeItem(at: tmpQRPath) }
-
-        log.info("Running pair via CLI at \(binaryURL.path, privacy: .public)")
-        log.info("[audit] CLI invoke: pair")
-        let pairStartTime = ContinuousClock.now
-
-        let proc = Process()
-        proc.executableURL = binaryURL
-        proc.arguments = ["pair", tmpQRPath.path]
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-
-        let env = Self.makeBaseEnvironment()
-        proc.environment = env
-
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-
-        let stderrAccumulator = StderrAccumulator()
-
-        // Line buffers: readabilityHandler delivers arbitrary Data chunks,
-        // not guaranteed line-delimited strings. We accumulate bytes and
-        // split on newline (0x0A) so onOutput always receives complete lines.
-        let newlineByte: UInt8 = 0x0A
-        var stdoutBuffer = Data()
-        var stderrBuffer = Data()
-        let bufferQueue = DispatchQueue(label: "com.vellum.cli.pair-line-buffer")
-
-        stdoutHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            bufferQueue.sync {
-                stdoutBuffer.append(data)
-                while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
-                    let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
-                    stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
-                    if let line = String(data: lineData, encoding: .utf8) {
-                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            onOutput(trimmed)
-                        }
-                    }
-                }
-            }
-        }
-
-        stderrHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            bufferQueue.sync {
-                stderrBuffer.append(data)
-                while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
-                    let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
-                    stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
-                    if let line = String(data: lineData, encoding: .utf8) {
-                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            stderrAccumulator.append(trimmed)
-                            onOutput(trimmed)
-                        }
-                    }
-                }
-            }
-        }
-
-        // proc.run() is called INSIDE the continuation to avoid a race
-        // where the process exits before terminationHandler is set.
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            proc.terminationHandler = { finished in
-                stdoutHandle.readabilityHandler = nil
-                stderrHandle.readabilityHandler = nil
-
-                // Drain any data that arrived after the last readabilityHandler
-                // callback but before we nil'd the handlers. Feed it through
-                // the line buffers so complete lines are emitted, then flush
-                // any remaining partial line.
-                let remainingStdout = stdoutHandle.availableData
-                let remainingStderr = stderrHandle.availableData
-
-                bufferQueue.sync {
-                    // Process remaining stdout through line buffer
-                    if !remainingStdout.isEmpty {
-                        stdoutBuffer.append(remainingStdout)
-                        while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
-                            let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
-                            stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
-                            if let line = String(data: lineData, encoding: .utf8) {
-                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty {
-                                    onOutput(trimmed)
-                                }
-                            }
-                        }
-                    }
-
-                    // Process remaining stderr through line buffer
-                    if !remainingStderr.isEmpty {
-                        stderrBuffer.append(remainingStderr)
-                        while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
-                            let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
-                            stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
-                            if let line = String(data: lineData, encoding: .utf8) {
-                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty {
-                                    stderrAccumulator.append(trimmed)
-                                    onOutput(trimmed)
-                                }
-                            }
-                        }
-                    }
-
-                    // Flush any remaining partial lines in the buffers
-                    if let line = String(data: stdoutBuffer, encoding: .utf8) {
-                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            onOutput(trimmed)
-                        }
-                    }
-                    stdoutBuffer = Data()
-
-                    if let line = String(data: stderrBuffer, encoding: .utf8) {
-                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            stderrAccumulator.append(trimmed)
-                            onOutput(trimmed)
-                        }
-                    }
-                    stderrBuffer = Data()
-                }
-
-                continuation.resume(returning: finished.terminationStatus)
-            }
-            do {
-                try proc.run()
-                log.info("CLI pair launched with pid \(proc.processIdentifier)")
-            } catch {
-                stdoutHandle.readabilityHandler = nil
-                stderrHandle.readabilityHandler = nil
-                continuation.resume(throwing: error)
-            }
-        }
-
-        let pairElapsed = ContinuousClock.now - pairStartTime
-        let pairMs = pairElapsed.components.seconds * 1000 + Int64(pairElapsed.components.attoseconds / 1_000_000_000_000_000)
-
-        if status != 0 {
-            let stderr = stderrAccumulator.content
-            let detail = stderr.isEmpty
-                ? "Pair process exited with code \(status)"
-                : stderr
-            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .public)")
-            log.warning("[audit] CLI done: pair exit=\(status) duration=\(pairMs)ms")
-            throw CLIError.executionFailed(detail)
-        }
-
-        log.info("CLI pair completed successfully")
-        log.info("[audit] CLI done: pair exit=0 duration=\(pairMs)ms")
     }
 
     // MARK: - Private Helpers

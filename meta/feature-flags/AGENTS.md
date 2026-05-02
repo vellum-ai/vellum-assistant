@@ -15,8 +15,8 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
 
 ```
 "user-hosted-enabled"
-"mobile-pairing"
 "quick-input"
+"expand-completed-steps"
 ```
 
 **Do not** use a `feature_flags.` prefix, `.enabled` suffix, or snake_case. The old canonical format (`feature_flags.<id>.enabled` / `snake_case_key`) is being retired.

@@ -104,7 +104,7 @@ export function getOrCreatePersistedDeviceId(): string {
 /**
  * Compute a stable device identifier matching the native client conventions.
  *
- * - macOS: SHA-256 of IOPlatformUUID + salt (matches PairingQRCodeSheet.computeHostId)
+ * - macOS: SHA-256 of IOPlatformUUID + salt
  * - Linux: SHA-256 of /etc/machine-id + salt
  * - Windows: SHA-256 of HKLM MachineGuid + salt
  * - Fallback: persisted random UUID in XDG config

@@ -45,7 +45,6 @@ final class OnboardingState {
         case oldLocal = "oldLocal"
         case gcp = "gcp"
         case aws = "aws"
-        case customHardware = "customHardware"
 
         var displayName: String {
             switch self {
@@ -55,7 +54,6 @@ final class OnboardingState {
             case .oldLocal: return "Old Local"
             case .gcp: return "GCP"
             case .aws: return "AWS"
-            case .customHardware: return "Custom"
             }
         }
 
@@ -67,7 +65,6 @@ final class OnboardingState {
             case .oldLocal: return "Legacy local mode without Docker."
             case .gcp: return "Host on your GCP account"
             case .aws: return "Host on your AWS account"
-            case .customHardware: return "Run on your own hardware"
             }
         }
     }
@@ -85,7 +82,6 @@ final class OnboardingState {
     var sshHost: String = ""
     var sshUser: String = ""
     var sshPrivateKey: String = ""
-    var customQRCodeImageData: Data = Data()
     var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
     var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
@@ -149,9 +145,15 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
-            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode"),
-               let mode = HostingMode(rawValue: rawHosting) {
-                selectedHostingMode = mode
+            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode") {
+                if let mode = HostingMode(rawValue: rawHosting) {
+                    selectedHostingMode = mode
+                } else {
+                    // Persisted value does not match any known mode; discard
+                    // it so the initial default applies and a stale string is
+                    // not re-saved.
+                    UserDefaults.standard.removeObject(forKey: "onboarding.selectedHostingMode")
+                }
             }
         }
         // Clamp restored step to the valid range.
@@ -249,7 +251,6 @@ final class OnboardingState {
         sshHost = ""
         sshUser = ""
         sshPrivateKey = ""
-        customQRCodeImageData = Data()
 
         // Return to welcome screen and persist the reset
         currentStep = 0
