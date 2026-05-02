@@ -9,11 +9,9 @@
  *   code `"symlink_target_escapes_archive"`.
  * - `verifySymlinkEntry` rejects a manifest/tar disagreement with code
  *   `"link_target_mismatch"`.
- *
- * Round-trip via `buildVBundle({ files: [{ linkTarget }] })` is intentionally
- * `test.todo` — the in-memory builder symlink emit lands in PR 2 and the
- * walker lands in PR 4. Once both are merged we can assert end-to-end that
- * a symlink survives buildVBundle -> parseVBundleStream -> verifySymlinkEntry.
+ * - End-to-end round-trip via `buildVBundle({ files: [{ linkTarget }] })`:
+ *   the in-memory builder emits a typeflag-2 record that survives
+ *   `parseVBundleStream` and is accepted by `verifySymlinkEntry`.
  */
 
 import { createHash } from "node:crypto";
@@ -21,7 +19,9 @@ import { Readable } from "node:stream";
 import { gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
 
+import { buildVBundle } from "../vbundle-builder.js";
 import {
+  readAndValidateManifest,
   StreamingValidationError,
   verifySymlinkEntry,
 } from "../vbundle-streaming-validator.js";
@@ -29,6 +29,7 @@ import {
   parseVBundleStream,
   type StreamedTarEntry,
 } from "../vbundle-tar-stream.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Hand-crafted tar fixture helpers
@@ -450,12 +451,65 @@ describe("verifySymlinkEntry — disagreement", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Round-trip via buildVBundle — gated on PR 2 + PR 4
+// Round-trip via buildVBundle
 // ---------------------------------------------------------------------------
 
-test.todo(
-  "round-trip: buildVBundle({ files: [{ linkTarget }] }) -> parseVBundleStream -> verifySymlinkEntry. Enable once PR 2 (buildVBundle symlink emit) and PR 4 (walker symlink collection) have landed.",
-  () => {
-    // no-op: see comment above.
-  },
-);
+describe("round-trip: buildVBundle -> parseVBundleStream -> verifySymlinkEntry", () => {
+  test("a symlink entry survives the full streaming pipeline", async () => {
+    const linkTarget = "bar.md";
+    const regularFileBytes = new TextEncoder().encode("regular file payload\n");
+
+    const { archive } = buildVBundle({
+      files: [
+        // The streaming importer requires data/db/assistant.db to be present;
+        // include a synthetic empty one so this fixture mirrors what
+        // production exports always carry.
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        // A regular file entry so we exercise both shapes through the parser.
+        { path: "workspace/regular.md", data: regularFileBytes },
+        // The symlink under test.
+        { path: "workspace/foo.md", data: new Uint8Array(), linkTarget },
+      ],
+      ...defaultV1Options(),
+    });
+
+    const iter = parseVBundleStream(readableFromBuffer(archive));
+
+    // The manifest is the FIRST tar entry and must be drained before
+    // subsequent entries flow through.
+    const manifestEntry = await iter.next();
+    if (manifestEntry.done || !manifestEntry.value) {
+      throw new Error("archive contained no entries");
+    }
+    const { expected } = await readAndValidateManifest(manifestEntry.value);
+
+    // Drain the rest of the entries and capture the symlink entry.
+    let symlinkEntry: StreamedTarEntry | null = null;
+    for await (const entry of iter) {
+      if (entry.header.name === "workspace/foo.md") {
+        symlinkEntry = entry;
+        // Confirm the parser surfaced the typeflag-2 record correctly before
+        // handing it to verifySymlinkEntry (which would also resume() the
+        // body on its own paths).
+        expect(entry.header.type).toBe("symlink");
+        expect(entry.header.linkname).toBe(linkTarget);
+
+        const expectedEntry = expected.get("workspace/foo.md");
+        if (!expectedEntry) {
+          throw new Error("manifest expected map missing the symlink entry");
+        }
+        expect(expectedEntry.linkTarget).toBe(linkTarget);
+
+        // Asserts streaming-validator acceptance of a builder-produced entry.
+        expect(() =>
+          verifySymlinkEntry({ entry, expectedEntry }),
+        ).not.toThrow();
+      } else {
+        // Drain non-symlink bodies so the extractor advances.
+        entry.body.resume();
+      }
+    }
+
+    expect(symlinkEntry).not.toBeNull();
+  });
+});
