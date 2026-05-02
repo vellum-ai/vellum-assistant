@@ -258,7 +258,7 @@ async function setAutoConnect(enabled: boolean): Promise<void> {
 // For self-hosted assistants the user provides a gateway URL (defaulting
 // to http://127.0.0.1:7830). The popup reads/writes this via
 // `gateway-url-get` and `gateway-url-set` messages. The connect flow
-// uses it to POST directly to `/v1/browser-extension-pair` and then
+// uses it to POST directly to `/v1/pair` and then
 // open a WebSocket relay to the same host.
 
 // ── Connection health state ──────────────────────────────────────────
@@ -1148,7 +1148,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   }
   if (message.type === "self-hosted-pair") {
     // Bootstrap a capability token by POSTing directly to the gateway's
-    // /v1/browser-extension-pair endpoint.
+    // /v1/pair endpoint.
     (async () => {
       const gatewayUrl = await getStoredGatewayUrl();
       const stored = await bootstrapDirectPairToken(gatewayUrl);
