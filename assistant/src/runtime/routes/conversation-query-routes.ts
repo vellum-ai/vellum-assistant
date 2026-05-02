@@ -50,7 +50,11 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
-import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
+import {
+  getAssistantMessageIdsInTurn,
+  getConversation,
+  getMessageById,
+} from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import {
   getRequestLogById,
@@ -58,6 +62,7 @@ import {
 } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -459,6 +464,26 @@ function handleGetMessageContent({
   return result;
 }
 
+const CONVERSATION_KINDS = [
+  "user",
+  "background",
+  "background_memory_consolidation",
+  "scheduled",
+] as const;
+type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+
+function resolveConversationKind(
+  source: string,
+  conversationType: string,
+): ConversationKind {
+  if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
+    return "background_memory_consolidation";
+  }
+  if (conversationType === "background") return "background";
+  if (conversationType === "scheduled") return "scheduled";
+  return "user";
+}
+
 function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
@@ -469,8 +494,17 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
   const memoryV2Activation =
     getMemoryV2ActivationLogByMessageIds(turnMessageIds);
+  const message = getMessageById(messageId);
+  const conversation = message ? getConversation(message.conversationId) : null;
+  const conversationKind: ConversationKind = conversation
+    ? resolveConversationKind(
+        conversation.source,
+        conversation.conversationType,
+      )
+    : "user";
   return {
     messageId,
+    conversationKind,
     logs: logs.map((log) => {
       let requestPayload: unknown;
       try {
@@ -709,6 +743,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseBody: z.object({
       messageId: z.string(),
+      conversationKind: z.enum(CONVERSATION_KINDS),
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),

@@ -66,12 +66,10 @@ import {
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
-
-/** Source string identifying this wake in `agent-wake` logs and surfaces. */
-const WAKE_SOURCE = "memory_v2_consolidation";
 
 /**
  * Follow-up jobs to fan out after a successful consolidation.
@@ -144,7 +142,7 @@ export async function memoryV2ConsolidateJob(
     // writes in the assistant's voice.
     const conversation = bootstrapConversation({
       conversationType: "background",
-      source: WAKE_SOURCE,
+      source: MEMORY_V2_CONSOLIDATION_SOURCE,
       origin: "memory_consolidation",
       systemHint: "Running memory consolidation",
       groupId: "system:background",
@@ -159,7 +157,7 @@ export async function memoryV2ConsolidateJob(
           config.memory.v2.consolidation_prompt_path,
           cutoff,
         ),
-        source: WAKE_SOURCE,
+        source: MEMORY_V2_CONSOLIDATION_SOURCE,
         trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       });
       wakeInvoked = result.invoked;

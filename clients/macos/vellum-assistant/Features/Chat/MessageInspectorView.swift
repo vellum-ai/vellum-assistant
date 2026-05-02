@@ -143,10 +143,34 @@ struct MessageInspectorView: View {
 
     private var emptyState: some View {
         VEmptyState(
-            title: "No LLM calls yet",
-            subtitle: "This message does not have any recorded LLM context to inspect.",
+            title: emptyStateTitle,
+            subtitle: emptyStateSubtitle,
             icon: VIcon.messagesSquare.rawValue
         )
+    }
+
+    private var emptyStateTitle: String {
+        switch viewState.conversationKind {
+        case .backgroundMemoryConsolidation:
+            return "Background memory run"
+        case .background:
+            return "Background conversation"
+        case .scheduled:
+            return "Scheduled conversation"
+        case .user, nil:
+            return "No LLM calls yet"
+        }
+    }
+
+    private var emptyStateSubtitle: String {
+        switch viewState.conversationKind {
+        case .backgroundMemoryConsolidation:
+            return "Per-call LLM context isn't currently captured for memory consolidation runs."
+        case .background, .scheduled:
+            return "Per-call LLM context isn't currently captured for this conversation type."
+        case .user, nil:
+            return "This message does not have any recorded LLM context to inspect."
+        }
     }
 
     private var failedState: some View {
@@ -643,6 +667,7 @@ struct MessageInspectorViewState {
     private(set) var logs: [LLMRequestLogEntry] = []
     private(set) var memoryRecall: MemoryRecallData?
     private(set) var memoryV2Activation: MemoryV2ActivationData?
+    private(set) var conversationKind: ConversationKind?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
     private(set) var selectedRawPane: RawPayloadPane = .response
@@ -681,6 +706,7 @@ struct MessageInspectorViewState {
             logs = orderedLogs
             memoryRecall = response.memoryRecall
             memoryV2Activation = response.memoryV2Activation
+            conversationKind = response.conversationKind
 
             guard !orderedLogs.isEmpty else {
                 loadState = .empty
@@ -699,12 +725,14 @@ struct MessageInspectorViewState {
             logs = []
             memoryRecall = nil
             memoryV2Activation = nil
+            conversationKind = nil
             loadState = .empty
             selectedLogID = nil
         case .failed:
             logs = []
             memoryRecall = nil
             memoryV2Activation = nil
+            conversationKind = nil
             loadState = .failed
             selectedLogID = nil
         }

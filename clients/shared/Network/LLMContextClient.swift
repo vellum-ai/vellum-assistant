@@ -666,12 +666,61 @@ public struct LLMLogPayloadResponse: Codable, Sendable {
     public let responsePayload: AnyCodable
 }
 
+/// Conversation kinds the daemon may report for an LLM-context lookup.
+/// Wire raw values mirror the daemon's `CONVERSATION_KINDS` constant in
+/// `assistant/src/runtime/routes/conversation-query-routes.ts`. Unknown
+/// values from a newer daemon decode to `nil` rather than failing the
+/// whole response.
+public enum ConversationKind: String, Sendable, Equatable, Hashable {
+    case user
+    case background
+    case backgroundMemoryConsolidation = "background_memory_consolidation"
+    case scheduled
+}
+
 /// Response wrapper for the LLM context endpoint.
 public struct LLMContextResponse: Codable, Sendable {
     public let messageId: String
+    /// `nil` when the daemon predates the field or sends a value the client
+    /// doesn't recognize — render the generic empty state in that case.
+    public let conversationKind: ConversationKind?
     public let logs: [LLMRequestLogEntry]
     public let memoryRecall: MemoryRecallData?
     public let memoryV2Activation: MemoryV2ActivationData?
+
+    public init(
+        messageId: String,
+        conversationKind: ConversationKind? = nil,
+        logs: [LLMRequestLogEntry],
+        memoryRecall: MemoryRecallData? = nil,
+        memoryV2Activation: MemoryV2ActivationData? = nil
+    ) {
+        self.messageId = messageId
+        self.conversationKind = conversationKind
+        self.logs = logs
+        self.memoryRecall = memoryRecall
+        self.memoryV2Activation = memoryV2Activation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case messageId
+        case conversationKind
+        case logs
+        case memoryRecall
+        case memoryV2Activation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.messageId = try container.decode(String.self, forKey: .messageId)
+        // Lossy decode: unknown daemon kinds collapse to nil so the response
+        // still parses and the inspector falls back to the generic empty state.
+        let rawKind = try container.decodeIfPresent(String.self, forKey: .conversationKind)
+        self.conversationKind = rawKind.flatMap(ConversationKind.init(rawValue:))
+        self.logs = try container.decode([LLMRequestLogEntry].self, forKey: .logs)
+        self.memoryRecall = try container.decodeIfPresent(MemoryRecallData.self, forKey: .memoryRecall)
+        self.memoryV2Activation = try container.decodeIfPresent(MemoryV2ActivationData.self, forKey: .memoryV2Activation)
+    }
 }
 
 /// Explicit outcome for an LLM context fetch.
@@ -740,7 +789,10 @@ public struct LLMContextClient: LLMContextClientProtocol {
         do {
             let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
             try Task.checkCancellation()
-            return decoded.logs.isEmpty ? .empty : .loaded(decoded)
+            // Always return `.loaded` so the view state receives `conversationKind`
+            // even when the log list is empty — the empty-state branch is derived
+            // from `logs.isEmpty` inside `MessageInspectorViewState.finishLoading`.
+            return .loaded(decoded)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -831,7 +883,7 @@ public extension LLMContextClientProtocol {
             return .failed
         }
 
-        return response.logs.isEmpty ? .empty : .loaded(response)
+        return .loaded(response)
     }
 
     func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
