@@ -16,7 +16,6 @@ mock.module("../config/loader.js", () => ({
 
 const sentMessages: unknown[] = [];
 const sentMessageOptions: unknown[] = [];
-const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
 let mockCapableClients: Array<{ clientId: string; capabilities: string[] }> = [];
 let mockClientRegistry: Map<string, { clientId: string; capabilities: string[] }> = new Map();
@@ -34,17 +33,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-mock.module("../runtime/pending-interactions.js", () => ({
-  resolve: (requestId: string) => {
-    resolvedInteractionIds.push(requestId);
-    return undefined;
-  },
-  get: () => undefined,
-  getByKind: () => [],
-  getByConversation: () => [],
-  removeByConversation: () => {},
-}));
-
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostBashProxy } = await import("../daemon/host-bash-proxy.js");
 
 describe("HostBashProxy", () => {
@@ -53,10 +43,10 @@ describe("HostBashProxy", () => {
   function setup() {
     sentMessages.length = 0;
     sentMessageOptions.length = 0;
-    resolvedInteractionIds.length = 0;
     mockHasClient = false;
     mockCapableClients = [];
     mockClientRegistry = new Map();
+    pendingInteractions.clear();
     proxy = new (HostBashProxy as any)();
   }
 
@@ -79,6 +69,7 @@ describe("HostBashProxy", () => {
   afterEach(() => {
     proxy?.dispose();
     HostBashProxy.reset();
+    pendingInteractions.clear();
   });
 
   describe("request/resolve lifecycle (happy path)", () => {
@@ -100,10 +91,10 @@ describe("HostBashProxy", () => {
       expect(typeof sent.requestId).toBe("string");
 
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Simulate client response
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "hello\n",
         stderr: "",
         exitCode: 0,
@@ -113,7 +104,7 @@ describe("HostBashProxy", () => {
       const result = await resultPromise;
       expect(result.content).toContain("hello");
       expect(result.isError).toBe(false);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("forwards env field in host_bash_request message", async () => {
@@ -133,7 +124,7 @@ describe("HostBashProxy", () => {
       expect(sent.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "locked\n",
         stderr: "",
         exitCode: 0,
@@ -155,7 +146,7 @@ describe("HostBashProxy", () => {
       expect(sent.env).toBeUndefined();
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "normal\n",
         stderr: "",
         exitCode: 0,
@@ -173,7 +164,7 @@ describe("HostBashProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "",
         stderr: "command not found",
         exitCode: 127,
@@ -196,7 +187,7 @@ describe("HostBashProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "partial",
         stderr: "",
         exitCode: null,
@@ -222,10 +213,10 @@ describe("HostBashProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Resolve to avoid test hanging
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "",
         stderr: "",
         exitCode: 0,
@@ -252,13 +243,13 @@ describe("HostBashProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
 
       const result = await resultPromise;
       expect(result.content).toContain("Aborted");
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("sends host_bash_cancel to client on abort", async () => {
@@ -326,11 +317,11 @@ describe("HostBashProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.dispose();
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
       expect(resultPromise).rejects.toThrow("Host bash proxy disposed");
     });
 
@@ -362,7 +353,7 @@ describe("HostBashProxy", () => {
   });
 
   describe("late resolve after abort", () => {
-    test("resolve is a no-op after abort (entry already deleted)", async () => {
+    test("resolveResult is a no-op after abort (entry already deleted)", async () => {
       setup();
 
       const controller = new AbortController();
@@ -379,23 +370,23 @@ describe("HostBashProxy", () => {
       const result = await resultPromise;
       expect(result.content).toContain("Aborted");
 
-      // Late resolve should be silently ignored (no throw, no double-resolve)
-      proxy.resolve(requestId, {
+      // Late resolveResult should be silently ignored (no throw, no double-resolve)
+      proxy.resolveResult(requestId, {
         stdout: "late",
         stderr: "",
         exitCode: 0,
         timedOut: false,
       });
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 
-  describe("resolve with unknown requestId", () => {
+  describe("resolveResult with unknown requestId", () => {
     test("silently ignores unknown requestId", () => {
       setup();
       // Should not throw
-      proxy.resolve("unknown-id", {
+      proxy.resolveResult("unknown-id", {
         stdout: "",
         stderr: "",
         exitCode: 0,
@@ -427,7 +418,7 @@ describe("HostBashProxy", () => {
       return { signal: source, addCalls, removeCalls };
     }
 
-    test("removes abort listener from signal after resolve completes", async () => {
+    test("removes abort listener from signal after resolveResult completes", async () => {
       setup();
       const controller = new AbortController();
       const spy = spySignal(controller.signal);
@@ -443,7 +434,7 @@ describe("HostBashProxy", () => {
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "hello\n",
         stderr: "",
         exitCode: 0,
@@ -491,8 +482,8 @@ describe("HostBashProxy", () => {
     });
   });
 
-  describe("pendingInteractions.resolve callback", () => {
-    test("fires on abort", async () => {
+  describe("pendingInteractions cleanup", () => {
+    test("cleans up on abort", async () => {
       setup();
 
       const controller = new AbortController();
@@ -504,14 +495,15 @@ describe("HostBashProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
       await resultPromise;
 
-      expect(resolvedInteractionIds).toEqual([requestId]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
-    test("fires for each pending request on dispose", () => {
+    test("cleans up for each pending request on dispose", () => {
       setup();
 
       const p1 = proxy.request({ command: "echo a" }, "session-1");
@@ -523,15 +515,16 @@ describe("HostBashProxy", () => {
         (m) => m.requestId as string,
       );
       expect(ids).toHaveLength(2);
+      expect(pendingInteractions.get(ids[0])).toBeDefined();
+      expect(pendingInteractions.get(ids[1])).toBeDefined();
 
       proxy.dispose();
 
-      expect(resolvedInteractionIds).toHaveLength(2);
-      expect(resolvedInteractionIds).toContain(ids[0]);
-      expect(resolvedInteractionIds).toContain(ids[1]);
+      expect(pendingInteractions.get(ids[0])).toBeUndefined();
+      expect(pendingInteractions.get(ids[1])).toBeUndefined();
     });
 
-    test("does not fire on normal client-initiated resolve", async () => {
+    test("cleans up on normal client-initiated resolveResult", async () => {
       setup();
 
       const resultPromise = proxy.request(
@@ -541,9 +534,9 @@ describe("HostBashProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      // Normal resolve from client — should NOT trigger pendingInteractions.resolve
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "hello",
         stderr: "",
         exitCode: 0,
@@ -551,7 +544,7 @@ describe("HostBashProxy", () => {
       });
 
       await resultPromise;
-      expect(resolvedInteractionIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 

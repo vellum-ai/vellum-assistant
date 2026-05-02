@@ -10,7 +10,7 @@
  *     → mock extension WebSocket receives host_browser_request
  *     → mock CDP handler (Browser.getVersion fake)
  *     → POST /v1/host-browser-result (or WS host_browser_result frame)
- *     → resolveHostBrowserResultByRequestId → proxy.resolve()
+ *     → resolveHostBrowserResultByRequestId → proxy.resolveResult()
  *     → request() resolves
  *
  * Covers:
@@ -69,6 +69,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
@@ -176,7 +177,7 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     expect(received[0].cdpMethod).toBe("Browser.getVersion");
     expect(received[0].conversationId).toBe("conv-happy-ws");
 
-    expect(proxy.hasPendingRequest(received[0].requestId)).toBe(false);
+    expect(pendingInteractions.get(received[0].requestId)).toBeUndefined();
 
     await mockExt.stop();
   });

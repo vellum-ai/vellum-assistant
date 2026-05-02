@@ -41,9 +41,7 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_bash") {
@@ -66,9 +64,7 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     }
   }
 
-  pendingInteractions.resolve(requestId);
-
-  HostBashProxy.instance.resolve(requestId, {
+  HostBashProxy.instance.resolveResult(requestId, {
     stdout: stdout ?? "",
     stderr: stderr ?? "",
     exitCode: exitCode ?? null,

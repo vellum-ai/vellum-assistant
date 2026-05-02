@@ -9,11 +9,7 @@ import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -107,11 +103,6 @@ async function handleTransferContentPut({
     sha256,
   );
 
-  // For to_sandbox transfers there is no separate /v1/host-transfer-result
-  // callback — the PUT handler is the terminal event. Always clean up the
-  // pending interaction so it doesn't leak.
-  pendingInteractions.resolve(match.requestId);
-
   if (!result.accepted) {
     throw new BadRequestError(result.error ?? "Transfer content rejected");
   }
@@ -141,9 +132,7 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_transfer") {
@@ -151,8 +140,6 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
       `Pending interaction is of kind "${peeked.kind}", expected "host_transfer"`,
     );
   }
-
-  pendingInteractions.resolve(requestId);
 
   HostTransferProxy.instance.resolveTransferResult(requestId, {
     isError: isError ?? false,

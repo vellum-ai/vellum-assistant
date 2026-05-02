@@ -1,19 +1,24 @@
 /**
  * In-memory tracker that maps requestId to conversation info for pending
- * confirmation, secret, host_bash, host_file, host_cu, host_browser,
- * host_app_control, and host_transfer interactions.
+ * confirmation, secret, host_bash, host_file, host_cu, host_browser, and
+ * host_transfer interactions.
  *
- * When the agent loop emits a confirmation_request, secret_request,
- * host_bash_request, host_file_request, host_cu_request,
- * host_browser_request, host_app_control_request, or host_transfer_request,
- * the onEvent callback registers the interaction here.
+ * For confirmation_request and secret_request, the onEvent callback in
+ * assistant-event-hub registers the interaction here.
+ *
+ * For host proxy interactions (host_bash, host_file, host_cu, host_browser,
+ * host_transfer), the proxy itself registers with full RPC lifecycle state
+ * (resolve/reject callbacks, timer, abort detach). This eliminates the
+ * per-proxy `private pending` maps — all pending state lives here.
+ *
  * Standalone HTTP endpoints (/v1/confirm, /v1/secret, /v1/trust-rules,
  * /v1/host-bash-result, /v1/host-file-result, /v1/host-cu-result,
- * /v1/host-browser-result, /v1/host-app-control-result) look up the
- * conversation from this tracker to resolve the interaction.
+ * /v1/host-browser-result) look up the conversation from this tracker to
+ * resolve the interaction.
  */
 
 import type { UserDecision } from "../permissions/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
 
 export interface ConfirmationDetails {
   toolName: string;
@@ -46,7 +51,6 @@ export interface PendingInteraction {
     | "host_file"
     | "host_cu"
     | "host_browser"
-    | "host_app_control"
     | "host_transfer"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
@@ -54,6 +58,19 @@ export interface PendingInteraction {
   directResolve?: (decision: UserDecision) => void;
   /** When set, the host_bash request should be routed to this specific client. */
   targetClientId?: string;
+
+  // -- RPC lifecycle (populated by host proxies) --
+
+  /** Resolve the caller's Promise with a tool execution result. */
+  rpcResolve?: (result: ToolExecutionResult) => void;
+  /** Reject the caller's Promise with an error. */
+  rpcReject?: (err: Error) => void;
+  /** Proxy-side timeout timer. Cleared on resolve/abort/dispose. */
+  timer?: ReturnType<typeof setTimeout>;
+  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
+  detachAbort?: () => void;
+  /** Proxy-specific metadata (e.g. timeoutSec for bash, operation/path for file). */
+  metadata?: Record<string, unknown>;
 }
 
 const pending = new Map<string, PendingInteraction>();
@@ -67,12 +84,15 @@ export function register(
 
 /**
  * Remove and return the pending interaction for the given requestId.
+ * Auto-clears the proxy timer and detaches the abort listener if present.
  * Returns undefined if no interaction is registered.
  */
 export function resolve(requestId: string): PendingInteraction | undefined {
   const interaction = pending.get(requestId);
   if (interaction) {
     pending.delete(requestId);
+    if (interaction.timer != null) clearTimeout(interaction.timer);
+    interaction.detachAbort?.();
   }
   return interaction;
 }
@@ -105,12 +125,11 @@ export function getByConversation(
  * Remove pending confirmation and secret interactions for a given conversation.
  * Used when auto-denying all pending interactions (e.g. new user message).
  *
- * host_bash, host_file, host_cu, host_browser, host_app_control, and
- * host_transfer interactions are intentionally skipped — they represent
- * in-flight tool executions proxied to the client, not confirmations to
- * auto-deny. Removing them would orphan the request: the client would POST to
- * /v1/host-bash-result, /v1/host-file-result, /v1/host-cu-result,
- * /v1/host-browser-result, /v1/host-app-control-result, or
+ * host_bash, host_file, host_cu, host_browser, and host_transfer interactions
+ * are intentionally skipped — they represent in-flight tool executions proxied
+ * to the client, not confirmations to auto-deny. Removing them would orphan
+ * the request: the client would POST to /v1/host-bash-result,
+ * /v1/host-file-result, /v1/host-cu-result, /v1/host-browser-result, or
  * /v1/host-transfer-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
  */
@@ -122,7 +141,6 @@ export function removeByConversation(conversationId: string): void {
       interaction.kind !== "host_file" &&
       interaction.kind !== "host_cu" &&
       interaction.kind !== "host_browser" &&
-      interaction.kind !== "host_app_control" &&
       interaction.kind !== "host_transfer" &&
       interaction.kind !== "acp_confirmation"
     ) {

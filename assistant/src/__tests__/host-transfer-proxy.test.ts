@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
-const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -16,17 +15,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-mock.module("../runtime/pending-interactions.js", () => ({
-  resolve: (requestId: string) => {
-    resolvedInteractionIds.push(requestId);
-    return undefined;
-  },
-  get: () => undefined,
-  getByKind: () => [],
-  getByConversation: () => [],
-  removeByConversation: () => {},
-}));
-
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostTransferProxy } = await import("../daemon/host-transfer-proxy.js");
 
 /**
@@ -56,14 +46,15 @@ describe("HostTransferProxy", () => {
 
   function setup() {
     sentMessages.length = 0;
-    resolvedInteractionIds.length = 0;
     mockHasClient = false;
+    pendingInteractions.clear();
     proxy = new (HostTransferProxy as any)();
   }
 
   afterEach(async () => {
     proxy?.dispose();
     HostTransferProxy.reset();
+    pendingInteractions.clear();
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -642,8 +633,8 @@ describe("HostTransferProxy", () => {
     });
   });
 
-  describe("pendingInteractions.resolve callback", () => {
-    test("fires on abort", async () => {
+  describe("pendingInteractions cleanup", () => {
+    test("cleans up on abort", async () => {
       setup();
 
       const controller = new AbortController();
@@ -658,14 +649,15 @@ describe("HostTransferProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
       await resultPromise;
 
-      expect(resolvedInteractionIds).toContain(requestId);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
-    test("fires for each pending request on dispose", () => {
+    test("cleans up for each pending request on dispose", () => {
       setup();
 
       const p1 = proxy.requestToSandbox({
@@ -688,12 +680,11 @@ describe("HostTransferProxy", () => {
 
       proxy.dispose();
 
-      expect(resolvedInteractionIds).toHaveLength(2);
-      expect(resolvedInteractionIds).toContain(ids[0]);
-      expect(resolvedInteractionIds).toContain(ids[1]);
+      expect(pendingInteractions.get(ids[0])).toBeUndefined();
+      expect(pendingInteractions.get(ids[1])).toBeUndefined();
     });
 
-    test("does not fire on normal resolveTransferResult", async () => {
+    test("cleans up on normal resolveTransferResult", async () => {
       setup();
       tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
       const srcPath = join(tempDir, "source.txt");
@@ -710,6 +701,7 @@ describe("HostTransferProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.resolveTransferResult(requestId, {
         isError: false,
@@ -717,7 +709,7 @@ describe("HostTransferProxy", () => {
       });
 
       await resultPromise;
-      expect(resolvedInteractionIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 });
