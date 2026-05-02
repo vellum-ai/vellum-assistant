@@ -58,7 +58,7 @@ jobs:
             fi
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
-            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             if [ -z "$LATEST_TAG" ]; then
               LATEST_TAG="v0.0.0"
             fi
@@ -123,7 +123,7 @@ jobs:
           # Exclude the current version's tag so retries after tagging still
           # detect minor/major bumps correctly.
           # If no prior tag exists (first release), always build.
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
 
           # Force a build on minor/major version bumps so the CWS listing
           # stays in sync even when the extension code itself hasn't changed.
