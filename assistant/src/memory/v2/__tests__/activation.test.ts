@@ -345,8 +345,12 @@ describe("selectCandidates", () => {
   });
 
   test("ANN candidate query honors `config.memory.v2.ann_candidate_limit` and runs without slug restriction", async () => {
-    // Default `ann_candidate_limit: null` → unlimited, so a sentinel large
-    // enough to return every page is passed to Qdrant.
+    // Default `ann_candidate_limit: null` → unlimited, so the unlimited
+    // sentinel (1_000_000 — a Qdrant-safe stand-in for "every page") is
+    // passed to both channels. We don't pin to `MAX_SAFE_INTEGER` here:
+    // Qdrant's sparse `SearchContext` pre-allocates `limit * 16` bytes,
+    // and `MAX_SAFE_INTEGER` triggers a ~144 PB alloc that SIGABRTs the
+    // Qdrant process — so the constant deliberately undercuts it.
     stageHybridResponse([{ slug: "alpha", denseScore: 0.5, sparseScore: 1 }]);
     await selectCandidates({
       priorState: null,
@@ -357,7 +361,7 @@ describe("selectCandidates", () => {
     });
     expect(state.queryCalls).toHaveLength(2);
     for (const call of state.queryCalls) {
-      expect(call.limit).toBe(Number.MAX_SAFE_INTEGER);
+      expect(call.limit).toBe(1_000_000);
       expect(call.filter).toBeUndefined();
     }
 
