@@ -7,7 +7,7 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
     func testPickerCommandsMatchSharedCatalogOrder() {
         XCTAssertEqual(
             SlashCommand.all.map(\.name),
-            ["commands", "models", "status", "btw", "fork"]
+            ["commands", "compact", "models", "status", "btw", "fork"]
         )
     }
 

@@ -8,7 +8,7 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .macos,
             surface: .picker
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork"])
+        XCTAssertEqual(commands, ["/commands", "/compact", "/models", "/status", "/btw", "/fork"])
     }
 
     func testMacOSHelpOrderMatchesExpectedDesktopCommands() {
@@ -16,7 +16,7 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .macos,
             surface: .helpBubble
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork"])
+        XCTAssertEqual(commands, ["/commands", "/compact", "/models", "/status", "/btw", "/fork"])
     }
 
     func testIOSHelpShowsForkAlongsideCommonCommands() {
@@ -24,7 +24,7 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .ios,
             surface: .helpBubble
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw", "/fork"])
+        XCTAssertEqual(commands, ["/commands", "/compact", "/models", "/status", "/btw", "/fork"])
     }
 
     func testIOSPickerOmitsForkCommand() {
@@ -32,7 +32,7 @@ final class SlashCommandCatalogTests: XCTestCase {
             for: .ios,
             surface: .picker
         ).map(\.slashName)
-        XCTAssertEqual(commands, ["/commands", "/models", "/status", "/btw"])
+        XCTAssertEqual(commands, ["/commands", "/compact", "/models", "/status", "/btw"])
     }
 
     func testStatusDescriptionMatchesConversationCopy() {
