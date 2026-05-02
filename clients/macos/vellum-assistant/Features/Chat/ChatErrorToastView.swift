@@ -125,7 +125,7 @@ struct ChatConversationErrorToast: View {
             }
         }
         .foregroundStyle(VColor.auxWhite) // Intentional: always white on solid accent background
-        .frame(minHeight: 32)
+        .centerAlignedMinHeight(32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)
         .padding(.vertical, VSpacing.xs)
@@ -220,7 +220,9 @@ struct CreditsExhaustedBanner: View {
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
 
             VButton(label: "Add Funds", style: .primary) {
                 onAddFunds()
@@ -356,7 +358,7 @@ struct CompactionCircuitOpenBanner: View {
                 .textSelection(.enabled)
         }
         .foregroundStyle(VColor.auxWhite) // Intentional: white on solid accent background.
-        .frame(minHeight: 32)
+        .centerAlignedMinHeight(32)
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.lg))
         .background(VColor.systemMidStrong)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -399,10 +401,9 @@ struct MissingApiKeyBanner: View {
                     .foregroundStyle(VColor.contentSecondary)
             }
 
-            VButton(label: "Open Settings", style: .primary) {
+            VButton(label: "Open Settings", style: .primary, isFullWidth: true) {
                 onOpenSettings()
             }
-            .frame(maxWidth: .infinity)
         }
         .padding(VSpacing.lg)
         .background(VColor.surfaceActive)
