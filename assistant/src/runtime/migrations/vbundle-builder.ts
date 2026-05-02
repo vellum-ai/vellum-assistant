@@ -19,15 +19,17 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  realpathSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import { getLogger } from "../../util/logger.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
 import type {
   ManifestFileEntryType,
@@ -467,28 +469,136 @@ interface WalkDirectoryOptions {
 }
 
 /**
- * Recursively walk a directory and return all non-symlink files as
- * VBundleFileEntry objects with paths prefixed by `archivePrefix`.
+ * Resolve and classify a symlink encountered during a walk.
+ *
+ * Returns one of:
+ *   { kind: "class1", linkTarget } — emit as a tar typeflag-2 entry whose
+ *     `linkname` field holds `linkTarget` (the symlink target encoded as a
+ *     POSIX path relative to the symlink's own directory).
+ *   { kind: "drop", reason }       — drop the symlink. Reasons cover broken
+ *     links, targets outside the workspace (class 2), targets inside a
+ *     skipped directory (class 3), directory targets (out of scope), and
+ *     link targets whose UTF-8 encoding exceeds the 100-byte ustar
+ *     `linkname` field limit.
+ */
+type SymlinkClassification =
+  | { kind: "class1"; linkTarget: string }
+  | { kind: "drop"; reason: string };
+
+function classifySymlink(args: {
+  fullPath: string;
+  walkRoot: string;
+  skipDirs: readonly string[];
+}): SymlinkClassification {
+  const { fullPath, walkRoot, skipDirs } = args;
+
+  let absoluteTarget: string;
+  try {
+    absoluteTarget = realpathSync(fullPath);
+  } catch {
+    return { kind: "drop", reason: "broken symlink (realpath failed)" };
+  }
+
+  let targetStat;
+  try {
+    targetStat = lstatSync(absoluteTarget);
+  } catch {
+    return { kind: "drop", reason: "broken symlink (target stat failed)" };
+  }
+  if (!targetStat.isFile()) {
+    return { kind: "drop", reason: "target is not a regular file" };
+  }
+
+  let dirAbs: string;
+  try {
+    dirAbs = realpathSync(walkRoot);
+  } catch {
+    dirAbs = resolve(walkRoot);
+  }
+  const targetAbs = resolve(absoluteTarget);
+  const insideWorkspace =
+    targetAbs === dirAbs || targetAbs.startsWith(dirAbs + sep);
+  if (!insideWorkspace) {
+    return { kind: "drop", reason: "target outside workspace" };
+  }
+
+  const targetRelToWorkspace = relative(dirAbs, targetAbs);
+  if (
+    skipDirs.some(
+      (s) =>
+        targetRelToWorkspace === s || targetRelToWorkspace.startsWith(s + "/"),
+    )
+  ) {
+    return { kind: "drop", reason: "target inside skipDir" };
+  }
+
+  // Canonicalize the symlink's parent directory so the relative linkTarget
+  // computation lines up with `absoluteTarget` (which is canonical from
+  // realpathSync). On macOS, walking through /var/folders/... and resolving
+  // the target through /private/var/folders/... would otherwise produce a
+  // long ../../../private/... path that exceeds the 100-byte ustar limit.
+  let parentAbs: string;
+  try {
+    parentAbs = realpathSync(dirname(fullPath));
+  } catch {
+    parentAbs = resolve(dirname(fullPath));
+  }
+  const linkTarget = relative(parentAbs, absoluteTarget);
+  if (new TextEncoder().encode(linkTarget).length > 100) {
+    return {
+      kind: "drop",
+      reason: "encoded link target exceeds 100-byte ustar limit",
+    };
+  }
+
+  return { kind: "class1", linkTarget };
+}
+
+/**
+ * Recursively walk a directory and return all regular files (and bundleable
+ * symlinks) as VBundleFileEntry objects with paths prefixed by
+ * `archivePrefix`. Symlinks that resolve to a regular file inside the walk
+ * root and outside any skipDir are emitted as typeflag-2 entries (data
+ * empty, `linkTarget` populated). All other symlinks (broken, directory
+ * target, target outside workspace, target inside skipDir, encoded
+ * linkTarget over 100 bytes) are reported via the returned `droppedSymlinks`
+ * array as workspace-relative paths of the symlink itself.
  *
  * By default, binary files (detected via null-byte heuristic in the first
  * 8 KB) are skipped. Pass `includeBinary: true` to include them.
  */
-function walkDirectory(
+export function walkDirectory(
   dir: string,
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
-): VBundleFileEntry[] {
+): { files: VBundleFileEntry[]; droppedSymlinks: string[] } {
   const { includeBinary = false, skipDirs = [] } = options;
   const entries: VBundleFileEntry[] = [];
+  const droppedSymlinks: string[] = [];
 
   function walk(currentDir: string): void {
     const dirEntries = readdirSync(currentDir, { withFileTypes: true });
     for (const entry of dirEntries) {
       const fullPath = join(currentDir, entry.name);
 
-      // Skip symlinks
       const stat = lstatSync(fullPath);
-      if (stat.isSymbolicLink()) continue;
+      if (stat.isSymbolicLink()) {
+        const classification = classifySymlink({
+          fullPath,
+          walkRoot: dir,
+          skipDirs,
+        });
+        if (classification.kind === "class1") {
+          entries.push({
+            path: `${archivePrefix}/${relative(dir, fullPath)}`,
+            data: new Uint8Array(0),
+            linkTarget: classification.linkTarget,
+          });
+        } else {
+          droppedSymlinks.push(relative(dir, fullPath));
+        }
+        continue;
+      }
 
       if (stat.isDirectory()) {
         // Check skip list against the relative path from the walk root
@@ -534,7 +644,7 @@ function walkDirectory(
   }
 
   walk(dir);
-  return entries;
+  return { files: entries, droppedSymlinks };
 }
 
 // ---------------------------------------------------------------------------
@@ -613,12 +723,21 @@ export function buildExportVBundle(
     existsSync(workspaceDir) &&
     lstatSync(workspaceDir).isDirectory()
   ) {
-    files.push(
-      ...walkDirectory(workspaceDir, "workspace", {
+    const { files: walkedFiles, droppedSymlinks } = walkDirectory(
+      workspaceDir,
+      "workspace",
+      {
         includeBinary: true,
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
-      }),
+      },
     );
+    files.push(...walkedFiles);
+    if (droppedSymlinks.length > 0) {
+      getLogger("vbundle-builder").warn(
+        { count: droppedSymlinks.length, paths: droppedSymlinks },
+        `Dropped ${droppedSymlinks.length} symlinks pointing outside workspace or into skipped directories`,
+      );
+    }
   }
 
   // Sanitize workspace/config.json to strip environment-specific fields
@@ -653,26 +772,48 @@ export function buildExportVBundle(
 
 /**
  * Walk a directory tree and collect file metadata (paths + sizes) without
- * reading file contents into memory. Uses the same filtering logic as
- * `walkDirectory` (symlink skip, SQLite auxiliary skip, binary detection,
- * skip dirs).
+ * reading file contents into memory. Mirrors `walkDirectory`'s filtering
+ * logic (SQLite auxiliary skip, binary detection, skipDirs) and symlink
+ * classification — bundleable symlinks are emitted as `SymlinkMetadata`
+ * entries; non-bundleable symlinks are reported via `droppedSymlinks`.
  */
-function walkDirectoryForMetadata(
+export function walkDirectoryForMetadata(
   dir: string,
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
-): FileMetadata[] {
+): {
+  files: FileMetadata[];
+  symlinks: SymlinkMetadata[];
+  droppedSymlinks: string[];
+} {
   const { includeBinary = false, skipDirs = [] } = options;
   const entries: FileMetadata[] = [];
+  const symlinks: SymlinkMetadata[] = [];
+  const droppedSymlinks: string[] = [];
 
   function walk(currentDir: string): void {
     const dirEntries = readdirSync(currentDir, { withFileTypes: true });
     for (const entry of dirEntries) {
       const fullPath = join(currentDir, entry.name);
 
-      // Skip symlinks
       const fileStat = lstatSync(fullPath);
-      if (fileStat.isSymbolicLink()) continue;
+      if (fileStat.isSymbolicLink()) {
+        const classification = classifySymlink({
+          fullPath,
+          walkRoot: dir,
+          skipDirs,
+        });
+        if (classification.kind === "class1") {
+          symlinks.push({
+            archivePath: `${archivePrefix}/${relative(dir, fullPath)}`,
+            linkTarget: classification.linkTarget,
+            size: 0,
+          });
+        } else {
+          droppedSymlinks.push(relative(dir, fullPath));
+        }
+        continue;
+      }
 
       if (fileStat.isDirectory()) {
         // Check skip list against the relative path from the walk root
@@ -725,7 +866,7 @@ function walkDirectoryForMetadata(
   }
 
   walk(dir);
-  return entries;
+  return { files: entries, symlinks, droppedSymlinks };
 }
 
 /**
@@ -976,6 +1117,7 @@ export async function streamExportVBundle(
   }
 
   const allFileMetadata: FileMetadata[] = [];
+  const symlinkEntries: SymlinkMetadata[] = [];
 
   // Walk the entire workspace directory, including binary files
   if (
@@ -983,12 +1125,22 @@ export async function streamExportVBundle(
     existsSync(workspaceDir) &&
     lstatSync(workspaceDir).isDirectory()
   ) {
-    allFileMetadata.push(
-      ...walkDirectoryForMetadata(workspaceDir, "workspace", {
-        includeBinary: true,
-        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
-      }),
-    );
+    const {
+      files: walkedFiles,
+      symlinks: walkedSymlinks,
+      droppedSymlinks,
+    } = walkDirectoryForMetadata(workspaceDir, "workspace", {
+      includeBinary: true,
+      skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+    });
+    allFileMetadata.push(...walkedFiles);
+    symlinkEntries.push(...walkedSymlinks);
+    if (droppedSymlinks.length > 0) {
+      getLogger("vbundle-builder").warn(
+        { count: droppedSymlinks.length, paths: droppedSymlinks },
+        `Dropped ${droppedSymlinks.length} symlinks pointing outside workspace or into skipped directories`,
+      );
+    }
   }
 
   // Sanitize workspace/config.json: read from disk, sanitize, and replace the
@@ -1026,11 +1178,6 @@ export async function streamExportVBundle(
       });
     }
   }
-
-  // Symlink entries — populated by the walker in PR 4. For now this slice
-  // is always empty; downstream wiring (manifest emit + tar emit) is in
-  // place so the walker can append entries without further plumbing.
-  const symlinkEntries: SymlinkMetadata[] = [];
 
   // ------------------------------------------------------------------
   // Pass 1: Compute SHA-256 checksums to build the manifest
