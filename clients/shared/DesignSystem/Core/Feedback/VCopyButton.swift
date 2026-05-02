@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 /// A copy-to-clipboard button built on `VButton` (ghost style) with
 /// checkmark feedback.
@@ -86,11 +82,7 @@ public struct VCopyButton: View {
     /// outside `VCopyButton` (e.g. context menus) don't duplicate the
     /// platform-conditional pasteboard logic.
     public static func copyToPasteboard(_ text: String) {
-        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = text
-        #endif
     }
 }

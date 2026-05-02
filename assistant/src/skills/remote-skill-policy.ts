@@ -1,4 +1,4 @@
-export type RemoteSkillProvider = "clawhub" | "skillssh";
+type RemoteSkillProvider = "clawhub" | "skillssh";
 
 export type SkillsShRisk =
   | "safe"
@@ -26,12 +26,12 @@ export interface RemoteSkillPolicy {
   maxSkillsShRisk: SkillsShRiskThreshold;
 }
 
-export interface ClawhubModerationState {
+interface ClawhubModerationState {
   isSuspicious?: boolean;
   isMalwareBlocked?: boolean;
 }
 
-export interface SkillsShAuditState {
+interface SkillsShAuditState {
   risk?: SkillsShRisk | null;
 }
 
@@ -40,12 +40,12 @@ interface RemoteSkillCandidateBase {
   slug: string;
 }
 
-export interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
+interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
   provider: "clawhub";
   moderation?: ClawhubModerationState | null;
 }
 
-export interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
+interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
   provider: "skillssh";
   audit?: SkillsShAuditState | null;
 }

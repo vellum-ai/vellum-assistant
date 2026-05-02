@@ -1,8 +1,4 @@
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 import AuthenticationServices
 import Foundation
 import os
@@ -204,9 +200,7 @@ public final class AuthManager {
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        #if os(macOS)
         LockfileAssistant.setActiveAssistantId(nil)
-        #endif
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
@@ -255,14 +249,7 @@ public final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPres
     public static let shared = WebAuthPresentationContext()
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        #if os(macOS)
         NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
-        #elseif os(iOS)
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first(where: { $0.isKeyWindow }) ?? ASPresentationAnchor()
-        #endif
     }
 }
 

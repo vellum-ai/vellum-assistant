@@ -62,11 +62,20 @@ export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
 const log = getLogger("context-search-memory-v2-source");
 
 /**
- * Top-K size for the un-restricted ANN candidate query against the v2
- * concept-page collection. Larger than the per-call recall limit so spreading
- * has neighbors to pull in.
+ * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
+ * `null` (unlimited). Qdrant's query API requires an explicit numeric
+ * `limit`, so unlimited is represented as a number large enough that any
+ * realistic concept-page collection is returned in full.
+ *
+ * Why not `Number.MAX_SAFE_INTEGER`: Qdrant's sparse-vector `SearchContext`
+ * pre-allocates `limit * 16` bytes per query, so passing `MAX_SAFE_INTEGER`
+ * triggers a ~144 PB allocation and SIGABRTs the Qdrant process. 1_000_000
+ * is ~16 MB of pre-allocation in Qdrant — generous headroom over realistic
+ * concept-page counts (low thousands today) while staying well clear of
+ * the OOM cliff. Bump explicitly via `ann_candidate_limit` if you ever
+ * outgrow it.
  */
-const MEMORY_V2_ANN_CANDIDATE_LIMIT = 50;
+const UNLIMITED_ANN_CANDIDATE_LIMIT = 1_000_000;
 
 /** Cap individual concept-page files we are willing to read for lexical scan. */
 const MEMORY_V2_LEXICAL_MAX_FILE_SIZE_BYTES = 256 * 1024;
@@ -181,10 +190,13 @@ async function activationEvidence(
   if (!denseVector || denseVector.length === 0) return [];
   const sparseVector = generateSparseEmbedding(trimmedQuery);
 
+  const annLimit =
+    context.config.memory.v2.ann_candidate_limit ??
+    UNLIMITED_ANN_CANDIDATE_LIMIT;
   const hits = await hybridQueryConceptPages(
     denseVector,
     sparseVector,
-    MEMORY_V2_ANN_CANDIDATE_LIMIT,
+    annLimit,
   );
   if (hits.length === 0) return [];
 

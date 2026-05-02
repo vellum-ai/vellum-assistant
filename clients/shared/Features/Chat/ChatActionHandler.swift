@@ -1,12 +1,5 @@
 import Foundation
 import os
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatActionHandler")
 
@@ -477,12 +470,6 @@ final class ChatActionHandler {
             }
             return
         }
-        // Haptic on first text chunk (thinking → streaming transition)
-        if vm.isThinking {
-            #if os(iOS)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            #endif
-        }
         vm.isThinking = false
         vm.currentAssistantHasText = true
         if vm.pendingVoiceMessage {
@@ -509,6 +496,8 @@ final class ChatActionHandler {
         if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
+        vm.idleFallbackTask?.cancel()
+        vm.idleFallbackTask = nil
         // Capture before dispatchPendingSendDirect clears the flag so we can
         // tell a real turn end from a cancel-acknowledgement completion.
         let wasCancelAck = vm.pendingSendDirectText != nil
@@ -615,9 +604,6 @@ final class ChatActionHandler {
         } else if vm.pendingQueuedCount == 0 {
             // Only clear isSending if no messages are still queued
             vm.isSending = false
-            #if os(iOS)
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            #endif
         }
         // Cancel the throttled refinement flush and do a final immediate
         // flush so the complete buffer is available for the logic below.
@@ -704,9 +690,7 @@ final class ChatActionHandler {
                 completedToolCalls = toolCalls
             }
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         // Reset processing messages to sent and drop attachment base64 data
         // for lazy-loadable attachments (sizeBytes != nil means the daemon can
         // re-serve them). Locally-added attachments (sizeBytes == nil) keep their
@@ -764,9 +748,7 @@ final class ChatActionHandler {
         if let lastUserIndex = vm.messages.lastIndex(where: { $0.role == .user }) {
             vm.messages.removeSubrange((lastUserIndex + 1)...)
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         vm.discardStreamingBuffer()
         vm.discardPartialOutputBuffer()
     }
@@ -808,31 +790,16 @@ final class ChatActionHandler {
             vm.isSending = false
         }
         vm.messageManager.batchUpdateMessages { msgs in
-            if let existingId = vm.currentAssistantMessageId,
-               let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                msgs[index].isStreaming = false
-                msgs[index].streamingCodePreview = nil
-                msgs[index].streamingCodeToolName = nil
-                // Mark preview-only tool calls (have toolUseId, not complete, no inputRawDict)
-                // as complete/cancelled so they don't remain in a dangling incomplete state.
-                for tcIdx in msgs[index].toolCalls.indices {
-                    let tc = msgs[index].toolCalls[tcIdx]
-                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                        msgs[index].toolCalls[tcIdx].isComplete = true
-                        msgs[index].toolCalls[tcIdx].completedAt = Date()
-                    }
-                }
+            if let existingId = vm.currentAssistantMessageId {
+                msgs.finalizeStreamingMessage(id: existingId, completeToolCalls: .previewOnly)
             }
-            // Reset processing messages to sent
             for i in msgs.indices {
                 if msgs[i].role == .user && msgs[i].status == .processing {
                     msgs[i].status = .sent
                 }
             }
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         vm.discardStreamingBuffer()
         vm.flushPartialOutputBuffer()
         vm.dispatchPendingSendDirect()
@@ -966,15 +933,10 @@ final class ChatActionHandler {
         if msg.runStillActive != true {
             vm.flushStreamingBuffer()
             vm.flushPartialOutputBuffer()
-            if let existingId = vm.currentAssistantMessageId,
-               let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-                vm.messages[index].isStreaming = false
-                vm.messages[index].streamingCodePreview = nil
-                vm.messages[index].streamingCodeToolName = nil
+            if let existingId = vm.currentAssistantMessageId {
+                vm.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
             }
-            vm.currentAssistantMessageId = nil
-            vm.currentTurnUserText = nil
-            vm.currentAssistantHasText = false
+            vm.clearCurrentTurnTracking()
         }
         if msg.runStillActive != true && vm.pendingQueuedCount == 0 {
             vm.isSending = false
@@ -995,20 +957,16 @@ final class ChatActionHandler {
         // Must run before currentAssistantMessageId is cleared so attachments land on the right message
         vm.ingestAssistantAttachments(handoff.attachments)
         // Keep isSending = true — daemon is handing off to next queued message
-        if let existingId = vm.currentAssistantMessageId,
-           let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
+        if let existingId = vm.currentAssistantMessageId {
             // Backfill the daemon's persisted message ID so fork, inspect,
             // TTS, and other daemon-anchored actions work without a history reload.
-            if let messageId = handoff.messageId {
+            if let messageId = handoff.messageId,
+               let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
                 vm.messages[index].daemonMessageId = messageId
             }
-            vm.messages[index].isStreaming = false
-            vm.messages[index].streamingCodePreview = nil
-            vm.messages[index].streamingCodeToolName = nil
+            vm.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         // Reset processing messages to sent and clear attachment binary payloads.
         // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
         // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
@@ -1059,20 +1017,8 @@ final class ChatActionHandler {
         // complete, reset processing statuses, and handle secret_blocked
         // removal — all in a single batch to avoid per-mutation overhead.
         vm.messageManager.batchUpdateMessages { msgs in
-            // Mark current assistant message as no longer streaming
-            if let existingId = vm.currentAssistantMessageId,
-               let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                msgs[index].isStreaming = false
-                msgs[index].streamingCodePreview = nil
-                msgs[index].streamingCodeToolName = nil
-                // Mark preview-only tool calls as complete on terminal error
-                for tcIdx in msgs[index].toolCalls.indices {
-                    let tc = msgs[index].toolCalls[tcIdx]
-                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                        msgs[index].toolCalls[tcIdx].isComplete = true
-                        msgs[index].toolCalls[tcIdx].completedAt = Date()
-                    }
-                }
+            if let existingId = vm.currentAssistantMessageId {
+                msgs.finalizeStreamingMessage(id: existingId, completeToolCalls: .previewOnly)
             }
             if !wasCancelling && err.category == "secret_blocked" {
                 let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1113,9 +1059,7 @@ final class ChatActionHandler {
                 }
             }
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         if !wasCancelling {
             vm.errorText = err.message
             // When the backend blocks a message for containing secrets,
@@ -1191,9 +1135,6 @@ final class ChatActionHandler {
                   vm.shouldAcceptConfirmation?() ?? false else { return }
         }
         vm.isThinking = false
-        #if os(iOS)
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        #endif
         let confirmation = ToolConfirmationData(
             requestId: msg.requestId,
             toolName: msg.toolName,
@@ -1306,19 +1247,8 @@ final class ChatActionHandler {
         // Finalize assistant message, remove empty trailing assistant bubble,
         // insert inline error, reset processing/queued statuses — single batch.
         vm.messageManager.batchUpdateMessages { msgs in
-            if let existingId = vm.currentAssistantMessageId,
-               let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                msgs[index].isStreaming = false
-                msgs[index].streamingCodePreview = nil
-                msgs[index].streamingCodeToolName = nil
-                // Mark preview-only tool calls as complete on conversation error
-                for tcIdx in msgs[index].toolCalls.indices {
-                    let tc = msgs[index].toolCalls[tcIdx]
-                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
-                        msgs[index].toolCalls[tcIdx].isComplete = true
-                        msgs[index].toolCalls[tcIdx].completedAt = Date()
-                    }
-                }
+            if let existingId = vm.currentAssistantMessageId {
+                msgs.finalizeStreamingMessage(id: existingId, completeToolCalls: .previewOnly)
             }
             if !wasCancelling {
                 // Remove empty assistant message left over from the interrupted stream
@@ -1347,9 +1277,7 @@ final class ChatActionHandler {
                 }
             }
         }
-        vm.currentAssistantMessageId = nil
-        vm.currentTurnUserText = nil
-        vm.currentAssistantHasText = false
+        vm.clearCurrentTurnTracking()
         vm.flushPartialOutputBuffer()
         // When the user intentionally cancelled, suppress the error.
         // Otherwise, set error state so the UI shows the error banner.
@@ -1495,6 +1423,21 @@ final class ChatActionHandler {
             vm.isThinking = false
         case "idle":
             vm.isThinking = false
+            vm.isCompacting = false
+            vm.isCancelling = false
+            vm.flushStreamingBuffer()
+            vm.flushPartialOutputBuffer()
+            if let assistantId = vm.currentAssistantMessageId {
+                vm.messages.finalizeStreamingMessage(id: assistantId)
+            }
+            if vm.pendingQueuedCount == 0 {
+                vm.isSending = false
+            }
+            // Leave currentAssistantMessageId for messageComplete — it needs
+            // it for daemonMessageId backfill, attachment ingestion, and voice
+            // callbacks. Schedule a short fallback to clear it if messageComplete
+            // never arrives (lost event).
+            vm.scheduleIdleFallbackCleanup()
         case "awaiting_confirmation":
             vm.isThinking = false
             vm.isSending = false

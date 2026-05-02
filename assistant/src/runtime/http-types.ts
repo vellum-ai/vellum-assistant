@@ -21,13 +21,8 @@ import type {
 
 export type {
   ApprovalCopyGenerator,
-  ApprovalMessageContext,
-  ApprovalMessageScenario,
   ComposeApprovalMessageGenerativeOptions,
-  ComposeGuardianActionMessageOptions,
   GuardianActionCopyGenerator,
-  GuardianActionMessageContext,
-  GuardianActionMessageScenario,
 } from "./message-composer-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 

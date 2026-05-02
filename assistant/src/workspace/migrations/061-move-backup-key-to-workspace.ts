@@ -11,22 +11,17 @@
  */
 
 import { copyFileSync, existsSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
+import { getVellumRoot } from "./utils.js";
 
 export const moveBackupKeyToWorkspaceMigration: WorkspaceMigration = {
   id: "061-move-backup-key-to-workspace",
   description: "Move backup.key from protected/ to workspace",
 
   run(workspaceDir: string): void {
-    const oldPath = join(getRootDir(), "protected", "backup.key");
+    const oldPath = join(getVellumRoot(), "protected", "backup.key");
     const newPath = join(workspaceDir, ".backup.key");
     if (!existsSync(oldPath)) return;
     if (existsSync(newPath)) {
@@ -42,7 +37,7 @@ export const moveBackupKeyToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const oldPath = join(getRootDir(), "protected", "backup.key");
+    const oldPath = join(getVellumRoot(), "protected", "backup.key");
     const newPath = join(workspaceDir, ".backup.key");
     if (!existsSync(newPath)) return;
     if (existsSync(oldPath)) {

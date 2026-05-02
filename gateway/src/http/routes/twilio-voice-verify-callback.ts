@@ -19,6 +19,7 @@ import { getLogger } from "../../logger.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
+  resolvePublicBaseWssUrl,
 } from "../../runtime/client.js";
 import {
   validateTwilioWebhookRequest,
@@ -37,6 +38,7 @@ import {
   assistantDbQuery,
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
+import { upsertVerifiedContactChannel } from "../../verification/contact-helpers.js";
 
 const log = getLogger("twilio-voice-verify-callback");
 
@@ -75,7 +77,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
         { callSid, fromNumber },
         "No pending verification session found on callback — forwarding to assistant",
       );
-      return forwardToAssistant(config, params, req.url);
+      return forwardToAssistant(config, params, req.url, caches);
     }
 
     if (!digits) {
@@ -180,6 +182,24 @@ export function createTwilioVoiceVerifyCallbackHandler(
         // Don't fail the call — the verification succeeded even if binding
         // creation had an issue. The caller should still be connected.
       }
+    } else if (result.verificationType === "trusted_contact") {
+      try {
+        await upsertVerifiedContactChannel({
+          sourceChannel: "phone",
+          externalUserId: fromNumber,
+          externalChatId: fromNumber,
+        });
+
+        log.info(
+          { callSid, fromNumber },
+          "Trusted contact phone channel activated by gateway",
+        );
+      } catch (err) {
+        log.error(
+          { err, callSid, fromNumber },
+          "Failed to upsert trusted contact channel after voice verification",
+        );
+      }
     }
 
     // Forward to the assistant for ConversationRelay setup.
@@ -188,7 +208,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
       { callSid, fromNumber },
       "Voice verification complete — forwarding to assistant for call setup",
     );
-    return forwardToAssistant(config, params, req.url);
+    return forwardToAssistant(config, params, req.url, caches);
   };
 }
 
@@ -255,12 +275,14 @@ async function forwardToAssistant(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
+  caches?: TwilioValidationCaches,
 ): Promise<Response> {
   try {
     const runtimeResponse = await forwardTwilioVoiceWebhook(
       config,
       params,
       originalUrl,
+      resolvePublicBaseWssUrl(config, caches?.configFile),
     );
     return new Response(runtimeResponse.body, {
       status: runtimeResponse.status,

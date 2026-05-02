@@ -184,7 +184,7 @@ export interface ReorderConversationsRequest {
 
 // === Server → Client ===
 
-export interface ConversationSearchMatchingMessage {
+interface ConversationSearchMatchingMessage {
   messageId: string;
   role: string;
   /** Plain-text excerpt around the match, truncated to ~200 chars. */
@@ -192,7 +192,7 @@ export interface ConversationSearchMatchingMessage {
   createdAt: number;
 }
 
-export interface ConversationSearchResultItem {
+interface ConversationSearchResultItem {
   conversationId: string;
   conversationTitle: string | null;
   conversationUpdatedAt: number;
@@ -225,7 +225,7 @@ export interface ConversationTitleUpdated {
 }
 
 /** Channel binding metadata exposed in conversation list APIs. */
-export interface ChannelBinding {
+interface ChannelBinding {
   sourceChannel: ChannelId;
   externalChatId: string;
   externalUserId?: string | null;
@@ -234,7 +234,7 @@ export interface ChannelBinding {
 }
 
 /** Attention state metadata for a conversation's latest assistant message. */
-export interface AssistantAttention {
+interface AssistantAttention {
   hasUnseenLatestAssistantMessage: boolean;
   latestAssistantMessageAt?: number;
   lastSeenAssistantMessageAt?: number;
@@ -242,7 +242,7 @@ export interface AssistantAttention {
   lastSeenSignalType?: string;
 }
 
-export interface ConversationForkParent {
+interface ConversationForkParent {
   conversationId: string;
   messageId: string;
   title: string;
@@ -329,7 +329,7 @@ export interface ModelInfo {
   }>;
 }
 
-export interface HistoryResponseToolCall {
+interface HistoryResponseToolCall {
   name: string;
   input: Record<string, unknown>;
   result?: string;
@@ -363,7 +363,7 @@ export interface HistoryResponseToolCall {
   riskThreshold?: string;
 }
 
-export interface HistoryResponseSurface {
+interface HistoryResponseSurface {
   surfaceId: string;
   surfaceType: string;
   title?: string;

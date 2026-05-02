@@ -10,7 +10,7 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
+import type { ChannelInviteAdapter } from "../channel-invite-types.js";
 
 // ---------------------------------------------------------------------------
 // Phone number resolution

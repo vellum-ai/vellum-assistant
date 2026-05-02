@@ -87,6 +87,15 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Number of top-activation concept pages considered for injection per turn",
       ),
+    ann_candidate_limit: z
+      .number({ error: "memory.v2.ann_candidate_limit must be a number" })
+      .int("memory.v2.ann_candidate_limit must be an integer")
+      .positive("memory.v2.ann_candidate_limit must be a positive integer")
+      .nullable()
+      .default(null)
+      .describe(
+        "Per-channel cap on the unrestricted ANN candidate query (dense and sparse each return up to this many hits before they are unioned and fed into the activation pipeline). `null` = unlimited (every page in the v2 collection is eligible). Increase or null this out to surface more candidates at the cost of higher per-turn embedding/scoring work.",
+      ),
     top_k_skills: z
       .number({ error: "memory.v2.top_k_skills must be a number" })
       .int()

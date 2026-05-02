@@ -13,7 +13,7 @@ import type {
 
 const log = getLogger("usage-pricing");
 
-export function normalizeTokenCount(value: number | null | undefined): number {
+function normalizeTokenCount(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.max(value, 0);
 }

@@ -104,26 +104,17 @@ struct ChatView: View {
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
-    @State private var searchText = ""
-    @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
     @State private var diskPressureDismissalRefreshToken = 0
     @State private var diskPressureDismissalRefreshTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
-        viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
+        viewModel.isPaginatedEmpty && viewModel.isHistoryLoaded
     }
 
     private var shouldShowSkeleton: Bool {
-        viewModel.paginatedVisibleMessages.isEmpty && !viewModel.isHistoryLoaded
-    }
-
-    /// Message IDs whose text contains the search query, ordered chronologically.
-    private var searchMatches: [UUID] {
-        guard isSearchActive, !searchText.isEmpty else { return [] }
-        let query = searchText.lowercased()
-        return viewModel.messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
+        viewModel.isPaginatedEmpty && !viewModel.isHistoryLoaded
     }
 
     private var currentConversation: ConversationModel? {
@@ -185,32 +176,13 @@ struct ChatView: View {
             return .handled
         }
         .overlay(alignment: .topTrailing) {
-            if isSearchActive {
-                ChatSearchBar(
-                    searchText: $searchText,
-                    matchCount: searchMatches.count,
-                    currentMatchIndex: currentMatchIndex,
-                    onPrevious: { navigateMatch(delta: -1) },
-                    onNext: { navigateMatch(delta: 1) },
-                    onDismiss: { dismissSearch() }
-                )
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.sm)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .layoutHangSignpost("chat.searchBar")
-            }
+            ChatSearchOverlay(
+                viewModel: viewModel,
+                isSearchActive: $isSearchActive,
+                anchorMessageId: $anchorMessageId
+            )
         }
         .animation(VAnimation.fast, value: isSearchActive)
-        .onChange(of: searchText) {
-            currentMatchIndex = 0
-            scrollToCurrentMatch()
-        }
-        .onChange(of: searchMatches.count) {
-            let count = searchMatches.count
-            if currentMatchIndex >= count {
-                currentMatchIndex = max(count - 1, 0)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
             if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
@@ -427,10 +399,16 @@ struct ChatView: View {
 
             if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    CompactionCircuitOpenBanner(
-                        openUntil: until,
-                        onExpired: { viewModel.compactionCircuitOpenUntil = nil }
-                    )
+                    // CompactionCircuitOpenBanner is natural-width; spacers center it
+                    // within the fixed column instead of leading-aligning it.
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CompactionCircuitOpenBanner(
+                            openUntil: until,
+                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
+                        )
+                        Spacer(minLength: 0)
+                    }
                 }
                 .padding(.bottom, -VSpacing.sm)
                 .animation(nil, value: queuedMessages.isEmpty)
@@ -557,8 +535,16 @@ struct ChatView: View {
         )
     }
 
-    /// Centers chat chrome to the same fixed transcript width using _FrameLayout
-    /// rather than nested max-width flex frames.
+    /// Centers a fixed-width column inside the available chat area.
+    ///
+    /// Sizes `content` with `FixedWidthLayout` so the column has a definite
+    /// width and `placeSubviews` does not query `explicitAlignment` on the
+    /// subtree. Flanking `Spacer`s split any remaining horizontal space to
+    /// keep the column horizontally centered on the page. The helper does
+    /// NOT center content within the column; callers that pass natural-width
+    /// content (no internal `Spacer`, no `.frame(maxWidth: .infinity)`) and
+    /// want it centered must wrap it themselves. See `MessageListView` for
+    /// the same pattern.
     @ViewBuilder
     private func centeredChatColumn<Content: View>(
         width: CGFloat,
@@ -566,8 +552,7 @@ struct ChatView: View {
     ) -> some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            content()
-                .frame(width: width)
+            content().fixedWidth(width)
             Spacer(minLength: 0)
         }
     }
@@ -740,21 +725,6 @@ struct ChatView: View {
 
     private func dismissSearch() {
         isSearchActive = false
-        searchText = ""
-        currentMatchIndex = 0
-    }
-
-    private func navigateMatch(delta: Int) {
-        let matches = searchMatches
-        guard !matches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex + delta + matches.count) % matches.count
-        scrollToCurrentMatch()
-    }
-
-    private func scrollToCurrentMatch() {
-        let matches = searchMatches
-        guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
-        anchorMessageId = matches[currentMatchIndex]
     }
 }
 

@@ -44,18 +44,26 @@ import { hybridQuerySkills } from "./skill-qdrant.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
- * Top-K size for the un-restricted ANN candidate query against the v2
- * concept-page collection. The design doc fixes this at 50 — small enough to
- * keep the per-turn round-trip cheap, large enough to surface relevant pages
- * outside the prior active set.
+ * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
+ * `null` (unlimited). Qdrant's query API requires an explicit numeric
+ * `limit`, so unlimited is represented as a number large enough that any
+ * realistic concept-page collection is returned in full.
+ *
+ * Why not `Number.MAX_SAFE_INTEGER`: Qdrant's sparse-vector `SearchContext`
+ * pre-allocates `limit * 16` bytes per query, so passing `MAX_SAFE_INTEGER`
+ * triggers a ~144 PB allocation and SIGABRTs the Qdrant process. 1_000_000
+ * is ~16 MB of pre-allocation in Qdrant — generous headroom over realistic
+ * concept-page counts (low thousands today) while staying well clear of
+ * the OOM cliff. Bump explicitly via `ann_candidate_limit` if you ever
+ * outgrow it.
  */
-const ANN_CANDIDATE_LIMIT = 50;
+const UNLIMITED_ANN_CANDIDATE_LIMIT = 1_000_000;
 
 // ---------------------------------------------------------------------------
 // Candidate selection
 // ---------------------------------------------------------------------------
 
-export interface SelectCandidatesParams {
+interface SelectCandidatesParams {
   /**
    * Prior-turn activation snapshot. Slugs with activation strictly greater
    * than `config.memory.v2.epsilon` are carried forward as candidates so the
@@ -71,7 +79,7 @@ export interface SelectCandidatesParams {
   config: AssistantConfig;
 }
 
-export interface SelectCandidatesResult {
+interface SelectCandidatesResult {
   /** Union of `fromPrior` and `fromAnn` — the per-turn candidate set. */
   candidates: Set<string>;
   /** Slugs carried forward from `priorState` because their activation > epsilon. */
@@ -120,11 +128,9 @@ export async function selectCandidates(
     const denseResult = await embedWithBackend(config, [annQueryText]);
     const dense = denseResult.vectors[0];
     const sparse = generateSparseEmbedding(annQueryText);
-    const hits = await hybridQueryConceptPages(
-      dense,
-      sparse,
-      ANN_CANDIDATE_LIMIT,
-    );
+    const limit =
+      config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
+    const hits = await hybridQueryConceptPages(dense, sparse, limit);
     for (const hit of hits) fromAnn.add(hit.slug);
   }
 
@@ -137,7 +143,7 @@ export async function selectCandidates(
 // Own activation
 // ---------------------------------------------------------------------------
 
-export interface ComputeOwnActivationParams {
+interface ComputeOwnActivationParams {
   candidates: ReadonlySet<string>;
   priorState: ActivationState | null;
   userText: string;
@@ -151,7 +157,7 @@ export interface ComputeOwnActivationParams {
  * coefficient weighting is applied. Surfaced for telemetry / inspector views
  * so the UI can show how each term contributed to the final value.
  */
-export interface OwnActivationBreakdown {
+interface OwnActivationBreakdown {
   /** `d * prev(slug)` — the decayed prior-turn activation contribution. */
   priorContribution: number;
   /** Raw `sim(user, slug)` similarity, before `c_user` weighting. */
@@ -162,7 +168,7 @@ export interface OwnActivationBreakdown {
   simNow: number;
 }
 
-export interface ComputeOwnActivationResult {
+interface ComputeOwnActivationResult {
   /** Final clamped own-activation value per slug. */
   activation: Map<string, number>;
   /** Per-slug breakdown of the inputs that fed into `activation`. */
@@ -222,7 +228,7 @@ export async function computeOwnActivation(
 // Spreading activation
 // ---------------------------------------------------------------------------
 
-export interface SpreadActivationResult {
+interface SpreadActivationResult {
   /** Final activation value per slug after spreading. */
   final: Map<string, number>;
   /**
@@ -239,20 +245,25 @@ export interface SpreadActivationResult {
  * Apply 2-hop spreading activation with neighborhood normalization. Edges are
  * directed: an edge A→B means A's activation contributes to B's final value.
  *
- *   A(n) = [ A_o(n) + k · Σ_{m∈in1(n)} A_o(m) + k² · Σ_{m∈in2(n)} A_o(m) ]
- *        / (1 + k · #in1(n) + k² · #in2(n))
+ *   A(n) = [ A_o(n) + Σ_{r: |active_inR(n)| > 0} k^r · L2(active_inR(n)) ]
+ *        / [ 1     + Σ_{r: |active_inR(n)| > 0} k^r ]
  *
- * For each candidate slug `n`, BFS walks `incoming` adjacency to gather
- * predecessors at distance 1, 2 (i.e. nodes from which a directed path of
- * that length leads into `n`). The denominator counts those structural
- * predecessors at each hop (whether or not they appear in `ownActivation`)
- * so a pure source — no incoming edges — collapses to `A == A_o`. Missing
- * predecessors contribute 0 to the numerator.
+ * `active_inR(n)` is the subset of structural predecessors at hop `r` that
+ * also appear in `ownActivation` (i.e. made the candidate set). `L2(.)` is
+ * the quadratic mean √(mean(A_o²)) — a mild bias toward strong outliers
+ * compared to the arithmetic mean, without letting a single high-cosine
+ * predecessor dominate the way `max` would.
  *
- * Bounded in [0, 1]: with `A_o ∈ [0, 1]` and `k ∈ [0, 1]`, the numerator is
- * at most `1 + k · #in1 + k² · #in2` — exactly the denominator — so the
- * ratio is at most 1. `clampUnitInterval` guards against numerical drift
- * and out-of-range inputs.
+ * Hops with **no** active predecessors are dropped from BOTH numerator and
+ * denominator so a high-in-degree hub with mostly-inactive neighbors stays
+ * near `A_o` instead of being crushed by the structural count. A pure
+ * source (no incoming edges, or every edge points at a non-candidate)
+ * collapses to `A == A_o`.
+ *
+ * Bounded in [0, 1]: every `L2` term ≤ max active A_o ≤ 1, so the numerator
+ * is at most `1 + Σ k^r` — exactly the denominator — so the ratio is at most
+ * 1. `clampUnitInterval` guards against numerical drift and out-of-range
+ * inputs.
  *
  * Pure function — no I/O. Reads the precomputed `incoming` map from
  * `edgeIndex` and runs a per-source BFS bounded by `hops`.
@@ -282,22 +293,28 @@ export function spreadActivation(
     // hop-0 only via `numerator = ownValue`.
     const distance = bfsPredecessorDistances(edgeIndex.incoming, slug, hops);
 
+    // Bucket only predecessors that are in `ownActivation` (the candidate
+    // set). Structural predecessors that didn't make the cut contribute
+    // nothing — neither to the numerator nor the denominator — so hub
+    // in-degree alone never penalizes a node.
+    const ringActiveCounts: number[] = new Array(hops + 1).fill(0);
+    const ringSquareSums: number[] = new Array(hops + 1).fill(0);
+    for (const [predecessor, hop] of distance) {
+      const predValue = ownActivation.get(predecessor);
+      if (predValue === undefined) continue;
+      ringActiveCounts[hop] += 1;
+      ringSquareSums[hop] += predValue * predValue;
+    }
+
     let numerator = ownValue;
     let denominator = 1;
     let kPow = 1;
-    // Accumulate per-hop contributions in a single pass. We need per-hop
-    // counts to weight by k^r, so bucket as we go.
-    const ringCounts: number[] = new Array(hops + 1).fill(0);
-    const ringSums: number[] = new Array(hops + 1).fill(0);
-    for (const [predecessor, hop] of distance) {
-      ringCounts[hop] += 1;
-      ringSums[hop] += ownActivation.get(predecessor) ?? 0;
-    }
     for (let r = 1; r <= hops; r++) {
       kPow *= k;
-      if (ringCounts[r] === 0) continue;
-      numerator += kPow * ringSums[r];
-      denominator += kPow * ringCounts[r];
+      if (ringActiveCounts[r] === 0) continue;
+      const rms = Math.sqrt(ringSquareSums[r] / ringActiveCounts[r]);
+      numerator += kPow * rms;
+      denominator += kPow;
     }
 
     const finalValue = clampUnitInterval(numerator / denominator);
@@ -347,7 +364,7 @@ function bfsPredecessorDistances(
 // Injection selection
 // ---------------------------------------------------------------------------
 
-export interface SelectInjectionsParams {
+interface SelectInjectionsParams {
   /** Final activation map after spread. */
   A: ReadonlyMap<string, number>;
   /** Slugs already attached to a prior user message (with their turn). */
@@ -356,7 +373,7 @@ export interface SelectInjectionsParams {
   topK: number;
 }
 
-export interface SelectInjectionsResult {
+interface SelectInjectionsResult {
   /** Top-K slugs by activation (descending), used for the cached top-now view. */
   topNow: string[];
   /**
@@ -408,7 +425,7 @@ export function selectInjections(
 // c_assistant, c_now}` — the design doc (§9) deliberately shares them with
 // concept-page activation rather than introducing parallel knobs.
 
-export interface SelectSkillCandidatesParams {
+interface SelectSkillCandidatesParams {
   userText: string;
   assistantText: string;
   nowText: string;
@@ -448,7 +465,7 @@ export async function selectSkillCandidates(
   return candidates;
 }
 
-export interface ComputeSkillActivationParams {
+interface ComputeSkillActivationParams {
   candidates: ReadonlySet<string>;
   userText: string;
   assistantText: string;
@@ -461,7 +478,7 @@ export interface ComputeSkillActivationParams {
  * coefficient weighting. Skills have no decay term, so the breakdown is just
  * the three raw sims. Surfaced for telemetry / inspector views.
  */
-export interface SkillActivationBreakdown {
+interface SkillActivationBreakdown {
   /** Raw `sim(user, skill)` similarity, before `c_user` weighting. */
   simUser: number;
   /** Raw `sim(assistant, skill)` similarity, before `c_assistant` weighting. */
@@ -470,7 +487,7 @@ export interface SkillActivationBreakdown {
   simNow: number;
 }
 
-export interface ComputeSkillActivationResult {
+interface ComputeSkillActivationResult {
   /** Final clamped skill-activation value per id. */
   activation: Map<string, number>;
   /** Per-skill breakdown of the raw sim inputs that fed into `activation`. */
@@ -520,14 +537,14 @@ export async function computeSkillActivation(
   return { activation, breakdown };
 }
 
-export interface SelectSkillInjectionsParams {
+interface SelectSkillInjectionsParams {
   /** Final skill activation map. */
   A: ReadonlyMap<string, number>;
   /** Cap on the per-turn skill slate, e.g. `config.memory.v2.skills_top_k`. */
   topK: number;
 }
 
-export interface SelectSkillInjectionsResult {
+interface SelectSkillInjectionsResult {
   /**
    * Top-K skill ids by activation (descending), tie-broken lexicographically.
    * Skills are re-presented every turn — no `toInject` delta — so the caller

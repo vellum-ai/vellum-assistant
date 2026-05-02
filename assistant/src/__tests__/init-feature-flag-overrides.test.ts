@@ -41,8 +41,11 @@ describe("initFeatureFlagOverrides", () => {
   it("falls back gracefully when gateway socket is unavailable", async () => {
     mockGatewayIpc(null, { error: true });
 
-    // Should not throw
-    await initFeatureFlagOverrides();
+    // Disable retries — production retries the IPC fetch on failure to
+    // dodge the daemon-vs-gateway startup race, but here we're explicitly
+    // testing the no-gateway fallback and don't want the test to wait
+    // through the backoff schedule.
+    await initFeatureFlagOverrides({ retryBackoffsMs: [] });
 
     // Without gateway data or file, undeclared flags default to true
     const config = {} as any;
@@ -64,12 +67,32 @@ describe("initFeatureFlagOverrides", () => {
   it("does not cache empty gateway response", async () => {
     mockGatewayIpc({});
 
-    await initFeatureFlagOverrides();
+    // Disable retries — this test explicitly simulates a sustained empty
+    // response (gateway up but reporting zero flags) and should not wait
+    // through the production backoff schedule.
+    await initFeatureFlagOverrides({ retryBackoffsMs: [] });
 
     // Undeclared flags without overrides default to true (not false from
     // a cached empty map)
     const config = {} as any;
     expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
+  });
+
+  it("retries empty gateway responses and picks up flags once they become available", async () => {
+    // Simulate the daemon-vs-gateway startup race: the first IPC call
+    // returns empty (gateway not yet ready), but a later attempt sees
+    // the populated flag map. The retry loop in init should bridge this
+    // gap without losing the flag.
+    mockGatewayIpc({});
+    setTimeout(() => {
+      resetMockGatewayIpc();
+      mockGatewayIpc({ "retry-test-flag": true });
+    }, 50);
+
+    await initFeatureFlagOverrides({ retryBackoffsMs: [200] });
+
+    const config = {} as any;
+    expect(isAssistantFeatureFlagEnabled("retry-test-flag", config)).toBe(true);
   });
 
   it("does not re-fetch when cache is already populated", async () => {

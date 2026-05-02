@@ -964,8 +964,10 @@ describe("session-agent-loop", () => {
       // transport name (covered by call-site-routing-provider.test.ts). Here we
       // verify the loop wiring: when text_delta fires before usage, the started
       // event reflects the provider that will also appear on finished.
-      const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
-        [];
+      const traceEvents: Array<{
+        label: string;
+        attrs: Record<string, unknown>;
+      }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         onEvent({ type: "text_delta", text: "Hi." });
@@ -1006,7 +1008,11 @@ describe("session-agent-loop", () => {
           }),
         } as unknown as AgentLoopConversationContext["provider"],
         traceEmitter: {
-          emit: (event: string, label: string, payload: { attributes?: Record<string, unknown> }) => {
+          emit: (
+            event: string,
+            label: string,
+            payload: { attributes?: Record<string, unknown> },
+          ) => {
             if (event === "llm_call_started" || event === "llm_call_finished") {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
@@ -1016,7 +1022,10 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      const started = traceEvents.find((e) => e.label.startsWith("LLM call to") && !e.label.endsWith("finished"));
+      const started = traceEvents.find(
+        (e) =>
+          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
+      );
       const finished = traceEvents.find((e) => e.label.endsWith("finished"));
 
       expect(started).toBeDefined();
@@ -1030,8 +1039,10 @@ describe("session-agent-loop", () => {
       // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
       // context in CallSiteRoutingProvider has already exited. Without passing
       // providerName explicitly it would say "anthropic".
-      const traceEvents: Array<{ label: string; attrs: Record<string, unknown> }> =
-        [];
+      const traceEvents: Array<{
+        label: string;
+        attrs: Record<string, unknown>;
+      }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         // No text_delta — pure tool-call response
@@ -1065,7 +1076,11 @@ describe("session-agent-loop", () => {
           }),
         } as unknown as AgentLoopConversationContext["provider"],
         traceEmitter: {
-          emit: (event: string, label: string, payload: { attributes?: Record<string, unknown> }) => {
+          emit: (
+            event: string,
+            label: string,
+            payload: { attributes?: Record<string, unknown> },
+          ) => {
             if (event === "llm_call_started" || event === "llm_call_finished") {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
@@ -1075,7 +1090,10 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      const started = traceEvents.find((e) => e.label.startsWith("LLM call to") && !e.label.endsWith("finished"));
+      const started = traceEvents.find(
+        (e) =>
+          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
+      );
       const finished = traceEvents.find((e) => e.label.endsWith("finished"));
 
       expect(started).toBeDefined();

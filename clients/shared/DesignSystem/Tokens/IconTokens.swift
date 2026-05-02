@@ -1,9 +1,5 @@
 import SwiftUI
-#if canImport(AppKit) && !targetEnvironment(macCatalyst)
 import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 /// Centralized icon token backed by vendored Lucide PDF assets.
 /// Raw values match PDF filenames in the `LucideIcons` resource directory.
@@ -266,27 +262,16 @@ public enum VIcon: String, CaseIterable, Sendable {
     }
 
     /// SwiftUI `Image` resolved from the vendored PDF.
-    /// On iOS, pass the display size so the PDF is rasterized at the correct resolution.
     public func image(size: CGFloat = 24) -> Image {
-        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
         guard let ns = cachedNSImage(size: size) else {
             return Image(systemName: "questionmark.square")
         }
         return Image(nsImage: ns)
-        #elseif canImport(UIKit)
-        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size, cacheKey: "\(rawValue)-\(size)") else {
-            return Image(systemName: "questionmark.square")
-        }
-        return Image(uiImage: ui.withRenderingMode(.alwaysTemplate))
-        #else
-        return Image(systemName: "questionmark.square")
-        #endif
     }
 
     /// Convenience for callers that don't specify a size.
     public var image: Image { image() }
 
-    #if canImport(AppKit) && !targetEnvironment(macCatalyst)
     /// Non-evicting store for loaded NSImage instances, keyed on "rawValue-base" or "rawValue-{size}".
     /// Unlike NSCache, a plain dictionary is never evicted under memory pressure, preserving
     /// the identity stability that SwiftUI relies on for diffing.
@@ -341,38 +326,4 @@ public enum VIcon: String, CaseIterable, Sendable {
     public func nsImage(size: CGFloat) -> NSImage? {
         cachedNSImage(size: size)
     }
-    #endif
-
-    #if canImport(UIKit)
-    /// Cache for rasterized PDF images, keyed on "rawValue-size".
-    private static let rasterCache = NSCache<NSString, UIImage>()
-
-    /// Rasterize a PDF file into a `UIImage` using Core Graphics, with caching.
-    /// `UIImage(contentsOfFile:)` does not support PDF — it only handles raster formats.
-    private static func rasterizePDF(at url: URL, size: CGFloat = 24, cacheKey: String? = nil) -> UIImage? {
-        let key = NSString(string: cacheKey ?? "\(url.lastPathComponent)-\(size)")
-        if let cached = rasterCache.object(forKey: key) {
-            return cached
-        }
-
-        guard let doc = CGPDFDocument(url as CFURL),
-              let page = doc.page(at: 1) else { return nil }
-        let box = page.getBoxRect(.cropBox)
-        let scale = UIScreen.main.scale
-        let targetSize = CGSize(width: size * scale, height: size * scale)
-        let scaleX = targetSize.width / box.width
-        let scaleY = targetSize.height / box.height
-        let drawScale = min(scaleX, scaleY)
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-        let image = renderer.image { ctx in
-            let cgContext = ctx.cgContext
-            cgContext.translateBy(x: 0, y: size)
-            cgContext.scaleBy(x: drawScale / scale, y: -drawScale / scale)
-            cgContext.translateBy(x: -box.origin.x, y: -box.origin.y)
-            cgContext.drawPDFPage(page)
-        }
-        rasterCache.setObject(image, forKey: key)
-        return image
-    }
-    #endif
 }

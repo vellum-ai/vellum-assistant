@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.7.0
+  version: 0.7.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -6732,6 +6732,31 @@ paths:
                   type: boolean
               required:
                 - op
+              additionalProperties: false
+  /v1/memory/v2/concept-page:
+    post:
+      operationId: memory_v2_conceptpage_post
+      summary: Read a single memory v2 concept page
+      description:
+        Returns the rendered (frontmatter + body) markdown for a slug. 404 when the slug has no on-disk page — the
+        activation log inspector uses this to show what got injected.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slug:
+                  type: string
+                  minLength: 1
+              required:
+                - slug
               additionalProperties: false
   /v1/memory/v2/reembed-skills:
     post:

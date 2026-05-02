@@ -76,11 +76,6 @@ export interface SlackUser {
   deleted?: boolean;
 }
 
-export interface SlackUsersListResponse extends SlackApiResponse {
-  members: SlackUser[];
-  response_metadata?: { next_cursor?: string };
-}
-
 export interface SlackUserInfoResponse extends SlackApiResponse {
   user: SlackUser;
 }
@@ -110,35 +105,8 @@ export interface SlackSearchMatch {
   thread_ts?: string;
 }
 
-export interface SlackConversationInfoResponse extends SlackApiResponse {
-  channel: SlackConversation;
-}
-
 export interface SlackConversationsOpenResponse extends SlackApiResponse {
   channel: { id: string };
 }
 
-export type SlackReactionAddResponse = SlackApiResponse;
-
-export type SlackConversationJoinResponse = SlackApiResponse & {
-  channel?: SlackConversation;
-};
-
-export type SlackConversationLeaveResponse = SlackApiResponse;
-
-export interface SlackChatDeleteResponse extends SlackApiResponse {
-  channel: string;
-  ts: string;
-}
-
-export interface SlackChatUpdateResponse extends SlackApiResponse {
-  channel: string;
-  ts: string;
-  text: string;
-}
-
 export type SlackConversationMarkResponse = SlackApiResponse;
-
-export interface SlackPostEphemeralResponse extends SlackApiResponse {
-  message_ts: string;
-}

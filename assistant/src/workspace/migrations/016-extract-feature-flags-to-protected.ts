@@ -7,16 +7,10 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
+import { getVellumRoot } from "./utils.js";
 
 export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
   id: "016-extract-feature-flags-to-protected",
@@ -26,7 +20,7 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
   down(workspaceDir: string): void {
     // Reverse: read feature flags from protected directory and write them
     // back to config.json as assistantFeatureFlagValues.
-    const protectedDir = join(getRootDir(), "protected");
+    const protectedDir = join(getVellumRoot(), "protected");
     const featureFlagsPath = join(protectedDir, "feature-flags.json");
 
     if (!existsSync(featureFlagsPath)) return;
@@ -111,7 +105,7 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
     }
 
     // Write feature flags to protected directory
-    const protectedDir = join(getRootDir(), "protected");
+    const protectedDir = join(getVellumRoot(), "protected");
     mkdirSync(protectedDir, { recursive: true });
 
     const featureFlagsPath = join(protectedDir, "feature-flags.json");

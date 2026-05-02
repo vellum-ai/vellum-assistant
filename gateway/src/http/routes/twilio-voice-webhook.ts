@@ -4,6 +4,7 @@ import { getLogger } from "../../logger.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
+  resolvePublicBaseWssUrl,
 } from "../../runtime/client.js";
 import {
   resolveAssistant,
@@ -128,6 +129,7 @@ export function createTwilioVoiceWebhookHandler(
         config,
         params,
         req.url,
+        resolvePublicBaseWssUrl(config, caches?.configFile),
       );
       return new Response(runtimeResponse.body, {
         status: runtimeResponse.status,

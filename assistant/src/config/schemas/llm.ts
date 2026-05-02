@@ -91,7 +91,6 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
  * mapping table.
  */
 const EffortEnum = z.enum(["none", "low", "medium", "high", "xhigh", "max"]);
-export type Effort = z.infer<typeof EffortEnum>;
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
 export type Speed = z.infer<typeof SpeedEnum>;
@@ -102,7 +101,6 @@ export type Speed = z.infer<typeof SpeedEnum>;
  * are stripped in `retry.ts` normalization.
  */
 const VerbosityEnum = z.enum(["low", "medium", "high"]);
-export type Verbosity = z.infer<typeof VerbosityEnum>;
 
 // ---------------------------------------------------------------------------
 // Leaf primitives (shared between LLMConfigBase and LLMConfigFragment)
@@ -150,7 +148,6 @@ const ThinkingSchema = z.object({
   enabled: ThinkingEnabledSchema.default(true),
   streamThinking: ThinkingStreamThinkingSchema.default(true),
 });
-export type Thinking = z.infer<typeof ThinkingSchema>;
 
 // Fragment view: every field optional, no defaults injected. Defining this
 // separately (rather than `ThinkingSchema.partial()`) avoids having Zod
@@ -243,7 +240,6 @@ const OpenRouterOnlyItemSchema = z.string().min(1);
 const OpenRouterSchema = z.object({
   only: z.array(OpenRouterOnlyItemSchema).default([]),
 });
-export type OpenRouter = z.infer<typeof OpenRouterSchema>;
 
 const OpenRouterDeepPartialSchema = z.object({
   only: z.array(OpenRouterOnlyItemSchema).optional(),
@@ -257,8 +253,8 @@ const OpenRouterDeepPartialSchema = z.object({
  * Distinguishes daemon-managed profiles (overwritten on every startup) from
  * user-created ones (never touched by the daemon).
  */
-export const ProfileSource = z.enum(["managed", "user"]);
-export type ProfileSource = z.infer<typeof ProfileSource>;
+const ProfileSource = z.enum(["managed", "user"]);
+type ProfileSource = z.infer<typeof ProfileSource>;
 
 // ---------------------------------------------------------------------------
 // Pricing overrides
@@ -270,7 +266,6 @@ const PricingOverrideSchema = z.object({
   inputPer1M: z.number().nonnegative(),
   outputPer1M: z.number().nonnegative(),
 });
-export type PricingOverride = z.infer<typeof PricingOverrideSchema>;
 
 // ---------------------------------------------------------------------------
 // Base config (all fields defaulted) and Fragment (all fields optional)
@@ -302,7 +297,7 @@ export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
  * objects so callers can override individual leaves (e.g. `{ thinking:
  * { enabled: false } }`).
  */
-export const LLMConfigFragment = z.object({
+const LLMConfigFragment = z.object({
   provider: LLMProvider.optional(),
   model: ModelSchema.optional(),
   maxTokens: MaxTokensSchema.optional(),
@@ -314,7 +309,7 @@ export const LLMConfigFragment = z.object({
   contextWindow: ContextWindowDeepPartialSchema.optional(),
   openrouter: OpenRouterDeepPartialSchema.optional(),
 });
-export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
+type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
 /**
  * A named profile entry: an `LLMConfigFragment` augmented with
@@ -337,7 +332,7 @@ export type ProfileEntry = z.infer<typeof ProfileEntry>;
 const LLMCallSiteConfig = LLMConfigFragment.extend({
   profile: z.string().min(1).optional(),
 });
-export type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
+type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 
 // ---------------------------------------------------------------------------
 // Top-level LLM schema

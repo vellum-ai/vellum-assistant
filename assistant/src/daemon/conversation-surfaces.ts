@@ -18,7 +18,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
-} from "../runtime/interactive-ui.js";
+} from "../runtime/interactive-ui-types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";

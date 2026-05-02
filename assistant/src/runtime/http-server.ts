@@ -102,18 +102,6 @@ import { matchSkillRoute } from "./skill-route-registry.js";
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
 
-// Re-export shared types so existing consumers don't need to update imports
-export type {
-  ApprovalConversationGenerator,
-  ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
-  GuardianFollowUpConversationGenerator,
-  MessageProcessor,
-  RuntimeAttachmentMetadata,
-  RuntimeHttpServerOptions,
-  RuntimeMessageConversationOptions,
-} from "./http-types.js";
-
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,

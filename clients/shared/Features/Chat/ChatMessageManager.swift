@@ -2,13 +2,6 @@ import Combine
 import Foundation
 import Observation
 import os
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatMessageManager")
 

@@ -70,6 +70,7 @@ mockIpcResponse("get_global_thresholds", {
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
 import { clearRiskCache } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
@@ -178,6 +179,27 @@ describe("inline-command skill_load permissions", () => {
       const result = await check(
         "skill_load",
         { skill: "plain-skill" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("allow");
+    });
+  });
+
+  // ── Feature flag disabled ────────────────────────────────────────────
+
+  describe("feature flag disabled", () => {
+    test("dynamic skill auto-allows when flag is off (low risk threshold)", async () => {
+      ensureSkillsDir();
+      writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
+
+      // Disable the feature flag
+      _setOverridesForTesting({
+        "inline-skill-commands": false,
+      });
+
+      const result = await check(
+        "skill_load",
+        { skill: "dynamic-flag-off" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");

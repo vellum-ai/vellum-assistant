@@ -168,7 +168,11 @@ public struct HatchAssistantRequest: Codable, Sendable {
     }
 }
 
-/// Query mode for the platform hatch endpoint.
+/// Hatch endpoint mode.
+///
+/// `ensure` preserves the legacy idempotent flow, returning an existing
+/// assistant when possible. `create` asks the platform to create an additional
+/// assistant when multi-assistant hatching is enabled.
 public enum HatchAssistantMode: String, Codable, Sendable {
     case ensure
     case create
@@ -181,7 +185,11 @@ public enum PlatformAssistantResult: Sendable {
     case accessDenied
 }
 
-/// Result type for the idempotent hatch endpoint (200 = existing, 201 = created).
+/// Result type for the hatch endpoint.
+///
+/// The platform returns 200 when reusing an existing assistant (legacy
+/// `ensure` mode) or deduping an in-flight create, and 201 for a newly
+/// created assistant.
 public enum HatchAssistantResult: Sendable {
     case reusedExisting(PlatformAssistant)
     case createdNew(PlatformAssistant)

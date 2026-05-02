@@ -63,8 +63,13 @@ export const clamp01 = clampUnitInterval;
  * Edge cases:
  *   - Empty `candidateSlugs` → returns an empty map without touching Qdrant
  *     or the embedding backend.
- *   - Empty query text or all-zero sparse vector → still queries (dense may
- *     still hit), and the sparse contribution to fusion is zero.
+ *   - Empty / whitespace-only `text` → returns an empty map without touching
+ *     Qdrant or the embedding backend. The Gemini embedding API rejects empty
+ *     content with HTTP 400, and short-circuiting here prevents the failure
+ *     from cascading through `Promise.all` in `computeOwnActivation` (e.g.
+ *     turn 1 has no prior assistant message, so its `simBatch` channel is
+ *     called with `""`). Treating the channel's contribution as 0 is the
+ *     same outcome a no-hit query would produce.
  */
 export async function simBatch(
   text: string,
@@ -72,6 +77,9 @@ export async function simBatch(
   config: AssistantConfig,
 ): Promise<Map<string, number>> {
   if (candidateSlugs.length === 0) {
+    return new Map();
+  }
+  if (text.trim().length === 0) {
     return new Map();
   }
 
@@ -122,8 +130,12 @@ export async function simBatch(
  * Edge cases:
  *   - Empty `ids` → returns an empty map without touching Qdrant or the
  *     embedding backend.
- *   - Empty query text → still queries (dense may still hit), and the sparse
- *     contribution is zero.
+ *   - Empty / whitespace-only `text` → returns an empty map without touching
+ *     Qdrant or the embedding backend. Same rationale as {@link simBatch}:
+ *     Gemini rejects empty content with HTTP 400, so the activation pipeline
+ *     would otherwise fail on turn 1 (where the assistant-text channel is
+ *     `""`). Treating the channel's contribution as 0 matches a no-hit
+ *     query.
  */
 export async function simSkillBatch(
   text: string,
@@ -131,6 +143,9 @@ export async function simSkillBatch(
   config: AssistantConfig,
 ): Promise<Map<string, number>> {
   if (ids.length === 0) {
+    return new Map();
+  }
+  if (text.trim().length === 0) {
     return new Map();
   }
 

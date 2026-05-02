@@ -10,14 +10,21 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Healt
 /// `GatewayHTTPClient` which handles URL resolution, authentication, and 401 retry.
 public enum HealthCheckClient {
 
+    /// Managed platform health is assistant-scoped; flat gateway health is
+    /// only for non-managed runtimes.
+    static func usesUnprefixedGatewayHealth(forManagedConnection isManaged: Bool) -> Bool {
+        !isManaged
+    }
+
     /// Check whether the currently connected assistant is reachable.
     public static func isReachable(timeout: TimeInterval = 3) async -> Bool {
+        let isManagedConnection = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "health",
                 timeout: timeout,
                 quiet: true,
-                unprefixed: true
+                unprefixed: usesUnprefixedGatewayHealth(forManagedConnection: isManagedConnection)
             )
             return response.isSuccess
         } catch {
@@ -50,7 +57,7 @@ public enum HealthCheckClient {
                     path: "health",
                     timeout: timeout,
                     quiet: true,
-                    unprefixed: true
+                    unprefixed: usesUnprefixedGatewayHealth(forManagedConnection: assistant.isManaged)
                 )
                 return response.isSuccess
             } catch {

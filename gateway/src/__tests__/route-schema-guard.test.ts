@@ -168,9 +168,8 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // Browser relay WebSocket upgrade — handled pre-router, not a REST endpoint
   "/v1/browser-relay",
 
-  // Browser extension pairing — localhost-only, no external consumers
-  "/v1/browser-extension-pair",
-
+  // Generic loopback pairing — localhost-only, no external consumers
+  "/v1/pair",
   // Runtime proxy catch-all — documented as /{path} in the schema
   "catch-all",
 ]);

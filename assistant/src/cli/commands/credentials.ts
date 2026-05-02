@@ -439,13 +439,17 @@ Examples:
 
           assertMetadataWritable();
 
-          const stored = await setSecureKeyViaDaemon(
+          const setResult = await setSecureKeyViaDaemon(
             "credential",
             `${service}:${field}`,
             value,
           );
-          if (!stored) {
-            writeError(cmd, `Failed to store secret for ${service}:${field}`);
+          if (!setResult.ok) {
+            const detail = setResult.error ? `: ${setResult.error}` : "";
+            writeError(
+              cmd,
+              `Failed to store credential ${service}:${field}${detail}`,
+            );
             process.exitCode = 1;
             return;
           }
@@ -506,12 +510,16 @@ Examples:
 
         assertMetadataWritable();
 
-        const secretResult = await deleteSecureKeyViaDaemon(
+        const deleteResult = await deleteSecureKeyViaDaemon(
           "credential",
           `${service}:${field}`,
         );
-        if (secretResult === "error") {
-          writeError(cmd, "Failed to delete credential from secure storage");
+        if (deleteResult.result === "error") {
+          const detail = deleteResult.error ? `: ${deleteResult.error}` : "";
+          writeError(
+            cmd,
+            `Failed to delete credential ${service}:${field}${detail}`,
+          );
           process.exitCode = 1;
           return;
         }
@@ -537,7 +545,7 @@ Examples:
         }
 
         if (
-          secretResult !== "deleted" &&
+          deleteResult.result !== "deleted" &&
           !metadataDeleted &&
           oauthResult !== "disconnected"
         ) {
