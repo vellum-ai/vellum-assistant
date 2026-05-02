@@ -9,6 +9,7 @@ import {
 import {
   validateEdgeToken,
   mintExchangeToken,
+  mintLoopbackToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -57,7 +58,13 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // the gateway always authenticates itself to the daemon regardless of the
     // client-facing auth setting.
     let exchangeToken: string;
-    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
+    // Loopback peers (e.g. the chrome extension running on the same machine)
+    // are trusted without an edge JWT — the TCP peer IP check is the security
+    // boundary. This lets local clients (extension, CLI) use SSE and other
+    // runtime endpoints without a separate pairing/token ceremony.
+    const isLoopback = clientIp ? isLoopbackAddress(clientIp) : false;
+
+    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS" && !isLoopback) {
       const authHeader = req.headers.get("authorization");
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         log.warn(
@@ -80,7 +87,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         result.claims.scope_profile,
       );
     } else {
-      exchangeToken = mintServiceToken();
+      // Loopback peers need actor_client_v1 scopes (approval.write, etc.)
+      // so runtime route policies accept host-browser-result POSTs.
+      // Non-loopback bypasses (OPTIONS, auth-disabled) use the narrower
+      // gateway_service_v1 profile.
+      exchangeToken = isLoopback ? mintLoopbackToken() : mintServiceToken();
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy

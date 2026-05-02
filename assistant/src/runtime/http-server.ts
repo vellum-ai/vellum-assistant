@@ -45,18 +45,12 @@ import {
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
 import { getLogger } from "../util/logger.js";
-// Auth
-import {
-  authenticateHostBrowserResultRequest,
-  authenticateRequest,
-} from "./auth/middleware.js";
+import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
-import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
-// Middleware
 import {
   extractBearerToken,
   isLoopbackHost,
@@ -91,11 +85,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
-import {
-  resolveHostBrowserEvent,
-  resolveHostBrowserResultByRequestId,
-  resolveHostBrowserSessionInvalidated,
-} from "./routes/host-browser-routes.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
@@ -119,37 +108,9 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 /**
- * WebSocket data attached to `/v1/browser-relay` connections. The route
- * is used exclusively by the chrome-extension CDP proxy — outbound
- * `host_browser_request` frames are pushed through the assistant event
- * hub, and inbound `host_browser_result` frames are dispatched through
- * `resolveHostBrowserResultByRequestId`. The extension may also submit
- * results via `POST /v1/host-browser-result` (both transports resolve
- * through the same core function).
- */
-interface BrowserRelayWebSocketData {
-  wsType: "browser-relay";
-  connectionId: string;
-  /**
-   * Guardian identity derived from the JWT claims at WebSocket upgrade
-   * time. Undefined when HTTP auth is disabled (dev bypass) or when the
-   * token's sub cannot be parsed into an actor principal.
-   */
-  guardianId?: string;
-  /**
-   * Stable per-extension-install identifier supplied by the client on
-   * the WebSocket handshake (via the `clientInstanceId` query param or
-   * the `x-client-instance-id` header). Allows multiple parallel installs
-   * for the same guardian (e.g. two Chrome profiles, two desktops) to
-   * coexist. Undefined on older extension builds.
-   */
-  clientInstanceId?: string;
-}
-
-/**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
  * The `wsType` discriminator routes frames to the media-stream call
- * session instead of the ConversationRelay or browser-relay handlers.
+ * session instead of the ConversationRelay handlers.
  */
 interface MediaStreamWebSocketData {
   wsType: "media-stream";
@@ -229,7 +190,6 @@ export class RuntimeHttpServer {
   async start(): Promise<void> {
     type AllWebSocketData =
       | RelayWebSocketData
-      | BrowserRelayWebSocketData
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
       | LiveVoiceWebSocketData;
@@ -350,125 +310,6 @@ export class RuntimeHttpServer {
             typeof message === "string"
               ? message
               : new TextDecoder().decode(message);
-          if ("wsType" in data && data.wsType === "browser-relay") {
-            // Inbound frames on `/v1/browser-relay` carry one of:
-            //   - `host_browser_result` — paired response to an outbound
-            //     `host_browser_request` (see PR2).
-            //   - `host_browser_event` — unsolicited CDP event forwarded
-            //     from the extension's `chrome.debugger.onEvent`
-            //     subscription (PR10).
-            //   - `host_browser_session_invalidated` — detach
-            //     notification forwarded from the extension's
-            //     `chrome.debugger.onDetach` subscription (PR10).
-            //
-            // Every supported frame type delegates into a shared
-            // resolver exported from `host-browser-routes.ts` so the
-            // validation and resolution semantics stay in lockstep
-            // with the HTTP path. Malformed or unsupported frames are
-            // logged at debug and swallowed — we never throw out of a
-            // WebSocket `message` handler because an uncaught
-            // exception would tear down the whole socket for an
-            // attacker-controlled payload.
-            let parsed: unknown;
-            try {
-              parsed = JSON.parse(raw);
-            } catch (err) {
-              log.debug(
-                {
-                  connectionId: data.connectionId,
-                  error: err instanceof Error ? err.message : String(err),
-                },
-                "browser-relay: dropped non-JSON inbound frame",
-              );
-              return;
-            }
-            if (!parsed || typeof parsed !== "object") {
-              log.debug(
-                { connectionId: data.connectionId },
-                "browser-relay: dropped non-object inbound frame",
-              );
-              return;
-            }
-            const frame = parsed as Record<string, unknown>;
-            switch (frame.type) {
-              case "host_browser_result": {
-                const resolution = resolveHostBrowserResultByRequestId({
-                  requestId: frame.requestId,
-                  content: frame.content,
-                  isError: frame.isError,
-                });
-                if (!resolution.ok) {
-                  log.warn(
-                    {
-                      connectionId: data.connectionId,
-                      requestId:
-                        typeof frame.requestId === "string"
-                          ? frame.requestId
-                          : undefined,
-                      code: resolution.code,
-                      message: resolution.message,
-                    },
-                    "browser-relay: host_browser_result frame rejected",
-                  );
-                }
-                return;
-              }
-              case "host_browser_event": {
-                const resolution = resolveHostBrowserEvent({
-                  method: frame.method,
-                  params: frame.params,
-                  cdpSessionId: frame.cdpSessionId,
-                });
-                if (!resolution.ok) {
-                  log.warn(
-                    {
-                      connectionId: data.connectionId,
-                      method:
-                        typeof frame.method === "string"
-                          ? frame.method
-                          : undefined,
-                      code: resolution.code,
-                      message: resolution.message,
-                    },
-                    "browser-relay: host_browser_event frame rejected",
-                  );
-                }
-                return;
-              }
-              case "host_browser_session_invalidated": {
-                const resolution = resolveHostBrowserSessionInvalidated({
-                  targetId: frame.targetId,
-                  reason: frame.reason,
-                });
-                if (!resolution.ok) {
-                  log.warn(
-                    {
-                      connectionId: data.connectionId,
-                      targetId:
-                        typeof frame.targetId === "string"
-                          ? frame.targetId
-                          : undefined,
-                      code: resolution.code,
-                      message: resolution.message,
-                    },
-                    "browser-relay: host_browser_session_invalidated frame rejected",
-                  );
-                }
-                return;
-              }
-              case "keepalive": {
-                // Extension keepalive — acknowledged, no action needed.
-                return;
-              }
-              default: {
-                log.debug(
-                  { connectionId: data.connectionId, type: frame.type },
-                  "browser-relay: dropped unsupported inbound frame type",
-                );
-                return;
-              }
-            }
-          }
           if ("wsType" in data && data.wsType === "media-stream") {
             const msData = data as MediaStreamWebSocketData;
             msData.session?.handleMessage(raw);
@@ -716,13 +557,6 @@ export class RuntimeHttpServer {
       return handleReadyz();
     }
 
-    // WebSocket upgrade for the Chrome extension browser relay.
-    if (
-      path === "/v1/browser-relay" &&
-      req.headers.get("upgrade")?.toLowerCase() === "websocket"
-    ) {
-      return this.handleBrowserRelayUpgrade(req, server);
-    }
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
@@ -811,19 +645,7 @@ export class RuntimeHttpServer {
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
     // authenticateRequest handles dev bypass (DISABLE_HTTP_AUTH) internally.
-    //
-    // Special-case: /v1/host-browser-result POST accepts either a
-    // daemon-minted JWT (legacy/cloud) or a host_browser capability
-    // token (self-hosted chrome extension). The chrome extension's
-    // HTTP fallback (`postHostBrowserResult`) hands over the same
-    // capability token it presented to `/v1/browser-relay`, so the
-    // POST route must understand both auth shapes. Every other route
-    // keeps the JWT-only flow via `authenticateRequest`.
-    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
-    const authResult =
-      normalizedPath === "/v1/host-browser-result" && req.method === "POST"
-        ? await authenticateHostBrowserResultRequest(req)
-        : authenticateRequest(req);
+    const authResult = authenticateRequest(req);
     if (!authResult.ok) {
       return authResult.response;
     }
@@ -903,142 +725,6 @@ export class RuntimeHttpServer {
       authContext,
     );
     return routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
-  }
-
-  private async handleBrowserRelayUpgrade(
-    req: Request,
-    server: ReturnType<typeof Bun.serve>,
-  ): Promise<Response> {
-    if (
-      !isLoopbackHost(new URL(req.url).hostname) &&
-      !isPrivateNetworkPeer(server, req)
-    ) {
-      return httpError(
-        "FORBIDDEN",
-        "Browser relay only accepts connections from localhost",
-        403,
-      );
-    }
-
-    // When auth is enabled we accept two different kinds of token on the
-    // `/v1/browser-relay` handshake:
-    //
-    //   1. **Capability token** — a signed `host_browser_command`
-    //      capability minted by the gateway and handed to the chrome
-    //      extension by the native-messaging pair flow
-    //      (`/v1/browser-extension-pair`). This is the preferred,
-    //      self-hosted default: the extension never has to touch a
-    //      gateway JWT.
-    //   2. **JWT** (audience `vellum-daemon`) — the legacy path used by
-    //      the gateway-proxied cloud flow and by any compatibility
-    //      callers that still hold a daemon-bound JWT. In that case we
-    //      parse the JWT `sub` to extract the actor principal id and
-    //      fall back to the explicit `x-guardian-id` / `guardianId`
-    //      query param for service-token paths (see below).
-    //
-    // When auth is disabled (dev bypass), guardianId remains undefined
-    // and the registration is skipped — host_browser_request routing
-    // requires an authenticated guardian.
-    //
-    // Gateway path: when the WebSocket upgrade is proxied through the
-    // gateway, the upstream token minted by `mintServiceToken()` has
-    // `sub=svc:gateway:self` with no actor principal id. The gateway
-    // parses the downstream edge token's `actorPrincipalId` and forwards
-    // it as an explicit `guardianId` query parameter (and/or header) so
-    // we can register the connection under the real guardian. Missing
-    // guardian context on this path is rejected (fail closed).
-    // Read the client-supplied stable instance id off the handshake.
-    // The extension generates this on first run and persists it in
-    // chrome.storage so it survives service-worker restarts and
-    // browser restarts. The header form is preferred so gateway
-    // forwarding and proxy logs don't surface instance ids in the
-    // URL, but we also accept a query param for fetch-based clients
-    // that can't mutate headers. An empty string is treated as absent
-    // so sparse clients don't end up all sharing the same legacy key.
-    const rawInstanceHeader = req.headers.get("x-client-instance-id")?.trim();
-    const rawInstanceQuery = new URL(req.url).searchParams
-      .get("clientInstanceId")
-      ?.trim();
-    const clientInstanceId =
-      (rawInstanceHeader ?? "") || (rawInstanceQuery ?? "") || undefined;
-
-    let guardianId: string | undefined;
-    if (!isHttpAuthDisabled()) {
-      const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get("token");
-      if (!token) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      // 1) Capability-token path (self-hosted default). The chrome
-      //    extension presents the token it received from the native
-      //    messaging pair flow. We derive `guardianId` from the
-      //    capability claims directly — the claims are HMAC-signed by
-      //    the same daemon so there is no cross-tenant risk.
-      const capabilityClaims = await verifyHostBrowserCapability(token);
-      if (capabilityClaims) {
-        guardianId = capabilityClaims.guardianId;
-      } else {
-        // 2) JWT compatibility path (gateway / legacy). Fall back to the
-        //    existing verifyToken+parseSub flow so cloud callers and any
-        //    old self-hosted clients still holding a daemon JWT
-        //    continue to work during the cutover.
-        const jwtResult = verifyToken(token, "vellum-daemon");
-        if (!jwtResult.ok) {
-          return httpError("UNAUTHORIZED", "Unauthorized", 401);
-        }
-        const subResult = parseSub(jwtResult.claims.sub);
-        if (subResult.ok && subResult.actorPrincipalId) {
-          // Direct actor principal — this is the loopback / desktop path.
-          guardianId = subResult.actorPrincipalId;
-        } else {
-          // Service-token path (gateway-forwarded). The gateway must plumb
-          // the resolved actor principal as an explicit `x-guardian-id`
-          // header or `guardianId` query param. Header takes precedence
-          // because headers are easier for the gateway to forward without
-          // rewriting the URL.
-          const headerGuardianId =
-            req.headers.get("x-guardian-id")?.trim() ?? "";
-          const queryGuardianId =
-            wsUrl.searchParams.get("guardianId")?.trim() ?? "";
-          const fallbackGuardianId = headerGuardianId || queryGuardianId;
-          if (fallbackGuardianId) {
-            guardianId = fallbackGuardianId;
-          } else {
-            // Fail closed: a service-token relay upgrade without a
-            // guardian context cannot be routed safely.
-            log.warn(
-              {
-                principalType: subResult.ok
-                  ? subResult.principalType
-                  : "unknown",
-                sub: jwtResult.claims.sub,
-              },
-              "Browser relay upgrade denied: missing guardian context on service-token path",
-            );
-            return httpError(
-              "UNAUTHORIZED",
-              "Browser relay requires guardian context",
-              401,
-            );
-          }
-        }
-      }
-    }
-
-    const connectionId = crypto.randomUUID();
-    const upgraded = server.upgrade(req, {
-      data: {
-        wsType: "browser-relay",
-        connectionId,
-        guardianId,
-        clientInstanceId,
-      } satisfies BrowserRelayWebSocketData,
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
   }
 
   private verifyGatewayServiceToken(req: Request): Response | null {

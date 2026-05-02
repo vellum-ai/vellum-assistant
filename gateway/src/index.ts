@@ -29,11 +29,7 @@ import {
   type CredentialChangeEvent,
 } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
-import {
-  createBrowserRelayWebsocketHandler,
-  getBrowserRelayWebsocketHandlers,
-  type BrowserRelaySocketData,
-} from "./http/routes/browser-relay-websocket.js";
+
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
@@ -84,7 +80,6 @@ import {
   createConversationThresholdPutHandler,
   createConversationThresholdDeleteHandler,
 } from "./http/routes/auto-approve-thresholds.js";
-import { handlePair } from "./http/routes/pair.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -159,7 +154,7 @@ import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
-import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
+
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
@@ -211,16 +206,6 @@ function detectCredentialChanges(
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
-
-function isBrowserRelaySocketData(
-  data: unknown,
-): data is BrowserRelaySocketData {
-  return (
-    !!data &&
-    typeof data === "object" &&
-    (data as { wsType?: unknown }).wsType === "browser-relay"
-  );
-}
 
 function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
   return (
@@ -339,12 +324,10 @@ async function main() {
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
-  const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
-  const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -704,15 +687,6 @@ async function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
     },
-
-    // ── Generic loopback pairing (localhost-only, auth: none) ──
-    {
-      path: "/v1/pair",
-      method: "POST",
-      auth: "none",
-      handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
-    },
-
 
 
     // ── Channel verification sessions ──
@@ -1299,10 +1273,6 @@ async function main() {
     maxRequestBodySize: 512 * 1024 * 1024,
     websocket: {
       open(ws) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.open(ws as never);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.open(ws as never);
           return;
@@ -1318,10 +1288,6 @@ async function main() {
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.message(ws as never, message);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.message(ws as never, message);
           return;
@@ -1337,10 +1303,6 @@ async function main() {
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.close(ws as never, code, reason);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
@@ -1498,12 +1460,6 @@ async function main() {
         url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
       ) {
         const upgradeResult = handleTwilioMediaWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      if (url.pathname === "/v1/browser-relay") {
-        const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }
@@ -2030,7 +1986,6 @@ async function main() {
     ...contactRoutes,
     ...thresholdRoutes,
     ...riskClassificationRoutes,
-    ...capabilityTokenRoutes,
   ]);
   ipcServer.start();
 
