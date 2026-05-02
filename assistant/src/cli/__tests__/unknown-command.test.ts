@@ -1,4 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
+
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
 
 import { runAssistantCommandFull } from "./run-assistant-command.js";
 

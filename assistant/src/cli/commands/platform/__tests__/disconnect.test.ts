@@ -26,6 +26,13 @@ let mockIsPlatformRemote = false;
 // Mocks
 // ---------------------------------------------------------------------------
 
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
+
 mock.module("../../../../config/env-registry.js", () => ({
   getIsContainerized: () => false,
   isPlatformRemote: () => mockIsPlatformRemote,

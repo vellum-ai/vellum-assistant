@@ -22,6 +22,13 @@ let mockWakeCalls: Array<{
   source: string;
 }> = [];
 
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
+
 mock.module("../../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: async (opts: {
     conversationId: string;

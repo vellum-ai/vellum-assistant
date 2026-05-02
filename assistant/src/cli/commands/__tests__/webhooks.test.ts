@@ -24,6 +24,13 @@ let mockPlatformContext: Record<string, unknown> = {
 // Mocks
 // ---------------------------------------------------------------------------
 
+mock.module("../../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
+
 mock.module("../../../config/env-registry.js", () => ({
   getIsPlatform: () => mockGetIsPlatform,
 }));

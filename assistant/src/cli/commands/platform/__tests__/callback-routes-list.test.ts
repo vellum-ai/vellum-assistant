@@ -20,6 +20,13 @@ let mockResolvePlatformCallbackRegistrationContext: () => Promise<
 // Mocks
 // ---------------------------------------------------------------------------
 
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
+
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: () =>
     mockResolvePlatformCallbackRegistrationContext(),

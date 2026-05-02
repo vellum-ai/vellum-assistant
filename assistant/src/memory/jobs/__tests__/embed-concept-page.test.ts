@@ -92,6 +92,7 @@ const upsertCalls: Array<{
 const deleteCalls: string[] = [];
 
 mock.module("../../v2/qdrant.js", () => ({
+  hybridQueryConceptPages: async () => [],
   upsertConceptPageEmbedding: async (params: {
     slug: string;
     dense: number[];

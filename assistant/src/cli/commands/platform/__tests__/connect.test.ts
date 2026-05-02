@@ -16,6 +16,13 @@ let mockGetSecureKeyAsync: (
 // Mocks
 // ---------------------------------------------------------------------------
 
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  initFeatureFlagOverrides: async () => {},
+  isAssistantFeatureFlagEnabled: () => false,
+  clearFeatureFlagOverridesCache: () => {},
+  _setOverridesForTesting: () => {},
+}));
+
 mock.module("../../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
   getSecureKeyResultAsync: async () => ({
