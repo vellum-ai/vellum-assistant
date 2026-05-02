@@ -73,15 +73,15 @@ PATTERN='\.frame\(\s*(max|min|ideal)(Width|Height)\s*:'
 
 cd "$REPO_ROOT"
 
+if ! command -v rg >/dev/null 2>&1 && ! command -v perl >/dev/null 2>&1; then
+  echo "ERROR: flexframe lint requires either ripgrep (rg) or perl in PATH." >&2
+  exit 2
+fi
+
 collect_raw_hits() {
   if command -v rg >/dev/null 2>&1; then
     rg -U --multiline-dotall -n --no-heading "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null
     return
-  fi
-
-  if ! command -v perl >/dev/null 2>&1; then
-    echo "ERROR: flexframe lint requires either ripgrep (rg) or perl in PATH." >&2
-    exit 2
   fi
 
   find "${SCAN_DIRS[@]}" -type f -name '*.swift' -print0 2>/dev/null \
