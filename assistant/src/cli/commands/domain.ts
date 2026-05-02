@@ -97,17 +97,38 @@ Examples:
 
           const data = (await response.json()) as {
             id: string;
-            domain: string;
-            status: string;
-            verified: boolean;
-            created_at: string;
+            subdomain?: string;
+            domain?: string;
+            status?: string;
+            verified?: boolean;
+            created_at?: string;
+            created?: string;
           };
+
+          // Persist the subdomain to config so getAssistantDomain() can use it
+          const registeredSubdomain =
+            data.subdomain ??
+            data.domain?.replace(`.${baseDomain}`, "") ??
+            subdomain;
+          if (registeredSubdomain) {
+            const { loadRawConfig, saveRawConfig, setNestedValue } =
+              await import("../../config/loader.js");
+            const raw = loadRawConfig();
+            setNestedValue(raw, "platform.subdomain", registeredSubdomain);
+            saveRawConfig(raw);
+          }
+
+          const displayDomain =
+            data.domain ??
+            (registeredSubdomain
+              ? `${registeredSubdomain}.${baseDomain}`
+              : "unknown");
 
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, data);
           } else {
-            log.info(`✓ Registered ${data.domain}`);
-            if (!data.verified) {
+            log.info(`✓ Registered ${displayDomain}`);
+            if (data.verified === false) {
               log.info(
                 "  ⚠ Domain verification pending — this usually resolves within a few seconds.",
               );
@@ -184,6 +205,24 @@ Examples:
         };
 
         const domains = data.results ?? [];
+
+        // Sync subdomain to config if not already cached
+        if (domains.length > 0) {
+          const first = domains[0];
+          const sub =
+            first.subdomain ?? first.domain?.replace(`.${baseDomain}`, "");
+          if (sub) {
+            const { loadRawConfig, saveRawConfig, setNestedValue } =
+              await import("../../config/loader.js");
+            const raw = loadRawConfig();
+            const existing = (raw as Record<string, Record<string, unknown>>)
+              .platform?.subdomain;
+            if (existing !== sub) {
+              setNestedValue(raw, "platform.subdomain", sub);
+              saveRawConfig(raw);
+            }
+          }
+        }
 
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, data);

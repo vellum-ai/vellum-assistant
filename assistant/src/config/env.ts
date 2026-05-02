@@ -176,6 +176,12 @@ export function getPlatformBaseUrl(): string {
  */
 export function getAssistantDomain(): string {
   try {
+    // If a subdomain is registered, use it (e.g. "apollobot" → "apollobot.vellum.me")
+    const subdomain = getConfig().platform?.subdomain;
+    if (subdomain) {
+      return `${subdomain}.vellum.me`;
+    }
+
     const url = getPlatformBaseUrl();
     const host = new URL(url).hostname;
 

@@ -10,6 +10,12 @@ export const PlatformConfigSchema = z
       )
       .default("")
       .describe("Base URL of the Vellum platform API"),
+    subdomain: z
+      .string({ error: "platform.subdomain must be a string" })
+      .default("")
+      .describe(
+        "Registered subdomain on vellum.me (e.g. 'apollobot' → apollobot.vellum.me). Set automatically by 'assistant domain register'.",
+      ),
   })
   .describe("Vellum platform connection settings");
 
