@@ -1172,7 +1172,6 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    if: false  # TEMP: xcodeproj broken for all Xcode versions, XcodeGen fix in progress
     needs: [compute-version, register-release, publish-sparkle, build-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
