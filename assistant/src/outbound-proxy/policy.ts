@@ -3,16 +3,17 @@
  * injection templates and emits deterministic policy decisions.
  */
 
+import type {
+  CredentialInjectionTemplate,
+  PolicyDecision,
+  RequestTargetContext,
+} from "@vellumai/egress-proxy";
+
 import {
   compareMatchSpecificity,
   type HostMatchKind,
   matchHostPattern,
 } from "./host-pattern-match.js";
-import type {
-  CredentialInjectionTemplate,
-  PolicyDecision,
-  RequestTargetContext,
-} from "./types.js";
 
 interface MatchCandidate {
   credentialId: string;

@@ -3,31 +3,10 @@
 // ---------------------------------------------------------------------------
 
 export type {
-  CredentialInjectionTemplate,
-  CredentialInjectionType,
   PolicyDecision,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
-  ProxyEnvVars,
-  ProxySession,
-  ProxySessionConfig,
-  ProxySessionId,
 } from "@vellumai/egress-proxy";
-
-// ---------------------------------------------------------------------------
-// Conversation core — re-exported from @vellumai/egress-proxy shared package
-// ---------------------------------------------------------------------------
-
-export type { ManagedSession, SessionStartHooks } from "@vellumai/egress-proxy";
-
-// ---------------------------------------------------------------------------
-// Host pattern matching
-// ---------------------------------------------------------------------------
-
-export type {
-  HostMatchKind,
-  MatchHostPatternOptions,
-} from "./host-pattern-match.js";
 
 // Certificate management
 export {

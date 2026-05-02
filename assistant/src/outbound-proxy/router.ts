@@ -7,8 +7,9 @@
  * pay the cost of TLS termination, cert issuance, and request rewriting.
  */
 
+import type { CredentialInjectionTemplate } from "@vellumai/egress-proxy";
+
 import { matchHostPattern } from "./host-pattern-match.js";
-import type { CredentialInjectionTemplate } from "./types.js";
 
 // ---- Public types ----------------------------------------------------------
 

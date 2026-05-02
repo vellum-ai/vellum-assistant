@@ -74,7 +74,7 @@ export interface CanonicalGuardianRequest {
   updatedAt: number;
 }
 
-export interface CanonicalGuardianDelivery {
+interface CanonicalGuardianDelivery {
   id: string;
   requestId: string;
   destinationChannel: string;
@@ -189,7 +189,7 @@ function rowToDelivery(
 // Canonical Guardian Requests
 // ---------------------------------------------------------------------------
 
-export interface CreateCanonicalGuardianRequestParams {
+interface CreateCanonicalGuardianRequestParams {
   id?: string;
   kind: string;
   sourceType: string;
@@ -315,7 +315,7 @@ export function getCanonicalGuardianRequestByCode(
   return row ? rowToRequest(row) : null;
 }
 
-export interface ListCanonicalGuardianRequestsFilters {
+interface ListCanonicalGuardianRequestsFilters {
   status?: CanonicalRequestStatus;
   guardianExternalUserId?: string;
   guardianPrincipalId?: string;
@@ -394,7 +394,7 @@ export function listCanonicalGuardianRequests(
     .map(rowToRequest);
 }
 
-export interface UpdateCanonicalGuardianRequestParams {
+interface UpdateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
@@ -430,7 +430,7 @@ export function updateCanonicalGuardianRequest(
   return getCanonicalGuardianRequest(id);
 }
 
-export interface ResolveDecision {
+interface ResolveDecision {
   status: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
@@ -533,7 +533,7 @@ export function expireAllPendingCanonicalRequests(): number {
 // Canonical Guardian Deliveries
 // ---------------------------------------------------------------------------
 
-export interface CreateCanonicalGuardianDeliveryParams {
+interface CreateCanonicalGuardianDeliveryParams {
   id?: string;
   requestId: string;
   destinationChannel: string;
@@ -755,7 +755,7 @@ export function isRequestInConversationScope(
   );
 }
 
-export interface UpdateCanonicalGuardianDeliveryParams {
+interface UpdateCanonicalGuardianDeliveryParams {
   status?: string;
   destinationMessageId?: string;
 }
