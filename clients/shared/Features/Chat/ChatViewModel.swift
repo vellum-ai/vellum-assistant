@@ -247,20 +247,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantStatusText = nil
                     let assistantId = self.currentAssistantMessageId
                     self.messageManager.batchUpdateMessages { msgs in
-                        if let existingId = assistantId,
-                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                            msgs[index].isStreaming = false
-                            msgs[index].streamingCodePreview = nil
-                            msgs[index].streamingCodeToolName = nil
-                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
-                                msgs[index].toolCalls[j].isComplete = true
-                                msgs[index].toolCalls[j].completedAt = Date()
-                            }
+                        if let existingId = assistantId {
+                            msgs.finalizeStreamingMessage(id: existingId)
                         }
                     }
-                    self.currentAssistantMessageId = nil
-                    self.currentTurnUserText = nil
-                    self.currentAssistantHasText = false
+                    self.clearCurrentTurnTracking()
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     self.messageManager.isSending = false
@@ -284,10 +275,19 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             guard !Task.isCancelled, let self else { return }
             guard self.currentAssistantMessageId == messageId else { return }
             log.warning("idle fallback: messageComplete not received within 5s — clearing currentAssistantMessageId")
-            self.currentAssistantMessageId = nil
-            self.currentTurnUserText = nil
-            self.currentAssistantHasText = false
+            self.clearCurrentTurnTracking()
         }
+    }
+
+    /// Cancel any pending idle fallback and clear per-message turn tracking state.
+    /// Every code path that sets `currentAssistantMessageId = nil` should call this
+    /// instead to ensure the idle fallback timer is always cancelled.
+    func clearCurrentTurnTracking() {
+        idleFallbackTask?.cancel()
+        idleFallbackTask = nil
+        currentAssistantMessageId = nil
+        currentTurnUserText = nil
+        currentAssistantHasText = false
     }
 
     /// Whether the assistant is actively working on a response — covers sending,
@@ -358,15 +358,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     // to emit a single Combine notification.
                     let assistantId = self.currentAssistantMessageId
                     self.messageManager.batchUpdateMessages { msgs in
-                        if let existingId = assistantId,
-                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                            msgs[index].isStreaming = false
-                            msgs[index].streamingCodePreview = nil
-                            msgs[index].streamingCodeToolName = nil
-                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
-                                msgs[index].toolCalls[j].isComplete = true
-                                msgs[index].toolCalls[j].completedAt = Date()
-                            }
+                        if let existingId = assistantId {
+                            msgs.finalizeStreamingMessage(id: existingId)
                         }
                         for i in msgs.indices {
                             if case .queued = msgs[i].status, msgs[i].role == .user {
@@ -376,9 +369,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                             }
                         }
                     }
-                    self.currentAssistantMessageId = nil
-                    self.currentTurnUserText = nil
-                    self.currentAssistantHasText = false
+                    self.clearCurrentTurnTracking()
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     // Voice state
@@ -1512,14 +1503,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 self?.isThinking = false
                 self?.isSending = false
                 self?.isCancelling = false
-                // Mark current assistant message as no longer streaming
-                if let existingId = self?.currentAssistantMessageId,
-                   let index = self?.messages.firstIndex(where: { $0.id == existingId }) {
-                    self?.messages[index].isStreaming = false
+                if let existingId = self?.currentAssistantMessageId {
+                    self?.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
                 }
-                self?.idleFallbackTask?.cancel()
-                self?.idleFallbackTask = nil
-                self?.currentAssistantMessageId = nil
+                self?.clearCurrentTurnTracking()
                 self?.discardStreamingBuffer()
                 self?.discardPartialOutputBuffer()
                 // If a send-direct was pending when the stream dropped,
@@ -2287,10 +2274,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         discardStreamingBuffer()
         discardPartialOutputBuffer()
         surfaceRefetchCoordinator.cancelRefetchTasks()
-        idleFallbackTask?.cancel()
-        idleFallbackTask = nil
-        currentAssistantMessageId = nil
-        currentAssistantHasText = false
+        clearCurrentTurnTracking()
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
@@ -2436,9 +2420,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if isThinking || isSending || currentAssistantMessageId != nil {
             isThinking = false
             isSending = false
-            idleFallbackTask?.cancel()
-            idleFallbackTask = nil
-            currentAssistantMessageId = nil
+            clearCurrentTurnTracking()
             discardStreamingBuffer()
             discardPartialOutputBuffer()
             reconnectDebounceTask?.cancel()
