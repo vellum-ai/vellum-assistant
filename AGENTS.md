@@ -6,7 +6,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
+- `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -278,7 +278,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI, Chrome extension). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`, or injected via `--define` for the Chrome extension bundler.
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, CLI, Chrome extension). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`, or injected via `--define` for the Chrome extension bundler.
 
 | Value | Use cases |
 |---|---|
