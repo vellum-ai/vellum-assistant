@@ -1037,9 +1037,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         paginationState.paginatedVisibleMessages
     }
 
-    /// Whether the paginated visible messages are empty. Views that only need
-    /// emptiness routing (skeleton/empty-state) should read this instead of
-    /// `paginatedVisibleMessages.isEmpty` to avoid tracking the full array.
+    /// Whether `paginatedVisibleMessages` is empty. Prefer over
+    /// `paginatedVisibleMessages.isEmpty` to avoid observing the full array.
     public var isPaginatedEmpty: Bool {
         paginationState.isPaginatedEmpty
     }

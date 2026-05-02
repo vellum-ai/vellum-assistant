@@ -71,11 +71,9 @@ public final class ChatPaginationState {
     /// Updated when either the message list or `displayedMessageCount` changes.
     public private(set) var paginatedVisibleMessages: [ChatMessage] = []
 
-    /// Whether the paginated visible messages array is empty. Maintained as a
-    /// separate stored property so views that only need emptiness (e.g. skeleton
-    /// and empty-state routing in ChatView) can observe this O(1) boolean
-    /// without tracking the full array — preventing unnecessary view
-    /// invalidation on every message mutation during streaming.
+    /// Whether `paginatedVisibleMessages` is empty. Cached O(1) boolean so
+    /// views needing only emptiness (skeleton/empty-state routing) observe this
+    /// instead of the full array — avoiding invalidation on every message mutation.
     public private(set) var isPaginatedEmpty: Bool = true
 
     // MARK: - Daemon History Pagination
