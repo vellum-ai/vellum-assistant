@@ -529,8 +529,20 @@ struct ChatView: View {
         )
     }
 
-    /// Centers chat chrome to the same fixed transcript width using _FrameLayout
-    /// rather than nested max-width flex frames.
+    /// Centers chat chrome at the chat-column width without inducing a
+    /// SwiftUI alignment cascade.
+    ///
+    /// Uses `FixedWidthLayout` for the width constraint so `placeSubviews`
+    /// places the child via a `UnitPoint` anchor — never querying the
+    /// child subtree's `explicitAlignment` — instead of `_FrameLayout`,
+    /// which queries alignment guides on every descendant on every layout
+    /// pass. The inner `HStack { Spacer; content; Spacer }` reproduces the
+    /// horizontal `.center` positioning that `.frame(width:)` would have
+    /// applied to non-filling content; flexible content (anything with
+    /// `.frame(maxWidth: .infinity)` or an internal `Spacer`) collapses
+    /// the inner spacers to zero and occupies the full column width.
+    ///
+    /// Reference: [Layout.explicitAlignment](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-8ofeu).
     @ViewBuilder
     private func centeredChatColumn<Content: View>(
         width: CGFloat,
@@ -538,8 +550,12 @@ struct ChatView: View {
     ) -> some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            content()
-                .frame(width: width)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                content()
+                Spacer(minLength: 0)
+            }
+            .fixedWidth(width)
             Spacer(minLength: 0)
         }
     }
