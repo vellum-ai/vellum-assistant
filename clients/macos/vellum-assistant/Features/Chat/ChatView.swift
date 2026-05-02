@@ -529,20 +529,16 @@ struct ChatView: View {
         )
     }
 
-    /// Centers chat chrome at the chat-column width without inducing a
-    /// SwiftUI alignment cascade.
+    /// Centers chat chrome at the chat-column width using `FixedWidthLayout`.
     ///
-    /// Uses `FixedWidthLayout` for the width constraint so `placeSubviews`
-    /// places the child via a `UnitPoint` anchor — never querying the
-    /// child subtree's `explicitAlignment` — instead of `_FrameLayout`,
-    /// which queries alignment guides on every descendant on every layout
-    /// pass. The inner `HStack { Spacer; content; Spacer }` reproduces the
-    /// horizontal `.center` positioning that `.frame(width:)` would have
-    /// applied to non-filling content; flexible content (anything with
-    /// `.frame(maxWidth: .infinity)` or an internal `Spacer`) collapses
-    /// the inner spacers to zero and occupies the full column width.
-    ///
-    /// Reference: [Layout.explicitAlignment](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-8ofeu).
+    /// `FixedWidthLayout` returns `nil` from `explicitAlignment` and places its
+    /// child via a `UnitPoint` anchor rather than alignment guides, so it acts
+    /// as a barrier to parent-initiated alignment queries on the subtree. The
+    /// inner `HStack { Spacer; content; Spacer }` reproduces the horizontal
+    /// `.center` positioning that `.frame(width:)` applied to non-filling
+    /// content; flexible content (anything with `.frame(maxWidth: .infinity)`
+    /// or an internal `Spacer`) collapses the inner spacers to zero and
+    /// occupies the full column width.
     @ViewBuilder
     private func centeredChatColumn<Content: View>(
         width: CGFloat,
