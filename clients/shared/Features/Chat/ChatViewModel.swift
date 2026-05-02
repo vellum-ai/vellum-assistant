@@ -278,11 +278,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// `messageComplete` never arrives after the daemon reported idle.
     func scheduleIdleFallbackCleanup() {
         idleFallbackTask?.cancel()
-        guard currentAssistantMessageId != nil else { return }
+        guard let messageId = currentAssistantMessageId else { return }
         idleFallbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled, let self else { return }
-            guard self.currentAssistantMessageId != nil else { return }
+            guard self.currentAssistantMessageId == messageId else { return }
             log.warning("idle fallback: messageComplete not received within 5s — clearing currentAssistantMessageId")
             self.currentAssistantMessageId = nil
             self.currentTurnUserText = nil
