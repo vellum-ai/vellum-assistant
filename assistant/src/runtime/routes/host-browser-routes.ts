@@ -61,20 +61,11 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  const proxy = HostBrowserProxy.instance;
-  if (!proxy.hasPendingRequest(requestId)) {
-    return {
-      ok: false,
-      code: "NOT_FOUND",
-      status: 404,
-      message: "No pending interaction found for this requestId",
-    };
-  }
-
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  proxy.resolve(requestId, {
+  const proxy = HostBrowserProxy.instance;
+  proxy.resolveResult(requestId, {
     content: normalizedContent,
     isError: normalizedIsError,
   });

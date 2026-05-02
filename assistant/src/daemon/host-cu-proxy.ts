@@ -9,6 +9,9 @@
  * Unlike HostBashProxy/HostFileProxy/HostTransferProxy, this is NOT a
  * singleton — each conversation gets its own instance because CU state
  * (step count, AX tree history, loop detection) is per-conversation.
+ *
+ * RPC lifecycle (resolve/reject/timer/detachAbort) is stored in
+ * pendingInteractions alongside routing metadata.
  */
 
 import { v4 as uuid } from "uuid";
@@ -61,22 +64,11 @@ export interface ActionRecord {
   reasoning?: string;
 }
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  conversationId: string;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 // ---------------------------------------------------------------------------
 // HostCuProxy
 // ---------------------------------------------------------------------------
 
 export class HostCuProxy {
-  private pending = new Map<string, PendingRequest>();
-
   // CU state tracking (per-conversation)
   private _stepCount = 0;
   private _maxSteps: number;
@@ -120,9 +112,7 @@ export class HostCuProxy {
    * Whether a client with `host_cu` capability is connected.
    */
   isAvailable(): boolean {
-    return (
-      assistantEventHub.getMostRecentClientByCapability("host_cu") != null
-    );
+    return assistantEventHub.getMostRecentClientByCapability("host_cu") != null;
   }
 
   // ---------------------------------------------------------------------------
@@ -144,7 +134,6 @@ export class HostCuProxy {
       });
     }
 
-    // Enforce step limit before sending to client
     if (this._stepCount > this._maxSteps) {
       return Promise.resolve({
         content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
@@ -158,8 +147,6 @@ export class HostCuProxy {
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
@@ -170,10 +157,7 @@ export class HostCuProxy {
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            detachAbort();
+          if (pendingInteractions.get(requestId)) {
             pendingInteractions.resolve(requestId);
             try {
               broadcastMessage({
@@ -182,7 +166,7 @@ export class HostCuProxy {
                 conversationId,
               });
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -191,7 +175,14 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, conversationId, detachAbort });
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "host_cu",
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
+        detachAbort,
+      });
 
       try {
         broadcastMessage({
@@ -204,9 +195,6 @@ export class HostCuProxy {
           reasoning,
         });
       } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -214,28 +202,26 @@ export class HostCuProxy {
     });
   }
 
-  resolve(requestId: string, observation: CuObservationResult): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+  /**
+   * Process a CU observation from the client and resolve the RPC.
+   * Updates CU state (step tracking, AX tree history) and formats
+   * the observation into a ToolExecutionResult.
+   */
+  processObservation(
+    requestId: string,
+    observation: CuObservationResult,
+  ): ToolExecutionResult | undefined {
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host CU request for response");
-      return;
+      return undefined;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
 
-    // Capture pre-update state so formatObservation sees the correct previous AX tree
     const prevAXTree = this._previousAXTree;
-
-    // Update CU state from observation
     this.updateStateFromObservation(observation);
-
     const result = this.formatObservation(observation, prevAXTree);
-    entry.resolve(result);
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    interaction.rpcResolve(result);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -258,7 +244,6 @@ export class HostCuProxy {
       input,
       reasoning,
     });
-    // Keep history bounded
     if (this._actionHistory.length > MAX_HISTORY_ENTRIES) {
       this._actionHistory = this._actionHistory.slice(-MAX_HISTORY_ENTRIES);
     }
@@ -288,7 +273,6 @@ export class HostCuProxy {
     const prevTree = previousAXTree;
     const parts: string[] = [];
 
-    // Surface user guidance prominently so the model sees it first
     if (obs.userGuidance) {
       parts.push(`USER GUIDANCE: ${obs.userGuidance}`);
       parts.push("");
@@ -299,12 +283,10 @@ export class HostCuProxy {
       parts.push("");
     }
 
-    // AX tree diff / unchanged warning
     if (obs.axDiff) {
       parts.push(obs.axDiff);
       parts.push("");
     } else if (prevTree != null && obs.axTree != null) {
-      // Skip unchanged warning after wait actions — they intentionally yield no immediate change
       const lastAction =
         this._actionHistory.length > 0
           ? this._actionHistory[this._actionHistory.length - 1]
@@ -312,7 +294,6 @@ export class HostCuProxy {
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
 
       if (!isWaitAction) {
-        // No diff means the screen didn't change
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -329,7 +310,6 @@ export class HostCuProxy {
       }
     }
 
-    // Loop detection: identical actions repeated
     if (this._actionHistory.length >= LOOP_DETECTION_WINDOW) {
       const recent = this._actionHistory.slice(-LOOP_DETECTION_WINDOW);
       const allIdentical = recent.every(
@@ -345,7 +325,6 @@ export class HostCuProxy {
       }
     }
 
-    // Current screen state wrapped in markers for history compaction
     if (obs.axTree) {
       parts.push("<ax-tree>");
       parts.push("CURRENT SCREEN STATE:");
@@ -353,7 +332,6 @@ export class HostCuProxy {
       parts.push("</ax-tree>");
     }
 
-    // Secondary windows for cross-app awareness
     if (obs.secondaryWindows) {
       parts.push("");
       parts.push(obs.secondaryWindows);
@@ -363,7 +341,6 @@ export class HostCuProxy {
       );
     }
 
-    // Screenshot metadata
     const screenshotMeta = this.formatScreenshotMetadata(obs);
     if (screenshotMeta.length > 0) {
       parts.push("");
@@ -372,7 +349,6 @@ export class HostCuProxy {
 
     const content = parts.join("\n").trim() || "Action executed";
 
-    // Build content blocks for screenshot
     const contentBlocks: ContentBlock[] = [];
     if (obs.screenshot) {
       contentBlocks.push({
@@ -401,31 +377,27 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      pendingInteractions.resolve(requestId);
+    for (const entry of pendingInteractions.getByKind("host_cu")) {
+      pendingInteractions.resolve(entry.requestId);
       try {
         broadcastMessage({
           type: "host_cu_cancel",
-          requestId,
+          requestId: entry.requestId,
           conversationId: entry.conversationId,
         });
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError("Host CU proxy disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
-    this.pending.clear();
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /** Update consecutive-unchanged tracking from an incoming observation. */
   private updateStateFromObservation(obs: CuObservationResult): void {
     if (this._stepCount > 0) {
       if (

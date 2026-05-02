@@ -24,17 +24,6 @@ export type HostFileInput = DistributiveOmit<
 
 const log = getLogger("host-file-proxy");
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  operation: HostFileInput["operation"];
-  path: string;
-  conversationId: string;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 export class HostFileProxy {
   private static _instance: HostFileProxy | null = null;
 
@@ -64,8 +53,6 @@ export class HostFileProxy {
     HostFileProxy._instance = null;
   }
 
-  private pending = new Map<string, PendingRequest>();
-
   /**
    * Whether a client with `host_file` capability is connected.
    * Note: host_file covers both file operations and transfers.
@@ -88,14 +75,11 @@ export class HostFileProxy {
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // File operations should be fast — 30 second timeout.
       const timeoutSec = 30;
 
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation },
@@ -109,10 +93,7 @@ export class HostFileProxy {
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            detachAbort();
+          if (pendingInteractions.get(requestId)) {
             pendingInteractions.resolve(requestId);
             try {
               broadcastMessage({
@@ -121,7 +102,7 @@ export class HostFileProxy {
                 conversationId,
               });
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -130,14 +111,14 @@ export class HostFileProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, {
-        resolve,
-        reject,
-        timer,
-        operation: input.operation,
-        path: input.path,
+      pendingInteractions.register(requestId, {
         conversationId,
+        kind: "host_file",
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
         detachAbort,
+        metadata: { operation: input.operation, path: input.path },
       });
 
       try {
@@ -148,9 +129,6 @@ export class HostFileProxy {
           conversationId,
         });
       } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation, err },
@@ -161,55 +139,54 @@ export class HostFileProxy {
     });
   }
 
-  resolve(
+  /**
+   * Process a client result and resolve the RPC. Called by route handlers.
+   */
+  resolveResult(
     requestId: string,
     response: { content: string; isError: boolean; imageData?: string },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host file request for response");
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
+    const meta = interaction.metadata ?? {};
     if (
-      entry.operation === "read" &&
+      meta.operation === "read" &&
       !response.isError &&
       typeof response.imageData === "string" &&
       response.imageData.length > 0
     ) {
-      entry.resolve(readImageBase64(response.imageData, entry.path));
+      interaction.rpcResolve(
+        readImageBase64(response.imageData, meta.path as string),
+      );
       return;
     }
-    entry.resolve({ content: response.content, isError: response.isError });
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    interaction.rpcResolve({
+      content: response.content,
+      isError: response.isError,
+    });
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      pendingInteractions.resolve(requestId);
+    for (const entry of pendingInteractions.getByKind("host_file")) {
+      pendingInteractions.resolve(entry.requestId);
       try {
         broadcastMessage({
           type: "host_file_cancel",
-          requestId,
+          requestId: entry.requestId,
           conversationId: entry.conversationId,
         });
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError(
           "Host file proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
   }
 }

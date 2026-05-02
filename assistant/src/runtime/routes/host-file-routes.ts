@@ -8,11 +8,7 @@ import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -37,9 +33,7 @@ function handleHostFileResult({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_file") {
@@ -48,9 +42,7 @@ function handleHostFileResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  pendingInteractions.resolve(requestId);
-
-  HostFileProxy.instance.resolve(requestId, {
+  HostFileProxy.instance.resolveResult(requestId, {
     content: content ?? "",
     isError: isError ?? false,
     imageData,
