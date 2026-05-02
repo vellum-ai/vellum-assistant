@@ -15,7 +15,6 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import { touchContactInteraction } from "../../../contacts/contacts-write.js";
 import {
   getMessageById,
   updateMessageContent,
@@ -65,7 +64,6 @@ export async function handleEditIntercept(
     canonicalAssistantId,
     assistantId,
     content,
-    channelId,
   } = params;
 
   // Dedup the edit event itself (retried edited_message webhooks)
@@ -82,12 +80,6 @@ export async function handleEditIntercept(
       duplicate: true,
       eventId: editResult.eventId,
     });
-  }
-
-  // Track contact interaction only for genuinely new edit events (not webhook
-  // retries), matching the pattern used for the normal message path.
-  if (channelId) {
-    touchContactInteraction(channelId);
   }
 
   // Retry lookup a few times -- the original message may still be processing
