@@ -2,23 +2,16 @@
  * Workspace migration 023: Move config/state JSON files from root to workspace.
  *
  * Previously, dictation-profiles.json, email-guardrails.json, and
- * active-call-leases.json lived directly under getRootDir() (~/.vellum/).
+ * active-call-leases.json lived directly under the Vellum root (~/.vellum/).
  * This migration moves them into the workspace directory so they follow
  * the workspace convention for organizational consistency.
  */
 
 import { existsSync, renameSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
-
+import { getVellumRoot } from "./utils.js";
 /** Files to move from root → workspace. */
 const CONFIG_FILES = [
   "dictation-profiles.json",
@@ -32,7 +25,7 @@ export const moveConfigFilesToWorkspaceMigration: WorkspaceMigration = {
     "Move dictation-profiles, email-guardrails, and active-call-leases from root to workspace",
 
   run(workspaceDir: string): void {
-    const rootDir = getRootDir();
+    const rootDir = getVellumRoot();
 
     for (const file of CONFIG_FILES) {
       const oldPath = join(rootDir, file);
@@ -60,7 +53,7 @@ export const moveConfigFilesToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const rootDir = getRootDir();
+    const rootDir = getVellumRoot();
 
     for (const file of CONFIG_FILES) {
       const newPath = join(workspaceDir, file);
