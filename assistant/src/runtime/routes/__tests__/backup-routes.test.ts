@@ -22,7 +22,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { BackupRunResult } from "../../../backup/backup-worker.js";
 import type { RestoreResult, VerifyResult } from "../../../backup/restore.js";
 import type { BackupConfig } from "../../../config/schema.js";
 import { BackupConfigSchema } from "../../../config/schema.js";
@@ -114,23 +113,6 @@ mock.module("../../../backup/backup-key.js", () => ({
   ensureBackupKey: async (_path: string) => mockBackupKey ?? Buffer.alloc(32),
 }));
 
-// -- Backup worker mock ----------------------------------------------------
-
-let mockCreateSnapshotResult: BackupRunResult | null = null;
-let mockCreateSnapshotError: Error | null = null;
-let mockCreateSnapshotCalls = 0;
-
-mock.module("../../../backup/backup-worker.js", () => ({
-  createSnapshotNow: async (_config: BackupConfig, _now: Date) => {
-    mockCreateSnapshotCalls += 1;
-    if (mockCreateSnapshotError) throw mockCreateSnapshotError;
-    if (mockCreateSnapshotResult == null) {
-      throw new Error("Test forgot to set mockCreateSnapshotResult");
-    }
-    return mockCreateSnapshotResult;
-  },
-}));
-
 // -- Restore module mock ---------------------------------------------------
 
 interface RestoreCall {
@@ -179,21 +161,20 @@ mock.module("../../../backup/restore.js", () => ({
   restoreFromSnapshot: async (
     path: string,
     opts: {
-      key?: Buffer;
       workspaceDir?: string;
     },
   ) => {
     recoveryCallOrder.push("restoreFromSnapshot");
     lastRestoreArgs = {
       path,
-      hasKey: opts.key != null,
+      hasKey: false,
       workspaceDir: opts.workspaceDir,
     };
     if (mockRestoreError) throw mockRestoreError;
     return mockRestoreResult;
   },
-  verifySnapshot: async (path: string, opts: { key?: Buffer }) => {
-    lastVerifyArgs = { path, hasKey: opts.key != null };
+  verifySnapshot: async (path: string) => {
+    lastVerifyArgs = { path, hasKey: false };
     return mockVerifyResult;
   },
 }));
@@ -248,9 +229,6 @@ beforeEach(() => {
   }
   mockBackupKey = Buffer.alloc(32, 0xaa);
   mockReadBackupKeyCalls = 0;
-  mockCreateSnapshotResult = null;
-  mockCreateSnapshotError = null;
-  mockCreateSnapshotCalls = 0;
   lastRestoreArgs = null;
   lastVerifyArgs = null;
   mockRestoreError = null;
@@ -432,104 +410,18 @@ describe("handleBackupList", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // handleBackupCreate
 // ---------------------------------------------------------------------------
 
 describe("handleBackupCreate", () => {
-  const fakeRunResult: BackupRunResult = {
-    local: {
-      path: "/tmp/fake/backup-20260411-100000.vbundle",
-      filename: "backup-20260411-100000.vbundle",
-      createdAt: new Date("2026-04-11T10:00:00Z"),
-      sizeBytes: 100,
-      encrypted: false,
-    },
-    offsite: [],
-    durationMs: 42,
-  };
-
-  test("manual create bypasses enabled flag and succeeds with disabled config", async () => {
-    mockBackupConfig = makeConfig({
-      enabled: false,
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: false, destinations: null },
-    });
-    mockCreateSnapshotResult = fakeRunResult;
-
-    const result = await handleBackupCreate();
-    expect(result.durationMs).toBe(42);
-    expect(result.offsite).toEqual([]);
-    expect(mockCreateSnapshotCalls).toBe(1);
-  });
-
-  test("plaintext-only destinations do not create backup.key file", async () => {
-    const plaintextDir = join(ROOT, "offsite-plain");
-    mkdirSync(plaintextDir, { recursive: true });
-    mockBackupConfig = makeConfig({
-      enabled: true,
-      localDirectory: LOCAL_DIR,
-      offsite: {
-        enabled: true,
-        destinations: [{ path: plaintextDir, encrypt: false }],
-      },
-    });
-    mockCreateSnapshotResult = fakeRunResult;
-    mockReadBackupKeyCalls = 0;
-
-    await handleBackupCreate();
-    expect(mockReadBackupKeyCalls).toBe(0);
-    const keyFileExists = await import("node:fs").then((m) =>
-      m.existsSync(join(ROOT, "workspace", ".backup.key")),
+  test("always throws BadRequestError redirecting to gateway", async () => {
+    await expect(handleBackupCreate()).rejects.toThrow(
+      "Backup snapshot creation has moved to the gateway",
     );
-    expect(keyFileExists).toBe(false);
-  });
-
-  test("concurrent call throws ConflictError when mock raises 'snapshot in progress'", async () => {
-    mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
-    mockCreateSnapshotError = new Error("snapshot in progress");
-
-    try {
-      await handleBackupCreate();
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(RouteError);
-      expect((err as RouteError).statusCode).toBe(409);
-      expect((err as RouteError).code).toBe("CONFLICT");
-    }
-  });
-
-  test("cross-process conflict ('locked by pid N') is still mapped to 409", async () => {
-    mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
-    mockCreateSnapshotError = new Error(
-      "snapshot in progress (locked by pid 12345)",
-    );
-
-    try {
-      await handleBackupCreate();
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(RouteError);
-      expect((err as RouteError).statusCode).toBe(409);
-      expect((err as RouteError).code).toBe("CONFLICT");
-    }
-  });
-
-  test("other errors are surfaced as 500", async () => {
-    mockCreateSnapshotError = new Error("disk full");
-
-    try {
-      await handleBackupCreate();
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(RouteError);
-      expect((err as RouteError).statusCode).toBe(500);
-      expect((err as RouteError).code).toBe("INTERNAL_ERROR");
-      expect((err as RouteError).message).toBe("disk full");
-    }
   });
 });
 
-// ---------------------------------------------------------------------------
 // handleBackupRestore
 // ---------------------------------------------------------------------------
 
@@ -613,7 +505,7 @@ describe("handleBackupRestore", () => {
     expect(lastRestoreArgs!.path).toBe(expectedRealpath);
   });
 
-  test("encrypted .vbundle.enc inside local dir loads key and restores", async () => {
+  test("encrypted .vbundle.enc is rejected with gateway redirect error", async () => {
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle.enc",
@@ -622,29 +514,6 @@ describe("handleBackupRestore", () => {
       localDirectory: LOCAL_DIR,
       offsite: { enabled: true, destinations: [] },
     });
-    mockBackupKey = Buffer.alloc(32, 0xbb);
-    mockReadBackupKeyCalls = 0;
-
-    await handleBackupRestore({
-      body: { path: snapshotPath },
-      pathParams: {},
-      queryParams: {},
-    });
-    expect(mockReadBackupKeyCalls).toBe(1);
-    expect(lastRestoreArgs).not.toBeNull();
-    expect(lastRestoreArgs!.hasKey).toBe(true);
-  });
-
-  test("encrypted bundle with missing backup.key throws BadRequestError", async () => {
-    const snapshotPath = writeBackupFile(
-      LOCAL_DIR,
-      "backup-20260411-100000.vbundle.enc",
-    );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
-    mockBackupKey = null;
 
     try {
       await handleBackupRestore({
@@ -656,7 +525,7 @@ describe("handleBackupRestore", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(RouteError);
       expect((err as RouteError).statusCode).toBe(400);
-      expect((err as RouteError).message).toMatch(/backup.key is missing/);
+      expect((err as RouteError).message).toMatch(/gateway/i);
     }
     expect(lastRestoreArgs).toBeNull();
   });
@@ -794,7 +663,7 @@ describe("handleBackupVerify", () => {
     expect(result.valid).toBe(true);
   });
 
-  test("encrypted bundle with key loads key and forwards to verifySnapshot", async () => {
+  test("encrypted bundle is rejected with gateway redirect error", async () => {
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle.enc",
@@ -803,16 +672,19 @@ describe("handleBackupVerify", () => {
       localDirectory: LOCAL_DIR,
       offsite: { enabled: true, destinations: [] },
     });
-    mockBackupKey = Buffer.alloc(32, 0xcc);
-    mockReadBackupKeyCalls = 0;
 
-    await handleBackupVerify({
-      body: { path: snapshotPath },
-      pathParams: {},
-      queryParams: {},
-    });
-    expect(mockReadBackupKeyCalls).toBe(1);
-    expect(lastVerifyArgs!.hasKey).toBe(true);
+    try {
+      await handleBackupVerify({
+        body: { path: snapshotPath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+      expect((err as RouteError).message).toMatch(/gateway/i);
+    }
   });
 
   test("path outside allowed directories throws BadRequestError", async () => {

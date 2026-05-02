@@ -20,7 +20,7 @@
  * drive the whole surface against temp directories.
  */
 
-import { copyFile, mkdir, rename, stat } from "node:fs/promises";
+import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BackupDestination } from "../config/schema.js";
@@ -29,7 +29,6 @@ import {
   type SnapshotEntry,
 } from "./list-snapshots.js";
 import { deriveSafeAncestor, formatBackupFilename } from "./paths.js";
-import { encryptFile } from "./stream-crypt.js";
 
 /**
  * Result of writing a single offsite destination.
@@ -111,15 +110,12 @@ export async function writeOffsiteSnapshotToOne(
     const outputPath = join(destination.path, filename);
 
     if (destination.encrypt) {
-      // Programmer-contract: the caller must have ensured a key exists if any
-      // destination is encrypted. We still route this through the catch block
-      // so a single broken destination cannot poison the others.
-      if (key == null) {
-        throw new Error(
-          "Offsite destination requires encryption but no key was provided",
-        );
-      }
-      await encryptFile(localSnapshotPath, outputPath, key);
+      // Encryption has moved to the gateway backup worker (ATL-397).
+      // The assistant daemon no longer has access to the backup key.
+      throw new Error(
+        "Offsite encryption has moved to the gateway. " +
+          "Use the gateway's POST /v1/backups/create endpoint instead.",
+      );
     } else {
       // Atomic plaintext copy: write into a sibling `.tmp` then rename into
       // place. `copyFile` handles cross-filesystem copies, so we don't need
@@ -127,7 +123,16 @@ export async function writeOffsiteSnapshotToOne(
       // same-device rename.
       const tempPath = `${outputPath}.tmp`;
       await copyFile(localSnapshotPath, tempPath);
-      await rename(tempPath, outputPath);
+      try {
+        await rename(tempPath, outputPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EXDEV") {
+          await copyFile(tempPath, outputPath);
+          await unlink(tempPath);
+        } else {
+          throw err;
+        }
+      }
     }
 
     const stats = await stat(outputPath);

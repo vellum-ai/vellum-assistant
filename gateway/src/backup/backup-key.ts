@@ -3,11 +3,12 @@
  *
  * The backup key is a 32-byte random secret used to authenticate / encrypt
  * workspace backups. It is generated once per install and persisted to disk
- * so subsequent backup/restore operations reuse the same key.
+ * in the gateway security directory — outside the workspace and outside the
+ * assistant sandbox boundary.
  *
  * This module is intentionally pure: callers pass the full `keyPath` rather
  * than resolving a default location. That keeps the helpers trivially
- * testable against temp directories and avoids any coupling to daemon
+ * testable against temp directories and avoids any coupling to gateway
  * startup, workspace layout, or global path helpers.
  *
  * On-disk invariants:
@@ -58,7 +59,7 @@ async function pathExists(path: string): Promise<boolean> {
  * for read-only callers (e.g. restore paths) that should not create a new
  * key as a side effect.
  *
- * Throws if the file exists but is not exactly 32 bytes -- callers should
+ * Throws if the file exists but is not exactly 32 bytes — callers should
  * treat that as a corruption signal rather than silently regenerating.
  */
 export async function readBackupKey(keyPath: string): Promise<Buffer | null> {

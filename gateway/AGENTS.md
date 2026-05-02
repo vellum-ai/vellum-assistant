@@ -37,6 +37,10 @@ In Docker mode, the gateway is the sole owner of trust rule storage. Trust files
 
 The assistant reads and writes trust rules via the gateway's HTTP trust API instead of accessing the filesystem directly. This ensures the security boundary is enforced at the container level — even if the assistant container is compromised, it cannot tamper with trust rules without going through the gateway's API.
 
+### Backup Encryption Key
+
+The backup encryption key (`backup.key`) lives in `GATEWAY_SECURITY_DIR` and is never exposed to the assistant daemon or workspace. The gateway owns all backup encryption/decryption — the assistant produces plaintext vbundles via `/v1/migrations/export`, and the gateway encrypts them for offsite storage. The assistant cannot read the key via `file_read` or any other tool. This is a security boundary: even if the assistant is prompt-injected, backup encryption remains intact.
+
 ### Credential Access in Docker Mode
 
 In Docker mode, the gateway accesses stored credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. The gateway does not have direct filesystem access to credential encryption keys (`keys.enc`, `store.key`), which reside on the CES security volume.

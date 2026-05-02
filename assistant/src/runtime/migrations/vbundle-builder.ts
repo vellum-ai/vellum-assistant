@@ -410,8 +410,10 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
 interface WalkDirectoryOptions {
   /** Include binary files (files containing null bytes). Default: false. */
   includeBinary?: boolean;
-  /** Directory names to skip (matched against immediate child name). */
+  /** Directory names to skip (matched against relative path from walk root). */
   skipDirs?: string[];
+  /** File names to skip (matched against the entry basename). */
+  skipFiles?: string[];
 }
 
 /**
@@ -426,7 +428,7 @@ function walkDirectory(
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
 ): VBundleFileEntry[] {
-  const { includeBinary = false, skipDirs = [] } = options;
+  const { includeBinary = false, skipDirs = [], skipFiles = [] } = options;
   const entries: VBundleFileEntry[] = [];
 
   function walk(currentDir: string): void {
@@ -446,6 +448,9 @@ function walkDirectory(
         }
         walk(fullPath);
       } else if (stat.isFile()) {
+        // Skip files by basename (e.g. backup key)
+        if (skipFiles.includes(entry.name)) continue;
+
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         // with the live DB connection. The WAL is checkpointed before the
         // walk, so the main .db file has all committed rows.
@@ -565,6 +570,7 @@ export function buildExportVBundle(
       ...walkDirectory(workspaceDir, "workspace", {
         includeBinary: true,
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+        skipFiles: [".backup.key"],
       }),
     );
   }
@@ -610,7 +616,7 @@ function walkDirectoryForMetadata(
   archivePrefix: string,
   options: WalkDirectoryOptions = {},
 ): FileMetadata[] {
-  const { includeBinary = false, skipDirs = [] } = options;
+  const { includeBinary = false, skipDirs = [], skipFiles = [] } = options;
   const entries: FileMetadata[] = [];
 
   function walk(currentDir: string): void {
@@ -630,6 +636,9 @@ function walkDirectoryForMetadata(
         }
         walk(fullPath);
       } else if (fileStat.isFile()) {
+        // Skip files by basename (e.g. backup key)
+        if (skipFiles.includes(entry.name)) continue;
+
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         if (
           entry.name.endsWith(".db-wal") ||
@@ -896,6 +905,7 @@ export async function streamExportVBundle(
       ...walkDirectoryForMetadata(workspaceDir, "workspace", {
         includeBinary: true,
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+        skipFiles: [".backup.key"],
       }),
     );
   }

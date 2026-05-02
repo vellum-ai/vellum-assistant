@@ -5,7 +5,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   deriveSafeAncestor,
   formatBackupFilename,
-  getBackupKeyPath,
   getBackupRootDir,
   getDefaultOffsiteBackupsDir,
   getICloudDriveRoot,
@@ -162,27 +161,6 @@ describe("resolveOffsiteDestinations", () => {
   });
 });
 
-describe("getBackupKeyPath", () => {
-  const ORIGINAL_KEY_PATH = process.env.VELLUM_BACKUP_KEY_PATH;
-
-  afterEach(() => {
-    if (ORIGINAL_KEY_PATH === undefined) {
-      delete process.env.VELLUM_BACKUP_KEY_PATH;
-    } else {
-      process.env.VELLUM_BACKUP_KEY_PATH = ORIGINAL_KEY_PATH;
-    }
-  });
-
-  test("ends with /.backup.key when env var is unset", () => {
-    delete process.env.VELLUM_BACKUP_KEY_PATH;
-    expect(getBackupKeyPath().endsWith("/.backup.key")).toBe(true);
-  });
-
-  test("returns the env var override when VELLUM_BACKUP_KEY_PATH is set", () => {
-    process.env.VELLUM_BACKUP_KEY_PATH = "/workspace/.backup.key";
-    expect(getBackupKeyPath()).toBe("/workspace/.backup.key");
-  });
-});
 
 describe("formatBackupFilename", () => {
   const fixture = new Date("2026-04-11T15:30:45.000Z");
