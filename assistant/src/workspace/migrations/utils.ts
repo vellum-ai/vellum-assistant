@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
  * 2. If that parent is "/" (workspace at top level, e.g. /workspace), fall back
  *    to homedir()/.vellum
  *
- * This replaces the old `BASE_DATA_DIR || homedir()` pattern.
+ * This replaces the old inlined `getRootDir()` pattern used by individual migrations.
  */
 export function getVellumRoot(): string {
   const workspaceDir = process.env.VELLUM_WORKSPACE_DIR?.trim();
