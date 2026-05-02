@@ -218,6 +218,29 @@ describe.each(walkers)("$name — symlink classification", ({ walk }) => {
     expect(result.symlinks).toEqual([]);
     expect(result.droppedSymlinks).toContain(join("skills", "broken"));
   });
+
+  test("class 1: in-workspace symlink is emitted when walk root is a non-canonical path with symlinked prefix", () => {
+    // Intentionally NOT canonicalized — on macOS this stays as
+    // /var/folders/... while realpathSync canonicalizes to
+    // /private/var/folders/.... Without the realpathSync(walkRoot) fix in
+    // classifySymlink, the containment check misclassifies in-workspace
+    // symlinks as "outside workspace" and silently drops them.
+    const ws = mkdtempSync(join(tmpdir(), "vbundle-walker-noncanon-"));
+    cleanupQueue.push(ws);
+    mkdirSync(join(ws, "skills"), { recursive: true });
+    writeFileSync(join(ws, "skills", "bar.md"), "hello");
+    symlinkSync("bar.md", join(ws, "skills", "foo.md"));
+
+    const result = walk(ws, "workspace", []);
+
+    expect(result.droppedSymlinks).toEqual([]);
+    expect(result.symlinks).toEqual([
+      {
+        archivePath: "workspace/skills/foo.md",
+        linkTarget: "bar.md",
+      },
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------

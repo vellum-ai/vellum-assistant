@@ -509,7 +509,12 @@ function classifySymlink(args: {
     return { kind: "drop", reason: "target is not a regular file" };
   }
 
-  const dirAbs = resolve(walkRoot);
+  let dirAbs: string;
+  try {
+    dirAbs = realpathSync(walkRoot);
+  } catch {
+    dirAbs = resolve(walkRoot);
+  }
   const targetAbs = resolve(absoluteTarget);
   const insideWorkspace =
     targetAbs === dirAbs || targetAbs.startsWith(dirAbs + sep);
@@ -527,7 +532,18 @@ function classifySymlink(args: {
     return { kind: "drop", reason: "target inside skipDir" };
   }
 
-  const linkTarget = relative(dirname(fullPath), absoluteTarget);
+  // Canonicalize the symlink's parent directory so the relative linkTarget
+  // computation lines up with `absoluteTarget` (which is canonical from
+  // realpathSync). On macOS, walking through /var/folders/... and resolving
+  // the target through /private/var/folders/... would otherwise produce a
+  // long ../../../private/... path that exceeds the 100-byte ustar limit.
+  let parentAbs: string;
+  try {
+    parentAbs = realpathSync(dirname(fullPath));
+  } catch {
+    parentAbs = resolve(dirname(fullPath));
+  }
+  const linkTarget = relative(parentAbs, absoluteTarget);
   if (new TextEncoder().encode(linkTarget).length > 100) {
     return {
       kind: "drop",
