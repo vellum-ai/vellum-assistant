@@ -184,6 +184,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Watchdog task that fires when `isThinking` has been `true` for more than
+    /// 90 seconds without being reset.  The "thinking" activity phase disables
+    /// the `isSending` watchdog, so this provides equivalent auto-recovery when
+    /// both `assistantActivityState(idle)` and `messageComplete` are lost.
+    @ObservationIgnored private var thinkingWatchdogTask: Task<Void, Never>?
+
+    /// Fallback task scheduled by the `assistantActivityState("idle")` handler.
+    /// Clears `currentAssistantMessageId` after 5 seconds if `messageComplete`
+    /// hasn't arrived to do it. Cancelled by `handleMessageComplete`.
+    @ObservationIgnored var idleFallbackTask: Task<Void, Never>?
+
     /// Per-requestId safety-net timeouts that clear the submitting spinner if
     /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
     /// by requestId so concurrent submissions each get an independent timeout.
@@ -219,8 +230,66 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
     public var isThinking: Bool {
         get { messageManager.isThinking }
-        set { messageManager.isThinking = newValue }
+        set {
+            messageManager.isThinking = newValue
+            if newValue {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(90))
+                    guard !Task.isCancelled, let self, self.isThinking else { return }
+                    log.error("isThinking watchdog: still true after 90s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    self.messageManager.isThinking = false
+                    self.isCancelling = false
+                    self.isCompacting = false
+                    self.assistantActivityPhase = "idle"
+                    self.assistantActivityAnchor = "global"
+                    self.assistantActivityReason = nil
+                    self.assistantStatusText = nil
+                    let assistantId = self.currentAssistantMessageId
+                    self.messageManager.batchUpdateMessages { msgs in
+                        if let existingId = assistantId,
+                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                            msgs[index].isStreaming = false
+                            msgs[index].streamingCodePreview = nil
+                            msgs[index].streamingCodeToolName = nil
+                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                                msgs[index].toolCalls[j].isComplete = true
+                                msgs[index].toolCalls[j].completedAt = Date()
+                            }
+                        }
+                    }
+                    self.currentAssistantMessageId = nil
+                    self.currentTurnUserText = nil
+                    self.currentAssistantHasText = false
+                    self.discardStreamingBuffer()
+                    self.discardPartialOutputBuffer()
+                    self.messageManager.isSending = false
+                    self.sendingWatchdogTask?.cancel()
+                    self.sendingWatchdogTask = nil
+                    self.thinkingWatchdogTask = nil
+                }
+            } else {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = nil
+            }
+        }
     }
+    /// Schedule a 5-second fallback to clear `currentAssistantMessageId` if
+    /// `messageComplete` never arrives after the daemon reported idle.
+    func scheduleIdleFallbackCleanup() {
+        idleFallbackTask?.cancel()
+        guard let messageId = currentAssistantMessageId else { return }
+        idleFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self else { return }
+            guard self.currentAssistantMessageId == messageId else { return }
+            log.warning("idle fallback: messageComplete not received within 5s — clearing currentAssistantMessageId")
+            self.currentAssistantMessageId = nil
+            self.currentTurnUserText = nil
+            self.currentAssistantHasText = false
+        }
+    }
+
     /// Whether the assistant is actively working on a response — covers sending,
     /// extended-thinking, any in-progress assistant message, and orphaned tool
     /// calls that haven't received their `tool_result` event yet (e.g. tool
@@ -1448,6 +1517,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                    let index = self?.messages.firstIndex(where: { $0.id == existingId }) {
                     self?.messages[index].isStreaming = false
                 }
+                self?.idleFallbackTask?.cancel()
+                self?.idleFallbackTask = nil
                 self?.currentAssistantMessageId = nil
                 self?.discardStreamingBuffer()
                 self?.discardPartialOutputBuffer()
@@ -2216,6 +2287,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         discardStreamingBuffer()
         discardPartialOutputBuffer()
         surfaceRefetchCoordinator.cancelRefetchTasks()
+        idleFallbackTask?.cancel()
+        idleFallbackTask = nil
         currentAssistantMessageId = nil
         currentAssistantHasText = false
 
@@ -2363,6 +2436,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if isThinking || isSending || currentAssistantMessageId != nil {
             isThinking = false
             isSending = false
+            idleFallbackTask?.cancel()
+            idleFallbackTask = nil
             currentAssistantMessageId = nil
             discardStreamingBuffer()
             discardPartialOutputBuffer()
@@ -2449,6 +2524,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        thinkingWatchdogTask?.cancel()
+        idleFallbackTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         if let token = memoryPressureListener {
             MemoryPressureMonitor.shared.removeListener(token)

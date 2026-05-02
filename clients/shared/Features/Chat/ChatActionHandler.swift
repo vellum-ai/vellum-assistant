@@ -509,6 +509,8 @@ final class ChatActionHandler {
         if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
+        vm.idleFallbackTask?.cancel()
+        vm.idleFallbackTask = nil
         // Capture before dispatchPendingSendDirect clears the flag so we can
         // tell a real turn end from a cancel-acknowledgement completion.
         let wasCancelAck = vm.pendingSendDirectText != nil
@@ -1495,6 +1497,31 @@ final class ChatActionHandler {
             vm.isThinking = false
         case "idle":
             vm.isThinking = false
+            vm.isCompacting = false
+            vm.isCancelling = false
+            // Flush buffered text before clearing the message reference.
+            vm.flushStreamingBuffer()
+            vm.flushPartialOutputBuffer()
+            // Mark the current assistant message as no longer streaming and
+            // complete any in-flight tool calls so progress indicators clear.
+            if let assistantId = vm.currentAssistantMessageId,
+               let idx = vm.messages.firstIndex(where: { $0.id == assistantId }) {
+                vm.messages[idx].isStreaming = false
+                vm.messages[idx].streamingCodePreview = nil
+                vm.messages[idx].streamingCodeToolName = nil
+                for j in vm.messages[idx].toolCalls.indices where !vm.messages[idx].toolCalls[j].isComplete {
+                    vm.messages[idx].toolCalls[j].isComplete = true
+                    vm.messages[idx].toolCalls[j].completedAt = Date()
+                }
+            }
+            if vm.pendingQueuedCount == 0 {
+                vm.isSending = false
+            }
+            // Leave currentAssistantMessageId for messageComplete — it needs
+            // it for daemonMessageId backfill, attachment ingestion, and voice
+            // callbacks. Schedule a short fallback to clear it if messageComplete
+            // never arrives (lost event).
+            vm.scheduleIdleFallbackCleanup()
         case "awaiting_confirmation":
             vm.isThinking = false
             vm.isSending = false
