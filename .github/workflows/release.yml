@@ -2328,6 +2328,56 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
+  # ── Dispatch iOS release to platform repo ────────────────────────────
+
+  dispatch-ios-release:
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: >-
+      ${{
+        always() && !cancelled()
+        && needs.extract-version.result == 'success'
+        && needs.build-macos-arm64.result == 'success'
+        && needs.build-macos-x64.result == 'success'
+        && needs.push-assistant-manifest.result == 'success'
+        && needs.push-gateway-manifest.result == 'success'
+        && needs.push-credential-executor-manifest.result == 'success'
+        && needs.ci-playwright.result == 'success'
+        && needs.build-chrome-extension.result == 'success'
+        && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
+        && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
+        && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Dispatch iOS release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="production"
+          fi
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/dispatches" \
+            -d "{\"event_type\":\"ios-release\",\"client_payload\":{\"environment\":\"$ENVIRONMENT\",\"version\":\"$VERSION\"}}"
+          echo "Dispatched ios-release to vellum-assistant-platform (environment=$ENVIRONMENT, version=$VERSION)"
+
   # ci-assistant runs lint/typecheck/test for the assistant service. It also
   # transitively gates the release pipeline because push-assistant-image and
   # push-dockerhub-image depend on it — a failure here blocks Docker image
@@ -2696,7 +2746,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2777,6 +2827,7 @@ jobs:
           RR=$(ci_icon "${{ needs.register-release.result }}")
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
+          DI=$(ci_icon "${{ needs.dispatch-ios-release.result }}")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
           MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"
@@ -2793,7 +2844,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
