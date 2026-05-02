@@ -5,14 +5,8 @@ import Observation
 import os
 import SwiftUI
 import UniformTypeIdentifiers
-#if os(macOS)
 import AppKit
 import AVFoundation
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel")
 
@@ -212,8 +206,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
     private static let poiLog = OSLog(subsystem: "com.vellum.assistant", category: .pointsOfInterest)
-
-
 
     // MARK: - Forwarding properties — ChatMessageManager
 
@@ -1833,12 +1825,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if let debugDetails = error.debugDetails {
             details += "\n\nDebug Details:\n\(debugDetails)"
         }
-        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(details, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = details
-        #endif
     }
 
     /// Retry the last message after a conversation error, if the error is retryable.
@@ -2135,7 +2123,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
-
     /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
         guard let conversationId, connectionManager.isConnected else { return }
@@ -2355,7 +2342,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         refreshGuardianPrompts()
         os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
     }
-
 
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
         var hasModelCommand = false
@@ -2747,12 +2733,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Read the current PTT activation key and microphone permission from the
     /// platform. On non-macOS platforms, returns nil fields (PTT is desktop-only).
     static func currentPttMetadata() -> PttMetadata {
-        #if os(macOS)
         let key = SharedUserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         return PttMetadata(activationKey: key, microphonePermissionGranted: micGranted)
-        #else
-        return PttMetadata(activationKey: nil, microphonePermissionGranted: nil)
-        #endif
     }
 }

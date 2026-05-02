@@ -50,31 +50,17 @@ public struct MessageClient: MessageClientProtocol {
     nonisolated public init() {}
 
     private static var interfaceValue: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
     }
 
     /// The host home directory, populated automatically on macOS.
     private static var hostHomeDir: String? {
-        #if os(macOS)
         return NSHomeDirectory()
-        #else
-        return nil
-        #endif
     }
 
     /// The host username, populated automatically on macOS.
     private static var hostUsername: String? {
-        #if os(macOS)
         return NSUserName()
-        #else
-        return nil
-        #endif
     }
 
     public func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String? = nil) async -> AttachmentUploadResult {

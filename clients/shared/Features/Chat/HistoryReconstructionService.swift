@@ -1,11 +1,5 @@
 import Foundation
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 /// Namespace for static, nonisolated helpers that reconstruct `ChatMessage` arrays
 /// from daemon history-response payloads. The heavy work (JSON size estimation,
@@ -273,29 +267,15 @@ public enum HistoryReconstructionService {
             let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
 
             var thumbnailData: Data?
-            #if os(macOS)
             var thumbnailImage: NSImage?
-            #elseif os(iOS)
-            var thumbnailImage: UIImage?
-            #else
-            #error("Unsupported platform")
-            #endif
 
             if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
                 thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
-                #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                #elseif os(iOS)
-                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                #endif
             } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
                       let thumbData = Data(base64Encoded: serverThumb) {
                 thumbnailData = thumbData
-                #if os(macOS)
                 thumbnailImage = NSImage(data: thumbData)
-                #elseif os(iOS)
-                thumbnailImage = UIImage(data: thumbData)
-                #endif
             }
 
             return ChatAttachment(

@@ -26,13 +26,7 @@ public enum GatewayHTTPClient {
     /// Platform-specific interface identifier sent as `X-Vellum-Interface-Id`
     /// on streaming connections so the assistant can register the client.
     private static var clientInterfaceId: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "unknown"
-        #endif
     }
 
     /// Response from a gateway HTTP request.
@@ -597,7 +591,6 @@ public enum GatewayHTTPClient {
 
     // MARK: - Internals
 
-    #if os(macOS)
     /// Process-local override for the connected assistant ID. Used by
     /// `withAssistant(_:_:)` to temporarily route requests to a different
     /// assistant's gateway without mutating the lockfile or UserDefaults.
@@ -646,7 +639,6 @@ public enum GatewayHTTPClient {
         }
         return LockfileAssistant.loadByName(id)
     }
-    #endif
 
     /// Resolved connection metadata used for request construction and auth retry.
     private struct ConnectionInfo {
@@ -666,7 +658,6 @@ public enum GatewayHTTPClient {
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
     ///   with tokens from credential storage via `SessionTokenManager` / `ActorTokenManager`.
     private static func resolveConnection() throws -> ConnectionInfo {
-        #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
         }
@@ -698,34 +689,6 @@ public enum GatewayHTTPClient {
             }
         }
 
-        #elseif os(iOS)
-        // Managed assistant: cloud-hosted via platform proxy with session token auth.
-        if let managedAssistantId = UserDefaults.standard.string(forKey: "managed_assistant_id"),
-           !managedAssistantId.isEmpty,
-           let platformBaseURL = UserDefaults.standard.string(forKey: "managed_platform_base_url"),
-           !platformBaseURL.isEmpty {
-            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
-            return ConnectionInfo(baseURL: platformBaseURL, authHeader: ("X-Session-Token", token), assistantId: managedAssistantId, isManaged: true)
-        }
-
-        // QR-paired assistant: gateway URL with bearer token auth.
-        if let gatewayBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url"),
-           !gatewayBaseURL.isEmpty {
-            let token = ActorTokenManager.getToken()
-            let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
-                ? ("Authorization", "Bearer \(token!)")
-                : nil
-            // QR-paired assistants don't carry an assistant ID in UserDefaults;
-            // use an empty string so `{assistantId}` placeholders resolve harmlessly.
-            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: authHeader, assistantId: "", isManaged: false)
-        }
-
-        throw ClientError.noConnectedAssistant
-        #else
-        throw ClientError.noConnectedAssistant
-        #endif
     }
 
     /// A restricted character set for encoding query parameter values.
@@ -1071,15 +1034,8 @@ public enum GatewayHTTPClient {
     ///
     /// Returns `true` when the refresh succeeds and the request should be retried.
     private static func refreshBearerCredentials(connection: ConnectionInfo) async -> Bool {
-        #if os(macOS)
         let platform = "macos"
         let deviceId = computeMacOSDeviceId()
-        #elseif os(iOS)
-        let platform = "ios"
-        let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
-        #else
-        return false
-        #endif
 
         let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
             platform: platform,
@@ -1091,11 +1047,9 @@ public enum GatewayHTTPClient {
 
     // MARK: - macOS Device ID
 
-    #if os(macOS)
     /// Compute a stable device ID from the IOPlatformUUID.
     /// Delegates to the shared `HostIdComputer` implementation.
     private static func computeMacOSDeviceId() -> String {
         return HostIdComputer.computeHostId()
     }
-    #endif
 }

@@ -25,10 +25,6 @@ dist
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
 
-# Copied from meta/ into iOS Resources/ at build time by clients/ios/build.sh
-clients/ios/Resources/tts-provider-catalog.json
-clients/ios/Resources/llm-provider-catalog.json
-
 # Working copy overwritten on every macOS build by clients/macos/build.sh from
 # build-resources/icons/$VELLUM_ENVIRONMENT/. Source of truth lives in
 # build-resources/icons/<env>/.
@@ -94,9 +90,6 @@ yarn-error.log*
 *.xcactivitylog
 *.o
 DerivedData/
-**/Library/Logs/CoreSimulator/
-.build-ios/
-clients/ios/vellum-assistant-ios.xcodeproj/
 
 # drizzle
 web/drizzle/

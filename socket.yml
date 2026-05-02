@@ -11,7 +11,6 @@ projectIgnorePaths:
   - "clients/.build/**"
   - "**/dist/**"
   - "**/build/**"
-  - "**/.build-ios/**"
   - "**/*.tsbuildinfo"
   - "**/*.bun-build"
 

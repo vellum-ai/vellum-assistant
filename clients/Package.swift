@@ -6,8 +6,7 @@ let appVersion = "0.7.1"
 let package = Package(
     name: "vellum-assistant",
     platforms: [
-        .macOS("15.0"),
-        .iOS(.v17)
+        .macOS("15.0")
     ],
     products: [
         .library(
@@ -26,7 +25,6 @@ let package = Package(
             name: "vellum-assistant",
             targets: ["vellum-assistant"]
         )
-        // iOS executable product removed — use ios/vellum-assistant-ios.xcodeproj instead.
     ],
     dependencies: [
         .package(url: "https://github.com/apple/containerization.git", exact: "0.30.1"),
@@ -65,8 +63,6 @@ let package = Package(
                 .linkedFramework("AuthenticationServices"),  // Required for shared AuthManager (ASWebAuthenticationSession)
             ]
         ),
-        // VellumAssistantLib: macOS-only target (links AppKit, ScreenCaptureKit, etc.)
-        // iOS apps should depend only on VellumAssistantShared, not this target.
         .target(
             name: "VellumAssistantLib",
             dependencies: [
@@ -119,17 +115,10 @@ let package = Package(
             dependencies: ["VellumAssistantLib"],
             path: "macos/vellum-assistantTests"
         ),
-        // iOS app and tests are built via ios/vellum-assistant-ios.xcodeproj (not SPM).
-        // See ios/project.yml for the XcodeGen spec.
         .testTarget(
             name: "VellumAssistantSharedTests",
             dependencies: ["VellumAssistantShared"],
             path: "shared/Tests"
-        ),
-        .testTarget(
-            name: "VellumAssistantIOSTests",
-            dependencies: ["VellumAssistantShared"],
-            path: "ios/Tests"
         )
     ],
     // swift-tools-version 6.2 is required by the `containerization` dependency,

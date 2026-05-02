@@ -1,13 +1,6 @@
 import Foundation
 import os
 import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 // MARK: - Attachments
 // All implementation lives in ChatAttachmentManager.  These wrappers preserve

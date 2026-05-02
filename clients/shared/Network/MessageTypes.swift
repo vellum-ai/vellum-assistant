@@ -214,13 +214,7 @@ private func buildConversationTransportMetadata(
 
 extension ConversationCreateRequest {
     private static var defaultTransportInterface: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
     }
 
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: ConversationTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
@@ -229,20 +223,12 @@ extension ConversationCreateRequest {
 
     /// The host home directory, populated automatically on macOS.
     private static var defaultHostHomeDir: String? {
-        #if os(macOS)
         return NSHomeDirectory()
-        #else
-        return nil
-        #endif
     }
 
     /// The host username, populated automatically on macOS.
     private static var defaultHostUsername: String? {
-        #if os(macOS)
         return NSUserName()
-        #else
-        return nil
-        #endif
     }
 
     public init(
@@ -295,13 +281,7 @@ extension UserMessage {
 
     /// Platform-derived default interface identifier.
     private static var defaultInterface: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
     }
 
     public init(conversationId: String, content: String, attachments: [Attachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, automated: Bool? = nil) {
@@ -324,7 +304,6 @@ extension AuthMessage {
         self.init(type: "auth", token: token)
     }
 }
-
 
 extension PingMessage {
     public init() {
@@ -817,7 +796,6 @@ extension DictationRequest {
 /// Backed by generated `OpenUrl`.
 public typealias OpenUrlMessage = OpenUrl
 
-
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
@@ -956,7 +934,6 @@ extension DeleteQueuedMessage {
         self.init(type: "delete_queued_message", conversationId: conversationId, requestId: requestId)
     }
 }
-
 
 extension ErrorMessage {
     public init(message: String, category: String? = nil) {
@@ -1284,7 +1261,6 @@ extension SkillsInspectResponseData {
 /// Backed by generated `SkillsInspectResponse`.
 public typealias SkillsInspectResponseMessage = SkillsInspectResponse
 
-
 /// Response containing the list of past conversations.
 /// Backed by generated `ConversationListResponse`.
 public typealias ConversationListResponseMessage = ConversationListResponse
@@ -1525,7 +1501,6 @@ public typealias SecretRequestMessage = SecretRequest
 /// Permission confirmation request from daemon.
 /// Backed by generated `ConfirmationRequest`.
 public typealias ConfirmationRequestMessage = ConfirmationRequest
-
 
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
@@ -2025,7 +2000,6 @@ public struct HostCuResultPayload: Codable, Sendable {
 /// Backed by generated `AssistantActivityState`.
 public typealias AssistantActivityStateMessage = AssistantActivityState
 
-
 /// Request a follow-up suggestion for the current conversation.
 /// Backed by generated `SuggestionRequest`.
 public typealias SuggestionRequestMessage = SuggestionRequest
@@ -2141,7 +2115,6 @@ public typealias ToolNamesListResponseMessage = ToolNamesListResponse
 /// Backed by generated `OpenBundleResponse`.
 public typealias OpenBundleResponseMessage = OpenBundleResponse
 
-
 // MARK: - Publish / Unpublish Page Messages
 
 /// Sent to publish a static page via Vercel.
@@ -2186,7 +2159,6 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
         self.platform = platform
     }
 }
-
 
 // MARK: - Cloud Sharing Messages (Manual)
 
@@ -3482,9 +3454,7 @@ extension ContactsRequest {
 /// Backed by generated `ContactsResponse`.
 public typealias ContactsResponseMessage = ContactsResponse
 
-
 extension ContactPayload: Identifiable {}
-
 
 extension ContactChannelPayload: Identifiable {}
 

@@ -114,13 +114,7 @@ final class MessageSendCoordinator {
     // MARK: - Platform helper
 
     private var sendPathPlatform: ChatSlashCommandPlatform {
-        #if os(macOS)
         return .macos
-        #elseif os(iOS)
-        return .ios
-        #else
-        #error("Unsupported platform")
-        #endif
     }
 
     // MARK: - Send Message

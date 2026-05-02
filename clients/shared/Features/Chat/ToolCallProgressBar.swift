@@ -38,18 +38,7 @@ public struct ToolCallProgressBar: View {
     }
 
     public var body: some View {
-        #if os(iOS)
-        if Self.shouldRenderACPSpawnDeepLinkCard(
-            toolCalls: toolCalls,
-            isCodingAgentsPanelEnabled: MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
-        ), let deepLink = acpSpawnDeepLink {
-            ACPSpawnDeepLinkCard(toolCall: deepLink.toolCall, acpSessionId: deepLink.sessionId)
-        } else {
-            standardBody
-        }
-        #else
         standardBody
-        #endif
     }
 
     @ViewBuilder
@@ -263,7 +252,6 @@ public struct ToolCallProgressBar: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
 
-                    #if os(macOS)
                     HStack(spacing: 0) {
                         Image(nsImage: cachedImage)
                             .resizable()
@@ -271,15 +259,6 @@ public struct ToolCallProgressBar: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         Spacer(minLength: 0)
                     }
-                    #elseif os(iOS)
-                    HStack(spacing: 0) {
-                        Image(uiImage: cachedImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        Spacer(minLength: 0)
-                    }
-                    #endif
                 }
             }
 
@@ -387,165 +366,3 @@ public struct ToolCallProgressBar: View {
     }
 }
 
-#if os(iOS)
-
-/// Compact tap-to-open card replacing the standard step bar for
-/// `acp_spawn` tool calls on iOS. Visually mirrors the macOS row in
-/// `ToolCallStepDetailRow.acpSpawnDeepLinkRow` — a status-driven leading
-/// glyph, the friendly tool name, and a chevron-right hint pointing at
-/// "tap to navigate". Status updates live: if a spawn lands on the chat
-/// before its session row finishes initializing, the indicator pulses
-/// until the daemon reports a terminal state via SSE.
-public struct ACPSpawnDeepLinkCard: View {
-    public let toolCall: ToolCallData
-    public let acpSessionId: String
-
-    public init(toolCall: ToolCallData, acpSessionId: String) {
-        self.toolCall = toolCall
-        self.acpSessionId = acpSessionId
-    }
-
-    public var body: some View {
-        Button {
-            Self.openACPSession(id: acpSessionId)
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                ACPSpawnStatusIndicatorView(
-                    toolCall: toolCall,
-                    acpSessionId: acpSessionId,
-                    store: ACPSpawnAppDelegateBridge.sharedStore
-                )
-                .frame(width: 16, height: 16)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(ToolCallData.displaySafe(toolCall.friendlyName))
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(ACPSpawnDeepLinkCard.statusLabel(for: toolCall))
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                Spacer(minLength: 0)
-                VIconView(.chevronRight, size: 12)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .contentShape(Rectangle())
-            .padding(VSpacing.md)
-        }
-        .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceOverlay)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .accessibilityLabel("\(ToolCallData.displaySafe(toolCall.friendlyName)). \(Self.statusLabel(for: toolCall)). Tap to open coding agent session.")
-    }
-
-    /// Short human-readable phase label used for both the secondary
-    /// text under the title and the accessibility announcement.
-    /// `static` so unit tests can exercise the mapping without
-    /// spinning up a SwiftUI view tree.
-    static func statusLabel(for toolCall: ToolCallData) -> String {
-        if toolCall.isError {
-            return "Failed"
-        }
-        if toolCall.isComplete {
-            return "Completed"
-        }
-        return "Running"
-    }
-
-    /// Drive the deep link by stashing the requested id on the shared
-    /// `ACPSessionStore` and asking `IOSRootNavigationView` to surface
-    /// the Coding Agents sheet via the same store-observation hook.
-    /// The store is resolved through ``ACPSpawnAppDelegateBridge``,
-    /// which the iOS app delegate populates on launch — that indirection
-    /// keeps `clients/shared/` free of any iOS-specific `AppDelegate`
-    /// import.
-    ///
-    /// `static` so unit tests can exercise the side effects against an
-    /// injected `ACPSessionStore` via
-    /// ``applyACPSessionDeepLink(id:store:)``.
-    static func openACPSession(id: String) {
-        applyACPSessionDeepLink(id: id, store: ACPSpawnAppDelegateBridge.sharedStore)
-    }
-
-    /// Pure side-effect helper for ``openACPSession(id:)``. Setting the
-    /// id triggers `IOSRootNavigationView`'s observer to flip
-    /// `isACPSessionsPresented = true`; the sheet's `ACPSessionsView`
-    /// then consumes the same field to push the matching detail view
-    /// onto its `NavigationStack`. A nil store is a no-op so callers
-    /// can pass through the bridge result without a guard of their own.
-    @MainActor
-    static func applyACPSessionDeepLink(
-        id: String,
-        store: ACPSessionStore?,
-        isCodingAgentsPanelEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
-    ) {
-        guard isCodingAgentsPanelEnabled, let store else { return }
-        store.selectedSessionId = id
-    }
-}
-
-/// Live status glyph for ``ACPSpawnDeepLinkCard``. Pulses while the
-/// underlying spawn is still running, flips to a positive check on
-/// success, a negative x on error, or a muted dash on cancellation.
-///
-/// Reads the matching ``ACPSessionViewModel`` off the supplied store —
-/// because `ACPSessionStore` is `@Observable`, simply touching
-/// `store.sessions[id]?.state.status` inside `body` enrolls this view
-/// in SwiftUI's per-property observation graph, so a daemon SSE update
-/// flips the glyph without a manual refresh. Mirrors the macOS
-/// ``ACPSpawnStatusDot`` in `AssistantProgressView.swift` so both
-/// platforms catch running → completed/failed transitions and the
-/// "history cleared while running" edge case.
-///
-/// When the store has no entry for the session id (early launch, test
-/// harness, missing bridge) the view falls through to the tool-call
-/// result via ``ACPSpawnStatusIndicator/resolve(forToolCall:)`` so a
-/// row that lands before the store is wired still renders sensibly.
-private struct ACPSpawnStatusIndicatorView: View {
-    let toolCall: ToolCallData
-    let acpSessionId: String
-    let store: ACPSessionStore?
-
-    var body: some View {
-        switch resolveIndicator() {
-        case .pulsing:
-            VBusyIndicator(size: 10)
-        case .icon(let glyph, let role):
-            VIconView(glyph.icon, size: 14)
-                .foregroundStyle(role.color)
-        }
-    }
-
-    /// Prefer the live store status — it picks up running → completed
-    /// and the cleared-history fallback baked into the shared resolver.
-    /// When the store has no entry at all (no `ACPSpawnAppDelegateBridge`
-    /// in tests / preview harnesses), fall back to the tool call so the
-    /// glyph still reflects whatever terminal state the spawn returned.
-    private func resolveIndicator() -> ACPSpawnStatusIndicator {
-        if let session = store?.sessions[acpSessionId] {
-            return ACPSpawnStatusIndicator.resolve(forStatus: session.state.status)
-        }
-        return ACPSpawnStatusIndicator.resolve(forToolCall: toolCall)
-    }
-}
-
-/// Indirection so the deep-link card can resolve the live
-/// `ACPSessionStore` without `ToolCallProgressBar.swift` (a `shared/`
-/// file) statically referencing the iOS `AppDelegate` class. The iOS
-/// app delegate populates this slot on launch; tests assign directly.
-@MainActor
-public enum ACPSpawnAppDelegateBridge {
-    /// Live `ACPSessionStore` for the running app. The slot is `weak`
-    /// so the bridge doesn't keep the store alive past its natural
-    /// lifetime — losing the reference during teardown surfaces as a
-    /// soft no-op tap rather than a leak.
-    public static weak var sharedStore: ACPSessionStore?
-}
-#endif

@@ -1379,8 +1379,7 @@ jobs:
   # and production, and `push-dockerhub-image` is prod-only (skipped in staging)
   # — a skipped dep would cascade-skip this job in staging. The Docker Hub
   # gate is applied downstream at the `release` job (GitHub Release), which
-  # is the sole publisher of the DMG produced here, and at `release-ios`
-  # for its sibling TestFlight publish.
+  # is the sole publisher of the DMG produced here.
   build-macos-arm64:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-26
@@ -2465,193 +2464,6 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
-  # iOS build — produces .ipa for TestFlight upload via release-ios.
-  # As with the macOS builds, `needs:` gates on GCR manifests only because
-  # this job runs in staging too; the Docker Hub gate lives on `release-ios`
-  # (prod-only), which is the sole external publisher of this .ipa.
-  #
-  # -------------------------------------------------------------------------
-  # PAUSED during the Capacitor iOS migration (LUM-1125).
-  # iOS releases are handled manually out of `vellum-assistant-platform`'s
-  # Capacitor shell while the replacement CI workflow is being designed.
-  # Both pipelines cannot upload to the same bundle ID
-  # (`ai.vocify-inc.vellum-assistant-ios`) simultaneously — App Store
-  # Connect rejects duplicate build numbers, so we skip this one.
-  #
-  # To re-enable either for a fallback native-iOS release, or if the
-  # Capacitor migration is abandoned: remove `if: false` from here and
-  # from `release-ios` below.
-  # -------------------------------------------------------------------------
-  build-ios:
-    if: false
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Cache Homebrew XcodeGen
-        id: cache-xcodegen-build
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /usr/local/Cellar/xcodegen
-            /opt/homebrew/Cellar/xcodegen
-          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install XcodeGen
-        if: steps.cache-xcodegen-build.outputs.cache-hit != 'true'
-        run: brew install xcodegen
-
-      - name: Link XcodeGen
-        if: steps.cache-xcodegen-build.outputs.cache-hit == 'true'
-        run: brew link xcodegen 2>/dev/null || true
-
-      - name: Clear stale SPM artifact cache
-        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
-
-      - name: Build for simulator
-        working-directory: clients/ios
-        run: ./build.sh
-
-      - name: Run iOS tests
-        working-directory: clients/ios
-        run: ./build.sh test
-
-  # PAUSED during the Capacitor iOS migration (LUM-1125) — see note on
-  # `build-ios` above. To re-enable, delete the `if: false` line and
-  # restore the original staging gate:
-  #   if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
-  release-ios:
-    if: false
-    needs: [extract-version, build-ios, push-dockerhub-image]
-    runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      KEYCHAIN_NAME: ios-build.keychain
-      KEYCHAIN_PASSWORD: temporary-ci-password
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Import code-signing certificate
-        env:
-          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
-          security import /tmp/ios-certificate.p12 \
-            -k "$KEYCHAIN_PATH" \
-            -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm /tmp/ios-certificate.p12
-
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-      - name: Verify signing identity
-        run: |
-          security find-identity -v -p codesigning | grep -q "Apple Distribution" \
-            || { echo "::error::Apple Distribution identity not found in keychain. Check the DIST_CERTIFICATE_P12 secret."; exit 1; }
-
-      - name: Install provisioning profile
-        env:
-          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-        run: |
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILE_DIR"
-          echo "$PROVISIONING_PROFILE" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
-          echo "Provisioning profile installed"
-
-      - name: Set version
-        id: version
-        run: |
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
-          else
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
-          fi
-          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
-          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
-
-      - name: Cache Homebrew XcodeGen
-        id: cache-xcodegen-release
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /usr/local/Cellar/xcodegen
-            /opt/homebrew/Cellar/xcodegen
-          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install XcodeGen
-        if: steps.cache-xcodegen-release.outputs.cache-hit != 'true'
-        run: brew install xcodegen
-
-      - name: Link XcodeGen
-        if: steps.cache-xcodegen-release.outputs.cache-hit == 'true'
-        run: brew link xcodegen 2>/dev/null || true
-
-      - name: Clear stale SPM artifact cache
-        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
-
-      - name: Build release .ipa
-        working-directory: clients/ios
-        run: |
-          DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
-          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
-          ./build.sh release
-
-      - name: Upload to TestFlight
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          mkdir -p ~/.private_keys
-          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
-
-          IPA_FILE=$(find clients/ios/dist/export -name "*.ipa" -maxdepth 1 | head -1)
-          echo "Uploading $IPA_FILE to TestFlight..."
-          xcrun altool --upload-app \
-            -f "$IPA_FILE" \
-            --type ios \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID"
-
-      - name: Upload .ipa artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ios-ipa
-          path: clients/ios/dist/export/*.ipa
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Cleanup keychain and keys
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-          rm -rf ~/.private_keys 2>/dev/null || true
-
   ci-playwright:
     name: Playwright Tests
     needs: [extract-version, build-macos-arm64]
@@ -2884,7 +2696,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2958,8 +2770,6 @@ jobs:
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
           DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
-          I=$(ci_icon "${{ needs.build-ios.result }}")
-          RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
@@ -2983,7 +2793,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -2992,7 +2802,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi

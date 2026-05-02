@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 // MARK: - CodeBlockView
 
@@ -49,12 +45,8 @@ private struct CodeBlockView: View {
     }
 
     private func copyCode() {
-        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(code, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = code
-        #endif
         showCopied = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)

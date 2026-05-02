@@ -1,12 +1,6 @@
 import Foundation
 import os
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel+SurfaceHandling")
 
@@ -317,9 +311,7 @@ extension ChatViewModel {
             log.warning("Clip file not found at path, skipping auto-open")
             return
         }
-        #if os(macOS)
         NSWorkspace.shared.open(URL(fileURLWithPath: clipPath))
-        #endif
     }
 
     // MARK: - Surface Event Handlers
@@ -340,7 +332,6 @@ extension ChatViewModel {
         // are routed to the workspace by SurfaceManager. If the dynamic page
         // has a preview, also render a compact preview card inline in chat.
         // On iOS there is no workspace, so dynamic pages always render inline.
-        #if os(macOS)
         if case .dynamicPage(let dpData) = surface.data, msg.display == nil || msg.display == "panel" {
             isThinking = false
             // Only render inline preview if the dynamic page has preview metadata
@@ -354,7 +345,6 @@ extension ChatViewModel {
             // avoid showing duplicates (one inline, one in a panel window).
             return false
         }
-        #endif
 
         isThinking = false
         var inlineSurface = InlineSurfaceData(
@@ -435,14 +425,12 @@ extension ChatViewModel {
                     newSurface.completionState = existing.completionState
                     messages[msgIndex].inlineSurfaces[surfaceIndex] = newSurface
                     // Update floating overlay for task_progress cards (macOS only)
-                    #if os(macOS)
                     if case .card(let cardData) = updated.data,
                        cardData.template == "task_progress",
                        let templateData = cardData.templateData,
                        let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
                         TaskProgressOverlayManager.shared.update(data: progressData, surfaceId: msg.surfaceId)
                     }
-                    #endif
                 }
                 return
             }
@@ -465,9 +453,7 @@ extension ChatViewModel {
     func handleSurfaceComplete(_ msg: UiSurfaceCompleteMessage) {
         guard belongsToConversation(msg.conversationId) else { return }
         // Dismiss floating overlay for task_progress cards (macOS only)
-        #if os(macOS)
         TaskProgressOverlayManager.shared.dismiss(surfaceId: msg.surfaceId)
-        #endif
         // Find the inline surface across all messages and set its completionState
         for msgIndex in messages.indices {
             if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {

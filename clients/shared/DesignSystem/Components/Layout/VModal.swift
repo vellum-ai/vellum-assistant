@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#else
-import UIKit
-#endif
 
 /// Standardized modal container providing consistent chrome: title, optional
 /// subtitle, scrollable content area, and an optional footer.
@@ -47,14 +43,7 @@ public struct VModal<Content: View, Footer: View, TitleAccessory: View>: View {
     }
 
     private var screenMaxHeight: CGFloat {
-        #if os(macOS)
         let screenHeight = NSScreen.main?.visibleFrame.height ?? 800
-        #else
-        let screenHeight = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?
-            .screen.bounds.height ?? 800
-        #endif
         return screenHeight * maxHeightRatio
     }
 
