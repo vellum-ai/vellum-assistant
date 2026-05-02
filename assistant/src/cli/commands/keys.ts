@@ -102,10 +102,12 @@ Examples:
         process.exit(1);
       }
 
-      if (await setSecureKeyViaDaemon("api_key", provider, key)) {
+      const setResult = await setSecureKeyViaDaemon("api_key", provider, key);
+      if (setResult.ok) {
         log.info(`Stored API key for "${provider}"`);
       } else {
-        log.error(`Failed to store API key for "${provider}"`);
+        const detail = setResult.error ? `: ${setResult.error}` : "";
+        log.error(`Failed to store API key for "${provider}"${detail}`);
         process.exit(1);
       }
     });
@@ -133,11 +135,12 @@ Examples:
         process.exit(1);
       }
 
-      const result = await deleteSecureKeyViaDaemon("api_key", provider);
-      if (result === "deleted") {
+      const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
+      if (delResult.result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
-      } else if (result === "error") {
-        log.error(`Failed to delete API key for "${provider}": storage error`);
+      } else if (delResult.result === "error") {
+        const detail = delResult.error ? `: ${delResult.error}` : "";
+        log.error(`Failed to delete API key for "${provider}"${detail}`);
         process.exit(1);
       } else {
         log.error(`No API key found for "${provider}"`);

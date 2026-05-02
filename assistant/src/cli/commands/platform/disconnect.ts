@@ -95,17 +95,18 @@ Examples:
 
         const failedKeys: string[] = [];
         for (const key of keysToDelete) {
-          const result = await deleteSecureKeyViaDaemon(
+          const delResult = await deleteSecureKeyViaDaemon(
             "credential",
             `${key.service}:${key.field}`,
           );
-          if (result === "error") {
-            failedKeys.push(`${key.service}:${key.field}`);
+          if (delResult.result === "error") {
+            const detail = delResult.error ? `: ${delResult.error}` : "";
+            failedKeys.push(`${key.service}:${key.field}${detail}`);
           }
         }
 
         if (failedKeys.length > 0) {
-          writeError(`Failed to delete credentials: ${failedKeys.join(", ")}`);
+          writeError(`Failed to delete credentials: ${failedKeys.join("; ")}`);
           return;
         }
 

@@ -57,24 +57,17 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../cli/lib/daemon-credential-client.js", () => ({
-  setSecureKeyViaDaemon: async (
-    type: string,
-    name: string,
-    value: string,
-  ): Promise<boolean> => {
+  setSecureKeyViaDaemon: async (type: string, name: string, value: string) => {
     secureKeyStore.set(normalizeCredentialAccount(type, name), value);
-    return true;
+    return { ok: true };
   },
-  deleteSecureKeyViaDaemon: async (
-    type: string,
-    name: string,
-  ): Promise<"deleted" | "not-found" | "error"> => {
+  deleteSecureKeyViaDaemon: async (type: string, name: string) => {
     const key = normalizeCredentialAccount(type, name);
     if (secureKeyStore.has(key)) {
       secureKeyStore.delete(key);
-      return "deleted";
+      return { result: "deleted" as const };
     }
-    return "not-found";
+    return { result: "not-found" as const };
   },
 }));
 
