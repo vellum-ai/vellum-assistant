@@ -145,9 +145,15 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
-            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode"),
-               let mode = HostingMode(rawValue: rawHosting) {
-                selectedHostingMode = mode
+            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode") {
+                if let mode = HostingMode(rawValue: rawHosting) {
+                    selectedHostingMode = mode
+                } else {
+                    // Persisted value does not match any known mode; discard
+                    // it so the initial default applies and a stale string is
+                    // not re-saved.
+                    UserDefaults.standard.removeObject(forKey: "onboarding.selectedHostingMode")
+                }
             }
         }
         // Clamp restored step to the valid range.
