@@ -1,5 +1,5 @@
 /**
- * `vellum backup` — manage automated backups, on-demand snapshots, restore, and verify.
+ * `vellum backup` — manage automated backup configuration and list snapshots.
  *
  * All subcommands run in-process (they do not call the daemon HTTP port).
  * Config mutations go through `loadRawConfig` / `setNestedValue` / `saveRawConfig`
@@ -12,31 +12,22 @@ import { dirname } from "node:path";
 
 import type { Command } from "commander";
 
-import { readBackupKey } from "../../backup/backup-key.js";
-import { createSnapshotNow } from "../../backup/backup-worker.js";
 import {
   listSnapshotsInDir,
   type SnapshotEntry,
 } from "../../backup/list-snapshots.js";
 import {
-  getBackupKeyPath,
   getLocalBackupsDir,
   resolveOffsiteDestinations,
 } from "../../backup/paths.js";
-import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
 import {
   getConfig,
-  invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
-import { isDaemonRunning } from "../../daemon/daemon-control.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
-import { resetDb } from "../../memory/db-connection.js";
-import { DefaultPathResolver } from "../../runtime/migrations/vbundle-import-analyzer.js";
-import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +78,7 @@ function formatDurationShort(ms: number): string {
 
 /**
  * Check whether an offsite destination's parent directory exists. Mirrors the
- * reachability check in `offsite-writer.ts` — if the parent is missing (e.g.
+ * reachability check in the backup worker — if the parent is missing (e.g.
  * iCloud Drive not enabled, external SSD unplugged) the destination is
  * considered unreachable and we skip it at runtime.
  */
@@ -405,242 +396,9 @@ export async function handleList(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// create
 // ---------------------------------------------------------------------------
 
-export async function handleCreate(): Promise<void> {
-  const cfg = getConfig().backup;
-  try {
-    const result = await createSnapshotNow(cfg, new Date());
-    log.info(`Created snapshot: ${result.local.path}`);
-    log.info(`  size: ${formatBytes(result.local.sizeBytes)}`);
-    log.info(`  duration: ${result.durationMs}ms`);
-    if (result.offsite.length === 0) {
-      log.info(`  offsite: (none)`);
-    } else {
-      log.info(`  offsite:`);
-      for (const r of result.offsite) {
-        if (r.entry) {
-          log.info(
-            `    ok       ${r.destination.path}  -> ${r.entry.filename}`,
-          );
-        } else if (r.skipped) {
-          log.info(`    skipped  ${r.destination.path}  (${r.skipped})`);
-        } else {
-          log.info(
-            `    error    ${r.destination.path}  (${r.error ?? "unknown"})`,
-          );
-        }
-      }
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.toLowerCase().includes("snapshot in progress")) {
-      log.error(
-        "Another snapshot is already running. Wait for it to finish, then retry.",
-      );
-    } else {
-      log.error(`Snapshot failed: ${message}`);
-    }
-    process.exitCode = 1;
-  }
-}
 
-// ---------------------------------------------------------------------------
-// restore / verify helpers
-// ---------------------------------------------------------------------------
-
-/** True when a snapshot path ends in `.vbundle.enc`. */
-function isEncryptedPath(path: string): boolean {
-  return path.endsWith(".vbundle.enc");
-}
-
-/**
- * Load the backup key when the snapshot is encrypted. Throws a user-facing
- * error when the key file is missing or corrupt.
- */
-async function loadKeyForEncryptedSnapshot(
-  snapshotPath: string,
-): Promise<Buffer | undefined> {
-  if (!isEncryptedPath(snapshotPath)) return undefined;
-  const keyPath = getBackupKeyPath();
-  const key = await readBackupKey(keyPath);
-  if (!key) {
-    throw new Error(
-      `Encrypted snapshot requires backup key at ${keyPath}, but none was found. ` +
-        `The key is generated the first time automatic backup runs against an encrypted ` +
-        `destination.`,
-    );
-  }
-  return key;
-}
-
-/**
- * Prompt for y/N confirmation. Defaults to `false` on empty input, EOF, or
- * anything other than `y` / `yes` (case-insensitive).
- */
-async function promptConfirm(question: string): Promise<boolean> {
-  const readline = await import("node:readline");
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  const answer = await new Promise<string>((resolve) => {
-    rl.question(question, resolve);
-  });
-  rl.close();
-  const normalized = answer.trim().toLowerCase();
-  return normalized === "y" || normalized === "yes";
-}
-
-// ---------------------------------------------------------------------------
-// restore
-// ---------------------------------------------------------------------------
-
-export interface RestoreOptions {
-  path?: string;
-  latest?: boolean;
-  yes?: boolean;
-  force?: boolean;
-}
-
-export async function handleRestore(opts: RestoreOptions): Promise<void> {
-  if (!opts.path && !opts.latest) {
-    log.error(
-      "Must specify --path <snapshot> or --latest. " +
-        "Run 'vellum backup list' to see available snapshots.",
-    );
-    process.exitCode = 1;
-    return;
-  }
-  if (opts.path && opts.latest) {
-    log.error("Cannot combine --path and --latest. Drop one.");
-    process.exitCode = 1;
-    return;
-  }
-
-  // Safety gate: a restore while the assistant is running is dangerous.
-  // The assistant holds an open SQLite handle (referencing the old inode on
-  // Unix), a cached config, and cached trust rules. Overwriting the files
-  // under a running process corrupts state. Refuse unless `--force` says the
-  // caller knows what they're doing.
-  if (!opts.force && isDaemonRunning()) {
-    log.error(
-      "Assistant is running — stop it first with 'vellum sleep' before restoring " +
-        "(safe restore requires an idle assistant). Pass --force to override.",
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  let snapshotPath: string;
-  if (opts.path) {
-    snapshotPath = opts.path;
-  } else {
-    // `--latest` is explicitly scoped to local snapshots — offsite files may
-    // not exist after a machine swap (per the plan), so we keep the selection
-    // rule predictable.
-    const cfg = getConfig().backup;
-    const localDir = getLocalBackupsDir(cfg.localDirectory);
-    const entries = await listSnapshotsInDir(localDir);
-    if (entries.length === 0) {
-      log.error(
-        `No local snapshots found in ${localDir}. ` +
-          `Run 'vellum backup create' to make one, or pass --path with an explicit file.`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-    snapshotPath = entries[0]!.path;
-  }
-
-  if (!opts.yes) {
-    const confirmed = await promptConfirm(
-      `Restore from ${snapshotPath}? This will overwrite workspace files. (y/N) `,
-    );
-    if (!confirmed) {
-      log.info("Restore cancelled");
-      return;
-    }
-  }
-
-  let key: Buffer | undefined;
-  try {
-    key = await loadKeyForEncryptedSnapshot(snapshotPath);
-  } catch (err) {
-    log.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-    return;
-  }
-
-  try {
-    const workspaceDir = getWorkspaceDir();
-    const hooksDir = getWorkspaceHooksDir();
-    const pathResolver = new DefaultPathResolver(workspaceDir, hooksDir);
-
-    // Close the SQLite singleton before the bundle is written. If the
-    // assistant process was running in-process (tests, `--force`) the
-    // singleton may still reference the old file; resetting closes the
-    // handle so the restored DB file is picked up cleanly on the next
-    // getDb() call.
-    resetDb();
-
-    const result = await restoreFromSnapshot(snapshotPath, {
-      key,
-      pathResolver,
-      workspaceDir,
-    });
-
-    // Invalidate the in-process config cache so the restored settings.json
-    // takes effect without requiring a daemon restart.
-    invalidateConfigCache();
-
-    log.info(`Restored from ${snapshotPath}`);
-    log.info(`  bundle_id: ${result.manifest.bundle_id}`);
-    log.info(`  schema_version: ${result.manifest.schema_version}`);
-    log.info(`  files restored: ${result.restoredFiles}`);
-  } catch (err) {
-    log.error(
-      `Restore failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exitCode = 1;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// verify
-// ---------------------------------------------------------------------------
-
-export async function handleVerify(path: string): Promise<void> {
-  let key: Buffer | undefined;
-  try {
-    key = await loadKeyForEncryptedSnapshot(path);
-  } catch (err) {
-    log.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-    return;
-  }
-
-  try {
-    const result = await verifySnapshot(path, { key });
-    if (result.valid) {
-      log.info(`OK: ${path}`);
-      if (result.manifest) {
-        log.info(`  schema_version: ${result.manifest.schema_version}`);
-        log.info(`  bundle_id: ${result.manifest.bundle_id}`);
-      }
-    } else {
-      log.error(`Invalid: ${path}`);
-      if (result.error) log.error(`  ${result.error}`);
-      process.exitCode = 1;
-    }
-  } catch (err) {
-    log.error(
-      `Verify failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exitCode = 1;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Command wiring
@@ -650,7 +408,7 @@ export function registerBackupCommand(program: Command): void {
   const backup = program
     .command("backup")
     .description(
-      "Manage automated backups, on-demand snapshots, restore, and verify",
+      "Manage automated backup configuration and list snapshots",
     );
 
   backup.addHelpText(
@@ -659,7 +417,7 @@ export function registerBackupCommand(program: Command): void {
 Backups capture a snapshot of the assistant workspace (config, conversations,
 trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
 NOT included — they live in the OS keychain / CES and users re-authenticate
-integrations after a restore. The automated worker runs on a configurable
+integrations after a restore (via the gateway). The automated worker runs on a configurable
 interval and writes to a local pool under ~/.vellum/backups/local/, optionally
 mirroring each snapshot to one or more offsite destinations (iCloud Drive by
 default).
@@ -672,10 +430,7 @@ Examples:
   $ vellum backup enable --interval 6 --retention 3
   $ vellum backup destinations add /Volumes/BackupSSD/vellum --plaintext
   $ vellum backup status
-  $ vellum backup list
-  $ vellum backup create
-  $ vellum backup restore --latest --yes
-  $ vellum backup verify ~/.vellum/backups/local/backup-20260411-093000.vbundle`,
+  $ vellum backup list`,
   );
 
   backup
@@ -841,7 +596,7 @@ Examples:
     });
 
   // ---------------------------------------------------------------------------
-  // status / list / create / restore / verify
+  // status / list
   // ---------------------------------------------------------------------------
 
   backup
@@ -880,84 +635,4 @@ Examples:
       await handleList();
     });
 
-  backup
-    .command("create")
-    .description("Create a backup snapshot immediately (ignores interval)")
-    .addHelpText(
-      "after",
-      `
-Triggers an on-demand snapshot. Bypasses the interval gate so it will run even
-if the automated worker just ran, but still honours the concurrency mutex --
-a second concurrent caller errors with "snapshot in progress". Does NOT update
-the last-run checkpoint (manual snapshots should not reset the cadence).
-
-Examples:
-  $ vellum backup create`,
-    )
-    .action(async () => {
-      await handleCreate();
-    });
-
-  backup
-    .command("restore")
-    .description("Restore a backup snapshot into the workspace")
-    .option(
-      "--path <path>",
-      "Absolute path to the .vbundle or .vbundle.enc file to restore",
-    )
-    .option(
-      "--latest",
-      "Restore the newest local snapshot (offsite files are not considered)",
-    )
-    .option("--yes", "Skip the confirmation prompt")
-    .option(
-      "--force",
-      "Restore even when the assistant is running (unsafe — only use if you know what you're doing)",
-    )
-    .addHelpText(
-      "after",
-      `
-Restores a snapshot by writing its contents back into the workspace.
-Encryption is auto-detected from the file extension; encrypted snapshots
-(.vbundle.enc) require the backup key at ~/.vellum/workspace/.backup.key.
-
-Prompts for confirmation unless --yes is passed.
-
---latest selects the newest local snapshot only. Offsite files may not exist
-on a new machine after a workspace migration, so --latest refuses to dig into
-them on purpose.
-
-Safety: refuses to run while the assistant is running, because the live
-SQLite handle and cached config/trust rules can corrupt the restored state.
-Stop the assistant first with 'vellum sleep'. Pass --force to override (only
-use this if you understand the risk).
-
-Examples:
-  $ vellum backup restore --latest --yes
-  $ vellum backup restore --path ~/.vellum/backups/local/backup-20260411-093000.vbundle`,
-    )
-    .action(async (opts: RestoreOptions) => {
-      await handleRestore(opts);
-    });
-
-  backup
-    .command("verify <path>")
-    .description("Verify a backup snapshot without restoring it")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  path   Absolute path to a .vbundle or .vbundle.enc snapshot file.
-
-Runs the same validation the importer would run but never touches the
-workspace. Encryption is auto-detected from the file extension; encrypted
-snapshots require the backup key at ~/.vellum/workspace/.backup.key.
-
-Examples:
-  $ vellum backup verify ~/.vellum/backups/local/backup-20260411-093000.vbundle
-  $ vellum backup verify /Volumes/BackupSSD/vellum/backup-20260411-093000.vbundle.enc`,
-    )
-    .action(async (path: string) => {
-      await handleVerify(path);
-    });
 }

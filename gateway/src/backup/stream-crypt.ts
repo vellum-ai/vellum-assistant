@@ -211,7 +211,6 @@ export async function verifyEncryptedFile(
   const totalSize = info.size;
   const minSize = ENCRYPTED_HEADER_SIZE + GCM_TAG_SIZE;
   if (totalSize < minSize) {
-    // Too short to contain an IV + tag — not a valid bundle.
     return false;
   }
 
@@ -235,7 +234,6 @@ export async function verifyEncryptedFile(
     ? createReadStream(path, { start: ciphertextStart, end: ciphertextEnd })
     : Readable.from([]);
 
-  // Discard-only sink — verification never touches scratch disk.
   const nullSink = new Writable({
     write(_chunk, _encoding, cb) {
       cb();
@@ -253,9 +251,6 @@ export async function verifyEncryptedFile(
   }
 }
 
-// Node errno exceptions surface as uppercase `E`-prefixed codes (ENOENT,
-// EACCES, ENOSPC, EIO, EROFS, …). Crypto errors use `ERR_*` codes or no code
-// at all, so the regex rules them out.
 function isFilesystemError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const code = (err as { code?: unknown }).code;

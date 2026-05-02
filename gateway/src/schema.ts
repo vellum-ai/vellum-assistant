@@ -3992,6 +3992,106 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/backups": {
+        get: {
+          summary: "List backup snapshots",
+          description:
+            "Lists local and offsite backup snapshots. The gateway owns the backup encryption key and performs all encrypt/decrypt operations.",
+          operationId: "backupsList",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Backup snapshots listed",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["local", "offsite"],
+                    properties: {
+                      local: {
+                        type: "object",
+                        required: ["directory", "snapshots"],
+                        properties: {
+                          directory: { type: "string" },
+                          snapshots: {
+                            type: "array",
+                            items: {
+                              $ref: "#/components/schemas/BackupSnapshot",
+                            },
+                          },
+                        },
+                      },
+                      offsite: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["directory", "encrypted", "snapshots"],
+                          properties: {
+                            directory: { type: "string" },
+                            encrypted: { type: "boolean" },
+                            snapshots: {
+                              type: "array",
+                              items: {
+                                $ref: "#/components/schemas/BackupSnapshot",
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/backups/create": {
+        post: {
+          summary: "Create backup snapshot",
+          description:
+            "Triggers a manual backup snapshot. The gateway exports a plaintext vbundle from the daemon, writes it locally, and encrypts + mirrors to offsite destinations.",
+          operationId: "backupsCreate",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Backup snapshot created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["success", "local", "offsite", "duration_ms"],
+                    properties: {
+                      success: { type: "boolean" },
+                      local: {
+                        $ref: "#/components/schemas/BackupSnapshot",
+                      },
+                      offsite: {
+                        type: "array",
+                        items: { type: "object", additionalProperties: true },
+                      },
+                      duration_ms: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "409": {
+              description: "A backup snapshot is already in progress",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",
@@ -4111,6 +4211,17 @@ export function buildSchema(): Record<string, unknown> {
     },
     components: {
       schemas: {
+        BackupSnapshot: {
+          type: "object",
+          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          properties: {
+            path: { type: "string" },
+            filename: { type: "string" },
+            created_at: { type: "string", format: "date-time" },
+            size_bytes: { type: "integer" },
+            encrypted: { type: "boolean" },
+          },
+        },
         HealthResponse: {
           type: "object",
           required: ["status"],
