@@ -168,6 +168,7 @@ import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import { createVelayTunnelClient } from "./velay/client.js";
+import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
 const log = getLogger("main");
 
@@ -1283,6 +1284,12 @@ async function main() {
     authRateLimiter,
   });
 
+  /** Stamp the assistant version header on a response. */
+  function stampVersion<T extends Response>(res: T): T {
+    res.headers.set(VERSION_HEADER_NAME, VERSION_HEADER_VALUE);
+    return res;
+  }
+
   const server = Bun.serve({
     port: config.port,
     idleTimeout: 0,
@@ -1350,19 +1357,37 @@ async function main() {
     },
     error(err) {
       if (err instanceof CircuitBreakerOpenError) {
-        return Response.json(
-          { error: "Service temporarily unavailable — runtime is unreachable" },
-          {
-            status: 503,
-            headers: { "Retry-After": String(err.retryAfterSecs) },
-          },
+        return stampVersion(
+          Response.json(
+            {
+              error:
+                "Service temporarily unavailable — runtime is unreachable",
+            },
+            {
+              status: 503,
+              headers: { "Retry-After": String(err.retryAfterSecs) },
+            },
+          ),
         );
       }
       log.error({ err }, "Unhandled gateway error");
-      return Response.json({ error: "Internal server error" }, { status: 500 });
+      return stampVersion(
+        Response.json({ error: "Internal server error" }, { status: 500 }),
+      );
     },
     async fetch(req, svr) {
       svr.timeout(req, 1800);
+      const inner = await routeRequest(req, svr);
+      if (inner) stampVersion(inner);
+      return inner;
+    },
+  });
+
+  /** Core request routing — extracted so `fetch` can stamp headers on every response. */
+  async function routeRequest(
+    req: Request,
+    svr: ReturnType<typeof Bun.serve>,
+  ): Promise<Response | undefined> {
       const url = new URL(req.url);
 
       // ── CORS: webview preflight & origin tracking ──
@@ -1543,8 +1568,7 @@ async function main() {
       );
       if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
       return notFound;
-    },
-  });
+  }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
   logAuthBypassState();
