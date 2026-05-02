@@ -1517,6 +1517,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                    let index = self?.messages.firstIndex(where: { $0.id == existingId }) {
                     self?.messages[index].isStreaming = false
                 }
+                self?.idleFallbackTask?.cancel()
+                self?.idleFallbackTask = nil
                 self?.currentAssistantMessageId = nil
                 self?.discardStreamingBuffer()
                 self?.discardPartialOutputBuffer()
@@ -2285,6 +2287,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         discardStreamingBuffer()
         discardPartialOutputBuffer()
         surfaceRefetchCoordinator.cancelRefetchTasks()
+        idleFallbackTask?.cancel()
+        idleFallbackTask = nil
         currentAssistantMessageId = nil
         currentAssistantHasText = false
 
@@ -2432,6 +2436,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if isThinking || isSending || currentAssistantMessageId != nil {
             isThinking = false
             isSending = false
+            idleFallbackTask?.cancel()
+            idleFallbackTask = nil
             currentAssistantMessageId = nil
             discardStreamingBuffer()
             discardPartialOutputBuffer()
