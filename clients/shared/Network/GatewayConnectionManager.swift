@@ -92,7 +92,7 @@ public final class GatewayConnectionManager {
         #if os(macOS)
         return cachedAssistant?.isManaged ?? false
         #else
-        return false
+        return (try? GatewayHTTPClient.isConnectionManaged()) ?? false
         #endif
     }
 
@@ -359,7 +359,7 @@ public final class GatewayConnectionManager {
     private func performHealthCheck() async throws {
         let healthPath = "health"
         let useUnprefixedHealthPath = HealthCheckClient.usesUnprefixedGatewayHealth(
-            forManagedConnection: isManagedConnectionForHealthCheck()
+            forManagedConnection: isManaged
         )
 
         // Run the HTTP GET + JSON decode off the main actor. `GatewayHTTPClient`
@@ -448,14 +448,6 @@ public final class GatewayConnectionManager {
             log.info("Health check passed")
         }
         setConnected(true)
-    }
-
-    private func isManagedConnectionForHealthCheck() -> Bool {
-        #if os(macOS)
-        return cachedAssistant?.isManaged ?? false
-        #else
-        return (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-        #endif
     }
 
     /// Reconciles `isAuthFailed` against the tracker's current state and logs
@@ -692,12 +684,7 @@ public final class GatewayConnectionManager {
     // MARK: - 401 Recovery
 
     private func handleAuthenticationFailure() {
-        #if os(macOS)
-        let managedConnection = cachedAssistant?.isManaged ?? false
-        #else
-        let managedConnection = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-        #endif
-        if managedConnection {
+        if isManaged {
             log.warning("401 in managed mode — session token may be expired")
             eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                 conversationId: "",
@@ -875,7 +862,7 @@ public final class GatewayConnectionManager {
     // MARK: - Background Reconnection Loop
 
     /// Retries connection with increasing delays after the initial `connect()` fails.
-    /// Applies to local and managed assistants on macOS. Uses health checks and auto-wake
+    /// Applies to local assistants and managed assistants. Uses health checks and auto-wake
     /// (local only) to reconnect without calling `connectImpl()` (which would interfere via
     /// `disconnectInternal()`). Cancelled on explicit `disconnect()` or `reconfigure()`.
     private func startReconnectionLoop() {
