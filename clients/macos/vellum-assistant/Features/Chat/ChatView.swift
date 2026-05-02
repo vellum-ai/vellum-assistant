@@ -104,8 +104,6 @@ struct ChatView: View {
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
-    @State private var searchText = ""
-    @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
     @State private var diskPressureDismissalRefreshToken = 0
@@ -117,13 +115,6 @@ struct ChatView: View {
 
     private var shouldShowSkeleton: Bool {
         viewModel.isPaginatedEmpty && !viewModel.isHistoryLoaded
-    }
-
-    /// Message IDs whose text contains the search query, ordered chronologically.
-    private var searchMatches: [UUID] {
-        guard isSearchActive, !searchText.isEmpty else { return [] }
-        let query = searchText.lowercased()
-        return viewModel.messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
 
     private var currentConversation: ConversationModel? {
@@ -185,32 +176,13 @@ struct ChatView: View {
             return .handled
         }
         .overlay(alignment: .topTrailing) {
-            if isSearchActive {
-                ChatSearchBar(
-                    searchText: $searchText,
-                    matchCount: searchMatches.count,
-                    currentMatchIndex: currentMatchIndex,
-                    onPrevious: { navigateMatch(delta: -1) },
-                    onNext: { navigateMatch(delta: 1) },
-                    onDismiss: { dismissSearch() }
-                )
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.sm)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .layoutHangSignpost("chat.searchBar")
-            }
+            ChatSearchOverlay(
+                viewModel: viewModel,
+                isSearchActive: $isSearchActive,
+                anchorMessageId: $anchorMessageId
+            )
         }
         .animation(VAnimation.fast, value: isSearchActive)
-        .onChange(of: searchText) {
-            currentMatchIndex = 0
-            scrollToCurrentMatch()
-        }
-        .onChange(of: searchMatches.count) {
-            let count = searchMatches.count
-            if currentMatchIndex >= count {
-                currentMatchIndex = max(count - 1, 0)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
             if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
@@ -740,21 +712,6 @@ struct ChatView: View {
 
     private func dismissSearch() {
         isSearchActive = false
-        searchText = ""
-        currentMatchIndex = 0
-    }
-
-    private func navigateMatch(delta: Int) {
-        let matches = searchMatches
-        guard !matches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex + delta + matches.count) % matches.count
-        scrollToCurrentMatch()
-    }
-
-    private func scrollToCurrentMatch() {
-        let matches = searchMatches
-        guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
-        anchorMessageId = matches[currentMatchIndex]
     }
 }
 
