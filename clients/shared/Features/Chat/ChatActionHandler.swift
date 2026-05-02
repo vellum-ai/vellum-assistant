@@ -1495,6 +1495,29 @@ final class ChatActionHandler {
             vm.isThinking = false
         case "idle":
             vm.isThinking = false
+            vm.isCompacting = false
+            vm.isCancelling = false
+            // Flush buffered text before clearing the message reference.
+            vm.flushStreamingBuffer()
+            vm.flushPartialOutputBuffer()
+            // Mark the current assistant message as no longer streaming and
+            // complete any in-flight tool calls so progress indicators clear.
+            if let assistantId = vm.currentAssistantMessageId,
+               let idx = vm.messages.firstIndex(where: { $0.id == assistantId }) {
+                vm.messages[idx].isStreaming = false
+                vm.messages[idx].streamingCodePreview = nil
+                vm.messages[idx].streamingCodeToolName = nil
+                for j in vm.messages[idx].toolCalls.indices where !vm.messages[idx].toolCalls[j].isComplete {
+                    vm.messages[idx].toolCalls[j].isComplete = true
+                    vm.messages[idx].toolCalls[j].completedAt = Date()
+                }
+            }
+            vm.currentAssistantMessageId = nil
+            vm.currentTurnUserText = nil
+            vm.currentAssistantHasText = false
+            if vm.pendingQueuedCount == 0 {
+                vm.isSending = false
+            }
         case "awaiting_confirmation":
             vm.isThinking = false
             vm.isSending = false

@@ -184,6 +184,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Watchdog task that fires when `isThinking` has been `true` for more than
+    /// 90 seconds without being reset.  The "thinking" activity phase disables
+    /// the `isSending` watchdog, so this provides equivalent auto-recovery when
+    /// both `assistantActivityState(idle)` and `messageComplete` are lost.
+    @ObservationIgnored private var thinkingWatchdogTask: Task<Void, Never>?
+
     /// Per-requestId safety-net timeouts that clear the submitting spinner if
     /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
     /// by requestId so concurrent submissions each get an independent timeout.
@@ -219,7 +225,49 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
     public var isThinking: Bool {
         get { messageManager.isThinking }
-        set { messageManager.isThinking = newValue }
+        set {
+            messageManager.isThinking = newValue
+            if newValue {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(90))
+                    guard !Task.isCancelled, let self, self.isThinking else { return }
+                    log.error("isThinking watchdog: still true after 90s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    self.messageManager.isThinking = false
+                    self.isCancelling = false
+                    self.isCompacting = false
+                    self.assistantActivityPhase = "idle"
+                    self.assistantActivityAnchor = "global"
+                    self.assistantActivityReason = nil
+                    self.assistantStatusText = nil
+                    let assistantId = self.currentAssistantMessageId
+                    self.messageManager.batchUpdateMessages { msgs in
+                        if let existingId = assistantId,
+                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                            msgs[index].isStreaming = false
+                            msgs[index].streamingCodePreview = nil
+                            msgs[index].streamingCodeToolName = nil
+                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                                msgs[index].toolCalls[j].isComplete = true
+                                msgs[index].toolCalls[j].completedAt = Date()
+                            }
+                        }
+                    }
+                    self.currentAssistantMessageId = nil
+                    self.currentTurnUserText = nil
+                    self.currentAssistantHasText = false
+                    self.discardStreamingBuffer()
+                    self.discardPartialOutputBuffer()
+                    self.messageManager.isSending = false
+                    self.sendingWatchdogTask?.cancel()
+                    self.sendingWatchdogTask = nil
+                    self.thinkingWatchdogTask = nil
+                }
+            } else {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = nil
+            }
+        }
     }
     /// Whether the assistant is actively working on a response — covers sending,
     /// extended-thinking, any in-progress assistant message, and orphaned tool
@@ -2449,6 +2497,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        thinkingWatchdogTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         if let token = memoryPressureListener {
             MemoryPressureMonitor.shared.removeListener(token)
