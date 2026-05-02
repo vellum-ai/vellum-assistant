@@ -71,6 +71,13 @@ public final class ChatPaginationState {
     /// Updated when either the message list or `displayedMessageCount` changes.
     public private(set) var paginatedVisibleMessages: [ChatMessage] = []
 
+    /// Whether the paginated visible messages array is empty. Maintained as a
+    /// separate stored property so views that only need emptiness (e.g. skeleton
+    /// and empty-state routing in ChatView) can observe this O(1) boolean
+    /// without tracking the full array — preventing unnecessary view
+    /// invalidation on every message mutation during streaming.
+    public private(set) var isPaginatedEmpty: Bool = true
+
     // MARK: - Daemon History Pagination
 
     /// Timestamp of the oldest loaded message (ms since epoch). Used as the
@@ -173,6 +180,10 @@ public final class ChatPaginationState {
     /// `windowOldestIndex` (or the newest slice when that is `nil`); all
     /// other cases fall back to a grow-only suffix.
     func recomputePaginatedSuffix() {
+        defer {
+            let newEmpty = paginatedVisibleMessages.isEmpty
+            if newEmpty != isPaginatedEmpty { isPaginatedEmpty = newEmpty }
+        }
         let visible = displayedMessages
         if isShowAllMode {
             let cap = Self.maxPaginatedWindowSize

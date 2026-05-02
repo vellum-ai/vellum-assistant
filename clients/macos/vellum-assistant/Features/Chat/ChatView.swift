@@ -112,11 +112,11 @@ struct ChatView: View {
     @State private var diskPressureDismissalRefreshTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
-        viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
+        viewModel.isPaginatedEmpty && viewModel.isHistoryLoaded
     }
 
     private var shouldShowSkeleton: Bool {
-        viewModel.paginatedVisibleMessages.isEmpty && !viewModel.isHistoryLoaded
+        viewModel.isPaginatedEmpty && !viewModel.isHistoryLoaded
     }
 
     /// Message IDs whose text contains the search query, ordered chronologically.
