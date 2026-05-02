@@ -73,12 +73,42 @@ PATTERN='\.frame\(\s*(max|min|ideal)(Width|Height)\s*:'
 
 cd "$REPO_ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required but not found in PATH." >&2
-  echo "  macOS: brew install ripgrep" >&2
-  echo "  Ubuntu: apt-get install ripgrep" >&2
+if ! command -v rg >/dev/null 2>&1 && ! command -v perl >/dev/null 2>&1; then
+  echo "ERROR: flexframe lint requires either ripgrep (rg) or perl in PATH." >&2
   exit 2
 fi
+
+collect_raw_hits() {
+  if command -v rg >/dev/null 2>&1; then
+    rg -U --multiline-dotall -n --no-heading "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null
+    return
+  fi
+
+  find "${SCAN_DIRS[@]}" -type f -name '*.swift' -print0 2>/dev/null \
+    | perl -0ne '
+        chomp;
+        my $file = $_;
+        open my $fh, "<", $file or next;
+        local $/;
+        my $content = <$fh>;
+        close $fh;
+
+        my @lines = split /\n/, $content, -1;
+        my %printed;
+        while ($content =~ /\.frame\(\s*(?:(?:max|min|ideal)(?:Width|Height))\s*:/sg) {
+          my $start_line = substr($content, 0, $-[0]) =~ tr/\n//;
+          my $end_line = substr($content, 0, $+[0]) =~ tr/\n//;
+          for my $idx ($start_line .. $end_line) {
+            next if $idx > $#lines;
+            my $line_no = $idx + 1;
+            my $line = $lines[$idx];
+            my $key = "$line_no:$line";
+            next if $printed{$key}++;
+            print "$file:$line_no:$line\n";
+          }
+        }
+      '
+}
 
 # Collect raw hits with line numbers, then drop comment-only lines
 # (lines whose first non-whitespace is `//` or `///`). AGENTS.md-style
@@ -89,11 +119,10 @@ fi
 # across lines (opening paren on one line, `maxWidth:` on the next) is
 # caught. Without this, code formatted as `.frame(\n    maxWidth: …\n)`
 # bypasses the lint silently — a real escape already present at
-# ChatLoadingSkeleton.swift before this PR. ripgrep reports only the
-# START line of a multiline match, so the comment filter (which only
-# inspects that line) stays correct: the outer `.frame(` never itself
-# starts with `//`.
-RAW_HITS=$(rg -U --multiline-dotall -n --no-heading "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null \
+# ChatLoadingSkeleton.swift before this PR. The fallback scanner mirrors
+# ripgrep's line-oriented output for multiline matches so the allowlist remains
+# stable when CI hosts do not have `rg` preinstalled.
+RAW_HITS=$(collect_raw_hits \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
   || true)
 
