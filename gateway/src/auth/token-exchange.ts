@@ -130,6 +130,26 @@ export function mintServiceToken(): string {
 }
 
 /**
+ * Mint a daemon-audience token for loopback peers (chrome extension, CLI).
+ *
+ * Loopback clients are trusted by IP — the gateway treats 127.0.0.1 / ::1
+ * as an implicit auth boundary. The minted token carries actor_client_v1
+ * scopes (including approval.write) so the runtime's route policy accepts
+ * host-browser-result POSTs and similar actor-scoped routes.
+ *
+ * sub=svc:gateway:loopback, scope_profile=actor_client_v1
+ */
+export function mintLoopbackToken(): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: "svc:gateway:loopback",
+    scope_profile: "actor_client_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
+  });
+}
+
+/**
  * Mint a relay token for Twilio WebSocket connections.
  *
  * The gateway's relay/media-stream WS handlers validate these tokens via

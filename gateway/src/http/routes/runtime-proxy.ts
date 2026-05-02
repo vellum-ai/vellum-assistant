@@ -9,6 +9,7 @@ import {
 import {
   validateEdgeToken,
   mintExchangeToken,
+  mintLoopbackToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -86,7 +87,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         result.claims.scope_profile,
       );
     } else {
-      exchangeToken = mintServiceToken();
+      // Loopback peers need actor_client_v1 scopes (approval.write, etc.)
+      // so runtime route policies accept host-browser-result POSTs.
+      // Non-loopback bypasses (OPTIONS, auth-disabled) use the narrower
+      // gateway_service_v1 profile.
+      exchangeToken = isLoopback ? mintLoopbackToken() : mintServiceToken();
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy

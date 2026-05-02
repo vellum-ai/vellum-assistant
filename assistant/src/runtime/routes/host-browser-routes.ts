@@ -189,6 +189,40 @@ function handleHostBrowserResult({ body }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/host-browser-event
+// ---------------------------------------------------------------------------
+
+function handleHostBrowserEvent({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const resolution = resolveHostBrowserEvent(body);
+  if (!resolution.ok) {
+    throw new BadRequestError(resolution.message);
+  }
+
+  return { accepted: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/host-browser-session-invalidated
+// ---------------------------------------------------------------------------
+
+function handleHostBrowserSessionInvalidated({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const resolution = resolveHostBrowserSessionInvalidated(body);
+  if (!resolution.ok) {
+    throw new BadRequestError(resolution.message);
+  }
+
+  return { accepted: true };
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
 
@@ -210,5 +244,48 @@ export const ROUTES: RouteDefinition[] = [
       accepted: z.boolean(),
     }),
     handler: handleHostBrowserResult,
+  },
+  {
+    operationId: "host_browser_event",
+    endpoint: "host-browser-event",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Forward a CDP event from the browser extension",
+    description:
+      "Publishes a chrome.debugger.onEvent firing into the runtime-side browser-session event bus.",
+    tags: ["host"],
+    requestBody: z.object({
+      method: z.string().describe("CDP event method name"),
+      params: z.unknown().optional().describe("CDP event parameters"),
+      cdpSessionId: z
+        .string()
+        .optional()
+        .describe("CDP session ID (if target-scoped)"),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostBrowserEvent,
+  },
+  {
+    operationId: "host_browser_session_invalidated",
+    endpoint: "host-browser-session-invalidated",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Notify runtime that a CDP session was invalidated",
+    description:
+      "Marks the target as invalidated in the runtime-side browser session registry.",
+    tags: ["host"],
+    requestBody: z.object({
+      targetId: z
+        .string()
+        .optional()
+        .describe("CDP target that was detached"),
+      reason: z.string().optional().describe("Detach reason"),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostBrowserSessionInvalidated,
   },
 ];

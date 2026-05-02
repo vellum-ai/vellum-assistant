@@ -1,3 +1,5 @@
+import type { Server } from "bun";
+
 /**
  * Check whether the TCP peer of a Bun HTTP request is a loopback address.
  *
@@ -5,7 +7,7 @@
  * instead of the raw socket IP.
  */
 export function isLoopbackPeer(
-  server: import("bun").Server<unknown>,
+  server: Server<unknown>,
   req: Request,
   opts?: { trustProxy?: boolean },
 ): boolean {
