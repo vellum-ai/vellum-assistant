@@ -6915,6 +6915,13 @@ paths:
                 properties:
                   messageId:
                     type: string
+                  conversationKind:
+                    type: string
+                    enum:
+                      - user
+                      - background
+                      - background_memory_consolidation
+                      - scheduled
                   logs:
                     type: array
                     items: {}
@@ -6932,6 +6939,7 @@ paths:
                       - type: "null"
                 required:
                   - messageId
+                  - conversationKind
                   - logs
                   - memoryRecall
                   - memoryV2Activation
