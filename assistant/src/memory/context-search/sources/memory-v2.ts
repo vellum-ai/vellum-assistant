@@ -62,11 +62,12 @@ export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
 const log = getLogger("context-search-memory-v2-source");
 
 /**
- * Top-K size for the un-restricted ANN candidate query against the v2
- * concept-page collection. Larger than the per-call recall limit so spreading
- * has neighbors to pull in.
+ * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
+ * `null` (unlimited). Qdrant's query API requires an explicit numeric
+ * `limit`, so unlimited is represented as a number large enough that any
+ * realistic concept-page collection is returned in full.
  */
-const MEMORY_V2_ANN_CANDIDATE_LIMIT = 50;
+const UNLIMITED_ANN_CANDIDATE_LIMIT = Number.MAX_SAFE_INTEGER;
 
 /** Cap individual concept-page files we are willing to read for lexical scan. */
 const MEMORY_V2_LEXICAL_MAX_FILE_SIZE_BYTES = 256 * 1024;
@@ -181,10 +182,13 @@ async function activationEvidence(
   if (!denseVector || denseVector.length === 0) return [];
   const sparseVector = generateSparseEmbedding(trimmedQuery);
 
+  const annLimit =
+    context.config.memory.v2.ann_candidate_limit ??
+    UNLIMITED_ANN_CANDIDATE_LIMIT;
   const hits = await hybridQueryConceptPages(
     denseVector,
     sparseVector,
-    MEMORY_V2_ANN_CANDIDATE_LIMIT,
+    annLimit,
   );
   if (hits.length === 0) return [];
 

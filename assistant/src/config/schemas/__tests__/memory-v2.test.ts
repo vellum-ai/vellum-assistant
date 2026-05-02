@@ -16,6 +16,7 @@ describe("MemoryV2ConfigSchema", () => {
       k: 0.5,
       hops: 2,
       top_k: 20,
+      ann_candidate_limit: null,
       top_k_skills: 5,
       epsilon: 0.01,
       dense_weight: 0.7,

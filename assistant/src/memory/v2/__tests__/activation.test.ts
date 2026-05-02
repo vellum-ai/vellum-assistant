@@ -193,6 +193,7 @@ function makeConfig(
     epsilon: number;
     dense_weight: number;
     sparse_weight: number;
+    ann_candidate_limit: number | null;
   }> = {},
 ): AssistantConfig {
   return {
@@ -205,6 +206,7 @@ function makeConfig(
         epsilon: 0.01,
         dense_weight: 1.0,
         sparse_weight: 0.0,
+        ann_candidate_limit: null,
         ...overrides,
       },
     },
@@ -342,7 +344,9 @@ describe("selectCandidates", () => {
     expect(out.fromAnn).toEqual(new Set(["alice-vscode", "delta-recipe"]));
   });
 
-  test("ANN top-K limit equals 50 and runs without slug restriction", async () => {
+  test("ANN candidate query honors `config.memory.v2.ann_candidate_limit` and runs without slug restriction", async () => {
+    // Default `ann_candidate_limit: null` → unlimited, so a sentinel large
+    // enough to return every page is passed to Qdrant.
     stageHybridResponse([{ slug: "alpha", denseScore: 0.5, sparseScore: 1 }]);
     await selectCandidates({
       priorState: null,
@@ -351,10 +355,25 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig(),
     });
-    // Both channels (dense + sparse) ran with limit=50 and no filter.
     expect(state.queryCalls).toHaveLength(2);
     for (const call of state.queryCalls) {
-      expect(call.limit).toBe(50);
+      expect(call.limit).toBe(Number.MAX_SAFE_INTEGER);
+      expect(call.filter).toBeUndefined();
+    }
+
+    // Explicit override flows through both channels verbatim.
+    state.queryCalls.length = 0;
+    stageHybridResponse([{ slug: "beta", denseScore: 0.5, sparseScore: 1 }]);
+    await selectCandidates({
+      priorState: null,
+      userText: "hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig({ ann_candidate_limit: 25 }),
+    });
+    expect(state.queryCalls).toHaveLength(2);
+    for (const call of state.queryCalls) {
+      expect(call.limit).toBe(25);
       expect(call.filter).toBeUndefined();
     }
   });
@@ -682,15 +701,59 @@ describe("spreadActivation", () => {
     expect(out.final.get("bob")).toBeCloseTo(0.9, 6);
   });
 
-  test("missing predecessor activation contributes 0 to the numerator", () => {
-    // Edge alice→bob: bob has predecessor alice. alice is not in
-    // `ownActivation`, so it contributes 0 to the numerator while the
-    // denominator still counts the structural predecessor.
+  test("predecessors not in the candidate set are dropped from both numerator and denominator", () => {
+    // Edge alice→bob: bob has structural predecessor alice, but alice is not
+    // in `ownActivation`. With the new formula she contributes nothing —
+    // hop1 has no active predecessors so the whole hop drops out of both
+    // sides of the ratio. Bob therefore stays at his own activation.
     const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([["bob", 0.6]]);
     const out = spreadActivation(own, edges, 0.5, 2);
-    // numerator = 0.6 + 0.5*0 = 0.6. denominator = 1 + 0.5*1 = 1.5.
-    expect(out.final.get("bob")).toBeCloseTo(0.4, 6);
+    expect(out.final.get("bob")).toBeCloseTo(0.6, 6);
+  });
+
+  test("L_2 norm over multiple active predecessors rewards strong outliers more than avg would", () => {
+    // bob has 4 predecessors in the candidate set: one strong, three weak.
+    // L_2 = √((0.8² + 0.1² + 0.1² + 0.1²) / 4) = √(0.1675) ≈ 0.40927
+    // Plain avg of the same set = 0.275, so L_2 lifts bob more than avg
+    // would — the design goal of preferring quality over quantity.
+    const edges = buildEdgeIndex([
+      ["a1", "bob"],
+      ["a2", "bob"],
+      ["a3", "bob"],
+      ["a4", "bob"],
+    ]);
+    const own = new Map([
+      ["a1", 0.8],
+      ["a2", 0.1],
+      ["a3", 0.1],
+      ["a4", 0.1],
+      ["bob", 0.0],
+    ]);
+    const out = spreadActivation(own, edges, 0.5, 2);
+    const rms = Math.sqrt((0.8 * 0.8 + 3 * 0.1 * 0.1) / 4);
+    // numerator   = 0 + 0.5 · rms
+    // denominator = 1 + 0.5
+    expect(out.final.get("bob")).toBeCloseTo((0.5 * rms) / 1.5, 6);
+  });
+
+  test("high-in-degree hub with mostly-inactive predecessors stays near A_o", () => {
+    // 100 structural predecessors point at hub; only one (`pred0`) is in
+    // the candidate set. The old formula would crush hub by the structural
+    // count (denominator ≈ 51); the new formula folds the empty bulk out
+    // and the L_2 averages over the single active predecessor only.
+    const rawEdges: Array<[string, string]> = [];
+    for (let i = 0; i < 100; i++) rawEdges.push([`pred${i}`, "hub"]);
+    const edges = buildEdgeIndex(rawEdges);
+    const own = new Map([
+      ["hub", 0.6],
+      ["pred0", 0.5],
+    ]);
+    const out = spreadActivation(own, edges, 0.5, 2);
+    // hop1 active = {pred0}, L_2([0.5]) = 0.5.
+    //   numerator   = 0.6 + 0.5 · 0.5 = 0.85
+    //   denominator = 1 + 0.5         = 1.5
+    expect(out.final.get("hub")).toBeCloseTo(0.85 / 1.5, 6);
   });
 
   test("empty own-activation map returns empty result", () => {

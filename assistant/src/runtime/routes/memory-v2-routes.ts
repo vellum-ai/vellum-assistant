@@ -17,7 +17,11 @@ import {
   totalEdgeCount,
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
-import { listPages, readPage } from "../../memory/v2/page-store.js";
+import {
+  listPages,
+  readPage,
+  renderPageContent,
+} from "../../memory/v2/page-store.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
@@ -113,6 +117,45 @@ async function handleValidate({
   };
 }
 
+// ── Get concept page ────────────────────────────────────────────────────
+
+const MemoryV2GetConceptPageParams = z
+  .object({
+    slug: z.string().min(1),
+  })
+  .strict();
+
+export type MemoryV2GetConceptPageResult = {
+  slug: string;
+  /** Frontmatter + body, exactly as `renderInjectionBlock` would format it. */
+  rendered: string;
+};
+
+async function handleGetConceptPage({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2GetConceptPageResult> {
+  const { slug } = MemoryV2GetConceptPageParams.parse(body);
+  const workspaceDir = getWorkspaceDir();
+  let page;
+  try {
+    page = await readPage(workspaceDir, slug);
+  } catch (err) {
+    throw new RouteError(
+      `Failed to read concept page '${slug}': ${err instanceof Error ? err.message : String(err)}`,
+      "MEMORY_V2_PAGE_READ_FAILED",
+      400,
+    );
+  }
+  if (!page) {
+    throw new RouteError(
+      `Concept page '${slug}' not found on disk`,
+      "MEMORY_V2_PAGE_NOT_FOUND",
+      404,
+    );
+  }
+  return { slug, rendered: renderPageContent(page) };
+}
+
 // ── Reembed skills ──────────────────────────────────────────────────────
 
 const MemoryV2ReembedSkillsParams = z.object({}).strict();
@@ -173,6 +216,17 @@ export const ROUTES: RouteDefinition[] = [
       "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.",
     tags: ["memory"],
     requestBody: MemoryV2ValidateParams,
+  },
+  {
+    operationId: "memory_v2_get_concept_page",
+    method: "POST",
+    endpoint: "memory/v2/concept-page",
+    handler: handleGetConceptPage,
+    summary: "Read a single memory v2 concept page",
+    description:
+      "Returns the rendered (frontmatter + body) markdown for a slug. 404 when the slug has no on-disk page — the activation log inspector uses this to show what got injected.",
+    tags: ["memory"],
+    requestBody: MemoryV2GetConceptPageParams,
   },
   {
     operationId: "memory_v2_reembed_skills",

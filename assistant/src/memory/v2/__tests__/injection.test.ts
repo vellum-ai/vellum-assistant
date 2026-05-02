@@ -331,6 +331,13 @@ function stageTurn(
   hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
   channels = 4,
 ): void {
+  // Clear any leftovers from a prior turn before staging this one so unused
+  // staged responses can't bleed into the next injection. The activation
+  // pipeline now skips the embedding round-trip for empty texts (turn 1's
+  // assistantMessage), so consumed-channel counts vary per turn — staging
+  // exclusively is the only way multi-turn tests stay aligned.
+  state.queryResponses.dense.length = 0;
+  state.queryResponses.sparse.length = 0;
   for (let i = 0; i < channels; i++) {
     state.queryResponses.dense.push({
       points: hits
@@ -652,6 +659,17 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([
       { slug: "phantom-slug", turn: 1 },
     ]);
+
+    // Activation log marks the slug `page_missing` (not `injected`) so a
+    // stale Qdrant / edge-index entry pointing at a vanished page is
+    // visible in telemetry instead of masquerading as a successful inject.
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    const phantom = row.concepts.find((c) => c.slug === "phantom-slug");
+    expect(phantom).toBeDefined();
+    expect(phantom!.status).toBe("page_missing");
   });
 
   // ---------------------------------------------------------------------------

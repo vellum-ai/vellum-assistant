@@ -14,7 +14,7 @@ export interface MemoryV2ConceptRowRecord {
   simNow: number;
   spreadContribution: number;
   source: "prior_state" | "ann_top50" | "both";
-  status: "in_context" | "injected" | "not_injected";
+  status: "in_context" | "injected" | "not_injected" | "page_missing";
 }
 
 export interface MemoryV2SkillRowRecord {

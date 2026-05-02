@@ -286,6 +286,7 @@ export async function hybridQuerySkills(
   sparse: SparseEmbedding,
   limit: number,
   restrictToIds?: readonly string[],
+  options?: { skipSparse?: boolean },
 ): Promise<SkillQueryResult[]> {
   if (restrictToIds && restrictToIds.length === 0) {
     // An empty restriction means "no candidates"; skip the round-trip.
@@ -298,6 +299,11 @@ export async function hybridQuerySkills(
   const filter = restrictToIds
     ? { must: [{ key: "id", match: { any: [...restrictToIds] } }] }
     : undefined;
+
+  // Same opt-in short-circuit as `hybridQueryConceptPages`: skip the sparse
+  // round-trip entirely so we sidestep the Qdrant 1.13.x sparse-index OOM
+  // crash when operators flip sparse off via `sparse_weight: 0`.
+  const skipSparse = options?.skipSparse ?? false;
 
   const denseQuery = () =>
     client.query(MEMORY_V2_SKILLS_COLLECTION, {
@@ -317,7 +323,11 @@ export async function hybridQuerySkills(
     });
 
   // Run both queries concurrently — they hit independent named vectors.
-  const runQueries = async () => Promise.all([denseQuery(), sparseQuery()]);
+  const emptyResult = {
+    points: [] as Array<{ payload?: unknown; score?: number }>,
+  };
+  const runQueries = async () =>
+    Promise.all([denseQuery(), skipSparse ? emptyResult : sparseQuery()]);
 
   let denseResults;
   let sparseResults;

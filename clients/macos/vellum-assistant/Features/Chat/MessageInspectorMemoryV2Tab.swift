@@ -421,7 +421,17 @@ private struct ActivationRowConfig {
 
 private struct ActivationRowView: View {
     let config: ActivationRowConfig
+    /// Optional trailing content rendered inside the expanded disclosure
+    /// after the breakdown rows. Concept rows pass a `ConceptPageContentView`
+    /// here so the raw page markdown shows up alongside the activation
+    /// breakdown; skill rows pass nil.
+    let expandedTrailing: AnyView?
     @State private var isExpanded = false
+
+    init(config: ActivationRowConfig, expandedTrailing: AnyView? = nil) {
+        self.config = config
+        self.expandedTrailing = expandedTrailing
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -430,6 +440,9 @@ private struct ActivationRowView: View {
                     activationBreakdownRow(label: row.label, value: row.value)
                 }
                 activationBreakdownRow(label: "status", value: config.statusLabel)
+                if let expandedTrailing {
+                    expandedTrailing
+                }
             }
             .padding(.top, VSpacing.xs)
             .padding(.leading, VSpacing.md)
@@ -488,15 +501,83 @@ private struct ConceptRowView: View {
             breakdownRows.append(.init(label: "source", value: row.source))
         }
 
-        return ActivationRowView(config: ActivationRowConfig(
-            id: row.slug,
-            activation: row.finalActivation,
-            activationLabel: row.finalActivationLabel,
-            statusColor: statusColor(row.status),
-            sourceBadge: isCustomSource ? row.source : nil,
-            breakdownRows: breakdownRows,
-            statusLabel: statusLabel(row.status)
-        ))
+        return ActivationRowView(
+            config: ActivationRowConfig(
+                id: row.slug,
+                activation: row.finalActivation,
+                activationLabel: row.finalActivationLabel,
+                statusColor: statusColor(row.status),
+                sourceBadge: isCustomSource ? row.source : nil,
+                breakdownRows: breakdownRows,
+                statusLabel: statusLabel(row.status)
+            ),
+            expandedTrailing: AnyView(ConceptPageContentView(slug: row.slug))
+        )
+    }
+}
+
+// MARK: - Concept page content (lazy-loaded on row expand)
+
+private struct ConceptPageContentView: View {
+    let slug: String
+    @State private var state: LoadState = .idle
+
+    enum LoadState: Equatable {
+        case idle
+        case loading
+        case missing
+        case loaded(String)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("page content")
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentSecondary)
+                .padding(.top, VSpacing.sm)
+
+            content
+        }
+        .task(id: slug) {
+            // SwiftUI fires `.task` when this view first renders inside
+            // the disclosed disclosure body — i.e., on first expand. The
+            // load runs once per slug; cached `state` is reused across
+            // subsequent collapses+re-expands of the same row.
+            guard state == .idle else { return }
+            state = .loading
+            let client = LLMContextClient()
+            if let rendered = await client.fetchConceptPage(slug: slug) {
+                state = .loaded(rendered)
+            } else {
+                state = .missing
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch state {
+        case .idle, .loading:
+            HStack(spacing: VSpacing.xs) {
+                ProgressView().controlSize(.small)
+                Text("Loading…")
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        case .missing:
+            Text("Page not found on disk — slug may reference a stale Qdrant entry.")
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+        case .loaded(let text):
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.sm)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
     }
 }
 

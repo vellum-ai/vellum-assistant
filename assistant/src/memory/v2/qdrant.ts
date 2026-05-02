@@ -236,6 +236,7 @@ export async function hybridQueryConceptPages(
   sparse: SparseEmbedding,
   limit: number,
   restrictToSlugs?: readonly string[],
+  options?: { skipSparse?: boolean },
 ): Promise<ConceptPageQueryResult[]> {
   if (restrictToSlugs && restrictToSlugs.length === 0) {
     // An empty restriction means "no candidates"; skip the round-trip.
@@ -248,6 +249,13 @@ export async function hybridQueryConceptPages(
   const filter = restrictToSlugs
     ? { must: [{ key: "slug", match: { any: [...restrictToSlugs] } }] }
     : undefined;
+
+  // When the caller weighted sparse to zero, skip the round-trip entirely.
+  // The downstream fuser (`fuseHit` in `sim.ts`) already treats a missing
+  // sparse score as a 0 contribution, so omitting the query is a pure
+  // optimization — and it's also the kill switch operators use to dodge a
+  // Qdrant 1.13.x sparse-index crash that we've reproduced in the wild.
+  const skipSparse = options?.skipSparse ?? false;
 
   const denseQuery = () =>
     client.query(MEMORY_V2_COLLECTION, {
@@ -267,7 +275,14 @@ export async function hybridQueryConceptPages(
     });
 
   // Run both queries concurrently — they hit independent named vectors.
-  const runQueries = async () => Promise.all([denseQuery(), sparseQuery()]);
+  // When sparse is gated off we still resolve a Promise so the destructuring
+  // below stays uniform; the empty `points: []` matches the shape of a
+  // no-hit Qdrant response.
+  const emptyResult = {
+    points: [] as Array<{ payload?: unknown; score?: number }>,
+  };
+  const runQueries = async () =>
+    Promise.all([denseQuery(), skipSparse ? emptyResult : sparseQuery()]);
 
   let denseResults;
   let sparseResults;

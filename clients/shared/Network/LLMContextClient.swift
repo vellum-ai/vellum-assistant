@@ -687,6 +687,12 @@ public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
     func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
     func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse?
+    /// Reads the raw rendered (frontmatter + body) markdown for a single
+    /// memory v2 concept page. `nil` when the page has no on-disk file
+    /// (e.g. stale activation log row referencing a deleted slug) or when
+    /// the daemon is unreachable. The activation-log inspector lazy-fetches
+    /// this on disclosure-row expansion.
+    func fetchConceptPage(slug: String) async -> String?
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
@@ -787,6 +793,36 @@ public struct LLMContextClient: LLMContextClientProtocol {
             return nil
         }
     }
+
+    public func fetchConceptPage(slug: String) async -> String? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "memory/v2/concept-page",
+                json: ["slug": slug],
+                timeout: 15
+            )
+            // 404 = page no longer on disk (stale slug). Surface as nil so
+            // the inspector can render a "page missing" affordance instead
+            // of treating it as a transport error.
+            if response.statusCode == 404 { return nil }
+            guard response.isSuccess else {
+                log.error("fetchConceptPage failed (HTTP \(response.statusCode)) for slug \(slug)")
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(ConceptPageResponse.self, from: response.data)
+            return decoded.rendered
+        } catch is CancellationError {
+            return nil
+        } catch {
+            log.error("fetchConceptPage error for slug \(slug): \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
+
+private struct ConceptPageResponse: Decodable {
+    let slug: String
+    let rendered: String
 }
 
 public extension LLMContextClientProtocol {
@@ -799,6 +835,10 @@ public extension LLMContextClientProtocol {
     }
 
     func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
+        nil
+    }
+
+    func fetchConceptPage(slug: String) async -> String? {
         nil
     }
 }

@@ -241,9 +241,30 @@ export async function injectMemoryV2Block(
 
   await save(database, conversationId, nextActivationState);
 
-  // Record per-turn activation telemetry. This runs *before* the cache-stable
-  // empty-block return so we capture diagnostics even on no-op turns. Failures
-  // are warn-logged and never block memory injection.
+  // Render before recording telemetry so the activation log can mark slugs
+  // whose backing file is gone — those are no-op renders that would otherwise
+  // be indistinguishable from successful "injected" rows in the log.
+  // `renderInjectionBlock` itself short-circuits on empty inputs.
+  const { block, missingSlugs } = await renderInjectionBlock(
+    workspaceDir,
+    slugsToRender,
+    topSkillIds,
+  );
+  const missingSlugSet = new Set(missingSlugs);
+  if (missingSlugs.length > 0) {
+    log.warn(
+      {
+        conversationId,
+        turn: currentTurn,
+        missingSlugs,
+        renderedCount: slugsToRender.length - missingSlugs.length,
+      },
+      "Memory v2 injection skipped slugs whose page was missing on disk — Qdrant index may be stale; consider reembed",
+    );
+  }
+
+  // Record per-turn activation telemetry. Failures are warn-logged and never
+  // block memory injection.
   const toInjectSet = new Set(toInject);
   const renderedSet = new Set(slugsToRender);
   const topSkillIdSet = new Set(topSkillIds);
@@ -260,6 +281,10 @@ export async function injectMemoryV2Block(
       //   - per-turn: cached attachments from prior turns are still on the
       //     user message, so prior-everInjected slugs are `in_context` and
       //     the delta (`toInject`) is `injected`.
+      // `page_missing` overrides any "would-have-been-injected" status when
+      // `readPage` returned null for the slug — telemetry surfaces stale
+      // ANN/edge entries instead of silently masquerading as a successful
+      // injection.
       let status: MemoryV2ConceptRowRecord["status"];
       if (mode === "context-load") {
         status = renderedSet.has(slug) ? "injected" : "not_injected";
@@ -269,6 +294,9 @@ export async function injectMemoryV2Block(
         status = "injected";
       } else {
         status = "not_injected";
+      }
+      if (status === "injected" && missingSlugSet.has(slug)) {
+        status = "page_missing";
       }
       return {
         slug,
@@ -327,23 +355,6 @@ export async function injectMemoryV2Block(
     );
   }
 
-  // (7) Cache-stable empty path: nothing to render AND no ranked skills.
-  if (slugsToRender.length === 0 && topSkillIds.length === 0) {
-    return { block: null, toInject: [] };
-  }
-
-  // (8) Render. Both `topNow` and `toInject` are activation-descending
-  // (selectInjections sorts before slicing), so `slugsToRender` doubles as
-  // the render order. Per-turn: only the new slugs render (prior turns'
-  // attachments stay cached on prior user messages). Context-load: full
-  // top-K renders so the fresh user message gets a complete activation dump.
-  // Skills are appended after concept-page sections.
-  const block = await renderInjectionBlock(
-    workspaceDir,
-    slugsToRender,
-    topSkillIds,
-  );
-
   return { block, toInject: newlyInjected };
 }
 
@@ -351,14 +362,32 @@ export async function injectMemoryV2Block(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+interface RenderInjectionBlockResult {
+  /**
+   * Rendered `<memory>` block, or `null` when both the concept-page list
+   * and the skill list collapse to empty after cache misses (no on-disk
+   * pages, no resolvable skill ids). The caller falls through to its
+   * empty-block path instead of attaching an empty `<memory>` wrapper.
+   */
+  block: string | null;
+  /**
+   * Slugs that `readPage` returned null for. Surfaced so the caller can
+   * mark them in the activation log (`status: "page_missing"`) and emit
+   * a warning — silent drops here previously masked stale Qdrant /
+   * edge-index entries that pointed at pages no longer on disk.
+   */
+  missingSlugs: string[];
+}
+
 /**
  * Render the `<memory>` block for a list of slugs and a list of
  * ranked skill ids.
  *
  * Concept pages are read in parallel via `readPage`. Pages whose file has
  * gone missing between selection and render (e.g. consolidation deleted
- * them) are silently dropped — the activation state still records them in
- * `everInjected` so we don't keep re-attempting on every turn.
+ * them, folder reorg renamed the slug) are dropped from the rendered
+ * block but reported back via `missingSlugs` so callers can surface the
+ * divergence.
  *
  * Skill ids are looked up via `getSkillCapability`. Ids that the cache no
  * longer knows (e.g. uninstalled mid-run) are silently dropped, mirroring
@@ -391,27 +420,29 @@ export async function injectMemoryV2Block(
  *   - <skill-1 content>
  *   - <skill-2 content>
  *   </memory>
- *
- * Returns `null` when both lists collapse to empty after cache misses so
- * the caller can fall through to its empty-block path instead of attaching
- * an empty `<memory>` wrapper.
  */
 async function renderInjectionBlock(
   workspaceDir: string,
   slugs: string[],
   skillIds: string[],
-): Promise<string | null> {
+): Promise<RenderInjectionBlockResult> {
   const pages = await Promise.all(
     slugs.map(async (slug) => {
       const page = await readPage(workspaceDir, slug);
-      return page ? { slug, content: renderPageContent(page).trim() } : null;
+      return { slug, page };
     }),
   );
 
   const sections: string[] = [];
-  for (const entry of pages) {
-    if (!entry || entry.content.length === 0) continue;
-    sections.push(`### ${entry.slug}\n${entry.content}`);
+  const missingSlugs: string[] = [];
+  for (const { slug, page } of pages) {
+    if (!page) {
+      missingSlugs.push(slug);
+      continue;
+    }
+    const content = renderPageContent(page).trim();
+    if (content.length === 0) continue;
+    sections.push(`### ${slug}\n${content}`);
   }
 
   // v2's skills collection is skills-only, so the activation suffix always applies.
@@ -425,7 +456,10 @@ async function renderInjectionBlock(
     sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);
   }
 
-  if (sections.length === 0) return null;
+  if (sections.length === 0) return { block: null, missingSlugs };
 
-  return `<memory>\n${sections.join("\n\n")}\n</memory>`;
+  return {
+    block: `<memory>\n${sections.join("\n\n")}\n</memory>`,
+    missingSlugs,
+  };
 }

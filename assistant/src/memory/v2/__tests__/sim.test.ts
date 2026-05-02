@@ -247,6 +247,24 @@ describe("simBatch", () => {
     expect(state.queryCalls).toHaveLength(0);
   });
 
+  test("empty text returns empty map without touching backends", async () => {
+    // Turn 1 has no prior assistant message, so `computeOwnActivation` calls
+    // `simBatch("", slugs, config)`. Gemini rejects empty content with HTTP
+    // 400 — short-circuit here so the activation pipeline doesn't crash.
+    const config = configWithWeights(0.7, 0.3);
+
+    for (const text of ["", "   ", "\n\n"]) {
+      state.embedCalls.length = 0;
+      state.sparseCalls.length = 0;
+      state.queryCalls.length = 0;
+      const out = await simBatch(text, ["alice-vscode"], config);
+      expect(out.size).toBe(0);
+      expect(state.embedCalls).toHaveLength(0);
+      expect(state.sparseCalls).toHaveLength(0);
+      expect(state.queryCalls).toHaveLength(0);
+    }
+  });
+
   test("identical text yields ~1.0 when both channels max out", async () => {
     const config = configWithWeights(0.7, 0.3);
     stageHybridResponse([
@@ -423,6 +441,21 @@ describe("simSkillBatch", () => {
     expect(state.embedCalls).toHaveLength(0);
     expect(state.sparseCalls).toHaveLength(0);
     expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("empty text returns empty map without touching backends", async () => {
+    const config = configWithWeights(0.7, 0.3);
+
+    for (const text of ["", "   ", "\n\n"]) {
+      state.embedCalls.length = 0;
+      state.sparseCalls.length = 0;
+      state.queryCalls.length = 0;
+      const out = await simSkillBatch(text, ["example-skill-a"], config);
+      expect(out.size).toBe(0);
+      expect(state.embedCalls).toHaveLength(0);
+      expect(state.sparseCalls).toHaveLength(0);
+      expect(state.queryCalls).toHaveLength(0);
+    }
   });
 
   test("queries the dedicated skills collection and forwards an id-IN filter", async () => {
