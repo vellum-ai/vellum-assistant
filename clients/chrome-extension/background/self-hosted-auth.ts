@@ -1,7 +1,7 @@
 /**
  * Self-hosted capability-token bootstrap for the Vellum chrome extension.
  *
- * Directly POSTs to the gateway's `/v1/browser-extension-pair` endpoint
+ * Directly POSTs to the gateway's `/v1/pair` endpoint
  * to exchange the calling extension's origin for a capability token.
  *
  * Previous versions used Chrome's native messaging API to spawn a helper
@@ -16,6 +16,8 @@
  * (`vellum.localCapabilityToken:<urlHash>`) so switching between gateways
  * never clobbers another gateway's credentials.
  */
+
+import { getClientRegistrationHeaders } from './client-identity.js';
 
 export interface StoredLocalToken {
   token: string;
@@ -136,11 +138,11 @@ export async function setStoredGatewayUrl(url: string): Promise<void> {
 
 /**
  * Bootstrap a self-hosted capability token by POSTing directly to the
- * gateway's `/v1/browser-extension-pair` endpoint.
+ * gateway's `/v1/pair` endpoint.
  *
  * The gateway requires:
  *   - Localhost peer IP (satisfied by fetching 127.0.0.1)
- *   - `{ extensionOrigin }` body with the extension's origin
+ *   - `X-Vellum-Interface-Id` and `X-Vellum-Client-Id` headers
  *
  * Returns the stored token shape after persisting it.
  */
@@ -149,19 +151,21 @@ export async function bootstrapDirectPairToken(
   options: BootstrapDirectPairOptions = {},
 ): Promise<StoredLocalToken> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
-  const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const baseUrl = gatewayUrl.replace(/\/+$/, '');
-    const response = await fetch(`${baseUrl}/v1/browser-extension-pair`, {
+    const clientHeaders = await getClientRegistrationHeaders();
+
+    const response = await fetch(`${baseUrl}/v1/pair`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...clientHeaders,
       },
-      body: JSON.stringify({ extensionOrigin }),
+      body: '{}',
       signal: controller.signal,
     });
 
