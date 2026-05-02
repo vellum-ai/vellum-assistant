@@ -44,47 +44,24 @@ function buildGatewayArgs(
 }
 
 describe("serviceDockerRunArgs — assistant", () => {
-  test("grants the minimum capability set needed for DinD (SYS_ADMIN + NET_ADMIN) rather than --privileged", () => {
+  test("does not grant elevated capabilities or disable security profiles", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("--privileged");
-    // --cap-add SYS_ADMIN and --cap-add NET_ADMIN are each passed as two
-    // adjacent args: "--cap-add" followed by the capability name.
-    const sysAdminIdx = args.indexOf("SYS_ADMIN");
-    expect(sysAdminIdx).toBeGreaterThan(0);
-    expect(args[sysAdminIdx - 1]).toBe("--cap-add");
-    const netAdminIdx = args.indexOf("NET_ADMIN");
-    expect(netAdminIdx).toBeGreaterThan(0);
-    expect(args[netAdminIdx - 1]).toBe("--cap-add");
+    expect(args).not.toContain("--cap-add");
+    expect(args).not.toContain("SYS_ADMIN");
+    expect(args).not.toContain("NET_ADMIN");
+    expect(args).not.toContain("seccomp=unconfined");
+    expect(args).not.toContain("apparmor=unconfined");
   });
 
-  test("disables the default seccomp and AppArmor profiles so the inner dockerd can mount overlayfs and run pivot_root", () => {
+  test("does not mount a dockerd data volume", () => {
     const args = buildAssistantArgs();
-    const seccompIdx = args.indexOf("seccomp=unconfined");
-    expect(seccompIdx).toBeGreaterThan(0);
-    expect(args[seccompIdx - 1]).toBe("--security-opt");
-    const apparmorIdx = args.indexOf("apparmor=unconfined");
-    expect(apparmorIdx).toBeGreaterThan(0);
-    expect(args[apparmorIdx - 1]).toBe("--security-opt");
+    expect(args.some((a) => a.includes("/var/lib/docker"))).toBe(false);
   });
 
-  test("mounts a dedicated named volume at /var/lib/docker for the inner dockerd data store", () => {
-    const args = buildAssistantArgs();
-    const spec = `${instanceName}-dockerd-data:/var/lib/docker`;
-    const mountIndex = args.indexOf(spec);
-    expect(mountIndex).toBeGreaterThan(0);
-    expect(args[mountIndex - 1]).toBe("-v");
-  });
-
-  test("does NOT bind-mount the host Docker socket (DinD replaces host-socket access)", () => {
+  test("does NOT bind-mount the host Docker socket", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
-  });
-
-  test("does NOT set VELLUM_WORKSPACE_VOLUME_NAME (legacy Phase 1.8 hint, no longer needed in DinD)", () => {
-    const args = buildAssistantArgs();
-    expect(
-      args.some((a) => a.startsWith("VELLUM_WORKSPACE_VOLUME_NAME=")),
-    ).toBe(false);
   });
 
   test("keeps existing workspace and socket volume mounts intact", () => {
