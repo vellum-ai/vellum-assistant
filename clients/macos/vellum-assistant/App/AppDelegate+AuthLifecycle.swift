@@ -6,6 +6,18 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+AuthLifecycle")
 
+enum ManagedSwitchAuthenticationGate {
+    static func shouldPromptForLogin(
+        assistant: LockfileAssistant,
+        isAuthenticated: Bool,
+        managedAuthenticationAlreadyVerified: Bool
+    ) -> Bool {
+        assistant.isManaged
+            && !isAuthenticated
+            && !managedAuthenticationAlreadyVerified
+    }
+}
+
 // MARK: - Auth lifecycle: login, logout, restart, retire, switch assistant
 
 extension AppDelegate {
@@ -632,9 +644,16 @@ extension AppDelegate {
     ///    the organization ID (cleared in step 3) before connecting
     /// 5. Reconfigure transport and reconnect
     /// 6. Resume credential bootstrap
-    func performSwitchAssistant(to assistant: LockfileAssistant) {
+    func performSwitchAssistant(
+        to assistant: LockfileAssistant,
+        managedAuthenticationAlreadyVerified: Bool = false
+    ) {
         // If switching to a managed assistant while logged out, prompt login first.
-        if assistant.isManaged && !authManager.isAuthenticated {
+        if ManagedSwitchAuthenticationGate.shouldPromptForLogin(
+            assistant: assistant,
+            isAuthenticated: authManager.isAuthenticated,
+            managedAuthenticationAlreadyVerified: managedAuthenticationAlreadyVerified
+        ) {
             // Persist the target so we can switch after login completes.
             UserDefaults.standard.set(assistant.assistantId, forKey: "pendingManagedSwitchAssistantId")
             showAuthWindow()

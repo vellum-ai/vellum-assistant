@@ -958,21 +958,13 @@ extension AppDelegate {
             forAssistantId: platformAssistant.id
         )
 
-        let target = LockfileAssistant(
-            assistantId: platformAssistant.id,
-            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
-            bearerToken: nil,
-            cloud: "vellum",
-            project: nil,
-            region: nil,
-            zone: nil,
-            instanceId: nil,
-            hatchedAt: platformAssistant.created_at ?? Date().iso8601String,
-            baseDataDir: nil,
-            gatewayPort: nil,
-            instanceDir: nil
+        guard let target = LockfileAssistant.loadByName(platformAssistant.id) else {
+            throw AssistantSwitcherError.lockfilePersistenceFailed
+        }
+        performSwitchAssistant(
+            to: target,
+            managedAuthenticationAlreadyVerified: true
         )
-        performSwitchAssistant(to: target)
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher
