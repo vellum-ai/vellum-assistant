@@ -78,9 +78,8 @@ has three key properties:
 - **Per-plugin isolation.** If one plugin throws at import time, the error
   is logged with the plugin directory and the loader moves on. Other
   plugins still load. One broken plugin cannot brick the assistant.
-- **Per-instance.** The scan runs under `vellumRoot()`, which honors the
-  multi-instance `BASE_DATA_DIR` override. Each assistant instance loads
-  its own plugin set.
+- **Per-instance.** The scan runs under `vellumRoot()`. Each assistant
+  instance loads its own plugin set.
 
 The loader runs after first-party plugin registrations and before
 `bootstrapPlugins()` invokes every plugin's `init()`.
@@ -749,7 +748,7 @@ tail -f ~/.vellum/daemon.log \
 ### Plugin not loading at all
 
 - Confirm the directory is under `~/.vellum/plugins/` (or the per-instance
-  equivalent under `$BASE_DATA_DIR/.vellum/plugins/`).
+  equivalent under `<vellumRoot>/plugins/`).
 - Confirm it has a `register.ts` or `register.js` at the top level.
 - Check the assistant's stderr for a line like
   `loaded user plugin (side-effect import completed)` or

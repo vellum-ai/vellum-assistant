@@ -63,13 +63,6 @@ function mapExecutionContextToField(
   return "autonomous";
 }
 
-function resolveExecutionContextThreshold(
-  executionContext: ExecutionContext,
-  globalThresholds: GlobalThresholds,
-): string {
-  return globalThresholds[mapExecutionContextToField(executionContext)];
-}
-
 function isValidThreshold(value: string): value is Threshold {
   return (
     value === "none" ||
@@ -144,7 +137,8 @@ export async function getAutoApproveThreshold(
   // Fetch global thresholds (with 30s cache)
   try {
     const global = await fetchGlobalThresholds();
-    const value = resolveExecutionContextThreshold(ctx, global);
+    const field = mapExecutionContextToField(ctx);
+    const value = global[field];
     if (isValidThreshold(value)) {
       return value;
     }

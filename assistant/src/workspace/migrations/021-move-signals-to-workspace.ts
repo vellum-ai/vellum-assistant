@@ -1,7 +1,7 @@
 /**
  * Workspace migration 021: Move signals directory from root to workspace.
  *
- * Previously, `~/.vellum/signals/` lived directly under getRootDir(). This
+ * Previously, `~/.vellum/signals/` lived directly under the Vellum root. This
  * migration moves any existing signal files into `~/.vellum/workspace/signals/`
  * so that getSignalsDir() resolves correctly under the workspace.
  *
@@ -13,23 +13,17 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
+import { getVellumRoot } from "./utils.js";
 
 export const moveSignalsToWorkspaceMigration: WorkspaceMigration = {
   id: "021-move-signals-to-workspace",
   description: "Move signals directory from root to workspace",
 
   run(workspaceDir: string): void {
-    const oldSignalsDir = join(getRootDir(), "signals");
+    const oldSignalsDir = join(getVellumRoot(), "signals");
     const newSignalsDir = join(workspaceDir, "signals");
 
     mkdirSync(newSignalsDir, { recursive: true });
@@ -56,7 +50,7 @@ export const moveSignalsToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const oldSignalsDir = join(getRootDir(), "signals");
+    const oldSignalsDir = join(getVellumRoot(), "signals");
     const newSignalsDir = join(workspaceDir, "signals");
 
     mkdirSync(oldSignalsDir, { recursive: true });

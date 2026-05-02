@@ -58,7 +58,7 @@ jobs:
             fi
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
-            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             if [ -z "$LATEST_TAG" ]; then
               LATEST_TAG="v0.0.0"
             fi
@@ -89,23 +89,24 @@ jobs:
 
       - name: Compute final version
         id: finalize
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            # Use the number of times this workflow has run on this branch
-            # as the prerelease suffix — monotonically increasing and scoped
-            # to the branch (e.g. v0.6.0-staging.3 for the 3rd run).
-            WORKFLOW_FILE="release.yml"
-            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count' || true)
-            if [ -z "$RUN_COUNT" ] || ! [ "$RUN_COUNT" -ge 1 ] 2>/dev/null; then
-              echo "::warning::Failed to query workflow run count (got '${RUN_COUNT}'), falling back to 1"
-              RUN_COUNT=1
-            fi
-            VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
-            echo "Staging prerelease version: $VERSION"
+            # Derive the next staging suffix from existing git tags so the
+            # postfix monotonically increases per base version regardless of
+            # how many total workflow runs exist on the branch.
+            git fetch --tags --quiet
+            MAX_SUFFIX=0
+            for tag in $(git tag -l "v${BASE_VERSION}-staging.*"); do
+              SUFFIX="${tag##*staging.}"
+              if [ "$SUFFIX" -gt "$MAX_SUFFIX" ] 2>/dev/null; then
+                MAX_SUFFIX="$SUFFIX"
+              fi
+            done
+            NEXT_SUFFIX=$((MAX_SUFFIX + 1))
+            VERSION="${BASE_VERSION}-staging.${NEXT_SUFFIX}"
+            echo "Staging prerelease version: $VERSION (previous max suffix: $MAX_SUFFIX)"
             echo 'docker_environment=staging' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
@@ -122,7 +123,7 @@ jobs:
           # Exclude the current version's tag so retries after tagging still
           # detect minor/major bumps correctly.
           # If no prior tag exists (first release), always build.
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
 
           # Force a build on minor/major version bumps so the CWS listing
           # stays in sync even when the extension code itself hasn't changed.
@@ -314,16 +315,7 @@ jobs:
         id: read-extension-id
         run: echo "id=$(jq -r '.production.extensionId' clients/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Download extension CRX
-        id: download-crx
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
-        with:
-          name: chrome-extension-crx
-          path: /tmp/chrome-extension
-
-      - name: Download extension zip (fallback)
-        if: steps.download-crx.outcome != 'success'
+      - name: Download extension zip
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: chrome-extension-zip
@@ -339,8 +331,8 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
         run: |
-          # Prefer signed CRX if available, fall back to zip
-          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx 2>/dev/null || ls /tmp/chrome-extension/*.zip)
+          # CWS API requires a zip — it handles signing server-side
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.zip)
           echo "Uploading: $UPLOAD_FILE"
           chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
@@ -1067,8 +1059,17 @@ jobs:
     timeout-minutes: 5
     environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Compute migration ceilings
         id: migration-ceilings
@@ -1242,6 +1243,14 @@ jobs:
           echo "## Release Registered (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Tag staging release
+        if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+          echo "Tagged staging release: v${VERSION}"
 
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
