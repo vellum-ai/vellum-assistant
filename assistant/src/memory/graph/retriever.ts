@@ -14,6 +14,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { embedWithRetry } from "../embed.js";
 import {
   generateSparseEmbedding,
@@ -425,6 +426,33 @@ export interface ContextLoadResult {
 export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
+  // v2 owns the read path when both gates are on. The v1 collection is in
+  // active retirement and querying it can OOM-crash Qdrant via a corrupted
+  // sparse segment, so we skip the embedding work and downstream searches
+  // entirely. Caller (`runContextLoad`) sees zero nodes and routes to the
+  // v2 activation pipeline.
+  if (isMemoryV2ReadActive(opts.config)) {
+    return {
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: 0,
+      metrics: {
+        semanticHits: 0,
+        mergedCount: 0,
+        selectedCount: 0,
+        tier1Count: 0,
+        tier2Count: 0,
+        hybridSearchLatencyMs: 0,
+        sparseVectorUsed: false,
+        embeddingProvider: null,
+        embeddingModel: null,
+        queryContext: null,
+        topCandidates: [],
+      },
+    };
+  }
+
   const start = Date.now();
   const ctxLoadCfg = opts.config.memory.retrieval.injection.contextLoad;
   const maxNodes = opts.maxNodes ?? ctxLoadCfg.maxNodes;

@@ -25,6 +25,7 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
+import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   embedWithBackend,
@@ -49,11 +50,7 @@ import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("memory-item-routes");
@@ -179,6 +176,11 @@ async function searchNodesSemantic(
 ): Promise<{ ids: string[]; total: number } | null> {
   try {
     const config = getConfig();
+    // v2 owns the read path when both gates are on. Fall back to SQL search
+    // (the caller's `null` branch) instead of querying the v1 collection,
+    // which is in active retirement and a corrupted sparse segment can
+    // OOM-crash the shared Qdrant process.
+    if (isMemoryV2ReadActive(config)) return null;
     const backendStatus = await getMemoryBackendStatus(config);
     if (!backendStatus.provider) return null;
 
@@ -249,9 +251,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
       | "told-by-other",
     narrativeRole: row.narrativeRole as MemoryNode["narrativeRole"],
     partOfStory: row.partOfStory,
-    imageRefs: row.imageRefs
-      ? (JSON.parse(row.imageRefs) as ImageRef[])
-      : null,
+    imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
     scopeId: row.scopeId ?? "default",
   };
 }
@@ -555,8 +555,7 @@ async function handleUpdateMemoryItem(
   // Rebuild content if subject or statement changed
   const { subject: existingSubject, statement: existingStatement } =
     splitContent(existing.content);
-  const newSubject =
-    subject !== undefined ? subject.trim() : existingSubject;
+  const newSubject = subject !== undefined ? subject.trim() : existingSubject;
   const newStatement =
     statement !== undefined ? statement.trim() : existingStatement;
 
@@ -702,8 +701,7 @@ export const ROUTES: RouteDefinition[] = [
       items: z.array(z.unknown()).describe("Memory item objects"),
       total: z.number(),
     }),
-    handler: ({ queryParams }) =>
-      handleListMemoryItems(queryParams ?? {}),
+    handler: ({ queryParams }) => handleListMemoryItems(queryParams ?? {}),
   },
 
   {
