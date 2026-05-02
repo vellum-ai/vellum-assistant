@@ -1327,10 +1327,37 @@ async function promoteLegacyStagedFiles(
 ): Promise<void> {
   for (const entry of staged) {
     // Backup before overwrite, matching commitImport.
+    //
+    // Use lstat (not existsSync) to detect a pre-existing entry: existsSync
+    // follows symlinks, so a dangling pre-existing symlink at livePath would
+    // report `false` and we'd skip the backup before later atomically
+    // replacing it via rename.
+    let preExisting: boolean;
+    try {
+      await lstat(entry.livePath);
+      preExisting = true;
+    } catch (err) {
+      if (isENOENT(err)) {
+        preExisting = false;
+      } else {
+        throw err;
+      }
+    }
+
     let backupPath: string | null = null;
-    if (existsSync(entry.livePath)) {
+    if (preExisting) {
       backupPath = generateBackupPath(entry.livePath);
-      await copyFile(entry.livePath, backupPath);
+      // copyFile follows symlinks and copies the resolved file's content, so
+      // backing up a pre-existing symlink with copyFile would lose the
+      // symlink shape. Recreate the link via readlink + symlink instead;
+      // fall back to copyFile for regular files.
+      const liveStat = await lstat(entry.livePath);
+      if (liveStat.isSymbolicLink()) {
+        const target = await readlink(entry.livePath);
+        await symlink(target, backupPath);
+      } else {
+        await copyFile(entry.livePath, backupPath);
+      }
     }
 
     await mkdir(dirname(entry.livePath), { recursive: true });
@@ -1364,6 +1391,11 @@ async function promoteLegacyStagedFiles(
         const srcStat = await lstat(entry.tempPath);
         if (srcStat.isSymbolicLink()) {
           const target = await readlink(entry.tempPath);
+          // Unlike rename (which atomically overwrites), fs.promises.symlink
+          // fails with EEXIST if the destination already exists. Remove any
+          // pre-existing entry at livePath first — the backup above
+          // preserved its contents.
+          await rm(entry.livePath, { force: true });
           await symlink(target, entry.livePath);
         } else {
           await copyFile(entry.tempPath, entry.livePath);
