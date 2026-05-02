@@ -32,7 +32,7 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
-import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-guard.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
