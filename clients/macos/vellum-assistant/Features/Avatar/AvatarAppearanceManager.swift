@@ -104,12 +104,10 @@ final class AvatarAppearanceManager {
     @ObservationIgnored private var identityLoadTask: Task<Void, Never>?
 
     func start() {
-        // Pre-load the bundle icon on a background thread so the
-        // dispatch_once doesn't block the main thread if updateDockIcon()
-        // falls through to restoreBundleIcon() during resetForDisconnect,
-        // clearCustomAvatar, or an authoritative 404 response.
-        // NSWorkspace.icon(forFile:) is documented as thread-safe.
-        // Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+        // Warm `bundledAppIcon` off the main thread so a later main-thread
+        // read in `restoreBundleIcon()` (resetForDisconnect, clearCustomAvatar,
+        // or 404 fall-through in updateDockIcon) doesn't pay the
+        // NSWorkspace.icon(forFile:) cost on the main thread.
         Task.detached { _ = Self.bundledAppIcon }
 
         identityLoadTask = Task {
@@ -558,12 +556,13 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// `nonisolated` so `start()` can warm the lazy initializer from a
-    /// `Task.detached`. The enclosing class is `@MainActor`, which would
-    /// otherwise main-actor-isolate this static and force the detached task
-    /// to hop to the main actor — defeating the prefetch. `NSImage` is
-    /// `Sendable` as of Swift 6.2 (Xcode 26.0), so plain `nonisolated`
-    /// suffices and `(unsafe)` is not required.
+    /// Marked `nonisolated` to opt this static out of the enclosing
+    /// `@MainActor` isolation so the background prefetch in `start()` can
+    /// trigger the lazy initializer off the main thread without crossing
+    /// an actor boundary. The initializer is safe to run on any thread:
+    /// `NSWorkspace.icon(forFile:)` is documented thread-safe, and the
+    /// resulting `NSImage` is treated as a single immutable value for the
+    /// life of the process.
     ///
     /// References:
     /// - https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
