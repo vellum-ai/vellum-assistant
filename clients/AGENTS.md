@@ -607,6 +607,17 @@ If the team adopts Xcode as the primary development environment and begins using
 
 ---
 
+## Daemon Event Recovery (Turn State)
+
+The daemon communicates turn lifecycle through SSE events on a single stream with no replay or delivery guarantee. Any event can be lost during stream gaps, reconnects, or internal filtering. **Every turn-state phase that disables an existing recovery mechanism must have its own equivalent recovery path.**
+
+- **`assistantActivityState("idle")` is the authoritative turn-completion signal.** When the daemon reports idle, the handler must clear all turn-progress indicators (`isSending`, `isThinking`, `isCompacting`, tool call spinners) — not just one flag.
+- **Watchdog parity.** If a new activity phase (e.g., "thinking") disables an existing watchdog (e.g., setting `isSending = false` to prevent the 60s watchdog from killing extended thinking), add an equivalent watchdog for the new phase.
+- **Preserve `currentAssistantMessageId` for `messageComplete`.** The daemon emits `idle` immediately before `messageComplete` on the same stream. Don't clear `currentAssistantMessageId` in the idle handler — use a short fallback timer that fires only if `messageComplete` never arrives.
+- **Cancel fallback timers in all state-reset paths.** Any deferred cleanup task (idle fallback, watchdog) must be cancelled in `handleTransportReconnect`, `startMessageLoop` error handler, `populateFromHistory`, and `handleMessageComplete` — anywhere that clears `currentAssistantMessageId` outside the normal idle → messageComplete flow.
+
+---
+
 ## Networking: GatewayHTTPClient
 
 All HTTP API calls go through `GatewayHTTPClient` (a stateless enum with static async methods).
