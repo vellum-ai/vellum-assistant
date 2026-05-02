@@ -50,6 +50,37 @@ function cloneDefaultConfig(): AssistantConfig {
 }
 
 /**
+ * Returns deployment-context-aware config defaults that override schema
+ * defaults for platform-managed assistants. Only applied when initializing
+ * a fresh config (config.json does not yet exist).
+ *
+ * IS_PLATFORM is set by the Vellum platform launcher for all hosted
+ * assistant deployments. Local, Docker, and bare-metal assistants are
+ * unaffected.
+ */
+function getDeploymentContextDefaults(): Record<string, unknown> {
+  if (
+    process.env.IS_PLATFORM !== "true" &&
+    process.env.IS_PLATFORM !== "1"
+  ) {
+    return {};
+  }
+  const managed = { mode: "managed" as const };
+  return {
+    services: {
+      inference: managed,
+      "image-generation": managed,
+      "web-search": managed,
+      "google-oauth": managed,
+      "outlook-oauth": managed,
+      "linear-oauth": managed,
+      "github-oauth": managed,
+      "notion-oauth": managed,
+    },
+  };
+}
+
+/**
  * Build a filesystem-safe ISO-8601 timestamp for use in quarantine filenames.
  * Replaces `:` (invalid on Windows, confusing on macOS Finder) with `-` so the
  * resulting string is safe on every supported platform.
@@ -600,6 +631,17 @@ export function loadConfig(): AssistantConfig {
       const { dataDir: _, ...persistable } = config;
 
       if (!configFileExisted) {
+        // Layer deployment context defaults on top of schema defaults.
+        // These are overrides the daemon derives from its environment (e.g.
+        // IS_PLATFORM → all service modes = "managed"). Schema defaults
+        // remain the fallback for non-platform deployments.
+        const contextDefaults = getDeploymentContextDefaults();
+        if (Object.keys(contextDefaults).length > 0) {
+          deepMergeOverwrite(
+            persistable as Record<string, unknown>,
+            contextDefaults,
+          );
+        }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } else {
