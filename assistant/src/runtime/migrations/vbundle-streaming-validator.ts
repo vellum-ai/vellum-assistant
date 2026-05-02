@@ -254,6 +254,20 @@ export function verifySymlinkEntry(input: {
     );
   }
 
+  // Reject manifest-declared size_bytes != 0 for symlink entries. The buffered
+  // validator catches this via FILE_SIZE_MISMATCH; without this guard a
+  // crafted bundle could declare `link_target` plus `size_bytes: 100` and the
+  // streaming side would accept (header.size is independent of the manifest's
+  // size_bytes).
+  if (expectedEntry.size !== 0) {
+    entry.body.resume();
+    throw new StreamingValidationError(
+      "entry_size",
+      `Symlink ${archivePath} has non-zero manifest-declared size ${expectedEntry.size} (expected 0)`,
+      archivePath,
+    );
+  }
+
   if (expectedEntry.linkTarget == null) {
     entry.body.resume();
     throw new StreamingValidationError(
