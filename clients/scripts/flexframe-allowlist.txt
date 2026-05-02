@@ -36,10 +36,6 @@ clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(max
 clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity)
-clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(minHeight: 32)
-clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(minHeight: 32)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: .infinity, alignment: .trailing)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
@@ -102,7 +98,6 @@ clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift|.frame(m
 clients/macos/vellum-assistant/Features/Chat/PlatformURLMismatchView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/Chat/PlatformURLMismatchView.swift|.frame(maxWidth: 380)
 clients/macos/vellum-assistant/Features/Chat/QueuedMessageRow.swift|.frame(maxWidth: .infinity, alignment: .leading)
-clients/macos/vellum-assistant/Features/Chat/RecoveryModeBanner.swift|.frame(maxWidth: .infinity, alignment: .leading)
 clients/macos/vellum-assistant/Features/Chat/ScrollDebugOverlayView.swift|.frame(minWidth: 80, alignment: .leading)
 clients/macos/vellum-assistant/Features/Home/DetailPanel/HomeEmailEditor.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 clients/macos/vellum-assistant/Features/Home/HomeFeedGroupHeader.swift|.frame(maxWidth: .infinity, alignment: .leading)
