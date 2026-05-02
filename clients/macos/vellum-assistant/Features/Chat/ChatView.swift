@@ -529,8 +529,16 @@ struct ChatView: View {
         )
     }
 
-    /// Centers chat chrome to the same fixed transcript width using _FrameLayout
-    /// rather than nested max-width flex frames.
+    /// Centers chat chrome at the chat-column width using `FixedWidthLayout`.
+    ///
+    /// `FixedWidthLayout` returns `nil` from `explicitAlignment` and places its
+    /// child via a `UnitPoint` anchor rather than alignment guides, so it acts
+    /// as a barrier to parent-initiated alignment queries on the subtree. The
+    /// inner `HStack { Spacer; content; Spacer }` reproduces the horizontal
+    /// `.center` positioning that `.frame(width:)` applied to non-filling
+    /// content; flexible content (anything with `.frame(maxWidth: .infinity)`
+    /// or an internal `Spacer`) collapses the inner spacers to zero and
+    /// occupies the full column width.
     @ViewBuilder
     private func centeredChatColumn<Content: View>(
         width: CGFloat,
@@ -538,8 +546,12 @@ struct ChatView: View {
     ) -> some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            content()
-                .frame(width: width)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                content()
+                Spacer(minLength: 0)
+            }
+            .fixedWidth(width)
             Spacer(minLength: 0)
         }
     }
