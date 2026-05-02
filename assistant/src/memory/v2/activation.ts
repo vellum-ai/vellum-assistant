@@ -459,7 +459,16 @@ export async function selectSkillCandidates(
   const denseResult = await embedWithBackend(config, [annQueryText]);
   const dense = denseResult.vectors[0];
   const sparse = generateSparseEmbedding(annQueryText);
-  const hits = await hybridQuerySkills(dense, sparse, topK);
+  // Candidate pool size is intentionally decoupled from `topK` (the
+  // post-scoring injection cap). Driving the Qdrant limit by `topK`
+  // would cap the scored set at ~10 skills per turn, dropping literal
+  // name matches that rank outside the top-5 per channel — see the
+  // concept-page pipeline (`selectCandidates`) for the equivalent
+  // separation.
+  const limit =
+    config.memory.v2.ann_candidate_limit_skills ??
+    UNLIMITED_ANN_CANDIDATE_LIMIT;
+  const hits = await hybridQuerySkills(dense, sparse, limit);
   for (const hit of hits) candidates.add(hit.id);
 
   return candidates;

@@ -194,6 +194,7 @@ function makeConfig(
     dense_weight: number;
     sparse_weight: number;
     ann_candidate_limit: number | null;
+    ann_candidate_limit_skills: number | null;
   }> = {},
 ): AssistantConfig {
   return {
@@ -207,6 +208,7 @@ function makeConfig(
         dense_weight: 1.0,
         sparse_weight: 0.0,
         ann_candidate_limit: null,
+        ann_candidate_limit_skills: null,
         ...overrides,
       },
     },
@@ -957,7 +959,7 @@ describe("selectSkillCandidates", () => {
     expect(state.queryCalls).toHaveLength(0);
   });
 
-  test("forwards topK and queries the skills collection unrestricted", async () => {
+  test("default config queries the skills collection with the unlimited limit (decoupled from topK)", async () => {
     stageSkillHybridResponse([
       { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
     ]);
@@ -968,13 +970,34 @@ describe("selectSkillCandidates", () => {
       config: makeConfig(),
       topK: 7,
     });
-    // Both channels (dense + sparse) ran with limit=7 and no slug/id filter,
-    // against the dedicated skills collection.
+    // Both channels (dense + sparse) ran with the unlimited sentinel and no
+    // id filter, against the dedicated skills collection. The pre-scoring
+    // candidate pool is intentionally decoupled from `topK` (the post-
+    // scoring injection cap) so literal-name matches that rank outside the
+    // top-K-per-channel still get scored.
     expect(state.queryCalls).toHaveLength(2);
     for (const call of state.queryCalls) {
       expect(call.collection).toBe("memory_v2_skills");
-      expect(call.limit).toBe(7);
+      expect(call.limit).toBe(1_000_000);
       expect(call.filter).toBeUndefined();
+    }
+  });
+
+  test("honors `config.memory.v2.ann_candidate_limit_skills`", async () => {
+    stageSkillHybridResponse([
+      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
+    ]);
+    await selectSkillCandidates({
+      userText: "hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig({ ann_candidate_limit_skills: 25 }),
+      topK: 7,
+    });
+    expect(state.queryCalls).toHaveLength(2);
+    for (const call of state.queryCalls) {
+      expect(call.collection).toBe("memory_v2_skills");
+      expect(call.limit).toBe(25);
     }
   });
 
