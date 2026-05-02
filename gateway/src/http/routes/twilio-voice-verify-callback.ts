@@ -19,6 +19,7 @@ import { getLogger } from "../../logger.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
+  resolvePublicBaseWssUrl,
 } from "../../runtime/client.js";
 import {
   validateTwilioWebhookRequest,
@@ -76,7 +77,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
         { callSid, fromNumber },
         "No pending verification session found on callback — forwarding to assistant",
       );
-      return forwardToAssistant(config, params, req.url);
+      return forwardToAssistant(config, params, req.url, caches);
     }
 
     if (!digits) {
@@ -207,7 +208,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
       { callSid, fromNumber },
       "Voice verification complete — forwarding to assistant for call setup",
     );
-    return forwardToAssistant(config, params, req.url);
+    return forwardToAssistant(config, params, req.url, caches);
   };
 }
 
@@ -274,12 +275,14 @@ async function forwardToAssistant(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
+  caches?: TwilioValidationCaches,
 ): Promise<Response> {
   try {
     const runtimeResponse = await forwardTwilioVoiceWebhook(
       config,
       params,
       originalUrl,
+      resolvePublicBaseWssUrl(caches?.configFile),
     );
     return new Response(runtimeResponse.body, {
       status: runtimeResponse.status,

@@ -21,11 +21,13 @@
  *   server-side.
  */
 
-import { loadConfig } from "../config/loader.js";
 import {
-  getTwilioMediaStreamUrl,
-  getTwilioRelayUrl,
-} from "../inbound/public-ingress-urls.js";
+  buildTwilioMediaStreamUrl,
+  buildTwilioRelayUrl,
+  TWILIO_PUBLIC_BASE_URL_PLACEHOLDER,
+} from "@vellumai/service-contracts/twilio-ingress";
+
+import { loadConfig } from "../config/loader.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   BadRequestError,
@@ -444,7 +446,6 @@ function buildVoiceWebhookTwiml(
     // calls don't fail entirely on a misconfigured provider.
     return buildConversationRelayTwiml(
       callSessionId,
-      cfg,
       profile,
       sessionContext,
       verificationSessionId,
@@ -457,7 +458,6 @@ function buildVoiceWebhookTwiml(
   if (strategy.strategy === "conversation-relay-native") {
     return buildConversationRelayTwiml(
       callSessionId,
-      cfg,
       profile,
       sessionContext,
       verificationSessionId,
@@ -500,7 +500,6 @@ function buildVoiceWebhookTwiml(
     // through the relay server which supports it natively.
     return buildConversationRelayTwiml(
       callSessionId,
-      cfg,
       profile,
       sessionContext,
       verificationSessionId,
@@ -508,7 +507,7 @@ function buildVoiceWebhookTwiml(
     );
   }
 
-  return buildMediaStreamTwiml(callSessionId, cfg, verificationSessionId);
+  return buildMediaStreamTwiml(callSessionId, verificationSessionId);
 }
 
 /**
@@ -516,7 +515,6 @@ function buildVoiceWebhookTwiml(
  */
 function buildConversationRelayTwiml(
   callSessionId: string,
-  cfg: ReturnType<typeof loadConfig>,
   profile: ReturnType<typeof resolveVoiceQualityProfile>,
   sessionContext: {
     task: string | null;
@@ -538,7 +536,7 @@ function buildConversationRelayTwiml(
     interruptSensitivity: profile.interruptSensitivity,
   };
 
-  const relayUrl = getTwilioRelayUrl(cfg);
+  const relayUrl = buildTwilioRelayUrl(TWILIO_PUBLIC_BASE_URL_PLACEHOLDER);
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
   const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
@@ -572,10 +570,11 @@ function buildConversationRelayTwiml(
  */
 function buildMediaStreamTwiml(
   callSessionId: string,
-  cfg: ReturnType<typeof loadConfig>,
   verificationSessionId: string | null | undefined,
 ): string {
-  const streamUrl = getTwilioMediaStreamUrl(cfg);
+  const streamUrl = buildTwilioMediaStreamUrl(
+    TWILIO_PUBLIC_BASE_URL_PLACEHOLDER,
+  );
   const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
   const customParameters: Record<string, string> | undefined =
