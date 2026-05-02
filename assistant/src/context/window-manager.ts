@@ -22,8 +22,7 @@ import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 const log = getLogger("context-window");
 
 export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
-export const CONVERSATION_SUMMARY_CALL_SITE: LLMCallSite =
-  "conversationSummarization";
+const CONVERSATION_SUMMARY_CALL_SITE: LLMCallSite = "conversationSummarization";
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;

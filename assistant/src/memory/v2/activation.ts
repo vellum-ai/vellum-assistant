@@ -55,7 +55,7 @@ const UNLIMITED_ANN_CANDIDATE_LIMIT = Number.MAX_SAFE_INTEGER;
 // Candidate selection
 // ---------------------------------------------------------------------------
 
-export interface SelectCandidatesParams {
+interface SelectCandidatesParams {
   /**
    * Prior-turn activation snapshot. Slugs with activation strictly greater
    * than `config.memory.v2.epsilon` are carried forward as candidates so the
@@ -71,7 +71,7 @@ export interface SelectCandidatesParams {
   config: AssistantConfig;
 }
 
-export interface SelectCandidatesResult {
+interface SelectCandidatesResult {
   /** Union of `fromPrior` and `fromAnn` — the per-turn candidate set. */
   candidates: Set<string>;
   /** Slugs carried forward from `priorState` because their activation > epsilon. */
@@ -135,7 +135,7 @@ export async function selectCandidates(
 // Own activation
 // ---------------------------------------------------------------------------
 
-export interface ComputeOwnActivationParams {
+interface ComputeOwnActivationParams {
   candidates: ReadonlySet<string>;
   priorState: ActivationState | null;
   userText: string;
@@ -149,7 +149,7 @@ export interface ComputeOwnActivationParams {
  * coefficient weighting is applied. Surfaced for telemetry / inspector views
  * so the UI can show how each term contributed to the final value.
  */
-export interface OwnActivationBreakdown {
+interface OwnActivationBreakdown {
   /** `d * prev(slug)` — the decayed prior-turn activation contribution. */
   priorContribution: number;
   /** Raw `sim(user, slug)` similarity, before `c_user` weighting. */
@@ -160,7 +160,7 @@ export interface OwnActivationBreakdown {
   simNow: number;
 }
 
-export interface ComputeOwnActivationResult {
+interface ComputeOwnActivationResult {
   /** Final clamped own-activation value per slug. */
   activation: Map<string, number>;
   /** Per-slug breakdown of the inputs that fed into `activation`. */
@@ -220,7 +220,7 @@ export async function computeOwnActivation(
 // Spreading activation
 // ---------------------------------------------------------------------------
 
-export interface SpreadActivationResult {
+interface SpreadActivationResult {
   /** Final activation value per slug after spreading. */
   final: Map<string, number>;
   /**
@@ -356,7 +356,7 @@ function bfsPredecessorDistances(
 // Injection selection
 // ---------------------------------------------------------------------------
 
-export interface SelectInjectionsParams {
+interface SelectInjectionsParams {
   /** Final activation map after spread. */
   A: ReadonlyMap<string, number>;
   /** Slugs already attached to a prior user message (with their turn). */
@@ -365,7 +365,7 @@ export interface SelectInjectionsParams {
   topK: number;
 }
 
-export interface SelectInjectionsResult {
+interface SelectInjectionsResult {
   /** Top-K slugs by activation (descending), used for the cached top-now view. */
   topNow: string[];
   /**
@@ -417,7 +417,7 @@ export function selectInjections(
 // c_assistant, c_now}` — the design doc (§9) deliberately shares them with
 // concept-page activation rather than introducing parallel knobs.
 
-export interface SelectSkillCandidatesParams {
+interface SelectSkillCandidatesParams {
   userText: string;
   assistantText: string;
   nowText: string;
@@ -457,7 +457,7 @@ export async function selectSkillCandidates(
   return candidates;
 }
 
-export interface ComputeSkillActivationParams {
+interface ComputeSkillActivationParams {
   candidates: ReadonlySet<string>;
   userText: string;
   assistantText: string;
@@ -470,7 +470,7 @@ export interface ComputeSkillActivationParams {
  * coefficient weighting. Skills have no decay term, so the breakdown is just
  * the three raw sims. Surfaced for telemetry / inspector views.
  */
-export interface SkillActivationBreakdown {
+interface SkillActivationBreakdown {
   /** Raw `sim(user, skill)` similarity, before `c_user` weighting. */
   simUser: number;
   /** Raw `sim(assistant, skill)` similarity, before `c_assistant` weighting. */
@@ -479,7 +479,7 @@ export interface SkillActivationBreakdown {
   simNow: number;
 }
 
-export interface ComputeSkillActivationResult {
+interface ComputeSkillActivationResult {
   /** Final clamped skill-activation value per id. */
   activation: Map<string, number>;
   /** Per-skill breakdown of the raw sim inputs that fed into `activation`. */
@@ -529,14 +529,14 @@ export async function computeSkillActivation(
   return { activation, breakdown };
 }
 
-export interface SelectSkillInjectionsParams {
+interface SelectSkillInjectionsParams {
   /** Final skill activation map. */
   A: ReadonlyMap<string, number>;
   /** Cap on the per-turn skill slate, e.g. `config.memory.v2.skills_top_k`. */
   topK: number;
 }
 
-export interface SelectSkillInjectionsResult {
+interface SelectSkillInjectionsResult {
   /**
    * Top-K skill ids by activation (descending), tie-broken lexicographically.
    * Skills are re-presented every turn — no `toInject` delta — so the caller

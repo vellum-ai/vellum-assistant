@@ -43,9 +43,7 @@ export interface ConnectionAccessTokenResult {
  * providers (e.g. credential-health checks) must resolve the path through here
  * rather than assuming the OAuth access-token path.
  */
-export function manualTokenAccessCredentialKey(
-  provider: string,
-): string | null {
+function manualTokenAccessCredentialKey(provider: string): string | null {
   switch (provider) {
     case "slack_channel":
       return credentialKey("slack_channel", "bot_token");
