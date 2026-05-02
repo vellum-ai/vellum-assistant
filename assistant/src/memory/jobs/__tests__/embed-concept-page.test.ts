@@ -103,6 +103,9 @@ mock.module("../../v2/qdrant.js", () => ({
   deleteConceptPageEmbedding: async (slug: string) => {
     deleteCalls.push(slug);
   },
+  // Other exports from the real module — stubbed so transitive imports
+  // don't crash on missing names when the mock replaces the module wholesale.
+  hybridQueryConceptPages: async () => [],
 }));
 
 // ── Workspace setup ────────────────────────────────────────────────
