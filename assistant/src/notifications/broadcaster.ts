@@ -211,7 +211,7 @@ export class NotificationBroadcaster {
       );
 
       // For the vellum channel, merge the conversationId into deep-link metadata
-      // so the macOS/iOS client can navigate directly to the notification conversation.
+      // so the macOS client can navigate directly to the notification conversation.
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === "vellum" && pairing.conversationId) {
         deepLinkTarget = {

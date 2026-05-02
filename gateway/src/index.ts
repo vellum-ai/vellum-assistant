@@ -67,8 +67,6 @@ import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
-import { createPairingHandler } from "./pairing/pairing-routes.js";
-import { PairingStore } from "./pairing/pairing-store.js";
 import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
@@ -373,9 +371,6 @@ async function main() {
     credentialCache,
   );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
-  const pairingStore = new PairingStore();
-  pairingStore.start();
-  const pairingHandler = createPairingHandler({ pairingStore });
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
@@ -516,28 +511,6 @@ async function main() {
       auth: "track-failures",
       trackFailureStatuses: [400],
       handler: (req) => handleOAuthCallback(req),
-    },
-
-    // ── Pairing (mixed auth) ──
-    {
-      path: "/pairing/register",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => pairingHandler.handlePairingRegister(req),
-    },
-    {
-      path: "/pairing/request",
-      method: "POST",
-      auth: "track-failures",
-      trackFailureStatuses: [401, 403],
-      handler: (req) => pairingHandler.handlePairingRequest(req),
-    },
-    {
-      path: "/pairing/status",
-      method: "GET",
-      auth: "track-failures",
-      trackFailureStatuses: [401, 403],
-      handler: (req) => pairingHandler.handlePairingStatus(req),
     },
 
     // ── Runtime health ──
@@ -712,8 +685,6 @@ async function main() {
       auth: "none",
       handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
     },
-
-
 
     // ── Channel verification sessions ──
     {
@@ -1361,8 +1332,7 @@ async function main() {
         return stampVersion(
           Response.json(
             {
-              error:
-                "Service temporarily unavailable — runtime is unreachable",
+              error: "Service temporarily unavailable — runtime is unreachable",
             },
             {
               status: 503,
@@ -1389,186 +1359,186 @@ async function main() {
     req: Request,
     svr: ReturnType<typeof Bun.serve>,
   ): Promise<Response | undefined> {
-      const url = new URL(req.url);
+    const url = new URL(req.url);
 
-      // ── CORS: webview preflight & origin tracking ──
-      // The macOS WKWebView loads pages from https://{appId}.vellum.local/
-      // which is cross-origin to the gateway at http://127.0.0.1:{port}.
-      // Reflect the origin back on matched requests so window.vellum.fetch
-      // calls succeed.
-      const webviewOrigin = resolveWebviewOrigin(req);
-      if (webviewOrigin && req.method === "OPTIONS") {
-        return handlePreflight(webviewOrigin);
-      }
+    // ── CORS: webview preflight & origin tracking ──
+    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+    // Reflect the origin back on matched requests so window.vellum.fetch
+    // calls succeed.
+    const webviewOrigin = resolveWebviewOrigin(req);
+    if (webviewOrigin && req.method === "OPTIONS") {
+      return handlePreflight(webviewOrigin);
+    }
 
-      // ── Pre-router: health/readiness probes ──
-      // These bypass rate limiting and tracing for minimal overhead.
-      if (url.pathname === "/healthz") {
-        const includeMigrations =
-          url.searchParams.get("include") === "migrations";
-        if (!includeMigrations) {
-          return Response.json({ status: "ok" });
-        }
-        // Fetch the daemon's /v1/health to surface migration state
-        // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
-        // pre-upgrade migration state through the gateway.
-        try {
-          const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/v1/health`,
-            {
-              signal: AbortSignal.timeout(3000),
-              headers: { authorization: `Bearer ${mintServiceToken()}` },
-            },
-          );
-          if (upstream.ok) {
-            const body = (await upstream.json()) as {
-              migrations?: {
-                dbVersion?: number;
-                lastWorkspaceMigrationId?: string;
-              };
-            };
-            return Response.json({
-              status: "ok",
-              ...(body.migrations ? { migrations: body.migrations } : {}),
-            });
-          }
-        } catch {
-          // Daemon unreachable — graceful degradation, still return ok
-        }
+    // ── Pre-router: health/readiness probes ──
+    // These bypass rate limiting and tracing for minimal overhead.
+    if (url.pathname === "/healthz") {
+      const includeMigrations =
+        url.searchParams.get("include") === "migrations";
+      if (!includeMigrations) {
         return Response.json({ status: "ok" });
       }
-
-      if (url.pathname === "/schema") {
-        return Response.json(buildSchema());
-      }
-
-      if (url.pathname === "/readyz") {
-        if (draining) {
-          return Response.json({ status: "draining" }, { status: 503 });
+      // Fetch the daemon's /v1/health to surface migration state
+      // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
+      // pre-upgrade migration state through the gateway.
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/v1/health`,
+          {
+            signal: AbortSignal.timeout(3000),
+            headers: { authorization: `Bearer ${mintServiceToken()}` },
+          },
+        );
+        if (upstream.ok) {
+          const body = (await upstream.json()) as {
+            migrations?: {
+              dbVersion?: number;
+              lastWorkspaceMigrationId?: string;
+            };
+          };
+          return Response.json({
+            status: "ok",
+            ...(body.migrations ? { migrations: body.migrations } : {}),
+          });
         }
-        // Check that the upstream assistant is also reachable so callers
-        // know the full stack is ready, not just the gateway process.
-        try {
-          const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/readyz`,
-            { signal: AbortSignal.timeout(3000) },
-          );
-          if (!upstream.ok) {
-            return Response.json(
-              { status: "upstream_unhealthy", upstream: upstream.status },
-              { status: 503 },
-            );
-          }
-        } catch {
+      } catch {
+        // Daemon unreachable — graceful degradation, still return ok
+      }
+      return Response.json({ status: "ok" });
+    }
+
+    if (url.pathname === "/schema") {
+      return Response.json(buildSchema());
+    }
+
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      // Check that the upstream assistant is also reachable so callers
+      // know the full stack is ready, not just the gateway process.
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/readyz`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        if (!upstream.ok) {
           return Response.json(
-            { status: "upstream_unreachable" },
+            { status: "upstream_unhealthy", upstream: upstream.status },
             { status: 503 },
           );
         }
-        return Response.json({ status: "ok" });
+      } catch {
+        return Response.json(
+          { status: "upstream_unreachable" },
+          { status: 503 },
+        );
       }
+      return Response.json({ status: "ok" });
+    }
 
-      // Per-request IP resolver — scoped to this request so it remains
-      // correct across async yields under concurrent load.
-      const resolveClientIp: GetClientIp = () =>
-        getClientIp(req, svr, config.trustProxy);
+    // Per-request IP resolver — scoped to this request so it remains
+    // correct across async yields under concurrent load.
+    const resolveClientIp: GetClientIp = () =>
+      getClientIp(req, svr, config.trustProxy);
 
-      const rateLimitResponse = checkAuthRateLimit(
-        url,
-        authRateLimiter,
-        resolveClientIp(),
-      );
-      if (rateLimitResponse) {
-        if (webviewOrigin)
-          return withCorsHeaders(rateLimitResponse, webviewOrigin);
-        return rateLimitResponse;
-      }
+    const rateLimitResponse = checkAuthRateLimit(
+      url,
+      authRateLimiter,
+      resolveClientIp(),
+    );
+    if (rateLimitResponse) {
+      if (webviewOrigin)
+        return withCorsHeaders(rateLimitResponse, webviewOrigin);
+      return rateLimitResponse;
+    }
 
-      // ── Pre-router: WebSocket upgrades ──
-      // Bun's WS upgrade needs `server.upgrade()` which doesn't return
-      // a Response, so these can't go through the route table.
-      if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
-        const upgradeResult = handleTwilioRelayWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
+    // ── Pre-router: WebSocket upgrades ──
+    // Bun's WS upgrade needs `server.upgrade()` which doesn't return
+    // a Response, so these can't go through the route table.
+    if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
+      const upgradeResult = handleTwilioRelayWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
 
-      if (
-        url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
-        url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
-      ) {
-        const upgradeResult = handleTwilioMediaWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
+    if (
+      url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
+      url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
+    ) {
+      const upgradeResult = handleTwilioMediaWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
 
-      if (url.pathname === "/v1/browser-relay") {
-        const upgradeResult = handleBrowserRelayWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
+    if (url.pathname === "/v1/browser-relay") {
+      const upgradeResult = handleBrowserRelayWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
 
-      if (url.pathname === "/v1/stt/stream") {
-        const upgradeResult = handleSttStreamWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
+    if (url.pathname === "/v1/stt/stream") {
+      const upgradeResult = handleSttStreamWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
 
-      if (url.pathname === "/v1/live-voice") {
-        const upgradeResult = handleLiveVoiceWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
+    if (url.pathname === "/v1/live-voice") {
+      const upgradeResult = handleLiveVoiceWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
 
-      // Attach a trace ID to every non-healthcheck request for
-      // end-to-end correlation across webhook -> runtime -> reply.
-      if (!req.headers.has("x-trace-id")) {
-        req.headers.set("x-trace-id", generateTraceId());
-      }
+    // Attach a trace ID to every non-healthcheck request for
+    // end-to-end correlation across webhook -> runtime -> reply.
+    if (!req.headers.has("x-trace-id")) {
+      req.headers.set("x-trace-id", generateTraceId());
+    }
 
-      // ── Route table dispatch ──
-      try {
-        const response = router(req, url, resolveClientIp, svr);
-        if (response !== null) {
-          if (webviewOrigin) {
-            const resolved = await response;
-            return withCorsHeaders(resolved, webviewOrigin);
-          }
-          return response;
+    // ── Route table dispatch ──
+    try {
+      const response = router(req, url, resolveClientIp, svr);
+      if (response !== null) {
+        if (webviewOrigin) {
+          const resolved = await response;
+          return withCorsHeaders(resolved, webviewOrigin);
         }
-      } catch (err) {
-        // Mirror the error() handler logic while retaining CORS context.
-        // Bun's error() callback doesn't receive the request, so thrown
-        // errors during webview requests would otherwise lose CORS headers.
-        if (!webviewOrigin) throw err;
-        if (err instanceof CircuitBreakerOpenError) {
-          return withCorsHeaders(
-            Response.json(
-              {
-                error:
-                  "Service temporarily unavailable \u2014 runtime is unreachable",
-              },
-              {
-                status: 503,
-                headers: { "Retry-After": String(err.retryAfterSecs) },
-              },
-            ),
-            webviewOrigin,
-          );
-        }
-        log.error({ err }, "Unhandled gateway error");
+        return response;
+      }
+    } catch (err) {
+      // Mirror the error() handler logic while retaining CORS context.
+      // Bun's error() callback doesn't receive the request, so thrown
+      // errors during webview requests would otherwise lose CORS headers.
+      if (!webviewOrigin) throw err;
+      if (err instanceof CircuitBreakerOpenError) {
         return withCorsHeaders(
-          Response.json({ error: "Internal server error" }, { status: 500 }),
+          Response.json(
+            {
+              error:
+                "Service temporarily unavailable \u2014 runtime is unreachable",
+            },
+            {
+              status: 503,
+              headers: { "Retry-After": String(err.retryAfterSecs) },
+            },
+          ),
           webviewOrigin,
         );
       }
-
-      const notFound = Response.json(
-        { error: "Not found", source: "gateway" },
-        { status: 404 },
+      log.error({ err }, "Unhandled gateway error");
+      return withCorsHeaders(
+        Response.json({ error: "Internal server error" }, { status: 500 }),
+        webviewOrigin,
       );
-      if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
-      return notFound;
+    }
+
+    const notFound = Response.json(
+      { error: "Not found", source: "gateway" },
+      { status: 404 },
+    );
+    if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
+    return notFound;
   }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
@@ -2092,7 +2062,6 @@ async function main() {
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();
-    pairingStore.stop();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;

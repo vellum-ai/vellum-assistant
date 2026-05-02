@@ -84,7 +84,6 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
-| `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
 | `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 

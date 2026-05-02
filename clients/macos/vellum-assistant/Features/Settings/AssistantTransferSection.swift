@@ -381,7 +381,7 @@ struct AssistantTransferSection: View {
     /// Uses the process-local assistant override to route requests to the local
     /// assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(localAssistantId: String) async throws -> String {
-        let deviceId = PairingQRCodeSheet.computeHostId()
+        let deviceId = HostIdComputer.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
         return try await GatewayHTTPClient.withAssistant(localAssistantId) {

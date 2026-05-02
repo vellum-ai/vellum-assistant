@@ -52,7 +52,7 @@ Environments are **namespaces**, not containers. `VELLUM_ENVIRONMENT` selects a 
 
 ### Per-assistant data directories
 
-Every local assistant's daemon root is `<resources.instanceDir>/.vellum/`. The CLI passes per-instance paths to spawned daemons and gateways via explicit environment variables: `VELLUM_WORKSPACE_DIR` (workspace data), `GATEWAY_SECURITY_DIR` (gateway security state), and `CREDENTIAL_SECURITY_DIR` (CES key stores). `assistant/src/util/platform.ts:vellumRoot` resolves the root from `VELLUM_WORKSPACE_DIR` when set, falling back to `join(homedir(), ".vellum")`. All root-level state (PID file, `.env`, `runtime-port`, `protected/` with its encrypted keys, trust rules, credentials, capability token, approved-devices list, etc.) and the workspace directory derive from these helpers.
+Every local assistant's daemon root is `<resources.instanceDir>/.vellum/`. The CLI passes per-instance paths to spawned daemons and gateways via explicit environment variables: `VELLUM_WORKSPACE_DIR` (workspace data), `GATEWAY_SECURITY_DIR` (gateway security state), and `CREDENTIAL_SECURITY_DIR` (CES key stores). `assistant/src/util/platform.ts:vellumRoot` resolves the root from `VELLUM_WORKSPACE_DIR` when set, falling back to `join(homedir(), ".vellum")`. All root-level state (PID file, `.env`, `runtime-port`, `protected/` with its encrypted keys, trust rules, credentials, capability token, etc.) and the workspace directory derive from these helpers.
 
 Allocation of `instanceDir` for new hatches:
 

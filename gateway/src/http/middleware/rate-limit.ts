@@ -47,10 +47,9 @@ export function checkAuthRateLimit(
 }
 
 /**
- * Routes subject to the auth-failure rate limiter: authenticated endpoints,
- * pairing endpoints, and unauthenticated endpoints that forward to the
- * runtime (OAuth callback is publicly reachable and forwards every
- * valid-looking request).
+ * Routes subject to the auth-failure rate limiter: authenticated endpoints
+ * and unauthenticated endpoints that forward to the runtime (OAuth callback
+ * is publicly reachable and forwards every valid-looking request).
  *
  * Excluded: Twilio webhook/relay and browser-relay paths which use their
  * own authentication mechanisms (Twilio signature validation, etc.).
@@ -58,7 +57,6 @@ export function checkAuthRateLimit(
 function isRateLimitedRoute(url: URL): boolean {
   return (
     url.pathname === "/integrations/status" ||
-    url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
     (url.pathname.startsWith("/v1/") && url.pathname !== "/v1/browser-relay")
   );

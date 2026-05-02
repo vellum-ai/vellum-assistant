@@ -29,24 +29,23 @@ This document enumerates every observed communication permutation between the th
 | 17 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration rollback proxy |
 | 18 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Workspace commit proxy |
 | 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Upgrade broadcast proxy |
-| 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Pairing proxy |
-| 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
-| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
-| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
-| 24 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio ConversationRelay WebSocket proxy |
-| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
-| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
-| 28 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 33 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 34 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 35 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
+| 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
+| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
+| 23 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio ConversationRelay WebSocket proxy |
+| 24 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
+| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
+| 27 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 32 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 33 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 34 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -274,18 +273,6 @@ This document enumerates every observed communication permutation between the th
 
 **Caller files:**
 - `gateway/src/http/routes/upgrade-broadcast-proxy.ts`
-
-**Callee files:**
-- `assistant/src/runtime/http-server.ts`
-
-### Pairing proxy
-
-- **Protocol:** `http`
-- **Auth:** JWT Bearer (service token)
-- **Description:** Gateway proxies /v1/pairing/* (register, request, status) to the assistant's pairing endpoints. The gateway ingress is unauthenticated — secured by a pairingSecret in the request body — while the gateway→assistant hop uses a service token.
-
-**Caller files:**
-- `gateway/src/http/routes/pairing-proxy.ts`
 
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
