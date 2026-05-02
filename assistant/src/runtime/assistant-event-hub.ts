@@ -579,9 +579,6 @@ function registerPendingInteraction(
       kind: "secret",
     });
   }
-  // Host proxy interactions (host_bash, host_file, host_cu, host_browser,
-  // host_transfer) self-register in pendingInteractions with full RPC
-  // lifecycle state — no registration needed here.
 }
 
 /**

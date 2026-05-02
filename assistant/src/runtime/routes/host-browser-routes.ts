@@ -11,6 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -58,6 +59,15 @@ export function resolveHostBrowserResultByRequestId(frame: {
       code: "BAD_REQUEST",
       status: 400,
       message: "requestId is required",
+    };
+  }
+
+  if (!pendingInteractions.get(requestId)) {
+    return {
+      ok: false,
+      code: "NOT_FOUND",
+      status: 404,
+      message: "No pending browser request for this requestId",
     };
   }
 

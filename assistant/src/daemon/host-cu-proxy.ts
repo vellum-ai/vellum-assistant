@@ -75,6 +75,8 @@ export class HostCuProxy {
   private _previousAXTree: string | undefined;
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
+  /** Request IDs owned by this instance — used to scope dispose(). */
+  private _ownedRequests = new Set<string>();
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
     this._maxSteps = maxSteps;
@@ -147,6 +149,7 @@ export class HostCuProxy {
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
+        this._ownedRequests.delete(requestId);
         pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
@@ -158,6 +161,7 @@ export class HostCuProxy {
       if (signal) {
         const onAbort = () => {
           if (pendingInteractions.get(requestId)) {
+            this._ownedRequests.delete(requestId);
             pendingInteractions.resolve(requestId);
             try {
               broadcastMessage({
@@ -174,6 +178,8 @@ export class HostCuProxy {
         signal.addEventListener("abort", onAbort, { once: true });
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
+
+      this._ownedRequests.add(requestId);
 
       pendingInteractions.register(requestId, {
         conversationId,
@@ -195,6 +201,7 @@ export class HostCuProxy {
           reasoning,
         });
       } catch (err) {
+        this._ownedRequests.delete(requestId);
         pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -211,6 +218,7 @@ export class HostCuProxy {
     requestId: string,
     observation: CuObservationResult,
   ): ToolExecutionResult | undefined {
+    this._ownedRequests.delete(requestId);
     const interaction = pendingInteractions.resolve(requestId);
     if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host CU request for response");
@@ -377,12 +385,13 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    for (const entry of pendingInteractions.getByKind("host_cu")) {
-      pendingInteractions.resolve(entry.requestId);
+    for (const requestId of this._ownedRequests) {
+      const entry = pendingInteractions.resolve(requestId);
+      if (!entry) continue;
       try {
         broadcastMessage({
           type: "host_cu_cancel",
-          requestId: entry.requestId,
+          requestId,
           conversationId: entry.conversationId,
         });
       } catch {
@@ -392,6 +401,7 @@ export class HostCuProxy {
         new AssistantError("Host CU proxy disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
+    this._ownedRequests.clear();
   }
 
   // ---------------------------------------------------------------------------

@@ -65,10 +65,16 @@ function handleHostCuResult({ body }: RouteHandlerArgs) {
 
   const conversation = findConversation(peeked.conversationId);
   if (!conversation) {
+    pendingInteractions.resolve(requestId);
     throw new NotFoundError("Conversation not found for host CU result");
   }
 
-  conversation.hostCuProxy?.processObservation(requestId, {
+  if (!conversation.hostCuProxy) {
+    pendingInteractions.resolve(requestId);
+    throw new NotFoundError("No host CU proxy for conversation");
+  }
+
+  conversation.hostCuProxy.processObservation(requestId, {
     axTree,
     axDiff,
     screenshot,
