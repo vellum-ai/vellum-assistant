@@ -276,9 +276,16 @@ export async function runDaemon(): Promise<void> {
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
     // daemon startup (the IPC call has a 3s connect + 5s call timeout
     // that would otherwise stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    //
+    // On resolve, retry the v2 skill seed: the synchronous gate at the
+    // skill-seed call site below evaluates the memory-v2-enabled flag
+    // before the gateway has populated overrides, so a cold-boot race
+    // can leave the v2 skill collection unseeded for the lifetime of
+    // the daemon. seedV2SkillEntries is idempotent, so re-running after
+    // overrides land is safe.
+    void initFeatureFlagOverrides()
+      .then(() => maybeSeedMemoryV2Skills(loadConfig()))
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     seedInterfaceFiles();
 
