@@ -503,16 +503,24 @@ const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
  * Resolve the public base URL as a WebSocket URL (`wss://…`).
  *
  * Sources (in priority order):
- * 1. `ingress.publicBaseUrl` from the config file (written by Velay on
- *    tunnel registration, or set manually for self-hosted).
+ * 1. `VELAY_BASE_URL` — present on platform-hosted gateway sidecars.
+ *    When Velay is the tunnel provider, Twilio WebSocket connections
+ *    are routed through the Velay service URL.
+ * 2. `ingress.publicBaseUrl` from the config file — written by Velay
+ *    on tunnel registration, or set manually for self-hosted.
  *
  * Returns `undefined` when no source provides a value — the placeholder
  * will remain in TwiML and Twilio will fail to connect, which is the
  * correct behavior since without a public URL the assistant is unreachable.
  */
 export function resolvePublicBaseWssUrl(
+  config: GatewayConfig,
   configFile?: ConfigFileCache,
 ): string | undefined {
+  if (config.velayBaseUrl) {
+    const normalized = normalizePublicBaseUrl(config.velayBaseUrl);
+    if (normalized) return normalized.replace(/^http(s?)/, "ws$1");
+  }
   const raw = configFile?.getString("ingress", "publicBaseUrl");
   const normalized = normalizePublicBaseUrl(raw);
   if (!normalized) return undefined;
@@ -577,11 +585,18 @@ export async function forwardTwilioVoiceWebhook(
   // Replace the public base URL placeholder with the real WebSocket URL.
   // The assistant emits wss://__VELLUM_PUBLIC_BASE_URL__/… so it never
   // needs ingress.publicBaseUrl — the gateway owns URL resolution.
-  if (publicBaseWssUrl && body.includes(TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER)) {
-    body = body.replaceAll(
-      TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER,
-      publicBaseWssUrl.replace(/\/+$/, ""),
-    );
+  if (body.includes(TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER)) {
+    if (publicBaseWssUrl) {
+      body = body.replaceAll(
+        TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER,
+        publicBaseWssUrl.replace(/\/+$/, ""),
+      );
+    } else {
+      log.error(
+        "TwiML contains public URL placeholder but no public base URL is configured. " +
+          "Twilio will fail to connect. Set VELAY_BASE_URL or ingress.publicBaseUrl.",
+      );
+    }
   }
 
   if (response.status >= 500) cbOnFailure();

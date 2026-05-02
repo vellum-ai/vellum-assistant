@@ -811,7 +811,7 @@ describe("twilio webhook routes", () => {
   // Call handleVoiceWebhook directly since direct routes are blocked.
 
   describe("voice webhook TwiML relay URL", () => {
-    test("TwiML relay URL is sourced from getTwilioRelayUrl", async () => {
+    test("TwiML relay URL uses placeholder for gateway resolution", async () => {
       const session = createTestSession("conv-twiml-1", "CA_twiml_1");
       const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_1" });
 
@@ -820,7 +820,7 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).toContain(
-        "wss://ingress.example.com/webhooks/twilio/relay",
+        "wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/relay",
       );
     });
 
@@ -1136,7 +1136,7 @@ describe("twilio webhook routes", () => {
       expect(twiml).not.toContain("transcriptionProvider=");
       // callSessionId is in the URL path, not as a query param
       expect(twiml).toContain(
-        `wss://ingress.example.com/webhooks/twilio/media-stream/${session.id}`,
+        `wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/media-stream/${session.id}`,
       );
       expect(twiml).not.toContain("?callSessionId=");
     });

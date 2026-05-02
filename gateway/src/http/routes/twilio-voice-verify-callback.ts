@@ -282,7 +282,7 @@ async function forwardToAssistant(
       config,
       params,
       originalUrl,
-      resolvePublicBaseWssUrl(caches?.configFile),
+      resolvePublicBaseWssUrl(config, caches?.configFile),
     );
     return new Response(runtimeResponse.body, {
       status: runtimeResponse.status,
