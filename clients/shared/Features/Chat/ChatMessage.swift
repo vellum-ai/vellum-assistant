@@ -1901,3 +1901,48 @@ public struct ChatMessage: Identifiable, Equatable {
         isContentStripped = true
     }
 }
+
+// MARK: - Streaming message finalization
+
+/// Controls which tool calls are marked complete when finalizing a streaming message.
+public enum ToolCallCompletionMode {
+    /// Complete all incomplete tool calls (recovery paths: idle handler, watchdogs).
+    case all
+    /// Only complete preview-only tool calls — those with a `toolUseId` but no
+    /// `inputRawDict`, indicating the daemon hadn't started executing them
+    /// (cancellation/error paths).
+    case previewOnly
+    /// Don't touch tool calls.
+    case none
+}
+
+extension Array where Element == ChatMessage {
+    /// Mark a specific assistant message as no longer streaming, clear code preview
+    /// state, and optionally complete tool calls based on the specified mode.
+    mutating func finalizeStreamingMessage(
+        id: UUID,
+        completeToolCalls: ToolCallCompletionMode = .all
+    ) {
+        guard let index = firstIndex(where: { $0.id == id }) else { return }
+        self[index].isStreaming = false
+        self[index].streamingCodePreview = nil
+        self[index].streamingCodeToolName = nil
+        switch completeToolCalls {
+        case .all:
+            for j in self[index].toolCalls.indices where !self[index].toolCalls[j].isComplete {
+                self[index].toolCalls[j].isComplete = true
+                self[index].toolCalls[j].completedAt = Date()
+            }
+        case .previewOnly:
+            for j in self[index].toolCalls.indices {
+                let tc = self[index].toolCalls[j]
+                if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                    self[index].toolCalls[j].isComplete = true
+                    self[index].toolCalls[j].completedAt = Date()
+                }
+            }
+        case .none:
+            break
+        }
+    }
+}

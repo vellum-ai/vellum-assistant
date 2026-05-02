@@ -67,6 +67,7 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     func discardStreamingBuffer()
     func discardPartialOutputBuffer()
     func flushStreamingBuffer()
+    func clearCurrentTurnTracking()
 
     // MARK: - Callbacks
     var onFork: (() -> Void)? { get }
@@ -690,15 +691,8 @@ final class MessageSendCoordinator {
         // in a single batch to avoid O(n) synchronous Combine pipeline evaluations.
         let assistantId = delegate.currentAssistantMessageId
         messageManager.batchUpdateMessages { msgs in
-            if let existingId = assistantId,
-               let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                msgs[index].isStreaming = false
-                msgs[index].streamingCodePreview = nil
-                msgs[index].streamingCodeToolName = nil
-                for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
-                    msgs[index].toolCalls[j].isComplete = true
-                    msgs[index].toolCalls[j].completedAt = Date()
-                }
+            if let existingId = assistantId {
+                msgs.finalizeStreamingMessage(id: existingId)
             }
             for i in msgs.indices {
                 if case .queued = msgs[i].status, msgs[i].role == .user {
@@ -708,9 +702,7 @@ final class MessageSendCoordinator {
                 }
             }
         }
-        delegate.currentAssistantMessageId = nil
-        delegate.currentTurnUserText = nil
-        delegate.currentAssistantHasText = false
+        delegate.clearCurrentTurnTracking()
         delegate.discardStreamingBuffer()
         delegate.discardPartialOutputBuffer()
         messageManager.pendingQueuedCount = 0
