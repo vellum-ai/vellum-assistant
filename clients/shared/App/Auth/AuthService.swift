@@ -342,8 +342,11 @@ public final class AuthService {
         return try response.decode(PaginatedPlatformAssistantsResponse.self).results
     }
 
-    /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
-    /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
+    /// Create or retrieve a managed assistant via the hatch endpoint.
+    ///
+    /// Use `.ensure` for first-run/bootstrap flows that should reuse an
+    /// existing assistant. Use `.create` for explicit multi-assistant creation.
+    /// Returns `.reusedExisting` on 200 or `.createdNew` on 201.
     public func hatchAssistant(
         organizationId: String,
         name: String? = nil,

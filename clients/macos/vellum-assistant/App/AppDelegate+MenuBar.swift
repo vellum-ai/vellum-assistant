@@ -904,9 +904,10 @@ extension AppDelegate {
         )
     }
 
-    /// Hatch a new managed assistant against the platform and persist it to
-    /// the lockfile. Only succeeds for newly created assistants (reused ones are rejected).
-    /// After persisting, immediately switches to the newly created assistant.
+    /// Hatch a new managed assistant against the platform in explicit create
+    /// mode and persist it to the lockfile. A 200 response is accepted here
+    /// because create mode uses it to dedupe an in-flight hatch.
+    /// After persisting, immediately switches to the assistant.
     /// The organization id is read from UserDefaults — matching the path the
     /// onboarding flow and TeleportSection use. There is no centralized constant
     /// for this key yet; see TeleportSection for the other call site that reads it directly.
@@ -920,8 +921,17 @@ extension AppDelegate {
             name: name,
             mode: .create
         )
-        guard case .createdNew(let platformAssistant) = result else {
-            throw AssistantSwitcherError.assistantAlreadyExists
+        let platformAssistant: PlatformAssistant
+        let shouldBackfillName: Bool
+        switch result {
+        case .createdNew(let assistant):
+            platformAssistant = assistant
+            shouldBackfillName = true
+        case .reusedExisting(let assistant):
+            // In create mode, 200 means the platform deduped an in-flight
+            // hatch. Treat it as success and switch to that assistant.
+            platformAssistant = assistant
+            shouldBackfillName = false
         }
 
         let success = LockfileAssistant.ensureManagedEntry(
@@ -933,15 +943,20 @@ extension AppDelegate {
             throw AssistantSwitcherError.lockfilePersistenceFailed
         }
 
-        Task {
-            try? await AuthService.shared.updateAssistant(
-                id: platformAssistant.id,
-                organizationId: organizationId,
-                name: name
-            )
+        if shouldBackfillName {
+            Task {
+                try? await AuthService.shared.updateAssistant(
+                    id: platformAssistant.id,
+                    organizationId: organizationId,
+                    name: name
+                )
+            }
         }
 
-        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
+        IdentityInfo.seedCache(
+            name: platformAssistant.name ?? name,
+            forAssistantId: platformAssistant.id
+        )
 
         let target = LockfileAssistant(
             assistantId: platformAssistant.id,
@@ -1116,7 +1131,6 @@ enum AssistantSwitcherError: LocalizedError {
     case lockfilePersistenceFailed
     case retireNonActiveNotSupported
     case assistantNotFound(String)
-    case assistantAlreadyExists
 
     var errorDescription: String? {
         switch self {
@@ -1128,8 +1142,6 @@ enum AssistantSwitcherError: LocalizedError {
             return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
         case .assistantNotFound(let id):
             return "Could not find assistant \(id) in the lockfile."
-        case .assistantAlreadyExists:
-            return "An assistant with this name already exists. Use the existing assistant or choose a different name."
         }
     }
 }
