@@ -389,6 +389,37 @@ describe("verifySymlinkEntry — disagreement", () => {
     expect(err?.code).toBe("entry_size");
   });
 
+  test("throws entry_size when manifest declares non-zero size_bytes for a symlink", () => {
+    // The buffered validator catches manifest size_bytes != 0 for symlink
+    // entries via FILE_SIZE_MISMATCH. Streaming side must reject the same
+    // crafted shape — a manifest with `link_target` plus `size_bytes: 100`
+    // would otherwise slip past `verifySymlinkEntry` (which only checked
+    // tar header.size).
+    const linkTarget = "bar.md";
+    const entry = makeSymlinkEntry({
+      name: "workspace/foo.md",
+      linkname: linkTarget,
+    });
+
+    let err: StreamingValidationError | null = null;
+    try {
+      verifySymlinkEntry({
+        entry,
+        expectedEntry: {
+          sha256: sha256Hex(linkTarget),
+          size: 100,
+          linkTarget,
+        },
+      });
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("entry_size");
+    expect(err?.archivePath).toBe("workspace/foo.md");
+  });
+
   test("throws entry_hash when manifest sha256 doesn't match link target digest", () => {
     const linkTarget = "bar.md";
     const entry = makeSymlinkEntry({

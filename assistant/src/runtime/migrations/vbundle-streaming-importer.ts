@@ -1354,7 +1354,20 @@ async function promoteLegacyStagedFiles(
       await rename(entry.tempPath, entry.livePath);
     } catch (err) {
       if (isEXDEV(err)) {
-        await copyFile(entry.tempPath, entry.livePath);
+        // copyFile follows symlinks and copies the target's CONTENT — so a
+        // legacy-format symlink entry (e.g. `prompts/USER.md` encoded as a
+        // typeflag-2 record) would land as a regular file containing the
+        // linked target's bytes. lstat the source first; if it's a symlink,
+        // recreate the symlink shape via readlink + symlink. Mirrors the
+        // verbatimSymlinks: true contract that copyTreeSkippingTransient
+        // already uses on the atomic-swap path.
+        const srcStat = await lstat(entry.tempPath);
+        if (srcStat.isSymbolicLink()) {
+          const target = await readlink(entry.tempPath);
+          await symlink(target, entry.livePath);
+        } else {
+          await copyFile(entry.tempPath, entry.livePath);
+        }
         await rm(entry.tempPath, { force: true });
       } else {
         throw err;
