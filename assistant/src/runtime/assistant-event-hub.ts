@@ -14,6 +14,15 @@
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
+import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
+import { redactSecrets } from "../security/secret-scanner.js";
+import { appendEventToStream } from "../signals/event-stream.js";
+import { summarizeToolInput } from "../tools/tool-input-summary.js";
+import { getLogger } from "../util/logger.js";
+import type { AssistantEvent } from "./assistant-event.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+import * as pendingInteractions from "./pending-interactions.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -43,15 +52,6 @@ function capabilityForMessageType(
   const prefix = second === -1 ? type : type.slice(0, second);
   return HOST_PREFIX_TO_CAPABILITY[prefix];
 }
-import { emitFeedEvent } from "../home/emit-feed-event.js";
-import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
-import { redactSecrets } from "../security/secret-scanner.js";
-import { appendEventToStream } from "../signals/event-stream.js";
-import { summarizeToolInput } from "../tools/tool-input-summary.js";
-import { getLogger } from "../util/logger.js";
-import type { AssistantEvent } from "./assistant-event.js";
-import { buildAssistantEvent } from "./assistant-event.js";
-import * as pendingInteractions from "./pending-interactions.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -401,10 +401,7 @@ export class AssistantEventHub {
   disposeClient(clientId: string): number {
     const targets: SubscriberEntry[] = [];
     for (const entry of this.subscribers) {
-      if (
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
+      if (entry.type === "client" && entry.clientId === clientId) {
         targets.push(entry);
       }
     }
@@ -476,8 +473,6 @@ export function broadcastMessage(
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
 
-  // Register pending interactions so approval/host prompts are tracked
-  // regardless of which path triggered the broadcast.
   if (resolvedConversationId) {
     registerPendingInteraction(msg, resolvedConversationId);
   }
