@@ -293,6 +293,104 @@ describe("commitImport — symlinks", () => {
     expect(backupContents).toBe("old");
   });
 
+  test("legacy prompts/USER.md symlink is skipped when guardian persona is already customized", () => {
+    // Bundle ships prompts/USER.md as a symlink. The destination workspace
+    // already has a customized guardian persona at users/<slug>.md, so the
+    // import must skip the entry rather than clobber the user's content.
+    // Hand-build the manifest and skip `workspaceDir` so the workspace
+    // clear (Step 1b) doesn't wipe the customized persona we plant below.
+    const archivePath = "prompts/USER.md";
+    const linkTarget = "../skills/something.md";
+
+    const customizedPersona = `_ Lines starting with _ are comments - they won't appear in the system prompt
+
+# User Profile
+
+- Preferred name/reference: Real User
+- Pronouns: she/her
+- Locale: en-US
+- Work role: Staff Engineer
+- Goals: Ship drop-user-md
+- Hobbies/fun: Reading papers
+- Daily tools: Terminal, Vellum
+`;
+
+    const guardianPath = join(workspaceDir, "users/captain.md");
+    mkdirSync(dirname(guardianPath), { recursive: true });
+    writeFileSync(guardianPath, customizedPersona, "utf-8");
+
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "workspace/data/db/assistant.db",
+          sha256: "0".repeat(64),
+          size_bytes: 8,
+        },
+        {
+          path: archivePath,
+          sha256: "0".repeat(64),
+          size_bytes: 0,
+          link_target: linkTarget,
+        },
+      ],
+    });
+    const entries = new Map<string, VBundleTarEntry>([
+      [
+        "workspace/data/db/assistant.db",
+        {
+          name: "workspace/data/db/assistant.db",
+          data: new TextEncoder().encode("db-bytes"),
+          size: 8,
+        },
+      ],
+      [
+        archivePath,
+        {
+          name: archivePath,
+          data: new Uint8Array(0),
+          size: 0,
+          linkname: linkTarget,
+        },
+      ],
+    ]);
+
+    // Resolver returns the customized guardian persona path for prompts/USER.md.
+    const resolver = new DefaultPathResolver(
+      workspaceDir,
+      undefined,
+      () => guardianPath,
+    );
+
+    const result = commitImport({
+      archiveData: new Uint8Array(0),
+      pathResolver: resolver,
+      preValidatedManifest: manifest,
+      preValidatedEntries: entries,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The customized persona file must remain a regular file (NOT a symlink).
+    const stat = lstatSync(guardianPath);
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(stat.isFile()).toBe(true);
+    expect(readFileSync(guardianPath, "utf-8")).toBe(customizedPersona);
+
+    // The import report must record the entry as skipped.
+    const entry = result.report.files.find((f) => f.path === archivePath);
+    expect(entry).toBeDefined();
+    expect(entry!.action).toBe("skipped");
+
+    // Warning should mention the customized guardian persona.
+    expect(
+      result.report.warnings.some(
+        (w) =>
+          w.includes("guardian persona") && w.includes("already customized"),
+      ),
+    ).toBe(true);
+  });
+
   test("symlink-overwrites-symlink: replaces an existing symlink without EEXIST", () => {
     const archivePath = "workspace/skills/foo.md";
     const linkTarget = "bar.md";

@@ -387,6 +387,33 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         continue;
       }
 
+      // Legacy guardian persona (prompts/USER.md) is translated to the
+      // current guardian's users/<slug>.md by DefaultPathResolver. If the
+      // bundle ships USER.md as a symlink and the target already holds
+      // user-authored content, skip rather than clobber — mirrors the
+      // protection in the regular-file branch below.
+      if (
+        fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+        isGuardianPersonaCustomized(diskPath)
+      ) {
+        log.warn(
+          { archivePath: fileEntry.path, diskPath },
+          "Skipping legacy prompts/USER.md symlink import: guardian persona is already customized",
+        );
+        warnings.push(
+          `Skipped "${fileEntry.path}": guardian persona at "${diskPath}" is already customized`,
+        );
+        importedFiles.push({
+          path: fileEntry.path,
+          disk_path: diskPath,
+          action: "skipped",
+          size: 0,
+          sha256: fileEntry.sha256,
+          backup_path: null,
+        });
+        continue;
+      }
+
       // Defense-in-depth path-traversal gate.
       if (
         fileEntry.link_target.startsWith("/") ||
