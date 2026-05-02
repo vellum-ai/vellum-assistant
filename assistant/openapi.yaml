@@ -6076,6 +6076,44 @@ paths:
               required:
                 - requestId
               additionalProperties: false
+  /v1/host-browser-event:
+    post:
+      operationId: hostbrowserevent_post
+      summary: Forward a CDP event from the browser extension
+      description: Publishes a chrome.debugger.onEvent firing into the runtime-side browser-session event bus.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method:
+                  type: string
+                  description: CDP event method name
+                params:
+                  description: CDP event parameters
+                cdpSessionId:
+                  description: CDP session ID (if target-scoped)
+                  type: string
+              required:
+                - method
+              additionalProperties: false
   /v1/host-browser-result:
     post:
       operationId: hostbrowserresult_post
@@ -6112,6 +6150,40 @@ paths:
                   type: boolean
               required:
                 - requestId
+              additionalProperties: false
+  /v1/host-browser-session-invalidated:
+    post:
+      operationId: hostbrowsersessioninvalidated_post
+      summary: Notify runtime that a CDP session was invalidated
+      description: Marks the target as invalidated in the runtime-side browser session registry.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetId:
+                  description: CDP target that was detached
+                  type: string
+                reason:
+                  description: Detach reason
+                  type: string
               additionalProperties: false
   /v1/host-cu-result:
     post:
