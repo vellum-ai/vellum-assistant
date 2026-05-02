@@ -85,7 +85,7 @@ export class HostBrowserProxy {
         );
         resolve({
           content:
-            "Host browser proxy timed out waiting for extension response (check browser-relay connectivity and /v1/host-browser-result callback failures such as 404/401).",
+            "Host browser proxy timed out waiting for extension response (check SSE connectivity and /v1/host-browser-result callback failures such as 404/401).",
           isError: true,
         });
       }, timeoutSec * 1000);

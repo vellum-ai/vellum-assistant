@@ -24,13 +24,19 @@ const SSE_RECONNECT_MAX_MS = 30_000;
  * gateway base URL (e.g. `https://api.vellum.ai`); the `token` is the
  * bearer token for the gateway edge auth (WorkOS session JWT).
  */
-export type SseMode = {
-  kind: 'vellum-cloud';
-  runtimeUrl: string;
-  assistantId: string;
-  token: string | null;
-  organizationId: string | null;
-};
+export type SseMode =
+  | {
+      kind: 'vellum-cloud';
+      runtimeUrl: string;
+      assistantId: string;
+      token: string | null;
+      organizationId: string | null;
+    }
+  | {
+      kind: 'self-hosted';
+      /** Local gateway base URL, e.g. `http://127.0.0.1:7830`. */
+      runtimeUrl: string;
+    };
 
 export interface SseConnectionDeps {
   mode: SseMode;
@@ -116,17 +122,25 @@ export class SseConnection {
 
     const { mode } = this.deps;
     const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
-    const url = `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/events`;
+
+    // Self-hosted: the gateway proxies /v1/events directly (loopback peers
+    // are trusted without a JWT). Cloud: use the assistant-scoped path.
+    const url =
+      mode.kind === 'self-hosted'
+        ? `${baseUrl}/v1/events`
+        : `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/events`;
 
     const headers: Record<string, string> = {
       Accept: 'text/event-stream',
       ...(await getClientRegistrationHeaders()),
     };
-    if (mode.token) {
-      headers['Authorization'] = `Bearer ${mode.token}`;
-    }
-    if (mode.organizationId) {
-      headers['Vellum-Organization-Id'] = mode.organizationId;
+    if (mode.kind === 'vellum-cloud') {
+      if (mode.token) {
+        headers['Authorization'] = `Bearer ${mode.token}`;
+      }
+      if (mode.organizationId) {
+        headers['Vellum-Organization-Id'] = mode.organizationId;
+      }
     }
 
     const ac = new AbortController();

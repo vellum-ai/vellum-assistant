@@ -2,8 +2,8 @@
  * Route handler for `POST /v1/pair`.
  *
  * Generic loopback pairing endpoint. Any client connecting from the local
- * machine (loopback IP) can obtain a short-lived capability token to interact
- * with the assistant via the browser-relay protocol.
+ * machine (loopback IP) can obtain a short-lived JWT to authenticate
+ * subsequent requests to the assistant runtime (e.g. host-browser callbacks).
  *
  * The security model is:
  *
@@ -16,15 +16,17 @@
  *   - **Audit logging**: every rejected request emits a structured warn log.
  *
  * The client declares its type via the standard `X-Vellum-Interface-Id`
- * header (e.g. `chrome-extension`). This determines which capability token
- * is minted. Currently supported: `chrome-extension` → `host_browser_command`.
+ * header (e.g. `chrome-extension`). The returned JWT uses the
+ * `actor_client_v1` scope profile (includes `approval.write`) and is valid
+ * as a gateway edge token — send it as `Authorization: Bearer <token>` on
+ * subsequent runtime requests.
  *
  * Response body: `{ token, expiresAt, guardianId, assistantId }`
  */
 
-import { mintHostBrowserCapability } from "../../auth/capability-tokens.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
+import { CURRENT_POLICY_EPOCH, mintToken } from "../../auth/token-service.js";
+import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 
 const log = getLogger("pair");
@@ -35,6 +37,9 @@ const log = getLogger("pair");
 
 const RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+
+/** Pair tokens are valid for one hour — long enough for a working session. */
+const PAIR_TOKEN_TTL_SECONDS = 3600;
 
 const DAEMON_INTERNAL_ASSISTANT_ID = "self";
 
@@ -93,9 +98,6 @@ export function resetPairRateLimiterForTests(): void {
 // Host header parsing
 // ---------------------------------------------------------------------------
 
-/**
- * Parse an HTTP `Host` header value and extract the hostname portion.
- */
 export function parseHostHeader(raw: string): string | null {
   if (raw.length === 0) return null;
   if (raw.startsWith("[")) {
@@ -128,23 +130,17 @@ function isLoopbackHostHeader(host: string | null): boolean {
 // ---------------------------------------------------------------------------
 
 interface GuardianLookupRow {
-  principal_id: string | null;
+  guardianId: string;
 }
 
 async function resolveLocalGuardianId(): Promise<string> {
   try {
     const rows = await assistantDbQuery<GuardianLookupRow>(
-      `SELECT c.principal_id
-       FROM contacts c
-       INNER JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian'
-         AND cc.type = 'vellum'
-         AND cc.status = 'active'
-       ORDER BY cc.verified_at DESC
-       LIMIT 1`,
+      "SELECT guardianId FROM guardians LIMIT 1",
+      [],
     );
-    if (rows[0]?.principal_id) {
-      return rows[0].principal_id;
+    if (rows.length > 0 && rows[0].guardianId) {
+      return rows[0].guardianId;
     }
   } catch (err) {
     log.warn(
@@ -198,13 +194,6 @@ function getExternalAssistantId(): string {
   );
 }
 
-/**
- * Handle POST /v1/pair.
- *
- * Any loopback client can call this to obtain a capability token.
- * The client identifies itself via the `X-Vellum-Interface-Id` header,
- * which determines the capability minted.
- */
 export async function handlePair(
   req: Request,
   clientIp: string,
@@ -216,26 +205,22 @@ export async function handlePair(
     });
   }
 
-  // Enforce localhost-only via peer IP.
   if (!clientIp || !isLoopbackAddress(clientIp)) {
     auditDeny(req, clientIp, "non_loopback_peer");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
-  // Secondary check: Host header.
   const host = req.headers.get("host");
   if (!isLoopbackHostHeader(host)) {
     auditDeny(req, clientIp, "non_loopback_host_header");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
-  // Reject proxied requests.
   if (req.headers.get("x-forwarded-for")) {
     auditDeny(req, clientIp, "x_forwarded_for_present");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
-  // Rate limit by peer IP.
   const rateResult = checkRateLimit(clientIp);
   if (!rateResult.allowed) {
     auditDeny(req, clientIp, "rate_limited", {
@@ -260,7 +245,6 @@ export async function handlePair(
     );
   }
 
-  // Read the interface from the standard X-Vellum-Interface-Id header.
   const interfaceId = req.headers.get("x-vellum-interface-id");
   const clientId = req.headers.get("x-vellum-client-id");
 
@@ -274,9 +258,15 @@ export async function handlePair(
 
   const guardianId = await resolveLocalGuardianId();
 
-  // Dispatch capability minting based on the declared interface.
   if (interfaceId === "chrome-extension") {
-    const { token, expiresAt } = mintHostBrowserCapability(guardianId);
+    const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;
+    const token = mintToken({
+      aud: "vellum-gateway",
+      sub: `guardian:${guardianId}`,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
+    });
     const expiresAtIso = new Date(expiresAt).toISOString();
 
     log.info(
@@ -292,7 +282,6 @@ export async function handlePair(
     });
   }
 
-  // Unknown interface — reject for now. New interfaces can be added here.
   auditDeny(req, clientIp, "unknown_interface", { interfaceId });
   return errorResponse(
     "BAD_REQUEST",

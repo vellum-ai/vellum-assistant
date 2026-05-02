@@ -57,7 +57,13 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // the gateway always authenticates itself to the daemon regardless of the
     // client-facing auth setting.
     let exchangeToken: string;
-    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
+    // Loopback peers (e.g. the chrome extension running on the same machine)
+    // are trusted without an edge JWT — the TCP peer IP check is the security
+    // boundary. This lets local clients (extension, CLI) use SSE and other
+    // runtime endpoints without a separate pairing/token ceremony.
+    const isLoopback = clientIp ? isLoopbackAddress(clientIp) : false;
+
+    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS" && !isLoopback) {
       const authHeader = req.headers.get("authorization");
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         log.warn(

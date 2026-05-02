@@ -5,7 +5,7 @@ import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { Scope } from "../../auth/types.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
 import { getLogger } from "../../logger.js";
-import { isLoopbackPeer } from "../routes/browser-relay-websocket.js";
+import { isLoopbackPeer } from "../../util/is-loopback-address.js";
 
 const log = getLogger("auth");
 
