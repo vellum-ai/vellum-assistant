@@ -399,10 +399,16 @@ struct ChatView: View {
 
             if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    CompactionCircuitOpenBanner(
-                        openUntil: until,
-                        onExpired: { viewModel.compactionCircuitOpenUntil = nil }
-                    )
+                    // CompactionCircuitOpenBanner is natural-width; spacers center it
+                    // within the fixed column instead of leading-aligning it.
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CompactionCircuitOpenBanner(
+                            openUntil: until,
+                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
+                        )
+                        Spacer(minLength: 0)
+                    }
                 }
                 .padding(.bottom, -VSpacing.sm)
                 .animation(nil, value: queuedMessages.isEmpty)
@@ -529,16 +535,16 @@ struct ChatView: View {
         )
     }
 
-    /// Centers chat chrome at the chat-column width using `FixedWidthLayout`.
+    /// Centers a fixed-width column inside the available chat area.
     ///
-    /// `FixedWidthLayout` returns `nil` from `explicitAlignment` and places its
-    /// child via a `UnitPoint` anchor rather than alignment guides, so it acts
-    /// as a barrier to parent-initiated alignment queries on the subtree. The
-    /// inner `HStack { Spacer; content; Spacer }` reproduces the horizontal
-    /// `.center` positioning that `.frame(width:)` applied to non-filling
-    /// content; flexible content (anything with `.frame(maxWidth: .infinity)`
-    /// or an internal `Spacer`) collapses the inner spacers to zero and
-    /// occupies the full column width.
+    /// Sizes `content` with `FixedWidthLayout` so the column has a definite
+    /// width and `placeSubviews` does not query `explicitAlignment` on the
+    /// subtree. Flanking `Spacer`s split any remaining horizontal space to
+    /// keep the column horizontally centered on the page. The helper does
+    /// NOT center content within the column; callers that pass natural-width
+    /// content (no internal `Spacer`, no `.frame(maxWidth: .infinity)`) and
+    /// want it centered must wrap it themselves. See `MessageListView` for
+    /// the same pattern.
     @ViewBuilder
     private func centeredChatColumn<Content: View>(
         width: CGFloat,
@@ -546,12 +552,7 @@ struct ChatView: View {
     ) -> some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                content()
-                Spacer(minLength: 0)
-            }
-            .fixedWidth(width)
+            content().fixedWidth(width)
             Spacer(minLength: 0)
         }
     }
