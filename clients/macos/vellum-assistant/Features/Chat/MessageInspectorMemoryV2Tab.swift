@@ -569,14 +569,16 @@ private struct ConceptPageContentView: View {
                 .font(VFont.labelSmall)
                 .foregroundStyle(VColor.contentTertiary)
         case .loaded(let text):
-            Text(text)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.sm)
-                .background(VColor.surfaceBase)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            HStack(spacing: 0) {
+                Text(text)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
+                    .textSelection(.enabled)
+                Spacer(minLength: 0)
+            }
+            .padding(VSpacing.sm)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
     }
 }
