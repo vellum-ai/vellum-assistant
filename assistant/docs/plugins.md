@@ -66,7 +66,7 @@ skill can omit middleware entirely.
 
 ## Where plugins live
 
-The assistant scans `~/.vellum/plugins/*` at startup. Any subdirectory
+The assistant scans `<workspaceDir>/plugins/*` at startup. Any subdirectory
 containing `register.js` or `register.ts` is dynamic-imported once. The
 loader lives in
 [`assistant/src/plugins/user-loader.ts`](../src/plugins/user-loader.ts) and
@@ -104,7 +104,7 @@ export interface PluginManifest {
 
 | Field                | Required | Purpose                                                                                                                                                                                                                                                                                                        |
 | -------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `~/.vellum/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                     |
+| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `<workspaceDir>/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                     |
 | `version`            | yes      | Plugin's own semver. Informational — the registry does not compare it.                                                                                                                                                                                                                                         |
 | `provides`           | no       | Reserved for future cross-plugin composition and not currently consumed by the assistant. Plugin authors may set this field, but no runtime code reads it yet — it is declared here so future cross-plugin work can land without a manifest version bump. Do not rely on it for any runtime behavior today.    |
 | `requires`           | yes      | Must include `pluginRuntime: "v1"` at minimum. The registry checks every entry against `ASSISTANT_API_VERSIONS` and refuses to register plugins that ask for a capability or version the assistant does not expose.                                                                                            |
@@ -486,7 +486,7 @@ export interface PluginInitContext {
   config: unknown; // parsed config (or raw if no validator)
   credentials: Record<string, string>; // resolved credentials from requiresCredential
   logger: unknown; // pino child logger, tagged { plugin: <name> }
-  pluginStorageDir: string; // ~/.vellum/plugins-data/<name>/ (created by bootstrap)
+  pluginStorageDir: string; // <workspaceDir>/plugins-data/<name>/ (created by bootstrap)
   assistantVersion: string; // assistant semver
   apiVersions: Record<string, string[]>; // ASSISTANT_API_VERSIONS, for runtime checks
 }
@@ -656,7 +656,7 @@ The registry's internal state is not mutable at runtime. `init()` and
 `onShutdown()` hooks are fired exactly once per assistant boot.
 
 If you need hot reload for development, symlink your plugin directory
-into `~/.vellum/plugins/` so edits propagate, and automate the restart
+into `<workspaceDir>/plugins/` so edits propagate, and automate the restart
 loop externally.
 
 ## Troubleshooting
@@ -747,8 +747,7 @@ tail -f ~/.vellum/daemon.log \
 
 ### Plugin not loading at all
 
-- Confirm the directory is under `~/.vellum/plugins/` (or the per-instance
-  equivalent under `<vellumRoot>/plugins/`).
+- Confirm the directory is under `<workspaceDir>/plugins/`.
 - Confirm it has a `register.ts` or `register.js` at the top level.
 - Check the assistant's stderr for a line like
   `loaded user plugin (side-effect import completed)` or
