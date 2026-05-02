@@ -7,7 +7,7 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
     func testPickerCommandsMatchSharedCatalogOrder() {
         XCTAssertEqual(
             SlashCommand.all.map(\.name),
-            ["commands", "models", "status", "btw", "pair"]
+            ["commands", "models", "status", "btw", "fork"]
         )
     }
 
@@ -19,12 +19,6 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
         let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "btw" }))
         XCTAssertEqual(command.selectedInputText, "/btw ")
         XCTAssertFalse(command.shouldAutoSendOnSelect)
-    }
-
-    func testPairSelectionAutoSendsWithoutTrailingSpace() throws {
-        let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "pair" }))
-        XCTAssertEqual(command.selectedInputText, "/pair")
-        XCTAssertTrue(command.shouldAutoSendOnSelect)
     }
 
     func testBtwTabCompletionUsesSelectionInsertionText() throws {

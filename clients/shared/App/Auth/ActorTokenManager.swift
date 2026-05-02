@@ -106,7 +106,8 @@ public enum ActorTokenManager {
         }
     }
 
-    /// Delete all credentials (used during unpair/logout).
+    /// Delete all credentials. Used during re-bootstrap, fingerprint change,
+    /// or terminal token-refresh failure.
     public static func deleteAllCredentials() {
         _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
         _ = APIKeyManager.shared.deleteAPIKey(provider: guardianPrincipalIdProvider)
