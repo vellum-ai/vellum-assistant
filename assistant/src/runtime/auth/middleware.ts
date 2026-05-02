@@ -187,20 +187,4 @@ export function authenticateRequest(req: Request): AuthenticateResult {
   return { ok: true, context: contextResult.context };
 }
 
-// ---------------------------------------------------------------------------
-// Auth for /v1/host-browser-result
-// ---------------------------------------------------------------------------
 
-/**
- * Authenticate a `/v1/host-browser-result` POST request.
- *
- * Now that the capability-token system has been removed (the browser-relay
- * WebSocket transport is gone — all clients use SSE for events), this is
- * just standard JWT authentication. Kept as a named function so the call
- * site in http-server.ts stays readable.
- */
-export async function authenticateHostBrowserResultRequest(
-  req: Request,
-): Promise<AuthenticateResult> {
-  return authenticateRequest(req);
-}

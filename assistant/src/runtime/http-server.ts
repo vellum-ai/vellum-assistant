@@ -45,15 +45,12 @@ import {
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
 import { getLogger } from "../util/logger.js";
-// Auth
 import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
-
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
-// Middleware
 import {
   extractBearerToken,
   isLoopbackHost,
@@ -88,11 +85,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
-import {
-  resolveHostBrowserEvent,
-  resolveHostBrowserResultByRequestId,
-  resolveHostBrowserSessionInvalidated,
-} from "./routes/host-browser-routes.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 

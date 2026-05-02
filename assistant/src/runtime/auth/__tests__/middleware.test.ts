@@ -35,7 +35,6 @@ mock.module("../../../config/env.js", () => ({
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import {
-  authenticateHostBrowserResultRequest,
   authenticateRequest,
 } from "../middleware.js";
 import { initAuthSigningKey, mintToken } from "../token-service.js";
@@ -267,12 +266,12 @@ describe("authenticateRequest", () => {
 });
 
 // ---------------------------------------------------------------------------
-// authenticateHostBrowserResultRequest — standard JWT auth for the
-// /v1/host-browser-result POST route. The capability-token system has been
-// removed; this function now delegates directly to authenticateRequest.
+// /v1/host-browser-result auth — exercises authenticateRequest with the
+// same request shape the chrome extension sends. Validates that standard
+// JWT auth applies after the capability-token system was removed.
 // ---------------------------------------------------------------------------
 
-describe("authenticateHostBrowserResultRequest", () => {
+describe("authenticateRequest for /v1/host-browser-result", () => {
   test("accepts a valid daemon-audience JWT", async () => {
     const token = mintValidToken({ sub: "actor:self:jwt-principal" });
     const req = new Request("http://localhost/v1/host-browser-result", {
@@ -280,7 +279,7 @@ describe("authenticateHostBrowserResultRequest", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    const result = await authenticateHostBrowserResultRequest(req);
+    const result = await authenticateRequest(req);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.context.principalType).toBe("actor");
@@ -294,7 +293,7 @@ describe("authenticateHostBrowserResultRequest", () => {
       method: "POST",
     });
 
-    const result = await authenticateHostBrowserResultRequest(req);
+    const result = await authenticateRequest(req);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
@@ -308,7 +307,7 @@ describe("authenticateHostBrowserResultRequest", () => {
       headers: { Authorization: "Bearer not-a-token.xxxxxxxxxxxxx" },
     });
 
-    const result = await authenticateHostBrowserResultRequest(req);
+    const result = await authenticateRequest(req);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
@@ -322,7 +321,7 @@ describe("authenticateHostBrowserResultRequest", () => {
       method: "POST",
     });
 
-    const result = await authenticateHostBrowserResultRequest(req);
+    const result = await authenticateRequest(req);
     expect(result.ok).toBe(true);
     if (result.ok) {
       // Same synthetic context shape as authenticateRequest's dev
