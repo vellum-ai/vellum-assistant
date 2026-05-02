@@ -52,14 +52,14 @@ export function checkAuthRateLimit(
  * runtime (OAuth callback is publicly reachable and forwards every
  * valid-looking request).
  *
- * Excluded: Twilio webhook/relay and browser-relay paths which use their
- * own authentication mechanisms (Twilio signature validation, etc.).
+ * Excluded: Twilio webhook/relay paths which use their own authentication
+ * mechanisms (Twilio signature validation, etc.).
  */
 function isRateLimitedRoute(url: URL): boolean {
   return (
     url.pathname === "/integrations/status" ||
     url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
-    (url.pathname.startsWith("/v1/") && url.pathname !== "/v1/browser-relay")
+    url.pathname.startsWith("/v1/")
   );
 }
