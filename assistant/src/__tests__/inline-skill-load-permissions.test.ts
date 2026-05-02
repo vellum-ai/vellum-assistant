@@ -70,6 +70,7 @@ mockIpcResponse("get_global_thresholds", {
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
 import { clearRiskCache } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
