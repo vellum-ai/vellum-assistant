@@ -50,6 +50,10 @@ When adding a new dependency:
 
 All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
 
+### iOS release dispatch
+
+The release workflows (`dev-release.yaml`, `release.yml`) include `dispatch-ios-release` jobs that fire a [`repository_dispatch`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#repository_dispatch) event to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform) to trigger iOS Capacitor builds. The dispatch carries `environment` (dev/staging/production) and `version` in the payload. The receiving workflows (`release-ios.yml`, `build-ios-slot.yml`) and full environment mapping are documented in [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline) in the platform repo.
+
 ### Swift SPM
 
 In `clients/Package.swift` and any future `Package.swift`, use `.package(url: ..., exact: "X.Y.Z")`. Do not use `.package(url: ..., from: "X.Y.Z")` or other range syntax — the `from:` form silently pulls in new minor/patch releases on each `swift package resolve`.
