@@ -88,7 +88,6 @@ final class TerminalAPIClient {
     ) -> (stream: AsyncThrowingStream<TerminalOutputEvent, Error>, cancel: () -> Void) {
         let task = UncheckedSendableBox<Task<Void, Never>?>(nil)
 
-        let assistantId = self.assistantId
         let stream = AsyncThrowingStream<TerminalOutputEvent, Error> { continuation in
             let sseTask = Task { @MainActor in
                 do {
