@@ -28,59 +28,12 @@ import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
+import * as policy from "./vbundle-import-policy.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-importer");
-
-/** Archive path for the legacy guardian user persona file. */
-export const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
-
-/**
- * Archive paths recognized as JSON config files that must be run through
- * `sanitizeConfigForTransfer` before writing to disk. Exported so the
- * streaming importer can apply the same defense-in-depth treatment.
- */
-export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
-  "workspace/config.json",
-  "config/settings.json",
-]);
-
-/**
- * Archive path for the credential metadata file. On import, bundle contents
- * must be merged with the target's live `vellum:*` entries so the gateway's
- * `readServiceCredentials` can still locate the platform API key after a
- * local→platform teleport. Both importers consult this constant.
- */
-const CREDENTIAL_METADATA_ARCHIVE_PATH =
-  "workspace/data/credentials/metadata.json";
-
-/**
- * Paths inside the workspace directory that must be preserved across an
- * import when the bundle does not carry entries for them.
- *
- * Each entry is a path RELATIVE to the workspace root. Two kinds of live
- * data warrant carry-over:
- *
- * - `embedding-models` / `deprecated`: large local caches / quarantine
- *   directories that are never shipped inside bundles but are expensive
- *   or impossible to reconstruct from an import.
- * - `data/db` / `data/qdrant`: user-critical state (SQLite assistant DB;
- *   Qdrant vector store). If the bundle omits them — e.g. a partial
- *   bundle covering only prompts/config — the live copies must survive.
- *
- * Both the buffer-based `commitImport` (which selectively clears the
- * workspace in place) and the streaming importer (which swaps the
- * workspace with a freshly-populated temp tree) consult this list so
- * their behavior stays in sync.
- */
-export const WORKSPACE_PRESERVE_PATHS: readonly string[] = [
-  "embedding-models",
-  "deprecated",
-  "data/db",
-  "data/qdrant",
-];
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -220,16 +173,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // Directories to preserve when clearing the workspace. Derived from the
   // shared WORKSPACE_PRESERVE_PATHS list so the streaming importer's
   // carry-over logic and this in-place clear stay in sync.
-  const WORKSPACE_SKIP_DIRS = new Set<string>();
-  const DATA_SKIP_DIRS = new Set<string>();
-  for (const rel of WORKSPACE_PRESERVE_PATHS) {
-    const parts = rel.split("/");
-    if (parts.length === 1) {
-      WORKSPACE_SKIP_DIRS.add(parts[0]);
-    } else if (parts.length === 2 && parts[0] === "data") {
-      DATA_SKIP_DIRS.add(parts[1]);
-    }
-  }
+  const { topLevelSkipDirs, dataSubdirSkipDirs } =
+    policy.partitionWorkspacePreserveSkipDirs();
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
@@ -247,7 +192,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // "workspace/../../etc/passwd") from triggering a workspace purge while
   // resolving to nothing.
   const hasWorkspaceEntries = manifest.contents.some(
-    (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
+    (f) =>
+      policy.isWorkspaceNamespacedArchivePath(f.path) &&
+      !!pathResolver.resolve(f.path),
   );
 
   // Capture the target's credential metadata BEFORE the workspace clear
@@ -257,7 +204,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // (`vellum:*`) entries across the overwrite.
   let liveCredentialMetadataJson: string | null = null;
   const credentialMetadataDiskPath = pathResolver.resolve(
-    CREDENTIAL_METADATA_ARCHIVE_PATH,
+    policy.CREDENTIAL_METADATA_ARCHIVE_PATH,
   );
   if (credentialMetadataDiskPath && existsSync(credentialMetadataDiskPath)) {
     try {
@@ -279,7 +226,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       // Clear workspace contents selectively, preserving skip dirs
       const topEntries = readdirSync(workspaceDir, { withFileTypes: true });
       for (const entry of topEntries) {
-        if (WORKSPACE_SKIP_DIRS.has(entry.name)) continue;
+        if (topLevelSkipDirs.has(entry.name)) continue;
 
         const entryPath = join(workspaceDir, entry.name);
         if (entry.name === "data" && entry.isDirectory()) {
@@ -287,7 +234,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           // (critical user data) but clear everything else
           const dataEntries = readdirSync(entryPath, { withFileTypes: true });
           for (const dataEntry of dataEntries) {
-            if (DATA_SKIP_DIRS.has(dataEntry.name)) continue;
+            if (dataSubdirSkipDirs.has(dataEntry.name)) continue;
             rmSync(join(entryPath, dataEntry.name), {
               recursive: true,
               force: true,
@@ -363,7 +310,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     // than clobber — the user has curated their persona since the
     // bundle was exported.
     if (
-      fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+      policy.isLegacyPersonaArchivePath(fileEntry.path) &&
       isGuardianPersonaCustomized(diskPath)
     ) {
       log.warn(
@@ -438,7 +385,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     // Sanitize config files to strip environment-specific fields (defense-in-depth)
     let dataToWrite: Uint8Array = archiveEntry.data;
-    if (CONFIG_ARCHIVE_PATHS.has(fileEntry.path)) {
+    if (policy.isConfigArchivePath(fileEntry.path)) {
       const configJson = new TextDecoder().decode(archiveEntry.data);
       const sanitized = sanitizeConfigForTransfer(configJson);
       dataToWrite = new TextEncoder().encode(sanitized);
@@ -450,7 +397,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     // would wipe them and break the gateway's vellum credential read.
     // We use the snapshot captured BEFORE the workspace clear because
     // Step 1b may have already removed the live file.
-    if (fileEntry.path === CREDENTIAL_METADATA_ARCHIVE_PATH) {
+    if (policy.isCredentialMetadataArchivePath(fileEntry.path)) {
       const bundleJson = new TextDecoder().decode(archiveEntry.data);
       const merged = mergeMetadataPreservingVellum(
         bundleJson,
@@ -536,8 +483,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // run (e.g. workspaceDir unset) the live metadata.json is still on
   // disk untouched — we must not rewrite it here or we would drop the
   // non-vellum entries the caller chose to keep.
-  const bundleHadMetadata = manifest.contents.some(
-    (f) => f.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
+  const bundleHadMetadata = manifest.contents.some((f) =>
+    policy.isCredentialMetadataArchivePath(f.path),
   );
   if (
     workspaceWasCleared &&

@@ -53,14 +53,12 @@ import { resetDb } from "../../memory/db-connection.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
-import {
-  CONFIG_ARCHIVE_PATHS,
-  type ImportCommitReport,
-  type ImportCommitResult,
-  type ImportedFileReport,
-  type ImportFileAction,
-  LEGACY_USER_MD_ARCHIVE_PATH,
-  WORKSPACE_PRESERVE_PATHS,
+import * as policy from "./vbundle-import-policy.js";
+import type {
+  ImportCommitReport,
+  ImportCommitResult,
+  ImportedFileReport,
+  ImportFileAction,
 } from "./vbundle-importer.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import {
@@ -510,7 +508,7 @@ export async function streamCommitImport(
       // bundle was exported. We check against the LIVE workspace path
       // (diskPath) because the swap hasn't happened yet.
       if (
-        archivePath === LEGACY_USER_MD_ARCHIVE_PATH &&
+        policy.isLegacyPersonaArchivePath(archivePath) &&
         isGuardianPersonaCustomized(diskPath)
       ) {
         log.warn(
@@ -591,14 +589,15 @@ export async function streamCommitImport(
       // Classify the entry as `workspace/*` (namespaced) vs legacy format.
       // Namespaced entries flip the swap-gate flag; legacy entries are
       // staged for an in-place promote after the stream completes.
-      const isWorkspaceNamespaced = archivePath.startsWith("workspace/");
+      const isWorkspaceNamespaced =
+        policy.isWorkspaceNamespacedArchivePath(archivePath);
 
       // Config files need sanitization before writing to strip
       // environment-specific fields (defense-in-depth; matches commitImport).
       // Configs are small (KB-scale) so buffering them is fine. Hash
       // verification still runs on the RAW bytes — the manifest declares the
       // sha/size of the archive content, not the sanitized output.
-      if (CONFIG_ARCHIVE_PATHS.has(archivePath)) {
+      if (policy.isConfigArchivePath(archivePath)) {
         const rawBytes = await collectHashVerified(entry.body, {
           sha256: expectedEntry.sha256,
           size: expectedEntry.size,
@@ -1346,7 +1345,7 @@ async function planCarryOverPreservedPaths(
   tempWorkspaceDir: string,
 ): Promise<CarriedPath[]> {
   const plan: CarriedPath[] = [];
-  for (const rel of WORKSPACE_PRESERVE_PATHS) {
+  for (const rel of policy.WORKSPACE_PRESERVE_PATHS) {
     const livePath = join(realWorkspaceDir, rel);
     const tempPath = join(tempWorkspaceDir, rel);
 
