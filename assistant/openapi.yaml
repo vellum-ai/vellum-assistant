@@ -6325,6 +6325,10 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host transfer request.
+        "403":
+          description: Submitting client does not match the targeted client for this transfer.
       requestBody:
         required: true
         content:
@@ -11280,6 +11284,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "400":
+          description: x-vellum-client-id header is missing for a targeted transfer.
+        "403":
+          description: Submitting client does not match the targeted client for this transfer.
       parameters:
         - name: transferId
           in: path
@@ -11295,6 +11303,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "400":
+          description: x-vellum-client-id header is missing for a targeted transfer.
+        "403":
+          description: Submitting client does not match the targeted client for this transfer.
       parameters:
         - name: transferId
           in: path
