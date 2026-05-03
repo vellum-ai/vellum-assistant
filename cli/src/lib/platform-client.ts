@@ -196,6 +196,7 @@ export async function ensureSelfHostedLocalRegistration(
   clientPlatform: string,
   assistantVersion?: string,
   platformUrl?: string,
+  publicBaseUrl?: string,
 ): Promise<EnsureRegistrationResponse> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const body: Record<string, string> = {
@@ -205,6 +206,9 @@ export async function ensureSelfHostedLocalRegistration(
   };
   if (assistantVersion) {
     body.assistant_version = assistantVersion;
+  }
+  if (publicBaseUrl) {
+    body.public_ingress_url = publicBaseUrl;
   }
 
   const response = await fetch(

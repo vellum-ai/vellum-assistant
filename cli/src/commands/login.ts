@@ -10,6 +10,7 @@ import {
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
+import { readConfiguredPublicBaseUrl } from "../lib/ngrok";
 import {
   clearPlatformToken,
   ensureSelfHostedLocalRegistration,
@@ -216,6 +217,9 @@ export async function login(): Promise<void> {
           clientInstallationId,
           entry.assistantId,
           "cli",
+          undefined, // assistantVersion
+          undefined, // platformUrl
+          readConfiguredPublicBaseUrl(),
         );
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,

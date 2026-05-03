@@ -47,6 +47,7 @@ import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
 import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
 import { compareVersions } from "../lib/version-compat.js";
+import { readConfiguredPublicBaseUrl } from "../lib/ngrok.js";
 import { join } from "node:path";
 
 function printHelp(): void {
@@ -972,6 +973,9 @@ async function tryInjectPlatformCredentials(
       clientInstallationId,
       entry.assistantId,
       "cli",
+      undefined, // assistantVersion
+      undefined, // platformUrl
+      readConfiguredPublicBaseUrl(),
     );
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
