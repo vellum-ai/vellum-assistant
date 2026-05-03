@@ -365,6 +365,15 @@ extension AppDelegate {
                     self.featureFlagStore.reloadFromGateway()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
+                    // Accept if this conversation is locally owned, OR if the request
+                    // is explicitly targeted at this client (cross-client proxy routing).
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    guard isLocalConversation || isTargeted else {
+                        break
+                    }
                     HostToolExecutor.executeHostBashRequest(msg)
                 case .hostFileRequest(let msg):
                     HostToolExecutor.executeHostFileRequest(msg)
