@@ -320,13 +320,6 @@ struct ProgressCardPresentationModel: Equatable {
             return .processing
         }
 
-        // No-tool progress cards are used for thinking-only bursts. Once the
-        // message is no longer streaming, they must settle instead of remaining
-        // in the active "Thinking..." fallback state forever.
-        if !hasTools {
-            return .complete
-        }
-
         return .thinking
     }
 }
