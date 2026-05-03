@@ -15,7 +15,6 @@ final class AppControlExecutorTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-start-missing",
             conversationId: "conv-test",
-            toolName: "app_control_start",
             input: .start(app: "com.example.does-not-exist", args: nil)
         )
 
@@ -37,7 +36,6 @@ final class AppControlExecutorTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-stop-1",
             conversationId: "conv-test",
-            toolName: "app_control_stop",
             input: .stop(app: "com.example.does-not-exist", reason: "test")
         )
 
@@ -54,7 +52,6 @@ final class AppControlExecutorTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-stop-2",
             conversationId: "conv-test",
-            toolName: "app_control_stop",
             input: .stop(app: nil, reason: nil)
         )
 
@@ -75,7 +72,6 @@ final class AppControlExecutorTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-observe-missing",
             conversationId: "conv-test",
-            toolName: "app_control_observe",
             input: .observe(app: "com.example.does-not-exist")
         )
 
