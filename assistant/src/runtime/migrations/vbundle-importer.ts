@@ -32,6 +32,7 @@ import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
+import type { RuntimeCompatibility } from "./vbundle-import-policy.js";
 import * as policy from "./vbundle-import-policy.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
@@ -90,10 +91,7 @@ export type ImportCommitResult =
   | {
       ok: false;
       reason: "version_incompatible";
-      bundle_compat: {
-        min_runtime_version: string;
-        max_runtime_version: string | null;
-      };
+      bundle_compat: RuntimeCompatibility;
       runtime_version: string;
     }
   | {

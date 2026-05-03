@@ -134,9 +134,9 @@ export function formatRuntimeCompatibilityMessage(
   runtimeVersion: string,
 ): string {
   const range = compat.max_runtime_version
-    ? `${compat.min_runtime_version}..${compat.max_runtime_version}`
+    ? `${compat.min_runtime_version}–${compat.max_runtime_version}`
     : `${compat.min_runtime_version}+`;
-  return `Bundle requires runtime ${range} but runtime is ${runtimeVersion}`;
+  return `Cannot import: bundle requires runtime ${range}, but this runtime is ${runtimeVersion}. Update your runtime before importing.`;
 }
 
 export function evaluateRuntimeCompatibility(
