@@ -60,7 +60,6 @@ const state = {
   embedCalls: [] as Array<{ inputs: unknown[] }>,
   sparseCalls: [] as string[],
   embedReturn: [[0.1, 0.2, 0.3]] as number[][],
-  sparseReturn: { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] },
   // Programmable Qdrant query response — one entry per `using` channel,
   // shifted in order so each test can stage dense + sparse results.
   queryResponses: {
@@ -90,7 +89,7 @@ const state = {
 };
 
 // Re-export every real symbol from the embedding-backend module, overriding
-// only the two we control. Bun's `mock.module` replacement is process-wide,
+// only the one we control. Bun's `mock.module` replacement is process-wide,
 // so a partial mock here would break sibling test files that import other
 // exports from the same module (`selectEmbeddingBackend`, etc.).
 const realEmbeddingBackend = await import("../../embedding-backend.js");
@@ -104,9 +103,23 @@ mock.module("../../embedding-backend.js", () => ({
       vectors: state.embedReturn,
     };
   },
-  generateSparseEmbedding: (text: string) => {
+}));
+
+// `sim.ts` builds the query-side sparse vector via BM25's
+// `generateBm25QueryEmbedding`. Wrap it to record the call text, then
+// delegate to the real implementation so the resulting sparse vector is
+// well-formed. Capture the function reference *before* registering the
+// mock — ESM live bindings resolve through the namespace at call time, so
+// `realSparseBm25.fn(...)` after `mock.module` would route into the
+// mocked version and recurse.
+const realSparseBm25 = await import("../sparse-bm25.js");
+const realGenerateBm25QueryEmbedding =
+  realSparseBm25.generateBm25QueryEmbedding;
+mock.module("../sparse-bm25.js", () => ({
+  ...realSparseBm25,
+  generateBm25QueryEmbedding: (text: string) => {
     state.sparseCalls.push(text);
-    return state.sparseReturn;
+    return realGenerateBm25QueryEmbedding(text);
   },
 }));
 
@@ -159,7 +172,6 @@ function resetState(): void {
   state.embedCalls.length = 0;
   state.sparseCalls.length = 0;
   state.embedReturn = [[0.1, 0.2, 0.3]];
-  state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.skillQueryResponses.dense.length = 0;

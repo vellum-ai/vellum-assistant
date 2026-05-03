@@ -425,6 +425,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/concept-page:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/explain-similarity:POST", scopes: ["settings.read"] },
+  {
+    endpoint: "memory/v2/rebuild-corpus-stats:POST",
+    scopes: ["settings.write"],
+  },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },

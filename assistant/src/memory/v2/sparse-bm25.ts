@@ -26,12 +26,8 @@
 
 import { readFile } from "node:fs/promises";
 
-import {
-  SPARSE_VOCAB_SIZE,
-  tokenHash,
-  tokenize,
-} from "../embedding-backend.js";
 import type { SparseEmbedding } from "../embedding-types.js";
+import { SPARSE_VOCAB_SIZE, tokenHash, tokenize } from "../sparse-tokenize.js";
 import { listPages } from "./page-store.js";
 
 /**

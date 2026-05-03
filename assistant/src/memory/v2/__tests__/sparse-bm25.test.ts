@@ -7,7 +7,7 @@ import {
   SPARSE_VOCAB_SIZE,
   tokenHash,
   tokenize,
-} from "../../embedding-backend.js";
+} from "../../sparse-tokenize.js";
 import {
   _resetCorpusStatsForTests,
   _setCorpusStatsForTests,
