@@ -44,10 +44,13 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
   HostBashProxy: {
     get instance() {
       return {
-        resolve(
+        resolveResult(
           requestId: string,
           result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean },
         ) {
+          // resolveResult() internally calls pendingInteractions.resolve() in the real
+          // implementation; simulate that here so resolvedIds assertions still hold.
+          resolvedIds.push(requestId);
           resolveSpy.push({ requestId, result });
         },
       };

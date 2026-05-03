@@ -567,7 +567,7 @@ describe("HostBashProxy", () => {
       expect(opts?.targetClientId).toBe("client-abc");
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "hello\n",
         stderr: "",
         exitCode: 0,
@@ -599,7 +599,7 @@ describe("HostBashProxy", () => {
       expect(opts?.targetClientId).toBe("client-abc");
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "ok\n",
         stderr: "",
         exitCode: 0,
@@ -666,7 +666,7 @@ describe("HostBashProxy", () => {
 
       // Manually resolve to clean up
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "hello\n",
         stderr: "",
         exitCode: 0,
@@ -695,7 +695,7 @@ describe("HostBashProxy", () => {
 
       // Manually resolve to clean up
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         stdout: "",
         stderr: "",
         exitCode: 0,

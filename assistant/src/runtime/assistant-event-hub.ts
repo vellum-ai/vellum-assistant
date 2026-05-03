@@ -582,7 +582,7 @@ function resolveCanonicalRequestSourceType(
 function registerPendingInteraction(
   msg: ServerMessage,
   conversationId: string,
-  targetClientId?: string,
+  _targetClientId?: string,
 ): void {
   if (msg.type === "confirmation_request") {
     pendingInteractions.register(msg.requestId, {
