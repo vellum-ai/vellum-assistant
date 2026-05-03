@@ -84,6 +84,7 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import { handlePair } from "./http/routes/pair.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
