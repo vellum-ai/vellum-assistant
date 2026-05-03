@@ -13,6 +13,8 @@ export interface HostBashRequest {
   timeout_seconds?: number;
   /** Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL). */
   env?: Record<string, string>;
+  /** When set, route this request only to the client with this ID. */
+  targetClientId?: string;
 }
 
 export interface HostBashCancelRequest {

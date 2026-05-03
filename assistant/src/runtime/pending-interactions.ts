@@ -51,6 +51,8 @@ export interface PendingInteraction {
   confirmationDetails?: ConfirmationDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
+  /** When set, the host_bash request should be routed to this specific client. */
+  targetClientId?: string;
 }
 
 const pending = new Map<string, PendingInteraction>();
