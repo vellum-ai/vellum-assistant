@@ -278,18 +278,16 @@ export async function streamCommitImport(
   // Compared against `bundleEntryCap`.
   let entryCount = 0;
 
-  // Create the temp workspace dir up front so any failure between here and
-  // the atomic swap can be cleaned up by the catch block below.
-  try {
-    await mkdir(tempWorkspaceDir, { recursive: true });
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "write_failed",
-      message: `Failed to create temp workspace dir "${tempWorkspaceDir}": ${errMessage(err)}`,
-    };
-  }
-
+  // The temp workspace dir is created lazily inside the parse loop AFTER
+  // the manifest's version gate passes (see the `entryIndex === 0` block
+  // below). Creating it up front would materialize `${workspaceDir}` (and
+  // the `.import-<uuid>` subdir) on a fresh filesystem before we knew the
+  // bundle was compatible — violating the plan invariant that importers
+  // gate on runtime-version compat BEFORE any state mutation.
+  //
+  // `cleanupTempDir` is safe whether or not the dir was ever created:
+  // `rm(..., { recursive: true, force: true })` is a no-op on a missing
+  // path.
   const cleanupTempDir = async (): Promise<void> => {
     try {
       await rm(tempWorkspaceDir, { recursive: true, force: true });
@@ -320,11 +318,15 @@ export async function streamCommitImport(
         expected = manifestResult.expected;
 
         // Defense-in-depth: refuse to populate the temp tree when the
-        // bundle's compat range excludes APP_VERSION. Throwing inside the
-        // generator's try block triggers cleanupTempDir() in the catch,
-        // so the empty `${workspaceDir}/.import-<uuid>` is removed and the
-        // real workspace is untouched. Catches legacy bundles whose
-        // ExportJob row predates the platform compat-column rollout
+        // bundle's compat range excludes APP_VERSION. The version gate
+        // runs BEFORE we materialize `${workspaceDir}/.import-<uuid>`
+        // (the mkdir below is sequenced after this check), so on a fresh
+        // filesystem an incompatible bundle leaves zero filesystem trace.
+        // Throwing inside the generator's try block still triggers
+        // cleanupTempDir() in the catch — a safe no-op on a missing path
+        // — and mapThrownToResult translates VersionIncompatibleError into
+        // the version_incompatible result shape. Catches legacy bundles
+        // whose ExportJob row predates the platform compat-column rollout
         // (compat columns NULL → platform gate skipped) and any future
         // drift between the platform gate and the manifest.
         const compatResult = policy.evaluateRuntimeCompatibility(
@@ -347,6 +349,24 @@ export async function streamCommitImport(
             `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.contents.length})`,
           );
         }
+
+        // Only NOW — after the manifest is parsed, the version gate passes,
+        // and the entry-count ceiling is enforced — do we materialize the
+        // temp staging dir on disk. Doing this lazily preserves the plan
+        // invariant that importers gate on runtime-version compat BEFORE
+        // any state mutation. If this throws, the outer catch runs
+        // cleanupTempDir (a safe no-op on a missing path) and
+        // mapThrownToResult translates the WriteFailedError into the
+        // write_failed shape of ImportCommitResult.
+        try {
+          await mkdir(tempWorkspaceDir, { recursive: true });
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create temp workspace dir "${tempWorkspaceDir}"`,
+            err,
+          );
+        }
+
         entryIndex += 1;
         continue;
       }
