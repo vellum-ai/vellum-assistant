@@ -672,7 +672,8 @@ extension MainWindowView {
             mainCornerRadius: 0,
             main: { slotView(for: config.center.content) },
             panel: {
-                if let subagentId = windowState.selectedSubagentId,
+                if !isSwitchingConversation,
+                   let subagentId = windowState.selectedSubagentId,
                    let viewModel = conversationManager.activeViewModel {
                     SubagentDetailPanel(
                         subagentId: subagentId,
