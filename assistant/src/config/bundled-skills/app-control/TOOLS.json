@@ -34,7 +34,7 @@
     },
     {
       "name": "app_control_observe",
-      "description": "Capture the current window state of the target application — returns lifecycle state (running/missing/minimized/occluded), an optional screenshot, and window bounds. Use this before issuing input actions, or to check progress without acting.",
+      "description": "Capture the current window state of the target application — returns lifecycle state (running/missing/minimized), an optional screenshot, and window bounds. Use this before issuing input actions, or to check progress without acting.",
       "category": "app-control",
       "risk": "low",
       "input_schema": {

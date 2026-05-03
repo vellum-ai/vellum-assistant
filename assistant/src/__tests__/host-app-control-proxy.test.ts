@@ -524,6 +524,7 @@ describe("HostAppControlProxy", () => {
       const cancel = sentMessages[1] as Record<string, unknown>;
       expect(cancel.type).toBe("host_app_control_cancel");
       expect(cancel.requestId).toBe(requestId);
+      expect(cancel.conversationId).toBe("conv-1");
 
       proxy.dispose();
     });
