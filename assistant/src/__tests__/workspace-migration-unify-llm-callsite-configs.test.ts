@@ -119,15 +119,17 @@ describe("038-unify-llm-callsite-configs migration", () => {
   // ─── Schema-default-injection regression (the original bug) ────────────
 
   test("legacy services.inference.{provider,model} win over schema-default-injected llm.default", () => {
-    // Reproduces the production bug: between PR #26095 (added
-    // `LLMSchema.default(LLMSchema.parse({}))` to AssistantConfigSchema)
-    // and PR #26101 (this migration), any daemon boot caused the loader's
-    // `backfillConfigDefaults()` to write a schema-default `llm.default`
+    // Reproduces a production bug from a legacy-daemon era: between PR
+    // #26095 (added `LLMSchema.default(LLMSchema.parse({}))` to
+    // AssistantConfigSchema) and PR #26101 (this migration), any daemon
+    // boot caused the loader to write a schema-default `llm.default`
     // block to disk. Migration 038's old idempotency check (`return early
     // if llm.default exists`) then silently skipped, and migration 039
     // stripped `services.inference.{provider,model}` — losing the user's
     // actual configuration. The fix prefers legacy source keys over the
-    // injected schema defaults whenever both are present.
+    // injected schema defaults whenever both are present. (The loader
+    // no longer writes defaults to disk, but workspaces still on disk
+    // from that era can carry the bad state forward.)
     writeConfig({
       services: {
         inference: {
@@ -806,7 +808,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
     // documented no-op — it leaves the config exactly as it found it,
     // whether the `llm` block is present or absent.
     const original = {
-      services: { inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" } },
+      services: {
+        inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" },
+      },
       maxTokens: 32000,
       llm: {
         default: {

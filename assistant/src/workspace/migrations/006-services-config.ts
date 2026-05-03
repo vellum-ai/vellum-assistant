@@ -37,8 +37,9 @@ export const servicesConfigMigration: WorkspaceMigration = {
 
     // Skip if no legacy fields remain — either already migrated or a fresh install
     // where schema defaults are correct. We check for legacy fields instead of
-    // services existence because backfillConfigDefaults may have written a default
-    // services object before migrations run.
+    // services existence because legacy daemons (before defaults were applied
+    // only in-memory) may have written a default services object to disk
+    // before migrations run.
     const hasLegacyFields =
       "provider" in config ||
       "model" in config ||
@@ -46,7 +47,8 @@ export const servicesConfigMigration: WorkspaceMigration = {
       "webSearchProvider" in config;
     if (!hasLegacyFields) return;
 
-    // Start from existing services (may have been backfilled by loadConfig defaults)
+    // Start from existing services (legacy daemons may have written a
+    // schema-default services object to disk before this migration runs)
     // so we don't discard any non-default values already written there.
     const existingServices =
       config.services != null &&
@@ -96,8 +98,9 @@ export const servicesConfigMigration: WorkspaceMigration = {
     // Legacy top-level fields (provider, model) are the user's actual
     // configuration from before the services structure existed. If they're
     // present as strings they take precedence over any `existingServices`
-    // values, which are just defaults written by backfillConfigDefaults().
-    // The spread preserves any extra keys that future backfills may add.
+    // values, which on legacy daemons may just be schema defaults that an
+    // older loader wrote to disk. The spread preserves any extra keys that
+    // legacy daemons may have written alongside.
     services.inference = {
       ...(existingServices.inference ?? {}),
       mode: inferenceMode,
