@@ -807,37 +807,56 @@ struct ChatBubble: View, Equatable {
     /// This keeps the transformation at the presentation layer — the
     /// streaming pipeline and `ChatMessage` data model are unchanged.
     ///
-    /// When tool calls are present, thinking content is folded into the
+    /// When tool calls are present **and** the `show-thinking-blocks`
+    /// feature flag is enabled, thinking content is folded into the
     /// progress card (via `expandedItemsForProgressCard`) instead of
     /// rendering as standalone `ThinkingBlockView`s. Only the stripped
-    /// text is rendered in the bubble.
+    /// text is rendered in the bubble. When the flag is off, thinking
+    /// is rendered as `ThinkingBlockView`s above the text regardless
+    /// of whether tool calls exist — otherwise the thinking content
+    /// would be silently dropped (stripped from text but absent from
+    /// the progress card which returns `nil` when the flag is off).
     @ViewBuilder
     private var bubbleContentWithInlineThinking: some View {
-        let chunks = parseInlineThinkingTags(message.text)
-        let thinkingChunks: [String] = chunks.compactMap { chunk in
-            if case .thinking(let body) = chunk { return body }
-            return nil
-        }
-        let textChunks: [String] = chunks.compactMap { chunk in
-            if case .text(let body) = chunk { return body }
-            return nil
-        }
-        let joinedText = textChunks
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasRenderedText = !joinedText.isEmpty
-        let hasAttachments = !message.attachments.isEmpty
+        let showThinkingBlocks = MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks")
 
-        if !message.toolCalls.isEmpty {
-            // Tool calls present — thinking is folded into the progress
-            // card via expandedItemsForProgressCard. Render only the
-            // stripped text content in the bubble.
+        if !message.toolCalls.isEmpty && showThinkingBlocks {
+            // Tool calls present AND flag is on — thinking is folded into the
+            // progress card via expandedItemsForProgressCard. Strip thinking
+            // from text and render only the remaining content in the bubble.
+            let chunks = parseInlineThinkingTags(message.text)
+            let textChunks: [String] = chunks.compactMap { chunk in
+                if case .text(let body) = chunk { return body }
+                return nil
+            }
+            let joinedText = textChunks
+                .joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasRenderedText = !joinedText.isEmpty
+            let hasAttachments = !message.attachments.isEmpty
+
             if hasRenderedText || hasAttachments {
                 bubbleContent(renderingText: joinedText)
             }
         } else {
-            // No tool calls — render ThinkingBlockViews above the text
-            // bubble as before (no progress card to fold into).
+            // Either no tool calls, or the show-thinking-blocks flag is off.
+            // Render ThinkingBlockViews above the text bubble so thinking
+            // content is never silently dropped.
+            let chunks = parseInlineThinkingTags(message.text)
+            let thinkingChunks: [String] = chunks.compactMap { chunk in
+                if case .thinking(let body) = chunk { return body }
+                return nil
+            }
+            let textChunks: [String] = chunks.compactMap { chunk in
+                if case .text(let body) = chunk { return body }
+                return nil
+            }
+            let joinedText = textChunks
+                .joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasRenderedText = !joinedText.isEmpty
+            let hasAttachments = !message.attachments.isEmpty
+
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
                     ThinkingBlockView(
