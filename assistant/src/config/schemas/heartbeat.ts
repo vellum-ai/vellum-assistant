@@ -96,19 +96,40 @@ export const HeartbeatConfigSchema = z
       });
     }
 
-    // Validate cronExpression (and timezone together) when cronExpression is set
+    // Validate cronExpression and timezone when cronExpression is set.
+    // Separate the validations so timezone errors are attributed to the
+    // timezone path — if both paths point at cronExpression, the config
+    // loader's delete-and-retry would strip cronExpression but leave the
+    // invalid timezone, cascading to a full defaults reset.
     if (config.cronExpression != null) {
       try {
-        new Cron(config.cronExpression, {
-          maxRuns: 0,
-          timezone: config.timezone ?? undefined,
-        });
+        new Cron(config.cronExpression, { maxRuns: 0 });
       } catch (err) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["cronExpression"],
           message: err instanceof Error ? err.message : String(err),
         });
+      }
+      if (config.timezone != null) {
+        try {
+          new Cron(config.cronExpression, {
+            maxRuns: 0,
+            timezone: config.timezone,
+          });
+        } catch {
+          // The cron expression itself is valid (or already flagged above),
+          // so a failure here is from the timezone.
+          try {
+            Intl.DateTimeFormat(undefined, { timeZone: config.timezone });
+          } catch (tzErr) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["timezone"],
+              message: tzErr instanceof Error ? tzErr.message : String(tzErr),
+            });
+          }
+        }
       }
     } else if (config.timezone != null) {
       // cronExpression is null but timezone is set — validate timezone independently
