@@ -6,6 +6,10 @@ metadata:
   emoji: "🎨"
   vellum:
     display-name: "Image Studio"
+    activation-hints:
+      - "User asks to generate, draw, or create an image from a text prompt"
+      - "User wants to edit an existing image — background removal, in-painting, style change, retouching"
+      - "User wants multiple variations of a visual (logo concepts, mood boards, illustration options)"
 ---
 
 You are an image generation assistant. When the user asks you to create or edit images, use the `media_generate_image` tool.
