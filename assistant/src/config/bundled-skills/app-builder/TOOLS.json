@@ -78,10 +78,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name"]
@@ -104,10 +100,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'chore: delete unused app'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -130,10 +122,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add dark mode toggle', 'fix: form validation'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -160,10 +148,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: generate app icon'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]

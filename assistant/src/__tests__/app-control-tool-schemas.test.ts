@@ -236,13 +236,11 @@ describe("app_control_observe", () => {
   const s = tool.input_schema;
 
   test("well-formed input passes", () => {
-    expect(
-      validate(s, { app: "com.apple.Safari", activity: "check state" }).ok,
-    ).toBe(true);
+    expect(validate(s, { app: "com.apple.Safari" }).ok).toBe(true);
   });
 
   test("missing required app rejects", () => {
-    const result = validate(s, { activity: "check state" });
+    const result = validate(s, {});
     expect(result.ok).toBe(false);
     expect(result.error).toContain("app");
   });
@@ -538,7 +536,7 @@ describe("app_control_stop", () => {
   const s = toolByName("app_control_stop").input_schema;
 
   test("well-formed input passes (no app — terminal)", () => {
-    expect(validate(s, { activity: "wrap up" }).ok).toBe(true);
+    expect(validate(s, {}).ok).toBe(true);
   });
 
   test("well-formed input passes (with app + reason)", () => {
@@ -546,15 +544,8 @@ describe("app_control_stop", () => {
       validate(s, {
         app: "com.apple.Safari",
         reason: "task complete",
-        activity: "wrap up",
       }).ok,
     ).toBe(true);
-  });
-
-  test("missing activity rejects", () => {
-    const result = validate(s, { reason: "task complete" });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("activity");
   });
 
   test("app is optional (terminal tool may omit it)", () => {
