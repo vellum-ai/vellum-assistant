@@ -127,6 +127,7 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
+import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import { logAuthBypassState } from "./http/middleware/auth.js";
 import {
@@ -1651,6 +1652,20 @@ async function main() {
         }
 
         const forward = async () => {
+          // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
+          // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          if (normalized.event.actor.actorExternalId) {
+            void upsertContactChannel({
+              sourceChannel: "slack",
+              externalUserId: normalized.event.actor.actorExternalId,
+              ...(normalized.event.source.chatType === "im"
+                ? { externalChatId: normalized.event.message.conversationExternalId }
+                : {}),
+              displayName: normalized.event.actor.displayName,
+              username: normalized.event.actor.username,
+            }).catch(() => {});
+          }
+
           try {
             // Download and upload attachments if present (skip for edits and
             // callback actions — edits only update text, callbacks have no media)

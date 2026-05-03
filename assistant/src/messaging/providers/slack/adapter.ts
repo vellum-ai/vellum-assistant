@@ -11,7 +11,6 @@ import {
 } from "@vellumai/slack-text";
 
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import { upsertContactChannel } from "../../../contacts/contacts-write.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
 import { isProviderConnected } from "../../../oauth/oauth-store.js";
@@ -163,18 +162,6 @@ async function resolveUserName(
       resp.user.real_name ||
       resp.user.name;
     userNameCache.set(userId, name);
-
-    // Persist to contacts for future sessions
-    try {
-      upsertContactChannel({
-        sourceChannel: "slack",
-        externalUserId: userId,
-        displayName: name,
-      });
-    } catch {
-      // Non-fatal — caching failure shouldn't break messaging
-    }
-
     return name;
   } catch {
     return userId;
@@ -433,24 +420,7 @@ export const slackProvider: MessagingProvider = {
         const dmUserId = conv.metadata.dmUserId as string;
         conv.name = await resolveUserName(auth, dmUserId);
 
-        // Persist the DM channel ID so future sends skip conversations.open
-        try {
-          const existing = findContactChannel({
-            channelType: "slack",
-            externalUserId: dmUserId,
-          });
-          if (existing && !existing.channel.externalChatId) {
-            upsertContactChannel({
-              contactId: existing.contact.id,
-              sourceChannel: "slack",
-              externalUserId: dmUserId,
-              externalChatId: conv.id,
-              displayName: conv.name,
-            });
-          }
-        } catch {
-          // Non-fatal
-        }
+
       }
     }
 
