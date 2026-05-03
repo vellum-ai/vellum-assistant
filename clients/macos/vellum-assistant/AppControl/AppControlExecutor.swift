@@ -77,7 +77,7 @@ enum AppControlExecutor {
             try? await Task.sleep(nanoseconds: UInt64(ACTIVATE_POSTFLIP_SETTLE_MS) * 1_000_000)
             return
         }
-        runningApp.activate(options: [.activateIgnoringOtherApps])
+        runningApp.activate()
         let deadline = Date().addingTimeInterval(Double(ACTIVATE_WAIT_DEADLINE_MS) / 1000.0)
         while !runningApp.isActive && Date() < deadline {
             try? await Task.sleep(
