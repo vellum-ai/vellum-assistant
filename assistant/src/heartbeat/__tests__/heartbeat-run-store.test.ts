@@ -9,6 +9,8 @@ mock.module("../../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+import { sql } from "drizzle-orm";
+
 import { getDb } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import {
@@ -176,10 +178,9 @@ describe("heartbeat-run-store", () => {
 
     // Backdate started_at to simulate a long-running process
     const db = getDb();
+    const backdatedStartedAt = now - 60 * 60 * 1000;
     db.run(
-      `UPDATE heartbeat_runs SET started_at = ? WHERE id = ?`,
-      now - 60 * 60 * 1000,
-      id,
+      sql`UPDATE heartbeat_runs SET started_at = ${backdatedStartedAt} WHERE id = ${id}`,
     );
 
     const count = markStaleRunningAsError(45 * 60 * 1000);
