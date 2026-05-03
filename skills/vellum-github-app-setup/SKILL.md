@@ -21,7 +21,7 @@ This skill creates a **GitHub App** under a GitHub organization, giving the assi
 ## What Gets Created
 
 - A **GitHub App** owned by the org (not the user's personal account)
-- **Installation** on selected repositories with configurable permissions (default: `contents:write` + `pull_requests:write`)
+- **Installation** on selected repositories with configurable permissions (default: `contents:write`, `pull_requests:write`, `actions:write`, `workflows:write`, `checks:read`, `metadata:read`)
 - **Credentials** stored in the assistant's encrypted vault (7 fields)
 - **Token helper script** at `bin/gh-app-token.mjs` (in the workspace root) for refreshing auth tokens
 
@@ -183,6 +183,21 @@ Always refresh before pushing:
 TOKEN=$(bun "$WORKSPACE_ROOT/bin/gh-app-token.mjs")
 git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO.git"
 ```
+
+## Permission Reference
+
+The default permission set mirrors the permissions used by the reference `credence-the-bot` installation:
+
+| Permission        | Level | Purpose                                                    |
+| ----------------- | ----- | ---------------------------------------------------------- |
+| `contents`        | write | Push commits, create/delete branches                       |
+| `pull_requests`   | write | Open PRs, post PR comments and reviews                     |
+| `actions`         | write | Trigger and cancel workflow runs                           |
+| `workflows`       | write | Commit `.github/workflows/` files                          |
+| `checks`          | read  | Read CI check-run status (e.g. `gh pr checks`)             |
+| `metadata`        | read  | Required by GitHub for all App installations (auto-added)  |
+
+> **Note on `checks:read`:** This is required to poll CI status via the Checks API (`GET /repos/.../commits/{sha}/check-runs`). Without it, `gh pr checks` returns empty or 403. Adding this permission after initial install requires org admin approval of the updated installation at `https://github.com/organizations/{org}/settings/installations`.
 
 ## Credential Reference
 
