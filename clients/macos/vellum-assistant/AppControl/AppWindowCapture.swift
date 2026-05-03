@@ -114,16 +114,25 @@ enum AppWindowCapture {
     /// macOS versions — we surface a permission hint in both branches so the
     /// daemon and the LLM can suggest the right fix.
     ///
-    /// Capture uses a warmup-then-real two-shot pattern. `SCScreenshotManager
-    /// .captureImage` empirically returns a stale buffered frame (sometimes
-    /// seconds old) on its first call against a window that hasn't been
-    /// recently captured — observed against an emulator window where the
-    /// screenshot lagged behind the live framebuffer by several seconds even
-    /// after a 200ms settle delay. The first call flushes whatever the
-    /// WindowServer / SCK had cached; we then sleep ~2 frames at 60fps for
-    /// the SCK pipeline to advance, and the second call returns the current
-    /// frame. The cost is one extra capture + ~33ms; the benefit is that
-    /// `observe` reflects reality.
+    /// Uses a **display-area** capture (cropped to the window's screen
+    /// rectangle), not the per-window content filter. The window-content path
+    /// (`SCContentFilter(desktopIndependentWindow:)`) reads from the window's
+    /// AppKit/CoreAnimation backing store. For apps that render via Metal /
+    /// OpenGL into their own GPU surface (notably emulators like mGBA), that
+    /// backing store does not reflect the GPU-composited pixels, so SCK can
+    /// return a screenshot that's seconds behind reality even after a 200ms
+    /// settle and a warmup-capture pattern (verified: PR #29377, PR #29386
+    /// both still showed stale frames). The display-area path reads what the
+    /// WindowServer has actually composited to screen, which is current (or
+    /// at most one composite frame stale).
+    ///
+    /// Trade-off: if the target window is occluded by another window, the
+    /// display capture will return whatever is on top instead of the target.
+    /// This is the right trade — for the LLM's purposes, "what is actually
+    /// visible right now" is more useful than "the cached state of an
+    /// invisible window." The window enumerator above already filters to
+    /// `optionOnScreenOnly`, so a fully-hidden window short-circuits to
+    /// `.minimized` before reaching this method.
     private static func captureWindowPNG(windowID: CGWindowID) async -> PNGCaptureResult {
         do {
             let shareable = try await SCShareableContent.current
@@ -133,21 +142,43 @@ enum AppWindowCapture {
                 return PNGCaptureResult(pngBase64: nil, error: message)
             }
 
-            let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            // Pick the display containing the window's center. Falls back to
+            // the first available display if no display contains the center
+            // (window dragged half off-screen, etc.) — better to capture
+            // something than to fail.
+            let windowCenter = CGPoint(x: scWindow.frame.midX, y: scWindow.frame.midY)
+            let display = shareable.displays.first(where: {
+                $0.frame.contains(windowCenter)
+            }) ?? shareable.displays.first
+            guard let display else {
+                let message = "ScreenCaptureKit returned no displays — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
+                log.warning("AppWindowCapture: \(message, privacy: .public)")
+                return PNGCaptureResult(pngBase64: nil, error: message)
+            }
+
+            let filter = SCContentFilter(
+                display: display,
+                excludingApplications: [],
+                exceptingWindows: []
+            )
+
+            // Crop the display capture down to just the window's rect. Both
+            // `scWindow.frame` and `display.frame` are in the global screen
+            // coordinate space; `sourceRect` is in the display's local space
+            // with origin at its top-left, so subtract the display origin.
+            let displayRelativeRect = CGRect(
+                x: scWindow.frame.origin.x - display.frame.origin.x,
+                y: scWindow.frame.origin.y - display.frame.origin.y,
+                width: scWindow.frame.width,
+                height: scWindow.frame.height
+            )
+
             let config = SCStreamConfiguration()
+            config.sourceRect = displayRelativeRect
             config.width = max(Int(scWindow.frame.width), 1)
             config.height = max(Int(scWindow.frame.height), 1)
             config.pixelFormat = kCVPixelFormatType_32BGRA
             config.showsCursor = false
-
-            // Warmup capture — discarded. Forces SCK to invalidate any stale
-            // buffered frame for this window. Errors here are non-fatal: if
-            // the warmup fails, the real capture below will surface the error.
-            _ = try? await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
 
             let cgImage = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
@@ -163,12 +194,6 @@ enum AppWindowCapture {
             return PNGCaptureResult(pngBase64: nil, error: message)
         }
     }
-
-    /// Gap between the warmup capture and the real capture. ~2 frames at
-    /// 60fps — long enough for the SCK pipeline to advance past whatever
-    /// stale frame was cached, short enough that the added observe latency
-    /// is unnoticeable.
-    private static let CAPTURE_INTER_SHOT_GAP_MS: Int = 33
 
     private static func encodePNGBase64(cgImage: CGImage) -> String? {
         let data = NSMutableData()
