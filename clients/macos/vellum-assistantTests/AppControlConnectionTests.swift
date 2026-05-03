@@ -41,7 +41,6 @@ final class AppControlConnectionTests: XCTestCase {
         XCTAssertEqual(payload.type, "host_app_control_request")
         XCTAssertEqual(payload.requestId, "req-app-1")
         XCTAssertEqual(payload.conversationId, "conv-1")
-        XCTAssertEqual(payload.toolName, "app_control_press")
         guard case .press(let app, let key, let modifiers, let durationMs) = payload.input else {
             XCTFail("Expected .press input variant, got \(payload.input)")
             return
@@ -107,7 +106,6 @@ final class AppControlConnectionTests: XCTestCase {
         }
         XCTAssertEqual(payload.type, "host_app_control_cancel")
         XCTAssertEqual(payload.requestId, "req-app-1")
-        XCTAssertEqual(payload.conversationId, "conv-1")
     }
 
     // MARK: - Existing host_cu_* still decode

@@ -132,7 +132,6 @@ final class HostAppControlTypesTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-1",
             conversationId: "conv-1",
-            toolName: "host_app_control_click",
             input: .click(app: "com.apple.Safari", x: 50, y: 75, button: "left", double: false)
         )
         XCTAssertEqual(try roundTrip(request), request)
@@ -143,8 +142,7 @@ final class HostAppControlTypesTests: XCTestCase {
     func test_cancel_roundTrips() throws {
         let cancel = HostAppControlCancel(
             type: "host_app_control_cancel",
-            requestId: "req-1",
-            conversationId: "conv-1"
+            requestId: "req-1"
         )
         XCTAssertEqual(try roundTrip(cancel), cancel)
     }

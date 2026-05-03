@@ -1684,20 +1684,17 @@ public struct HostAppControlRequest: Codable, Equatable, Sendable {
     public let type: String
     public let requestId: String
     public let conversationId: String
-    public let toolName: String
     public let input: HostAppControlInput
 
     public init(
         type: String,
         requestId: String,
         conversationId: String,
-        toolName: String,
         input: HostAppControlInput
     ) {
         self.type = type
         self.requestId = requestId
         self.conversationId = conversationId
-        self.toolName = toolName
         self.input = input
     }
 
@@ -1705,7 +1702,6 @@ public struct HostAppControlRequest: Codable, Equatable, Sendable {
         case type
         case requestId
         case conversationId
-        case toolName
         case input
     }
 }
@@ -1850,12 +1846,10 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
 public struct HostAppControlCancel: Codable, Equatable, Sendable {
     public let type: String
     public let requestId: String
-    public let conversationId: String
 
-    public init(type: String, requestId: String, conversationId: String) {
+    public init(type: String, requestId: String) {
         self.type = type
         self.requestId = requestId
-        self.conversationId = conversationId
     }
 }
 
