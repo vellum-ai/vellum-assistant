@@ -214,7 +214,7 @@ export class HostAppControlProxy extends HostProxyBase<
     payload: HostAppControlResultPayload,
   ): ToolExecutionResult {
     // Update PNG-hash loop tracking only for the "running" state — other
-    // states (missing/minimized/occluded) intentionally won't carry a
+    // states (missing/minimized) intentionally won't carry a
     // representative window screenshot, so they should not feed the guard.
     let stuck = false;
     if (payload.state === "running" && payload.pngBase64) {

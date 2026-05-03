@@ -27,7 +27,6 @@ const VALID_STATES: ReadonlySet<HostAppControlState> = new Set([
   "running",
   "missing",
   "minimized",
-  "occluded",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -61,7 +60,7 @@ function handleHostAppControlResult({ body }: RouteHandlerArgs) {
 
   if (!state || !VALID_STATES.has(state as HostAppControlState)) {
     throw new BadRequestError(
-      "state must be one of: running, missing, minimized, occluded",
+      "state must be one of: running, missing, minimized",
     );
   }
 
@@ -110,7 +109,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       requestId: z.string().describe("Pending app-control request ID"),
       state: z
-        .enum(["running", "missing", "minimized", "occluded"])
+        .enum(["running", "missing", "minimized"])
         .describe("Lifecycle state of the targeted application"),
       pngBase64: z
         .string()

@@ -94,7 +94,8 @@ final class AppControlConnectionTests: XCTestCase {
         let json = #"""
         {
           "type": "host_app_control_cancel",
-          "requestId": "req-app-1"
+          "requestId": "req-app-1",
+          "conversationId": "conv-1"
         }
         """#
 
@@ -106,6 +107,7 @@ final class AppControlConnectionTests: XCTestCase {
         }
         XCTAssertEqual(payload.type, "host_app_control_cancel")
         XCTAssertEqual(payload.requestId, "req-app-1")
+        XCTAssertEqual(payload.conversationId, "conv-1")
     }
 
     // MARK: - Existing host_cu_* still decode

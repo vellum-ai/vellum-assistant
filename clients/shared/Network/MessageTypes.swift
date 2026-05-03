@@ -1850,10 +1850,12 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
 public struct HostAppControlCancel: Codable, Equatable, Sendable {
     public let type: String
     public let requestId: String
+    public let conversationId: String
 
-    public init(type: String, requestId: String) {
+    public init(type: String, requestId: String, conversationId: String) {
         self.type = type
         self.requestId = requestId
+        self.conversationId = conversationId
     }
 }
 
@@ -1862,7 +1864,6 @@ public enum HostAppControlState: String, Codable, Equatable, Sendable {
     case running
     case missing
     case minimized
-    case occluded
 }
 
 /// Window bounds in points for the focused window of the target app.

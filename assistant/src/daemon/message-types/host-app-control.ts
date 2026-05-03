@@ -96,16 +96,13 @@ export interface HostAppControlRequest {
 export interface HostAppControlCancel {
   type: "host_app_control_cancel";
   requestId: string;
+  conversationId: string;
 }
 
 // === Result payload (HTTP /v1/host-app-control-result body) ===
 
 /** Lifecycle state of the targeted application as seen by the client. */
-export type HostAppControlState =
-  | "running"
-  | "missing"
-  | "minimized"
-  | "occluded";
+export type HostAppControlState = "running" | "missing" | "minimized";
 
 export interface HostAppControlResultPayload {
   requestId: string;

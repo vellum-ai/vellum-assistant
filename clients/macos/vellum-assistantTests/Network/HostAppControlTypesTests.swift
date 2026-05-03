@@ -141,7 +141,11 @@ final class HostAppControlTypesTests: XCTestCase {
     // MARK: - HostAppControlCancel
 
     func test_cancel_roundTrips() throws {
-        let cancel = HostAppControlCancel(type: "host_app_control_cancel", requestId: "req-1")
+        let cancel = HostAppControlCancel(
+            type: "host_app_control_cancel",
+            requestId: "req-1",
+            conversationId: "conv-1"
+        )
         XCTAssertEqual(try roundTrip(cancel), cancel)
     }
 
@@ -152,7 +156,6 @@ final class HostAppControlTypesTests: XCTestCase {
             ("\"running\"", .running),
             ("\"missing\"", .missing),
             ("\"minimized\"", .minimized),
-            ("\"occluded\"", .occluded),
         ]
         for (json, expected) in cases {
             let decoded = try JSONDecoder().decode(HostAppControlState.self, from: Data(json.utf8))
