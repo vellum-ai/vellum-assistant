@@ -192,6 +192,8 @@ mock.module("../skills/version-hash.js", () => ({
 
 const { HostAppControlProxy } =
   await import("../daemon/host-app-control-proxy.js");
+const { preactivateHostProxySkills } =
+  await import("../daemon/host-proxy-preactivation.js");
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
 
@@ -228,9 +230,11 @@ function makeFakeConversation(): FakeConversation {
 
 /**
  * Replica of the gating block from `prepareConversationForMessage`
- * (process-message.ts) and `conversation-routes.ts`. Mirrors the production
- * code exactly — when the diverged copies are merged into a shared helper,
- * this test should be updated to call it directly.
+ * (process-message.ts) and `conversation-routes.ts`. The proxy-attachment
+ * step still lives inline at each call site (the proxy constructors take
+ * different argument shapes), but the preactivation step routes through the
+ * shared `preactivateHostProxySkills` helper exactly as the production code
+ * does.
  */
 function applyAppControlInstantiation(
   conv: FakeConversation,
@@ -240,11 +244,11 @@ function applyAppControlInstantiation(
     if (!conv.isProcessing() || !conv.hostAppControlProxy) {
       conv.setHostAppControlProxy(new HostAppControlProxy(conv.conversationId));
     }
-    if (!conv.isProcessing()) {
-      conv.addPreactivatedSkillId("app-control");
-    }
   } else if (!conv.isProcessing()) {
     conv.setHostAppControlProxy(undefined);
+  }
+  if (!conv.isProcessing()) {
+    preactivateHostProxySkills(conv, interfaceId);
   }
 }
 

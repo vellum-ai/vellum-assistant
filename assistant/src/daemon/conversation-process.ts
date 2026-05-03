@@ -14,7 +14,6 @@ import {
 import {
   parseChannelId,
   parseInterfaceId,
-  supportsHostProxy,
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
@@ -46,6 +45,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -434,20 +434,10 @@ async function drainSingleMessage(
   if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
-    // Gated on the `host_app_control` capability rather than the no-arg
-    // form so future host-proxy clients that opt into a subset can be
-    // selectively included. (chrome-extension supports `host_browser`
-    // but NOT `host_app_control`.)
-    if (
-      sourceInterface &&
-      supportsHostProxy(sourceInterface, "host_app_control")
-    ) {
-      conversation.addPreactivatedSkillId("app-control");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -882,16 +872,10 @@ async function drainBatch(
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
-    if (
-      sourceInterface &&
-      supportsHostProxy(sourceInterface, "host_app_control")
-    ) {
-      conversation.addPreactivatedSkillId("app-control");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
