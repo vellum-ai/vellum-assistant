@@ -234,18 +234,27 @@ export async function localRuntimePollJobStatus(
   return parseUnifiedJobStatus(raw);
 }
 
+/**
+ * The subset of `/v1/identity` we care about. The runtime's full response
+ * includes additional fields (name, role, etc.) — we only model `version`
+ * here because that's all the CLI consumes today.
+ */
 export interface RuntimeIdentity {
   version: string;
 }
 
 /**
- * Fetch the assistant runtime's identity (currently just its version).
+ * Fetch the target runtime's `/v1/identity` so callers can read its
+ * APP_VERSION. Used by `vellum teleport` and `vellum backup` to stamp the
+ * exported bundle's `min_runtime_version` with the version of the runtime
+ * that actually produced it — which can diverge from the orchestrating CLI's
+ * version when the target was upgraded independently.
  *
  * For local/docker assistants this GETs `{runtimeUrl}/v1/identity` with
  * guardian-token bearer auth. For platform-managed (cloud="vellum")
- * assistants the URL is rewritten to the wildcard runtime proxy at
- * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated
- * via the platform token.
+ * assistants the URL is rewritten to the wildcard runtime proxy shape
+ * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated via
+ * the platform token.
  *
  * For the vellum target this is the FIRST network call in the
  * teleport/backup export flow, so a stale `Vellum-Organization-Id` cache
@@ -256,9 +265,8 @@ export interface RuntimeIdentity {
  * `callRuntimeWithAuthRetry` by callers for guardian-token refresh, so the
  * retry is intentionally vellum-only.
  *
- * Used by export flows (teleport, backup) to stamp the bundle's
- * `min_runtime_version` with the version of the runtime that actually
- * produced it — not the CLI version, which can drift independently.
+ * Throws on non-2xx so callers can surface the failure (we never silently
+ * fall back — see teleport.ts call site).
  */
 export async function localRuntimeIdentity(
   entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,

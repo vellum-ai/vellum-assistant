@@ -242,15 +242,24 @@ describe("vellum backup <platform-managed>: GCS happy path", () => {
       "platform-export-job-1",
     );
 
-    // Download URL keyed off the upload's bundleKey.
+    // Download URL keyed off the upload's bundleKey. We deliberately do
+    // NOT send `targetRuntimeVersion` here — this backup downloads the
+    // bundle to disk for offline storage; there is no target runtime to
+    // gate against, and an older CLI must be able to download newer
+    // assistant backups.
     expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         operation: "download",
         bundleKey: "uploads/org-1/bundle-abc.vbundle",
-      },
+      }),
       "platform-token",
       "https://platform.vellum.ai",
     );
+    const downloadCall = platformRequestSignedUrlMock.mock.calls.find(
+      (c) => (c[0] as { operation: string }).operation === "download",
+    );
+    expect(downloadCall).toBeDefined();
+    expect(downloadCall![0]).not.toHaveProperty("targetRuntimeVersion");
 
     // GCS fetch went directly to the signed download URL with no auth.
     const gcsFetch = globalThis.fetch as unknown as ReturnType<typeof mock>;
@@ -489,6 +498,11 @@ describe("vellum backup <platform-managed>: failure cases", () => {
     }
   });
 });
+
+// NOTE: The `VersionMismatchError handling` describe block was removed when
+// backup stopped sending `targetRuntimeVersion` on the download signed-URL
+// request — without that field the platform doesn't run the version gate,
+// so 422 `version_mismatch` is no longer reachable from this code path.
 
 // ---------------------------------------------------------------------------
 // Source-runtime version is sourced from the daemon, not the CLI

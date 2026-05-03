@@ -311,8 +311,19 @@ async function backupPlatform(
   // poll-loop 401 refresh doesn't get clobbered here — otherwise a long
   // export that recovered mid-poll via re-auth would still 401 on the
   // download-URL request and abort an otherwise successful run.
+  //
+  // We deliberately do NOT send `targetRuntimeVersion` here. This flow
+  // saves the bundle to disk for offline storage; there is no target
+  // runtime to gate against, and the user can later restore the file
+  // into any compatible runtime. Sending the CLI's version would
+  // incorrectly block older CLIs from backing up newer assistants.
+  // The platform treats `target_runtime_version` as optional and skips
+  // the version check when it's omitted.
   const { url: bundleUrl } = await platformRequestSignedUrl(
-    { operation: "download", bundleKey },
+    {
+      operation: "download",
+      bundleKey,
+    },
     exportPlatformToken,
     platformUrl,
   );
