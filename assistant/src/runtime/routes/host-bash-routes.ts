@@ -8,11 +8,7 @@ import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -38,9 +34,7 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_bash") {
@@ -49,9 +43,7 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  pendingInteractions.resolve(requestId);
-
-  HostBashProxy.instance.resolve(requestId, {
+  HostBashProxy.instance.resolveResult(requestId, {
     stdout: stdout ?? "",
     stderr: stderr ?? "",
     exitCode: exitCode ?? null,

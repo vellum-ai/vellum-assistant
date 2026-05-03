@@ -401,10 +401,7 @@ export class AssistantEventHub {
   disposeClient(clientId: string): number {
     const targets: SubscriberEntry[] = [];
     for (const entry of this.subscribers) {
-      if (
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
+      if (entry.type === "client" && entry.clientId === clientId) {
         targets.push(entry);
       }
     }
@@ -580,31 +577,6 @@ function registerPendingInteraction(
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "secret",
-    });
-  } else if (msg.type === "host_bash_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "host_bash",
-    });
-  } else if (msg.type === "host_browser_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "host_browser",
-    });
-  } else if (msg.type === "host_file_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "host_file",
-    });
-  } else if (msg.type === "host_cu_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "host_cu",
-    });
-  } else if (msg.type === "host_transfer_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "host_transfer",
     });
   }
 }

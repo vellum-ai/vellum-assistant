@@ -4,6 +4,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -21,14 +22,6 @@ export type HostBrowserInput = DistributiveOmit<
 >;
 
 const log = getLogger("host-browser-proxy");
-
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
 
 export class HostBrowserProxy {
   private static _instance: HostBrowserProxy | null = null;
@@ -59,8 +52,6 @@ export class HostBrowserProxy {
     HostBrowserProxy._instance = null;
   }
 
-  private pending = new Map<string, PendingRequest>();
-
   /**
    * Whether a client with `host_browser` capability is connected.
    */
@@ -82,16 +73,12 @@ export class HostBrowserProxy {
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // CDP operations should be fast — 30 second default timeout matches host_file.
       const timeoutSec = input.timeout_seconds ?? 30;
 
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod },
           "Host browser proxy request timed out",
@@ -105,19 +92,15 @@ export class HostBrowserProxy {
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
-            detachAbort();
+          if (pendingInteractions.get(requestId)) {
+            pendingInteractions.resolve(requestId);
             try {
               broadcastMessage({
                 type: "host_browser_cancel",
                 requestId,
               });
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -126,13 +109,18 @@ export class HostBrowserProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "host_browser",
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
+        detachAbort,
+      });
 
       try {
         if (!this.isAvailable()) {
-          clearTimeout(timer);
-          this.pending.delete(requestId);
-          detachAbort();
+          pendingInteractions.resolve(requestId);
           reject(
             new Error(
               "host_browser send failed: no active extension connection",
@@ -148,12 +136,7 @@ export class HostBrowserProxy {
           conversationId,
         });
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod, err },
           "Host browser proxy send failed",
@@ -163,55 +146,44 @@ export class HostBrowserProxy {
     });
   }
 
-  resolve(
+  /**
+   * Process a client result and resolve the RPC. Called by route handlers.
+   */
+  resolveResult(
     requestId: string,
     response: { content: string; isError: boolean },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
-      // Benign race, not an error. A late result frame with no matching
-      // pending entry means one of:
-      //   - the proxy-side setTimeout has already resolved the caller;
-      //   - the caller's AbortSignal fired and the entry was torn down;
-      //   - a duplicate result frame was delivered (e.g. retry after a
-      //     transient WS drop).
-      // Log at debug so operators don't chase false-positive "timeout"
-      // alerts on what is actually a cleanly-handled race.
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.debug(
         { requestId },
         "Ignoring host_browser_result for unknown or already-resolved request",
       );
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-    entry.resolve({ content: response.content, isError: response.isError });
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    interaction.rpcResolve({
+      content: response.content,
+      isError: response.isError,
+    });
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
+    for (const entry of pendingInteractions.getByKind("host_browser")) {
+      pendingInteractions.resolve(entry.requestId);
       try {
         broadcastMessage({
           type: "host_browser_cancel",
-          requestId,
+          requestId: entry.requestId,
         });
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError(
           "Host browser proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
   }
 }

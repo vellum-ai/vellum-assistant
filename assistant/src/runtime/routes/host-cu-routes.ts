@@ -8,11 +8,7 @@ import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -58,9 +54,7 @@ function handleHostCuResult({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_cu") {
@@ -69,13 +63,18 @@ function handleHostCuResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
-  const conversation = findConversation(interaction.conversationId);
+  const conversation = findConversation(peeked.conversationId);
   if (!conversation) {
+    pendingInteractions.resolve(requestId);
     throw new NotFoundError("Conversation not found for host CU result");
   }
 
-  conversation.hostCuProxy?.resolve(requestId, {
+  if (!conversation.hostCuProxy) {
+    pendingInteractions.resolve(requestId);
+    throw new NotFoundError("No host CU proxy for conversation");
+  }
+
+  conversation.hostCuProxy.processObservation(requestId, {
     axTree,
     axDiff,
     screenshot,
@@ -103,8 +102,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     requireGuardian: true,
     summary: "Submit host CU result",
-    description:
-      "Resolve a pending host computer-use request by requestId.",
+    description: "Resolve a pending host computer-use request by requestId.",
     tags: ["host"],
     requestBody: z.object({
       requestId: z.string().describe("Pending CU request ID"),

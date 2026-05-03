@@ -13,16 +13,6 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("host-bash-proxy");
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  timeoutSec: number;
-  conversationId: string;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 export class HostBashProxy {
   private static _instance: HostBashProxy | null = null;
 
@@ -51,8 +41,6 @@ export class HostBashProxy {
   static reset(): void {
     HostBashProxy._instance = null;
   }
-
-  private pending = new Map<string, PendingRequest>();
 
   /**
    * Whether a client with `host_bash` capability is connected.
@@ -83,16 +71,11 @@ export class HostBashProxy {
     return new Promise<ToolExecutionResult>((resolve, reject) => {
       const shellMaxTimeoutSec = getConfig().timeouts.shellMaxTimeoutSec;
       const timeoutSec = input.timeout_seconds ?? shellMaxTimeoutSec;
-      // Proxy timeout: slightly after client-side timeout, but before executor's outer timeout
       const proxyTimeoutSec = timeoutSec + 3;
 
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, command: input.command },
@@ -111,10 +94,7 @@ export class HostBashProxy {
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            detachAbort();
+          if (pendingInteractions.get(requestId)) {
             pendingInteractions.resolve(requestId);
             try {
               broadcastMessage({
@@ -123,7 +103,7 @@ export class HostBashProxy {
                 conversationId,
               });
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve(formatShellOutput("", "Aborted", null, false, 0));
           }
@@ -132,13 +112,14 @@ export class HostBashProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, {
-        resolve,
-        reject,
-        timer,
-        timeoutSec,
+      pendingInteractions.register(requestId, {
         conversationId,
+        kind: "host_bash",
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
         detachAbort,
+        metadata: { timeoutSec },
       });
 
       try {
@@ -150,13 +131,10 @@ export class HostBashProxy {
           working_dir: input.working_dir,
           timeout_seconds: input.timeout_seconds,
           ...(input.env && Object.keys(input.env).length > 0
-              ? { env: input.env }
-              : {}),
-          });
+            ? { env: input.env }
+            : {}),
+        });
       } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
         pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, command: input.command, err },
@@ -167,7 +145,10 @@ export class HostBashProxy {
     });
   }
 
-  resolve(
+  /**
+   * Process a client result and resolve the RPC. Called by route handlers.
+   */
+  resolveResult(
     requestId: string,
     response: {
       stdout: string;
@@ -176,49 +157,40 @@ export class HostBashProxy {
       timedOut: boolean;
     },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host bash request for response");
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
+    const timeoutSec = (interaction.metadata?.timeoutSec as number) ?? 0;
     const result = formatShellOutput(
       response.stdout,
       response.stderr,
       response.exitCode,
       response.timedOut,
-      entry.timeoutSec,
+      timeoutSec,
     );
-    entry.resolve(result);
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    interaction.rpcResolve(result);
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-        clearTimeout(entry.timer);
-        entry.detachAbort();
-        pendingInteractions.resolve(requestId);
-        try {
-          broadcastMessage({
-            type: "host_bash_cancel",
-            requestId,
-            conversationId: entry.conversationId,
-          });
-        } catch {
-          // Best-effort cancel notification — connection may already be closed.
-        }
-      entry.reject(
+    for (const entry of pendingInteractions.getByKind("host_bash")) {
+      pendingInteractions.resolve(entry.requestId);
+      try {
+        broadcastMessage({
+          type: "host_bash_cancel",
+          requestId: entry.requestId,
+          conversationId: entry.conversationId,
+        });
+      } catch {
+        // Best-effort cancel notification
+      }
+      entry.rpcReject?.(
         new AssistantError(
           "Host bash proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
   }
 }

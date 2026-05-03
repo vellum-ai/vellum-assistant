@@ -11,6 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -61,20 +62,20 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  const proxy = HostBrowserProxy.instance;
-  if (!proxy.hasPendingRequest(requestId)) {
+  if (!pendingInteractions.get(requestId)) {
     return {
       ok: false,
       code: "NOT_FOUND",
       status: 404,
-      message: "No pending interaction found for this requestId",
+      message: "No pending browser request for this requestId",
     };
   }
 
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  proxy.resolve(requestId, {
+  const proxy = HostBrowserProxy.instance;
+  proxy.resolveResult(requestId, {
     content: normalizedContent,
     isError: normalizedIsError,
   });

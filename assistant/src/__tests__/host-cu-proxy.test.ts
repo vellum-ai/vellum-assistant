@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
-const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -12,17 +11,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-mock.module("../runtime/pending-interactions.js", () => ({
-  resolve: (requestId: string) => {
-    resolvedInteractionIds.push(requestId);
-    return undefined;
-  },
-  get: () => undefined,
-  getByKind: () => [],
-  getByConversation: () => [],
-  removeByConversation: () => {},
-}));
-
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
 
 describe("HostCuProxy", () => {
@@ -30,13 +20,14 @@ describe("HostCuProxy", () => {
 
   function setup(maxSteps?: number) {
     sentMessages.length = 0;
-    resolvedInteractionIds.length = 0;
     mockHasClient = false;
+    pendingInteractions.clear();
     proxy = new HostCuProxy(maxSteps);
   }
 
   afterEach(() => {
     proxy?.dispose();
+    pendingInteractions.clear();
   });
 
   // -------------------------------------------------------------------------
@@ -66,9 +57,9 @@ describe("HostCuProxy", () => {
       expect(typeof sent.requestId).toBe("string");
 
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolve(requestId, {
+      proxy.processObservation(requestId, {
         axTree: "Button [1]\nLabel [2]",
         executionResult: "Clicked element 42",
       });
@@ -78,7 +69,7 @@ describe("HostCuProxy", () => {
       expect(result.content).toContain("<ax-tree>");
       expect(result.content).toContain("CURRENT SCREEN STATE:");
       expect(result.isError).toBe(false);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("formats error observation correctly", async () => {
@@ -94,7 +85,7 @@ describe("HostCuProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.processObservation(requestId, {
         executionError: "Element not found",
         axTree: "Window [1]",
       });
@@ -118,7 +109,7 @@ describe("HostCuProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.processObservation(requestId, {
         axTree: "Button [1]",
         screenshot: "base64data",
         screenshotWidthPx: 1920,
@@ -142,7 +133,7 @@ describe("HostCuProxy", () => {
     test("resolves with unknown requestId is silently ignored", () => {
       setup();
       // Should not throw
-      proxy.resolve("unknown-id", { axTree: "something" });
+      proxy.processObservation("unknown-id", { axTree: "something" });
     });
   });
 
@@ -165,10 +156,10 @@ describe("HostCuProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Resolve to avoid test hanging
-      proxy.resolve(requestId, { axTree: "resolved" });
+      proxy.processObservation(requestId, { axTree: "resolved" });
       await resultPromise;
     });
   });
@@ -193,14 +184,14 @@ describe("HostCuProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
 
       const result = await resultPromise;
       expect(result.content).toContain("Aborted");
       expect(result.isError).toBe(true);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("sends host_cu_cancel to client on abort", async () => {
@@ -296,7 +287,7 @@ describe("HostCuProxy", () => {
       expect(sentMessages).toHaveLength(1); // Message was sent
 
       const sent = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, { axTree: "screen" });
+      proxy.processObservation(sent.requestId as string, { axTree: "screen" });
 
       const result = await resultPromise;
       expect(result.isError).toBe(false);
@@ -370,7 +361,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent1.requestId as string, {
+      proxy.processObservation(sent1.requestId as string, {
         axTree: "Button [1]",
       });
       await p1;
@@ -384,7 +375,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent2 = sentMessages[1] as Record<string, unknown>;
-      proxy.resolve(sent2.requestId as string, {
+      proxy.processObservation(sent2.requestId as string, {
         axTree: "Button [1]",
         // No axDiff — screen unchanged
       });
@@ -402,7 +393,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent3 = sentMessages[2] as Record<string, unknown>;
-      proxy.resolve(sent3.requestId as string, {
+      proxy.processObservation(sent3.requestId as string, {
         axTree: "Button [1]",
       });
       const result3 = await p3;
@@ -424,7 +415,7 @@ describe("HostCuProxy", () => {
         1,
       );
       const sent1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent1.requestId as string, {
+      proxy.processObservation(sent1.requestId as string, {
         axTree: "Button [1]",
         // No axDiff on first observation — this is normal, not unchanged
       });
@@ -444,7 +435,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent1.requestId as string, {
+      proxy.processObservation(sent1.requestId as string, {
         axTree: "Button [1]",
       });
       await p1;
@@ -458,7 +449,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_wait", { duration_ms: 2000 });
       const sent2 = sentMessages[1] as Record<string, unknown>;
-      proxy.resolve(sent2.requestId as string, {
+      proxy.processObservation(sent2.requestId as string, {
         axTree: "Button [1]",
         // No axDiff — screen unchanged, but that's expected after wait
       });
@@ -478,7 +469,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent1.requestId as string, {
+      proxy.processObservation(sent1.requestId as string, {
         axTree: "Button [1]",
       });
       await p1;
@@ -492,7 +483,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 1 });
       const sent2 = sentMessages[1] as Record<string, unknown>;
-      proxy.resolve(sent2.requestId as string, {
+      proxy.processObservation(sent2.requestId as string, {
         axTree: "Button [1]",
       });
       await p2;
@@ -507,7 +498,7 @@ describe("HostCuProxy", () => {
       );
       proxy.recordAction("computer_use_click", { element_id: 2 });
       const sent3 = sentMessages[2] as Record<string, unknown>;
-      proxy.resolve(sent3.requestId as string, {
+      proxy.processObservation(sent3.requestId as string, {
         axTree: "TextField [1]",
         axDiff: "+ TextField [1]\n- Button [1]",
       });
@@ -719,11 +710,11 @@ describe("HostCuProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.dispose();
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
       await expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
     });
 
@@ -786,9 +777,9 @@ describe("HostCuProxy", () => {
       expect(result.content).toContain("Aborted");
 
       // Late resolve should be silently ignored (no throw, no double-resolve)
-      proxy.resolve(requestId, { axTree: "late response" });
+      proxy.processObservation(requestId, { axTree: "late response" });
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 
@@ -811,17 +802,11 @@ describe("HostCuProxy", () => {
       const s = source as any;
       const origAdd = source.addEventListener.bind(source);
       const origRemove = source.removeEventListener.bind(source);
-      s.addEventListener = (
-        type: string,
-        ...rest: any[]
-      ) => {
+      s.addEventListener = (type: string, ...rest: any[]) => {
         addCalls.push(type);
         return (origAdd as any)(type, ...rest);
       };
-      s.removeEventListener = (
-        type: string,
-        ...rest: any[]
-      ) => {
+      s.removeEventListener = (type: string, ...rest: any[]) => {
         removeCalls.push(type);
         return (origRemove as any)(type, ...rest);
       };
@@ -847,7 +832,7 @@ describe("HostCuProxy", () => {
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolve(requestId, { axTree: "Button [1]" });
+      proxy.processObservation(requestId, { axTree: "Button [1]" });
       await resultPromise;
 
       // Listener is detached after normal completion.
@@ -881,7 +866,7 @@ describe("HostCuProxy", () => {
 
         const requestId = (sentMessages[0] as Record<string, unknown>)
           .requestId as string;
-        expect(proxy.hasPendingRequest(requestId)).toBe(true);
+        expect(pendingInteractions.get(requestId)).toBeDefined();
 
         // Advance past the 60s internal timeout.
         jest.advanceTimersByTime(61 * 1000);
@@ -889,7 +874,7 @@ describe("HostCuProxy", () => {
         const result = await resultPromise;
         expect(result.isError).toBe(true);
         expect(result.content).toContain("Host CU proxy timed out");
-        expect(proxy.hasPendingRequest(requestId)).toBe(false);
+        expect(pendingInteractions.get(requestId)).toBeUndefined();
 
         // Listener is detached after the timer fires.
         expect(spy.removeCalls).toEqual(["abort"]);
@@ -927,7 +912,7 @@ describe("HostCuProxy", () => {
       controller.abort();
 
       await resultPromise;
-      expect(resolvedInteractionIds).toContain(requestId);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("fires on dispose", async () => {
@@ -948,7 +933,7 @@ describe("HostCuProxy", () => {
       // dispose rejects pending requests — catch to avoid unhandled rejection
       await resultPromise.catch(() => {});
 
-      expect(resolvedInteractionIds).toContain(requestId);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("does not fire on normal client-initiated resolve", async () => {
@@ -964,10 +949,10 @@ describe("HostCuProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, { axTree: "Button [1]" });
+      proxy.processObservation(requestId, { axTree: "Button [1]" });
 
       await resultPromise;
-      expect(resolvedInteractionIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
-const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -12,17 +11,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-mock.module("../runtime/pending-interactions.js", () => ({
-  resolve: (requestId: string) => {
-    resolvedInteractionIds.push(requestId);
-    return undefined;
-  },
-  get: () => undefined,
-  getByKind: () => [],
-  getByConversation: () => [],
-  removeByConversation: () => {},
-}));
-
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostFileProxy } = await import("../daemon/host-file-proxy.js");
 
 // Minimal PNG header
@@ -36,14 +26,15 @@ describe("HostFileProxy", () => {
 
   function setup() {
     sentMessages.length = 0;
-    resolvedInteractionIds.length = 0;
     mockHasClient = false;
+    pendingInteractions.clear();
     proxy = new (HostFileProxy as any)();
   }
 
   afterEach(() => {
     proxy?.dispose();
     HostFileProxy.reset();
+    pendingInteractions.clear();
   });
 
   describe("request/resolve lifecycle (happy path)", () => {
@@ -68,10 +59,10 @@ describe("HostFileProxy", () => {
       expect(typeof sent.requestId).toBe("string");
 
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Simulate client response
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "file contents here",
         isError: false,
       });
@@ -79,7 +70,7 @@ describe("HostFileProxy", () => {
       const result = await resultPromise;
       expect(result.content).toBe("file contents here");
       expect(result.isError).toBe(false);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("resolves error responses correctly", async () => {
@@ -96,7 +87,7 @@ describe("HostFileProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "ENOENT: no such file or directory",
         isError: true,
       });
@@ -120,7 +111,7 @@ describe("HostFileProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "Image loaded on host",
         isError: false,
         imageData: PNG_HEADER.toString("base64"),
@@ -156,7 +147,7 @@ describe("HostFileProxy", () => {
       expect(sent.content).toBe("new content");
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "File written successfully",
         isError: false,
       });
@@ -184,7 +175,7 @@ describe("HostFileProxy", () => {
       expect(sent.new_string).toBe("bar");
 
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "Edit applied successfully",
         isError: false,
       });
@@ -208,10 +199,10 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Resolve to avoid test hanging (actual 30s timeout too long for test)
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "",
         isError: false,
       });
@@ -236,14 +227,14 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
 
       const result = await resultPromise;
       expect(result.content).toBe("Aborted");
       expect(result.isError).toBe(true);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("sends host_file_cancel to client on abort", async () => {
@@ -321,11 +312,11 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.dispose();
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
       expect(resultPromise).rejects.toThrow("Host file proxy disposed");
     });
 
@@ -384,12 +375,12 @@ describe("HostFileProxy", () => {
       expect(result.content).toBe("Aborted");
 
       // Late resolve should be silently ignored (no throw, no double-resolve)
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "late response",
         isError: false,
       });
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 
@@ -397,7 +388,7 @@ describe("HostFileProxy", () => {
     test("silently ignores unknown requestId", () => {
       setup();
       // Should not throw
-      proxy.resolve("unknown-id", {
+      proxy.resolveResult("unknown-id", {
         content: "",
         isError: false,
       });
@@ -457,7 +448,10 @@ describe("HostFileProxy", () => {
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolve(requestId, { content: "file contents", isError: false });
+      proxy.resolveResult(requestId, {
+        content: "file contents",
+        isError: false,
+      });
       await resultPromise;
 
       // Listener is detached after normal completion.
@@ -488,7 +482,7 @@ describe("HostFileProxy", () => {
 
         const requestId = (sentMessages[0] as Record<string, unknown>)
           .requestId as string;
-        expect(proxy.hasPendingRequest(requestId)).toBe(true);
+        expect(pendingInteractions.get(requestId)).toBeDefined();
 
         // Advance past the 30s internal timeout.
         jest.advanceTimersByTime(31 * 1000);
@@ -496,7 +490,7 @@ describe("HostFileProxy", () => {
         const result = await resultPromise;
         expect(result.isError).toBe(true);
         expect(result.content).toContain("Host file proxy timed out");
-        expect(proxy.hasPendingRequest(requestId)).toBe(false);
+        expect(pendingInteractions.get(requestId)).toBeUndefined();
 
         // Listener is detached after the timer fires.
         expect(spy.removeCalls).toEqual(["abort"]);
@@ -510,8 +504,8 @@ describe("HostFileProxy", () => {
     });
   });
 
-  describe("pendingInteractions.resolve callback", () => {
-    test("fires on abort", async () => {
+  describe("pendingInteractions cleanup", () => {
+    test("cleans up on abort", async () => {
       setup();
 
       const controller = new AbortController();
@@ -526,29 +520,23 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
       await resultPromise;
 
-      expect(resolvedInteractionIds).toContain(requestId);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
-    test("fires for each pending request on dispose", () => {
+    test("cleans up for each pending request on dispose", () => {
       setup();
 
-      // Create two pending requests and catch rejections from dispose
       const p1 = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/a.txt",
-        },
+        { operation: "read", path: "/tmp/a.txt" },
         "session-1",
       );
       const p2 = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/b.txt",
-        },
+        { operation: "read", path: "/tmp/b.txt" },
         "session-1",
       );
       p1.catch(() => {}); // Expected rejection on dispose
@@ -558,15 +546,16 @@ describe("HostFileProxy", () => {
         (m) => m.requestId as string,
       );
       expect(ids).toHaveLength(2);
+      expect(pendingInteractions.get(ids[0])).toBeDefined();
+      expect(pendingInteractions.get(ids[1])).toBeDefined();
 
       proxy.dispose();
 
-      expect(resolvedInteractionIds).toHaveLength(2);
-      expect(resolvedInteractionIds).toContain(ids[0]);
-      expect(resolvedInteractionIds).toContain(ids[1]);
+      expect(pendingInteractions.get(ids[0])).toBeUndefined();
+      expect(pendingInteractions.get(ids[1])).toBeUndefined();
     });
 
-    test("does not fire on normal client-initiated resolve", async () => {
+    test("cleans up on normal client-initiated resolveResult", async () => {
       setup();
 
       const resultPromise = proxy.request(
@@ -579,15 +568,15 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      // Normal resolve from client — should NOT trigger pendingInteractions.resolve
-      proxy.resolve(requestId, {
+      proxy.resolveResult(requestId, {
         content: "file contents",
         isError: false,
       });
 
       await resultPromise;
-      expect(resolvedInteractionIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 });
