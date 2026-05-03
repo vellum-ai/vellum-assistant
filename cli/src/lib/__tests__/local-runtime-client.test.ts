@@ -481,12 +481,19 @@ describe("vellum-cloud routing through wildcard proxy", () => {
 });
 
 describe("localRuntimeIdentity", () => {
-  test("local entry: GETs /v1/identity with Bearer auth and returns the version", async () => {
+  test("local entry: GETs /v1/health with Bearer auth and returns the version", async () => {
     const { calls, fetchMock } = captureFetch(() => {
-      return new Response(JSON.stringify({ version: "0.6.5" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          status: "healthy",
+          timestamp: "2025-01-01T00:00:00Z",
+          version: "0.6.5",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     });
     globalThis.fetch = fetchMock;
 
@@ -494,12 +501,29 @@ describe("localRuntimeIdentity", () => {
 
     expect(result.version).toBe("0.6.5");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(`${RUNTIME_URL}/v1/identity`);
+    expect(calls[0]!.url).toBe(`${RUNTIME_URL}/v1/health`);
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.headers.Authorization).toBe(`Bearer ${TOKEN}`);
   });
 
-  test("vellum entry: GETs /v1/assistants/<id>/identity through the wildcard proxy", async () => {
+  test("GETs /v1/health, not /v1/identity (works on pre-onboarding runtimes)", async () => {
+    // Regression guard: /v1/identity reads IDENTITY.md (written during
+    // onboarding, NOT hatch) and 404s on freshly-hatched targets. /v1/health
+    // returns the version field unconditionally, so it's the right source.
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: "0.7.0" }), {
+        status: 200,
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    await localRuntimeIdentity(ENTRY, TOKEN);
+
+    expect(calls[0]!.url.endsWith("/v1/health")).toBe(true);
+    expect(calls[0]!.url).not.toContain("/v1/identity");
+  });
+
+  test("vellum entry: GETs /v1/assistants/<id>/health through the wildcard proxy", async () => {
     const { calls, fetchMock } = captureFetch(() => {
       return new Response(JSON.stringify({ version: "0.7.2" }), {
         status: 200,
@@ -511,7 +535,7 @@ describe("localRuntimeIdentity", () => {
 
     expect(result.version).toBe("0.7.2");
     expect(calls[0]!.url).toBe(
-      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/identity`,
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/health`,
     );
     expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
   });
@@ -577,14 +601,14 @@ describe("localRuntimeIdentity", () => {
     const PLATFORM_URL = "https://platform.vellum.ai";
     const ASSISTANT_ID = "11111111-2222-3333-4444-555555555555";
 
-    let identityCalls = 0;
+    let healthCalls = 0;
     const orgIdFetchedAs: string[] = [];
 
     const fetchMock = mock(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url.toString();
       if (urlStr.endsWith("/v1/organizations/")) {
         // Each org-ID fetch returns a different ID to prove that the
-        // second identity request DID re-resolve the org rather than
+        // second health request DID re-resolve the org rather than
         // reuse a stale cache entry.
         orgIdFetchedAs.push(`org-${orgIdFetchedAs.length + 1}`);
         return new Response(
@@ -594,9 +618,9 @@ describe("localRuntimeIdentity", () => {
           { status: 200 },
         );
       }
-      if (urlStr.endsWith(`/v1/assistants/${ASSISTANT_ID}/identity`)) {
-        identityCalls += 1;
-        if (identityCalls === 1) {
+      if (urlStr.endsWith(`/v1/assistants/${ASSISTANT_ID}/health`)) {
+        healthCalls += 1;
+        if (healthCalls === 1) {
           return new Response("unauthorized", { status: 401 });
         }
         return new Response(JSON.stringify({ version: "0.7.4" }), {
@@ -617,7 +641,7 @@ describe("localRuntimeIdentity", () => {
     );
 
     expect(result.version).toBe("0.7.4");
-    expect(identityCalls).toBe(2);
+    expect(healthCalls).toBe(2);
     // Two org-ID fetches: the first to satisfy the initial authHeaders
     // call, the second after the 401-driven cache invalidation.
     expect(orgIdFetchedAs).toEqual(["org-1", "org-2"]);
