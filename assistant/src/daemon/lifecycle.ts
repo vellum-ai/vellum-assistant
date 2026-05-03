@@ -590,7 +590,7 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Populate the registry with user plugins from `~/.vellum/plugins/*`
+    // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
     // side-effect imports. User plugins may fail to load individually; a
     // failing user plugin is logged and skipped so one bad install can't

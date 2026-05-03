@@ -6,6 +6,12 @@ metadata:
   emoji: "🔗"
   vellum:
     display-name: "ACP"
+    activation-hints:
+      - "User wants to delegate a coding task to Claude Code, Codex, or another ACP agent"
+      - "User wants to spawn an external coding agent that runs autonomously and streams results back"
+      - "User mentions ACP, claude-agent-acp, codex-acp, or running multiple coding agents in parallel"
+    avoid-when:
+      - "Task is small enough to do inline with the assistant's own tools — no need for an external agent"
 ---
 
 ACP agent orchestration - spawn external coding agents (Claude Code, Codex, etc.) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.

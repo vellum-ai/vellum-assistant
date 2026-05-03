@@ -47,6 +47,7 @@ import { downActivationState } from "./232-activation-state.js";
 import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
 import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
 import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
+import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -403,6 +404,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Add matched_trust_rule_id column to tool_invocations for trust rule audit and rule editor UI",
     down: downToolInvocationsMatchedRuleId,
+  },
+  {
+    key: "migration_heartbeat_runs_v1",
+    version: 47,
+    description:
+      "Create heartbeat_runs table for tracking heartbeat execution lifecycle with CAS state transitions",
+    down: downHeartbeatRuns,
   },
 ];
 

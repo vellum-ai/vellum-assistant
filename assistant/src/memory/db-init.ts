@@ -102,6 +102,7 @@ import {
   migrateGuardianTimestampsEpochMs,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
+  migrateHeartbeatRuns,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
@@ -401,6 +402,7 @@ export function initializeDb(): void {
     migrateLlmUsageAttribution,
     migrateSlackCompactionWatermark,
     migrateToolInvocationsMatchedRuleId,
+    migrateHeartbeatRuns,
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();
     },

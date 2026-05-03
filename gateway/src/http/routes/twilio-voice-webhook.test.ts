@@ -11,6 +11,7 @@
  * - Assistant IDs are NOT forwarded to the daemon (daemon uses internal scope).
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { resolvePublicBaseWssUrl } from "../../runtime/client.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -284,5 +285,64 @@ describe("twilio voice webhook handler", () => {
 
     expect(res.status).toBe(200);
     expect(forwardCalled).toBe(true);
+  });
+});
+
+// ── resolvePublicBaseWssUrl unit tests ─────────────────────────────────
+
+describe("resolvePublicBaseWssUrl", () => {
+  const baseConfig = {
+    assistantRuntimeBaseUrl: "http://localhost:3000",
+  } as Parameters<typeof resolvePublicBaseWssUrl>[0];
+
+  test("returns undefined when neither velayBaseUrl nor configFile publicBaseUrl is set", () => {
+    expect(resolvePublicBaseWssUrl(baseConfig)).toBeUndefined();
+  });
+
+  test("uses velayBaseUrl + platformAssistantId when both are present", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-dev.vellum.ai",
+    };
+    const result = resolvePublicBaseWssUrl(
+      config,
+      undefined,
+      "abc12345-0000-0000-0000-000000000000",
+    );
+    expect(result).toBe(
+      "wss://velay-dev.vellum.ai/abc12345-0000-0000-0000-000000000000",
+    );
+  });
+
+  test("falls back to configFile publicBaseUrl when velayBaseUrl is set but platformAssistantId is missing", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-dev.vellum.ai",
+    };
+    const mockConfigFile = {
+      getString: (section: string, key: string) =>
+        section === "ingress" && key === "publicBaseUrl"
+          ? "https://velay-dev.vellum.ai/abc12345-0000-0000-0000-000000000000"
+          : undefined,
+    } as Parameters<typeof resolvePublicBaseWssUrl>[1];
+    const result = resolvePublicBaseWssUrl(config, mockConfigFile, undefined);
+    expect(result).toBe(
+      "wss://velay-dev.vellum.ai/abc12345-0000-0000-0000-000000000000",
+    );
+  });
+
+  test("strips trailing slash from velayBaseUrl before joining assistant ID", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-dev.vellum.ai/",
+    };
+    const result = resolvePublicBaseWssUrl(
+      config,
+      undefined,
+      "abc12345-0000-0000-0000-000000000000",
+    );
+    expect(result).toBe(
+      "wss://velay-dev.vellum.ai/abc12345-0000-0000-0000-000000000000",
+    );
   });
 });

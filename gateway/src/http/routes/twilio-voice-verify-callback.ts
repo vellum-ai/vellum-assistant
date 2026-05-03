@@ -15,6 +15,7 @@
 import { eq } from "drizzle-orm";
 
 import type { GatewayConfig } from "../../config.js";
+import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
 import {
   CircuitBreakerOpenError,
@@ -278,11 +279,16 @@ async function forwardToAssistant(
   caches?: TwilioValidationCaches,
 ): Promise<Response> {
   try {
+    const platformAssistantId = (
+      await caches?.credentials?.get(
+        credentialKey("vellum", "platform_assistant_id"),
+      )
+    )?.trim();
     const runtimeResponse = await forwardTwilioVoiceWebhook(
       config,
       params,
       originalUrl,
-      resolvePublicBaseWssUrl(config, caches?.configFile),
+      resolvePublicBaseWssUrl(config, caches?.configFile, platformAssistantId),
     );
     return new Response(runtimeResponse.body, {
       status: runtimeResponse.status,
