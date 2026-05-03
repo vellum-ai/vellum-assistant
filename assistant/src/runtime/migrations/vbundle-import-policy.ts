@@ -89,7 +89,14 @@ function parseSemverTriple(version: string): SemverTriple | null {
   const base = version.split(/[-+]/)[0] ?? version;
   const parts = base.split(".");
   if (parts.length !== 3) return null;
-  const [maj, min, pat] = parts.map((p) => Number.parseInt(p, 10));
+  // Reject components with anything other than ASCII digits to avoid
+  // Number.parseInt's lenient prefix-parse — e.g. "0.8.0foo" would
+  // otherwise coerce to [0, 8, 0] and silently pass the gate, defeating
+  // the parse-failure-fail-open contract in evaluateRuntimeCompatibility.
+  // Leading zeros (e.g. "01.02.03") are intentionally accepted since
+  // they round-trip to the same numeric triple as the un-padded form.
+  if (!parts.every((p) => /^\d+$/.test(p))) return null;
+  const [maj, min, pat] = parts.map((p) => Number(p));
   if (![maj, min, pat].every((n) => Number.isFinite(n) && n >= 0)) {
     return null;
   }

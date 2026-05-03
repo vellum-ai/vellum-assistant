@@ -151,6 +151,34 @@ describe("compareSemver", () => {
   test("two-part version returns null", () => {
     expect(compareSemver("1.2", "0.7.1")).toBe(null);
   });
+
+  // Regression: Number.parseInt accepts numeric prefixes and ignores
+  // trailing junk ("0foo" → 0), which previously coerced malformed
+  // triples through the gate. parseSemverTriple now requires each
+  // component to match /^\d+$/ exactly.
+  test("trailing junk on a component returns null (left arg)", () => {
+    expect(compareSemver("0.8.0foo", "0.8.0")).toBe(null);
+  });
+
+  test("trailing junk on a component returns null (right arg)", () => {
+    expect(compareSemver("0.8.0", "0.7.1xyz")).toBe(null);
+  });
+
+  // Leading zeros are accepted: "01.02.03" parses to the same numeric
+  // triple as "1.2.3" since Number("01") === 1. We pin this behavior
+  // so a future tightening doesn't accidentally regress callers that
+  // pass zero-padded versions from upstream tooling.
+  test("leading zeros parse equal to un-padded triple", () => {
+    expect(compareSemver("01.02.03", "1.2.3")).toBe(0);
+  });
+
+  test("leading whitespace returns null", () => {
+    expect(compareSemver(" 0.8.0", "0.8.0")).toBe(null);
+  });
+
+  test("negative component returns null", () => {
+    expect(compareSemver("0.8.-1", "0.8.0")).toBe(null);
+  });
 });
 
 describe("evaluateRuntimeCompatibility", () => {
@@ -211,6 +239,20 @@ describe("evaluateRuntimeCompatibility", () => {
     expect(
       evaluateRuntimeCompatibility(
         { min_runtime_version: "garbage", max_runtime_version: null },
+        "0.7.1",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  // Regression for Codex feedback: a malformed min like "0.8.0foo"
+  // previously coerced to [0, 8, 0] via Number.parseInt and incorrectly
+  // produced a version_incompatible decision against runtime "0.7.1".
+  // With strict per-component digit matching, the parse fails and the
+  // gate fails open.
+  test("malformed min with trailing junk fails open, does not block", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.8.0foo", max_runtime_version: null },
         "0.7.1",
       ),
     ).toEqual({ ok: true });
