@@ -30,6 +30,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
+import { APP_VERSION } from "../../version.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import * as policy from "./vbundle-import-policy.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
@@ -202,6 +203,24 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     manifest = validation.manifest;
     entryMap = validation.entries;
+  }
+
+  // Defense-in-depth: refuse to import a bundle whose declared compat range
+  // excludes this runtime BEFORE any state mutation. The platform-side gate
+  // is the primary check; this catches legacy bundles whose ExportJob row
+  // predates PR #5470 (compat columns NULL → platform gate skipped) and
+  // any caller that bypasses the platform-issued signed URL flow.
+  const compatResult = policy.evaluateRuntimeCompatibility(
+    manifest.compatibility,
+    APP_VERSION,
+  );
+  if (!compatResult.ok) {
+    return {
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: compatResult.bundle_compat,
+      runtime_version: compatResult.runtime_version,
+    };
   }
 
   // Directories to preserve when clearing the workspace. Derived from the

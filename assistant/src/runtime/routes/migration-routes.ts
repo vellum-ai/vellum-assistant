@@ -1346,8 +1346,10 @@ async function runGcsImport(
       });
     }
     if (result.reason === "version_incompatible") {
-      // Wired by PR 5 — until then the importer never returns this variant,
-      // but we narrow explicitly to keep the union exhaustive.
+      // Returned by commitImport / streamCommitImport when the runtime falls
+      // outside the bundle's compat range. The platform-side gate is the
+      // primary check; this catches legacy bundles whose ExportJob row
+      // predates PR #5470 (compat columns NULL → platform gate skipped).
       throw new GcsImportError({
         code: "version_incompatible",
         message: formatRuntimeCompatibilityMessage(
@@ -1689,8 +1691,10 @@ function throwImportCommitFailure(
   }
 
   if (result.reason === "version_incompatible") {
-    // Wired by PR 5 — until then the importer never returns this variant,
-    // but we narrow explicitly to keep the union exhaustive.
+    // Returned by commitImport / streamCommitImport when the runtime falls
+    // outside the bundle's compat range. The platform-side gate is the
+    // primary check; this catches legacy bundles whose ExportJob row
+    // predates PR #5470 (compat columns NULL → platform gate skipped).
     throw new InternalError(
       formatRuntimeCompatibilityMessage(
         result.bundle_compat,
