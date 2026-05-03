@@ -44,7 +44,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     enqueueMemoryJob("embed_graph_node", { nodeId: "node-1" });
     enqueueMemoryJob("graph_extract", { conversationId: "conv-1" });
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     const types = claimed.map((j) => j.type);
 
     expect(types).toContain("embed_segment");
@@ -73,7 +73,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
       conversationId: "conv-1",
     });
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     const types = claimed.map((j) => j.type);
 
     // Only non-embed jobs should be claimed
@@ -101,7 +101,11 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     enqueueMemoryJob("embed_segment", { segmentId: "seg-1" });
     enqueueMemoryJob("graph_extract", { conversationId: "conv-1" });
 
-    const claimedWhileOpen = claimMemoryJobs(10);
+    const claimedWhileOpen = claimMemoryJobs({
+      slowLlm: 10,
+      fast: 10,
+      embed: 10,
+    });
     expect(claimedWhileOpen.map((j) => j.type)).not.toContain("embed_segment");
 
     // Reset breaker (simulates successful probe closing the circuit)
@@ -110,7 +114,11 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     // Re-enqueue an embed job (the previous one is now "running")
     enqueueMemoryJob("embed_graph_node", { nodeId: "node-2" });
 
-    const claimedAfterClose = claimMemoryJobs(10);
+    const claimedAfterClose = claimMemoryJobs({
+      slowLlm: 10,
+      fast: 10,
+      embed: 10,
+    });
     const types = claimedAfterClose.map((j) => j.type);
 
     expect(types).toContain("embed_graph_node");
@@ -223,7 +231,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     // Also enqueue a non-embed job
     enqueueMemoryJob("graph_consolidate", { conversationId: "conv-1" });
 
-    const claimed = claimMemoryJobs(20);
+    const claimed = claimMemoryJobs({ slowLlm: 20, fast: 20, embed: 20 });
     const types = claimed.map((j) => j.type);
 
     // Only the non-embed job should be claimed

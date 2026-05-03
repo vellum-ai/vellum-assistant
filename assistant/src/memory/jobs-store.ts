@@ -372,15 +372,7 @@ export interface LaneBudgets {
   embed: number;
 }
 
-export function claimMemoryJobs(limit: number): MemoryJob[];
-export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[];
-export function claimMemoryJobs(arg: number | LaneBudgets): MemoryJob[] {
-  // Back-compat: a single numeric limit is applied as the per-lane budget on
-  // every lane. The one current caller (jobs-worker.ts) is migrated to the
-  // explicit signature in a follow-up PR.
-  const limits: LaneBudgets =
-    typeof arg === "number" ? { slowLlm: arg, fast: arg, embed: arg } : arg;
-
+export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
 
   const db = getDb();
