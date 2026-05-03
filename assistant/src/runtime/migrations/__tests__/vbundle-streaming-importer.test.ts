@@ -36,8 +36,10 @@ import { Readable } from "node:stream";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { APP_VERSION } from "../../../version.js";
 import { buildVBundle } from "../vbundle-builder.js";
 import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
+import { LEGACY_RUNTIME_VERSION_SENTINEL } from "../vbundle-import-policy.js";
 import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
 import { canonicalizeJson } from "../vbundle-validator.js";
@@ -589,6 +591,141 @@ describe("streamCommitImport — failure modes", () => {
 
     expect(readFileSync(join(workspaceDir, "existing.txt"), "utf8")).toBe(
       "keep me\n",
+    );
+    assertNoLeftoverTempDirs();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runtime-version compat gate — the streaming importer must refuse to
+// populate the temp tree when the bundle's compat range excludes APP_VERSION.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — runtime-version compat gate", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  function assertNoLeftoverTempDirs(): void {
+    const parent = join(workspaceDir, "..");
+    const base = workspaceDir.split("/").pop()!;
+    const siblings = readdirSync(parent);
+    const leftover = siblings.filter(
+      (name) =>
+        name.startsWith(`${base}.import-`) ||
+        name.startsWith(`${base}.pre-import-`),
+    );
+    expect(leftover).toEqual([]);
+  }
+
+  test("incompatible bundle returns version_incompatible without writing the temp tree", async () => {
+    const { archive } = buildVBundle({
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        {
+          path: "workspace/a.txt",
+          data: new TextEncoder().encode("never-written"),
+        },
+      ],
+      ...defaultV1Options(),
+      compatibility: {
+        min_runtime_version: "99.0.0",
+        max_runtime_version: null,
+      },
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    if (result.ok || result.reason !== "version_incompatible") {
+      throw new Error(
+        `expected version_incompatible, got ${JSON.stringify(result)}`,
+      );
+    }
+    expect(result.bundle_compat.min_runtime_version).toBe("99.0.0");
+    expect(result.bundle_compat.max_runtime_version).toBeNull();
+    expect(result.runtime_version).toBe(APP_VERSION);
+
+    // The streaming importer mkdir's `${workspaceDir}/.import-<uuid>` before
+    // reading the manifest, which materializes an empty workspace dir as a
+    // side effect. Verify nothing FROM THE BUNDLE landed there.
+    if (existsSync(workspaceDir)) {
+      expect(readdirSync(workspaceDir)).toEqual([]);
+    }
+    assertNoLeftoverTempDirs();
+  });
+
+  test("legacy sentinel passes through the streaming path", async () => {
+    const fileA = new TextEncoder().encode("legacy-import\n");
+    const { archive } = buildVBundle({
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/a.txt", data: fileA },
+      ],
+      ...defaultV1Options(),
+      compatibility: {
+        min_runtime_version: LEGACY_RUNTIME_VERSION_SENTINEL,
+        max_runtime_version: null,
+      },
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(readFileSync(join(workspaceDir, "a.txt"))).toEqual(
+      Buffer.from(fileA),
+    );
+    assertNoLeftoverTempDirs();
+  });
+
+  test("pre-existing workspace files stay untouched on incompatibility", async () => {
+    mkdirSync(workspaceDir, { recursive: true });
+    const seedBytes = new TextEncoder().encode("preserve-me\n");
+    writeFileSync(join(workspaceDir, "seed.txt"), seedBytes);
+
+    const { archive } = buildVBundle({
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        {
+          path: "workspace/a.txt",
+          data: new TextEncoder().encode("never-written"),
+        },
+      ],
+      ...defaultV1Options(),
+      compatibility: {
+        min_runtime_version: "99.0.0",
+        max_runtime_version: null,
+      },
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason).toBe("version_incompatible");
+
+    expect(readFileSync(join(workspaceDir, "seed.txt"))).toEqual(
+      Buffer.from(seedBytes),
     );
     assertNoLeftoverTempDirs();
   });
