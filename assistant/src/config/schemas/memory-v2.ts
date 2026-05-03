@@ -116,17 +116,17 @@ export const MemoryV2ConfigSchema = z
       .number({ error: "memory.v2.dense_weight must be a number" })
       .min(0, "memory.v2.dense_weight must be >= 0")
       .max(1, "memory.v2.dense_weight must be <= 1")
-      .default(0.7)
+      .default(0.85)
       .describe(
-        "Weight on dense (cosine) similarity in the hybrid retrieval score",
+        "Weight on dense (cosine) similarity in the hybrid retrieval score — dense embeddings dominate the score.",
       ),
     sparse_weight: z
       .number({ error: "memory.v2.sparse_weight must be a number" })
       .min(0, "memory.v2.sparse_weight must be >= 0")
       .max(1, "memory.v2.sparse_weight must be <= 1")
-      .default(0.3)
+      .default(0.15)
       .describe(
-        "Weight on sparse (BM25-style) similarity in the hybrid retrieval score",
+        "Weight on sparse (BM25-style) similarity in the hybrid retrieval score — sparse acts as a discriminator for keyword-rich queries.",
       ),
     bm25_k1: z
       .number({ error: "memory.v2.bm25_k1 must be a number" })
