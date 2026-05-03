@@ -113,8 +113,7 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
 
         // Notify daemon of failure so the CLI doesn't hang.
         await ipcCallAssistant("resolve_contact_prompt", {
-          requestId,
-          error: "Failed to create contact channel",
+          body: { requestId, error: "Failed to create contact channel" },
         });
         return Response.json(
           { accepted: false, error: "Failed to create contact channel" },
@@ -130,20 +129,21 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
     await ipcCallAssistant("resolve_contact_prompt", {
-      requestId,
-      error: "Database error",
+      body: { requestId, error: "Database error" },
     });
     return Response.json({ accepted: false, error: "Database error" }, { status: 500 });
   }
 
   // Notify daemon to unblock the waiting contacts/prompt IPC call.
-  await ipcCallAssistant("resolve_contact_prompt", {
-    requestId,
-    contactId,
-    channelId,
-    channelType,
-    address: normalizedAddress,
+  const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
+    body: { requestId, contactId, channelId, channelType, address: normalizedAddress },
   });
+  if (!ipcResult || (ipcResult as { resolved?: boolean }).resolved === false) {
+    log.warn(
+      { requestId, contactId },
+      "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending prompt — CLI may time out",
+    );
+  }
 
   return Response.json({ accepted: true });
 }
