@@ -42,6 +42,14 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ HostAppControlRequest           │ Discriminated-union input enum; code    │
+// │                                 │ generator cannot express it             │
+// │ HostAppControlInput (enum)      │ Custom Codable for tool-tagged variants │
+// │ HostAppControlCancel            │ Hand-maintained alongside               │
+// │                                 │ HostAppControlRequest                   │
+// │ HostAppControlState (enum)      │ String enum; codegen cannot emit it     │
+// │ HostAppControlResultPayload     │ Posted back to daemon; hand-maintained  │
+// │                                 │ alongside HostAppControlRequest         │
 // │ HostBrowserRequest              │ Uses AnyCodable for `cdpParams`; client │
 // │                                 │ decodes only to keep SSE healthy        │
 // │ HostBrowserCancelRequest        │ Hand-maintained alongside               │
@@ -1664,6 +1672,241 @@ public struct HostCuRequest: Decodable, Sendable {
 public struct HostCuCancelRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
+}
+
+// MARK: - Host App Control
+
+/// Request from the daemon to execute an app-control action on the host.
+/// Mirrors the TypeScript `HostAppControlRequest` shape: a wire message that
+/// the desktop client receives via SSE, executes locally (start/observe/press/
+/// type/click/drag/etc. against a target macOS app), and POSTs the result back.
+public struct HostAppControlRequest: Codable, Equatable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let toolName: String
+    public let input: HostAppControlInput
+
+    public init(
+        type: String,
+        requestId: String,
+        conversationId: String,
+        toolName: String,
+        input: HostAppControlInput
+    ) {
+        self.type = type
+        self.requestId = requestId
+        self.conversationId = conversationId
+        self.toolName = toolName
+        self.input = input
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case conversationId
+        case toolName
+        case input
+    }
+}
+
+/// Discriminated-union payload for `HostAppControlRequest.input`. The wire
+/// shape is `{ "tool": "<variant>", ...fields }` for each variant — Swift
+/// hides the discriminator inside the enum case.
+public enum HostAppControlInput: Codable, Equatable, Sendable {
+    case start(app: String, args: [String]?)
+    case observe(app: String)
+    case press(app: String, key: String, modifiers: [String]?, durationMs: Int?)
+    case combo(app: String, keys: [String], durationMs: Int?)
+    case type(app: String, text: String)
+    case click(app: String, x: Double, y: Double, button: String?, double: Bool?)
+    case drag(app: String, fromX: Double, fromY: Double, toX: Double, toY: Double, button: String?)
+    case stop(app: String?, reason: String?)
+
+    private enum CodingKeys: String, CodingKey {
+        case tool
+        case app
+        case args
+        case key
+        case keys
+        case modifiers
+        case durationMs
+        case text
+        case x
+        case y
+        case button
+        case double
+        case fromX
+        case fromY
+        case toX
+        case toY
+        case reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let tool = try container.decode(String.self, forKey: .tool)
+        switch tool {
+        case "start":
+            let app = try container.decode(String.self, forKey: .app)
+            let args = try container.decodeIfPresent([String].self, forKey: .args)
+            self = .start(app: app, args: args)
+        case "observe":
+            let app = try container.decode(String.self, forKey: .app)
+            self = .observe(app: app)
+        case "press":
+            let app = try container.decode(String.self, forKey: .app)
+            let key = try container.decode(String.self, forKey: .key)
+            let modifiers = try container.decodeIfPresent([String].self, forKey: .modifiers)
+            let durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+            self = .press(app: app, key: key, modifiers: modifiers, durationMs: durationMs)
+        case "combo":
+            let app = try container.decode(String.self, forKey: .app)
+            let keys = try container.decode([String].self, forKey: .keys)
+            let durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+            self = .combo(app: app, keys: keys, durationMs: durationMs)
+        case "type":
+            let app = try container.decode(String.self, forKey: .app)
+            let text = try container.decode(String.self, forKey: .text)
+            self = .type(app: app, text: text)
+        case "click":
+            let app = try container.decode(String.self, forKey: .app)
+            let x = try container.decode(Double.self, forKey: .x)
+            let y = try container.decode(Double.self, forKey: .y)
+            let button = try container.decodeIfPresent(String.self, forKey: .button)
+            let double = try container.decodeIfPresent(Bool.self, forKey: .double)
+            self = .click(app: app, x: x, y: y, button: button, double: double)
+        case "drag":
+            let app = try container.decode(String.self, forKey: .app)
+            let fromX = try container.decode(Double.self, forKey: .fromX)
+            let fromY = try container.decode(Double.self, forKey: .fromY)
+            let toX = try container.decode(Double.self, forKey: .toX)
+            let toY = try container.decode(Double.self, forKey: .toY)
+            let button = try container.decodeIfPresent(String.self, forKey: .button)
+            self = .drag(app: app, fromX: fromX, fromY: fromY, toX: toX, toY: toY, button: button)
+        case "stop":
+            let app = try container.decodeIfPresent(String.self, forKey: .app)
+            let reason = try container.decodeIfPresent(String.self, forKey: .reason)
+            self = .stop(app: app, reason: reason)
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .tool,
+                in: container,
+                debugDescription: "Unknown HostAppControlInput tool: \(tool)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .start(let app, let args):
+            try container.encode("start", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encodeIfPresent(args, forKey: .args)
+        case .observe(let app):
+            try container.encode("observe", forKey: .tool)
+            try container.encode(app, forKey: .app)
+        case .press(let app, let key, let modifiers, let durationMs):
+            try container.encode("press", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(key, forKey: .key)
+            try container.encodeIfPresent(modifiers, forKey: .modifiers)
+            try container.encodeIfPresent(durationMs, forKey: .durationMs)
+        case .combo(let app, let keys, let durationMs):
+            try container.encode("combo", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(keys, forKey: .keys)
+            try container.encodeIfPresent(durationMs, forKey: .durationMs)
+        case .type(let app, let text):
+            try container.encode("type", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(text, forKey: .text)
+        case .click(let app, let x, let y, let button, let double):
+            try container.encode("click", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encodeIfPresent(button, forKey: .button)
+            try container.encodeIfPresent(double, forKey: .double)
+        case .drag(let app, let fromX, let fromY, let toX, let toY, let button):
+            try container.encode("drag", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(fromX, forKey: .fromX)
+            try container.encode(fromY, forKey: .fromY)
+            try container.encode(toX, forKey: .toX)
+            try container.encode(toY, forKey: .toY)
+            try container.encodeIfPresent(button, forKey: .button)
+        case .stop(let app, let reason):
+            try container.encode("stop", forKey: .tool)
+            try container.encodeIfPresent(app, forKey: .app)
+            try container.encodeIfPresent(reason, forKey: .reason)
+        }
+    }
+}
+
+/// Cancellation signal from the daemon telling the client to abort an
+/// in-flight host app-control action identified by `requestId`.
+public struct HostAppControlCancel: Codable, Equatable, Sendable {
+    public let type: String
+    public let requestId: String
+
+    public init(type: String, requestId: String) {
+        self.type = type
+        self.requestId = requestId
+    }
+}
+
+/// Lifecycle state of the target app at the moment of observation.
+public enum HostAppControlState: String, Codable, Equatable, Sendable {
+    case running
+    case missing
+    case minimized
+    case occluded
+}
+
+/// Window bounds in points for the focused window of the target app.
+public struct WindowBounds: Codable, Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host app-control
+/// action. `pngBase64` and `windowBounds` are present when a screenshot/
+/// observation was captured; `executionResult`/`executionError` carry the
+/// outcome of the executed action.
+public struct HostAppControlResultPayload: Codable, Equatable, Sendable {
+    public let requestId: String
+    public let state: HostAppControlState
+    public let pngBase64: String?
+    public let windowBounds: WindowBounds?
+    public let executionResult: String?
+    public let executionError: String?
+
+    public init(
+        requestId: String,
+        state: HostAppControlState,
+        pngBase64: String? = nil,
+        windowBounds: WindowBounds? = nil,
+        executionResult: String? = nil,
+        executionError: String? = nil
+    ) {
+        self.requestId = requestId
+        self.state = state
+        self.pngBase64 = pngBase64
+        self.windowBounds = windowBounds
+        self.executionResult = executionResult
+        self.executionError = executionError
+    }
 }
 
 // MARK: - Host Browser Proxy
