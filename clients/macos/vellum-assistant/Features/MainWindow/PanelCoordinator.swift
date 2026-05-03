@@ -11,6 +11,48 @@ private let panelCoordinatorLog = Logger(
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
+    /// Conversation local-id explicitly targeted by current navigation state.
+    /// Used to avoid rendering stale chat content while a conversation switch
+    /// is still activating on the main actor.
+    private var selectedConversationIdForChatSurface: UUID? {
+        switch windowState.selection {
+        case .conversation(let id):
+            return id
+        case .appEditing(_, let id):
+            return id
+        default:
+            return nil
+        }
+    }
+
+    /// Current conversation being rendered by `chatView`.
+    private var renderedConversationIdForChatSurface: UUID? {
+        conversationManager.activeConversationId ?? conversationManager.draftLocalId
+    }
+
+    /// True while the chat surface should show a loading skeleton instead of
+    /// rendering a stale or partially-initialized conversation.
+    private func shouldShowConversationSwitchSkeleton(targetConversationId: UUID?) -> Bool {
+        guard let targetConversationId else { return false }
+        guard renderedConversationIdForChatSurface == targetConversationId else {
+            // Selection changed but ConversationManager has not activated yet.
+            return true
+        }
+
+        // Draft conversations are local-only and immediately ready.
+        if conversationManager.activeConversationId == nil,
+           conversationManager.draftLocalId == targetConversationId {
+            return false
+        }
+
+        // Require the selected VM history to load before enabling interaction.
+        // Use the active VM only (no cache/LRU mutations during body eval).
+        guard let targetViewModel = conversationManager.activeViewModel else {
+            return true
+        }
+        return !targetViewModel.isHistoryLoaded
+    }
+
     // MARK: - Config-Driven Slot Rendering
 
     @ViewBuilder
@@ -632,7 +674,10 @@ extension MainWindowView {
         let config = windowState.layoutConfig
         let isDisabledACPSessionsRightSlot = Self.isDisabledACPSessionsRightSlot(config.right)
         let showConfigPanel = config.right.visible && config.right.content != .empty && !isDisabledACPSessionsRightSlot
-        let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
+        let isSwitchingConversation = shouldShowConversationSwitchSkeleton(targetConversationId: selectedConversationIdForChatSurface)
+        let showSubagentPanel = !isSwitchingConversation
+            && windowState.selectedSubagentId != nil
+            && conversationManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: clampedSidePanelWidth(windowSize: windowSize),
@@ -694,7 +739,10 @@ extension MainWindowView {
 
     @ViewBuilder
     var chatView: some View {
-        if let viewModel = conversationManager.activeViewModel {
+        let targetConversationId = selectedConversationIdForChatSurface
+        if shouldShowConversationSwitchSkeleton(targetConversationId: targetConversationId) {
+            ConversationSwitchLoadingView()
+        } else if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
             let conversationStartersEnabled = true
             let showInspectButton = MacOSClientFeatureFlagManager.shared.isEnabled(
@@ -750,7 +798,8 @@ extension MainWindowView {
                 },
                 conversationId: conversationManager.activeConversationId ?? conversationManager.draftLocalId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
-                highlightedMessageId: $conversationManager.highlightedMessageId
+                highlightedMessageId: $conversationManager.highlightedMessageId,
+                isInteractionEnabled: viewModel.isHistoryLoaded
             )
         }
     }
@@ -961,6 +1010,7 @@ struct ActiveChatViewWrapper: View {
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
+    var isInteractionEnabled: Bool = true
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -1019,7 +1069,7 @@ struct ActiveChatViewWrapper: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
-                isInteractionEnabled: windowState.inspectorMessageId == nil,
+                isInteractionEnabled: isInteractionEnabled && windowState.inspectorMessageId == nil,
                 isReadonly: isReadonly,
                 isBootstrapping: isBootstrapping,
                 isBootstrapTimedOut: isBootstrapTimedOut,
@@ -1036,7 +1086,7 @@ struct ActiveChatViewWrapper: View {
                 showThresholdPicker: showThresholdPicker
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-            .disabled(windowState.inspectorMessageId != nil)
+            .disabled(windowState.inspectorMessageId != nil || !isInteractionEnabled)
 
             if let messageId = windowState.inspectorMessageId {
                 MessageInspectorView(
@@ -1067,6 +1117,18 @@ struct ActiveChatViewWrapper: View {
         withAnimation(VAnimation.standard) {
             windowState.inspectorMessageId = nil
         }
+    }
+}
+
+/// Immediate visual placeholder while switching conversations.
+private struct ConversationSwitchLoadingView: View {
+    var body: some View {
+        ChatLoadingSkeleton()
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Loading chat history")
+            .background(VColor.surfaceBase)
     }
 }
 
