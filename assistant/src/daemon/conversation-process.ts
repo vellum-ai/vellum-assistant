@@ -425,13 +425,28 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
   }
 
-  // Preactivate computer-use skill for interactive desktop turns.
+  // Re-preactivate host-proxy skills for interactive desktop turns. The
+  // dequeue path reset `preactivatedSkillIds` above, so without these
+  // re-adds the relevant skill tools wouldn't be projected to the LLM
+  // for queued messages 2+ even though the underlying proxies (HostCuProxy,
+  // HostAppControlProxy) are still attached. Mirrors the per-message
+  // instantiation block in `conversation-routes.ts` / `process-message.ts`.
   if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
       conversation.addPreactivatedSkillId("computer-use");
+    }
+    // Gated on the `host_app_control` capability rather than the no-arg
+    // form so future host-proxy clients that opt into a subset can be
+    // selectively included. (chrome-extension supports `host_browser`
+    // but NOT `host_app_control`.)
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface, "host_app_control")
+    ) {
+      conversation.addPreactivatedSkillId("app-control");
     }
   }
 
@@ -862,7 +877,7 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
   }
 
-  // Preactivate computer-use skill for interactive desktop turns.
+  // Re-preactivate host-proxy skills for interactive desktop turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
@@ -870,6 +885,12 @@ async function drainBatch(
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
       conversation.addPreactivatedSkillId("computer-use");
+    }
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface, "host_app_control")
+    ) {
+      conversation.addPreactivatedSkillId("app-control");
     }
   }
 
