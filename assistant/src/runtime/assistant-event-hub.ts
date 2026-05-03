@@ -47,7 +47,6 @@ import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
-import * as pendingInteractions from "./pending-interactions.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -500,15 +499,10 @@ export function broadcastMessage(
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
 
-  // Register pending interactions so approval/host prompts are tracked
-  // regardless of which path triggered the broadcast.
-  if (resolvedConversationId) {
-    registerPendingInteraction(msg, resolvedConversationId, targetClientId);
-  }
-
-  // Emit feed events for confirmation requests (tool approval prompts).
+  // Confirmation-request side effects: feed event + canonical guardian request.
   if (msg.type === "confirmation_request" && resolvedConversationId) {
     void emitConfirmationFeedEvent(msg, resolvedConversationId);
+    void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
   }
 
   // `conversation_list_invalidated` is a list-level system event — publish
@@ -558,7 +552,7 @@ function extractConversationId(msg: ServerMessage): string | undefined {
   return undefined;
 }
 
-// ── Pending interaction registration ──────────────────────────────────────────
+// ── Canonical guardian request ────────────────────────────────────────────────
 
 function resolveCanonicalRequestSourceType(
   sourceChannel: string,
@@ -569,55 +563,9 @@ function resolveCanonicalRequestSourceType(
 }
 
 /**
- * Register pending interactions for request-type messages so approval and
- * host prompts are tracked regardless of which code path broadcasts them.
- *
- * Heavy dependencies (conversation-store, canonical-guardian-store, etc.) are
- * imported lazily so that loading this module during tests doesn't trigger
- * config/data-dir side effects.
- *
- * @param targetClientId - When set, the host_bash request should be routed to
- *   this specific client. May be undefined for macos-origin turns.
- */
-function registerPendingInteraction(
-  msg: ServerMessage,
-  conversationId: string,
-  _targetClientId?: string,
-): void {
-  if (msg.type === "confirmation_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "confirmation",
-      confirmationDetails: {
-        toolName: msg.toolName,
-        input: msg.input,
-        riskLevel: msg.riskLevel,
-        executionTarget: msg.executionTarget,
-        allowlistOptions: msg.allowlistOptions,
-        scopeOptions: msg.scopeOptions,
-        persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-      },
-    });
-
-    // Create canonical guardian request asynchronously — heavy deps are
-    // imported lazily to avoid pulling in conversation-store (and
-    // transitively config/loader → ensureDataDir) at module-load time.
-    void createCanonicalRequestForConfirmation(msg, conversationId);
-  } else if (msg.type === "secret_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversationId,
-      kind: "secret",
-    });
-  // Host proxy interactions (host_bash, host_file, host_cu, host_browser,
-  // host_app_control, host_transfer) self-register in pendingInteractions with
-  // full RPC lifecycle state — no registration needed here.
-  }
-}
-
-/**
  * Lazily load heavy dependencies and create a canonical guardian request +
- * bridge for a confirmation_request message. Runs fire-and-forget from
- * registerPendingInteraction.
+ * bridge for a confirmation_request message. Called fire-and-forget from
+ * broadcastMessage.
  */
 async function createCanonicalRequestForConfirmation(
   msg: ServerMessage & { type: "confirmation_request" },

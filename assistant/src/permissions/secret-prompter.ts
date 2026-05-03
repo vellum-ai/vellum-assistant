@@ -81,8 +81,12 @@ export class SecretPrompter {
 
       this.pending.set(requestId, { resolve, reject, timer });
 
-      // pendingInteractions.register is now handled by broadcastMessage
-      // when the secret_request event is published to the hub.
+      // Self-register in pendingInteractions so /v1/secret can route the
+      // response to this conversation without relying on broadcastMessage.
+      pendingInteractions.register(requestId, {
+        conversationId: effectiveConversationId,
+        kind: "secret",
+      });
 
       const config = getConfig();
       const msg: SecretRequestMessage = {

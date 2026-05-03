@@ -405,17 +405,17 @@ describe("capabilityForMessageType — host-prefix routing", () => {
 // avoids overwriting the RPC lifecycle state (rpcResolve/rpcReject/timer)
 // that the proxy stores alongside conversationId/kind.
 //
-// Only confirmation_request and secret_request are registered here, because
-// they have no equivalent proxy — registration happens as a side effect of
-// broadcastMessage so the /v1/confirm and /v1/secret endpoints can route
-// the response to the right conversation.
+// confirmation_request and secret_request are also NOT registered here — the
+// prompters (PermissionPrompter, SecretPrompter) self-register in their
+// prompt() methods, just like the host proxies. broadcastMessage is purely a
+// message-delivery mechanism; it has no registration side effects.
 
 describe("broadcastMessage — pending interaction registration", () => {
   beforeEach(() => {
     pendingInteractions.clear();
   });
 
-  test("registers confirmation_request in pendingInteractions", () => {
+  test("does NOT register confirmation_request — PermissionPrompter self-registers", () => {
     broadcastMessage({
       type: "confirmation_request",
       requestId: "req-confirm-1",
@@ -428,13 +428,10 @@ describe("broadcastMessage — pending interaction registration", () => {
       scopeOptions: [],
     } as never);
 
-    const entry = pendingInteractions.get("req-confirm-1");
-    expect(entry).toBeDefined();
-    expect(entry?.kind).toBe("confirmation");
-    expect(entry?.conversationId).toBe("conv-1");
+    expect(pendingInteractions.get("req-confirm-1")).toBeUndefined();
   });
 
-  test("registers secret_request in pendingInteractions", () => {
+  test("does NOT register secret_request — SecretPrompter self-registers", () => {
     broadcastMessage({
       type: "secret_request",
       requestId: "req-secret-1",
@@ -443,10 +440,7 @@ describe("broadcastMessage — pending interaction registration", () => {
       field: "token",
     } as never);
 
-    const entry = pendingInteractions.get("req-secret-1");
-    expect(entry).toBeDefined();
-    expect(entry?.kind).toBe("secret");
-    expect(entry?.conversationId).toBe("conv-1");
+    expect(pendingInteractions.get("req-secret-1")).toBeUndefined();
   });
 
   test("does NOT register host proxy requests — proxies self-register", () => {
