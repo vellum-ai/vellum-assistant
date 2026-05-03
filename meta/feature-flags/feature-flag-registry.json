@@ -256,6 +256,14 @@
       "label": "Account Deletion",
       "description": "Surfaces the user-initiated account deletion flow in client settings.",
       "defaultEnabled": false
+    },
+    {
+      "id": "app-control",
+      "scope": "assistant",
+      "key": "app-control",
+      "label": "App Control",
+      "description": "Enable the app-control skill (per-app screenshot + raw input bypassing AX tree)",
+      "defaultEnabled": false
     }
   ]
 }
