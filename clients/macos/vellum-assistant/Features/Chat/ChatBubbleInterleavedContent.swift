@@ -706,26 +706,26 @@ extension ChatBubble {
                    message.inlineSurfaces[i].id != activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                 }
-            case .thinking(let indices):
+            case .thinking:
                 if burstForGroup[group.stableId] != nil {
                     // Thinking folded into a burst — rendered by the burst anchor
                     if burstAnchorIds.contains(group.stableId),
                        let burst = burstForGroup[group.stableId] {
-                        // This thinking group is the anchor for its burst
-                        if shouldRenderToolProgressInline {
-                            inlineToolProgress(
-                                toolIndices: burst.toolIndices,
-                                isLatestGroup: burst.stableId == latestBurstId,
-                                hasTrailingText: burstTrailingText[burst.stableId] ?? false,
-                                expandedItems: burst.expandedItems.contains(where: { if case .thinking = $0 { return true }; return false }) ? burst.expandedItems : nil
-                            )
-                            if !deferredImageBurstIds.contains(burst.stableId) {
-                                let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
-                                    guard tcIdx < message.toolCalls.count else { return nil }
-                                    return message.toolCalls[tcIdx]
-                                }
-                                inlineToolCallImages(from: burstToolCalls)
+                        // Render the burst card — no shouldRenderToolProgressInline
+                        // guard because thinking-only bursts (no tool calls) still
+                        // need to render even when the message has no interleaved tools.
+                        inlineToolProgress(
+                            toolIndices: burst.toolIndices,
+                            isLatestGroup: burst.stableId == latestBurstId,
+                            hasTrailingText: burstTrailingText[burst.stableId] ?? false,
+                            expandedItems: burst.expandedItems.contains(where: { if case .thinking = $0 { return true }; return false }) ? burst.expandedItems : nil
+                        )
+                        if !deferredImageBurstIds.contains(burst.stableId) {
+                            let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
+                                guard tcIdx < message.toolCalls.count else { return nil }
+                                return message.toolCalls[tcIdx]
                             }
+                            inlineToolCallImages(from: burstToolCalls)
                         }
                     } else {
                         EmptyView()
