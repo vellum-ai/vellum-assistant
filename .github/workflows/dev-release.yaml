@@ -50,9 +50,9 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: assistant
 
-      - name: Install nested package dependencies
+      - name: Install linked package dependencies
         run: |
-          for dir in packages/*/ skills/*/; do
+          for dir in packages/*/ skills/*/ gateway/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
