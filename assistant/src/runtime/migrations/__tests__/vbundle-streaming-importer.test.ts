@@ -654,6 +654,12 @@ describe("streamCommitImport — runtime-version compat gate", () => {
       },
     });
 
+    // Pre-condition: workspace dir does NOT exist on a fresh filesystem.
+    // The plan invariant requires that the streaming importer gate on
+    // runtime-version compat BEFORE any state mutation, so an
+    // incompatible bundle must leave the filesystem untouched.
+    expect(existsSync(workspaceDir)).toBe(false);
+
     const result = await streamCommitImport({
       source: readableFrom(archive),
       pathResolver: new DefaultPathResolver(workspaceDir),
@@ -669,12 +675,10 @@ describe("streamCommitImport — runtime-version compat gate", () => {
     expect(result.bundle_compat.max_runtime_version).toBeNull();
     expect(result.runtime_version).toBe(APP_VERSION);
 
-    // The streaming importer mkdir's `${workspaceDir}/.import-<uuid>` before
-    // reading the manifest, which materializes an empty workspace dir as a
-    // side effect. Verify nothing FROM THE BUNDLE landed there.
-    if (existsSync(workspaceDir)) {
-      expect(readdirSync(workspaceDir)).toEqual([]);
-    }
+    // Post-condition: workspace dir STILL does not exist. The version
+    // gate now runs before the temp-staging mkdir, so rejecting an
+    // incompatible bundle leaves zero filesystem trace.
+    expect(existsSync(workspaceDir)).toBe(false);
     assertNoLeftoverTempDirs();
   });
 
