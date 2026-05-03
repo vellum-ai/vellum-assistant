@@ -430,7 +430,7 @@ async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
 
 // ─── Filtered skill listing ──────────────────────────────────────────────────
 
-export interface SkillListFilter {
+interface SkillListFilter {
   origin?: string;
   kind?: string;
   q?: string;
@@ -698,7 +698,6 @@ export async function getSkill(
 // depends on `catalog-cache.ts`, which would otherwise be reachable via this
 // handler module). Re-exported here so handlers can import it alongside
 // the other skill handler exports.
-export type { SkillFileEntry } from "../../skills/catalog-files.js";
 
 /**
  * Returns true if `filePath` is a symlink whose resolved real path escapes
@@ -1428,7 +1427,7 @@ export async function inspectSkill(
   }
 }
 
-export interface DraftResult {
+interface DraftResult {
   success: boolean;
   draft?: {
     skillId: string;
@@ -1583,7 +1582,7 @@ export async function draftSkill(params: {
   }
 }
 
-export interface CreateSkillParams {
+interface CreateSkillParams {
   skillId: string;
   name: string;
   description: string;

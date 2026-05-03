@@ -72,7 +72,7 @@ import { getLogger } from "../util/logger.js";
  * keeps the supervisor free of path assumptions and simplifies
  * tests.
  */
-export interface MeetHostManifest {
+interface MeetHostManifest {
   /** SHA-256 of the shipped skill source tree. */
   sourceHash: string;
 }
@@ -84,7 +84,7 @@ export interface MeetHostManifest {
  * protocol version) can be threaded through later without a
  * signature break.
  */
-export interface MeetHostHandshakePayload {
+interface MeetHostHandshakePayload {
   sourceHash: string;
 }
 
@@ -97,7 +97,7 @@ export interface MeetHostHandshakePayload {
  * supervisor unaware of the rest of the IPC server's surface and avoids a
  * circular import in tests that already stub `skill-server.js`.
  */
-export interface SkillRequestSender {
+interface SkillRequestSender {
   sendRequest(
     connection: SkillIpcConnection,
     method: string,
@@ -111,7 +111,7 @@ export interface SkillRequestSender {
  * child. All are optional on construction — production callers
  * rely on the defaults and tests override one or two at a time.
  */
-export interface MeetHostSupervisorDeps {
+interface MeetHostSupervisorDeps {
   /** Absolute path to the shipped `meet-join` skill dir, containing `register.ts`. */
   skillRuntimePath: string;
   /** Absolute path to a standalone bun binary, or `"bun"` for PATH lookup. */

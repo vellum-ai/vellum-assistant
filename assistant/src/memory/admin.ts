@@ -31,7 +31,7 @@ import {
 
 const log = getLogger("memory-admin");
 
-export interface MemorySystemStatus {
+interface MemorySystemStatus {
   enabled: boolean;
   degraded: boolean;
   reason: string | null;
@@ -46,7 +46,7 @@ export interface MemorySystemStatus {
   jobs: Record<string, number>;
 }
 
-export interface AdminMemoryQueryResult {
+interface AdminMemoryQueryResult {
   results: Array<{
     id: string;
     content: string;
@@ -146,7 +146,7 @@ function readNumericMetadata(
 
 // ── Short segment cleanup ─────────────────────────────────────────────
 
-export interface CleanupShortSegmentsResult {
+interface CleanupShortSegmentsResult {
   removed: number;
   failed: number;
   dryRunCount?: number;
@@ -214,7 +214,7 @@ export async function compactLongMemoryNodes(
 
 // ── Re-extraction ──────────────────────────────────────────────────────
 
-export interface ReextractTarget {
+interface ReextractTarget {
   conversationId: string;
   title: string | null;
   messageCount: number;

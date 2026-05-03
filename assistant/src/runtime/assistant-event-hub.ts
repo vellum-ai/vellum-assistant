@@ -80,7 +80,7 @@ interface BaseSubscriberEntry {
   lastActiveAt: Date;
 }
 
-export interface ClientEntry extends BaseSubscriberEntry {
+interface ClientEntry extends BaseSubscriberEntry {
   type: "client";
   clientId: string;
   interfaceId: InterfaceId;
@@ -98,11 +98,11 @@ export interface ClientEntry extends BaseSubscriberEntry {
   actorPrincipalId?: string;
 }
 
-export interface ProcessEntry extends BaseSubscriberEntry {
+interface ProcessEntry extends BaseSubscriberEntry {
   type: "process";
 }
 
-export type SubscriberEntry = ClientEntry | ProcessEntry;
+type SubscriberEntry = ClientEntry | ProcessEntry;
 
 /** Distributive Omit that preserves union discrimination. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -110,7 +110,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   : never;
 
 /** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt` and defaults `filter`/`onEvict`. */
-export type SubscriberInput = DistributiveOmit<
+type SubscriberInput = DistributiveOmit<
   SubscriberEntry,
   "active" | "connectedAt" | "lastActiveAt" | "filter" | "onEvict"
 > & {
@@ -619,6 +619,7 @@ function resolveCanonicalRequestSourceType(
   if (sourceChannel === "vellum") return "desktop";
   return "channel";
 }
+
 
 /**
  * Lazily load heavy dependencies and create a canonical guardian request +

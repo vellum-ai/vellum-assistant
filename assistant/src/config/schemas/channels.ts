@@ -121,8 +121,3 @@ export const SlackConfigSchema = z
       .describe("Slack bot display name"),
   })
   .describe("Slack channel configuration");
-
-export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
-export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
-export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
-export type SlackConfig = z.infer<typeof SlackConfigSchema>;

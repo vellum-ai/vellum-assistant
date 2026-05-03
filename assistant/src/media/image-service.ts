@@ -76,10 +76,4 @@ export function providerForModel(
   return fallback;
 }
 
-export type {
-  GeneratedImage,
-  ImageGenCredentials,
-  ImageGenerationRequest,
-  ImageGenerationResult,
-  ImageGenProvider,
-} from "./types.js";
+export type { ImageGenCredentials } from "./types.js";

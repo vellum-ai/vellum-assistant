@@ -13,8 +13,6 @@
 
 import type { TtsCallMode, TtsProviderId } from "./types.js";
 
-export type { TtsCallMode } from "./types.js";
-
 // ---------------------------------------------------------------------------
 // Catalog entry model
 // ---------------------------------------------------------------------------
@@ -22,7 +20,7 @@ export type { TtsCallMode } from "./types.js";
 /**
  * Metadata about a secret (API key / credential) required by a provider.
  */
-export interface TtsProviderSecretRequirement {
+interface TtsProviderSecretRequirement {
   /**
    * The key used to retrieve this secret from the secure credential store.
    *
@@ -49,7 +47,7 @@ export interface TtsProviderSecretRequirement {
  * These describe static, provider-wide traits — they do not change based
  * on runtime configuration or per-request parameters.
  */
-export interface TtsProviderCatalogCapabilities {
+interface TtsProviderCatalogCapabilities {
   /** Whether the provider supports chunk-level streaming synthesis. */
   readonly supportsStreaming: boolean;
 
@@ -64,7 +62,7 @@ export interface TtsProviderCatalogCapabilities {
  * metadata level — identity, display name, telephony call mode,
  * capabilities, and secret requirements.
  */
-export interface TtsProviderCatalogEntry {
+interface TtsProviderCatalogEntry {
   /** Unique provider identifier matching {@link TtsProviderId}. */
   readonly id: TtsProviderId;
 

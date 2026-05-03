@@ -17,7 +17,7 @@ const LIVE_VOICE_AUDIO_SOURCE = "live-voice";
 
 export type LiveVoiceAudioArchiveRole = "user" | "assistant";
 
-export type LiveVoiceAudioSource =
+type LiveVoiceAudioSource =
   | {
       type: "base64";
       dataBase64: string;
@@ -28,7 +28,7 @@ export type LiveVoiceAudioSource =
       sizeBytes?: number;
     };
 
-export interface ArchiveLiveVoiceAudioInput {
+interface ArchiveLiveVoiceAudioInput {
   messageId: string;
   sessionId: string;
   turnId: string;
@@ -55,7 +55,7 @@ export interface LiveVoiceAudioArtifactMetadata {
   archivedAt: number;
 }
 
-export type LiveVoiceAudioArchiveWarningCode =
+type LiveVoiceAudioArchiveWarningCode =
   | "archive_failed"
   | "attachment_not_found"
   | "invalid_audio_source"
@@ -591,7 +591,7 @@ type LinkLiveVoiceRolelessAudioInput = Omit<
   messageId?: string | null;
 };
 
-export interface LinkLiveVoiceAudioArtifactInput {
+interface LinkLiveVoiceAudioArtifactInput {
   messageId?: string | null;
   artifact: LiveVoiceAudioArtifactMetadata;
   position?: number;

@@ -115,8 +115,6 @@ export const messageMetadataSchema = z
   })
   .passthrough();
 
-export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
-
 function cloneForkMessageMetadata(
   metadata: string | null,
   sourceMessageId: string,
@@ -1021,7 +1019,7 @@ export function hasMessages(conversationId: string): boolean {
   return row !== undefined;
 }
 
-export interface PaginatedMessagesResult {
+interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
 }
@@ -1435,12 +1433,12 @@ export function deleteLastExchange(conversationId: string): number {
  * Callers must delete these from the Qdrant collection after the
  * SQLite transaction commits.
  */
-export interface DeletedMemoryIds {
+interface DeletedMemoryIds {
   segmentIds: string[];
   deletedSummaryIds: string[];
 }
 
-export interface WipeConversationResult extends DeletedMemoryIds {
+interface WipeConversationResult extends DeletedMemoryIds {
   cancelledJobCount: number;
 }
 

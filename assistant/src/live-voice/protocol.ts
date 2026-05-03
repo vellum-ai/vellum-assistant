@@ -6,8 +6,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "end",
 ] as const;
 
-export type LiveVoiceClientFrameType =
-  (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
+type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
 
 const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "ready",
@@ -23,8 +22,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "error",
 ] as const;
 
-export type LiveVoiceServerFrameType =
-  (typeof _LIVE_VOICE_SERVER_FRAME_TYPES)[number];
+type LiveVoiceServerFrameType = (typeof _LIVE_VOICE_SERVER_FRAME_TYPES)[number];
 
 export const LiveVoiceProtocolErrorCode = {
   InvalidJson: "invalid_json",
@@ -45,7 +43,7 @@ export interface LiveVoiceProtocolError {
   readonly frameType?: string;
 }
 
-export type LiveVoiceParseResult<T> =
+type LiveVoiceParseResult<T> =
   | { ok: true; frame: T }
   | { ok: false; error: LiveVoiceProtocolError };
 
@@ -85,12 +83,12 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame;
 
-export interface LiveVoiceBinaryAudioFrame {
+interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
   readonly data: Uint8Array;
 }
 
-export interface LiveVoiceServerFrameBase {
+interface LiveVoiceServerFrameBase {
   readonly type: LiveVoiceServerFrameType;
   readonly seq: number;
 }

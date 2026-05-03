@@ -351,7 +351,7 @@ async function dedupCrossCategory(
 // Context load — conversation start
 // ---------------------------------------------------------------------------
 
-export interface ContextLoadOpts {
+interface ContextLoadOpts {
   /** Scope for memory isolation. */
   scopeId: string;
   /** Recent conversation summaries (used as retrieval queries). */
@@ -373,7 +373,7 @@ export interface ContextLoadOpts {
   userQuery?: string;
 }
 
-export interface ContextLoadResult {
+interface ContextLoadResult {
   nodes: ScoredNode[];
   serendipityNodes: ScoredNode[];
   triggeredNodes: TriggeredResult[];
@@ -871,7 +871,7 @@ export async function loadContextMemory(
 // Per-turn retrieval — mid-conversation injection
 // ---------------------------------------------------------------------------
 
-export interface TurnRetrievalOpts {
+interface TurnRetrievalOpts {
   /** The assistant's last message content. */
   assistantLastMessage: string;
   /** The user's last message content. */
@@ -884,7 +884,7 @@ export interface TurnRetrievalOpts {
   signal?: AbortSignal;
 }
 
-export interface TurnRetrievalResult {
+interface TurnRetrievalResult {
   /** New nodes to inject (not already in context). */
   nodes: ScoredNode[];
   /** Serendipity picks included in nodes. */

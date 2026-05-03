@@ -79,7 +79,7 @@ export function normalizeTelegramDestination(destination: string): string {
 // Input / output types
 // ---------------------------------------------------------------------------
 
-export interface StartOutboundParams {
+interface StartOutboundParams {
   channel: ChannelId;
   destination?: string;
   rebind?: boolean;
@@ -87,13 +87,13 @@ export interface StartOutboundParams {
   originConversationId?: string;
 }
 
-export interface ResendOutboundParams {
+interface ResendOutboundParams {
   channel: ChannelId;
   /** Origin conversation ID so completion/failure pointers can route back on resend. */
   originConversationId?: string;
 }
 
-export interface CancelOutboundParams {
+interface CancelOutboundParams {
   channel: ChannelId;
 }
 
@@ -102,7 +102,7 @@ export interface CancelOutboundParams {
  * Maps 1:1 with the fields in ChannelVerificationSessionResponse minus the
  * `type` discriminant.
  */
-export interface OutboundActionResult {
+interface OutboundActionResult {
   success: boolean;
   error?: string;
   message?: string;

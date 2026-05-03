@@ -1,12 +1,6 @@
 type RemoteSkillProvider = "clawhub" | "skillssh";
 
-export type SkillsShRisk =
-  | "safe"
-  | "low"
-  | "medium"
-  | "high"
-  | "critical"
-  | "unknown";
+type SkillsShRisk = "safe" | "low" | "medium" | "high" | "critical" | "unknown";
 export type SkillsShRiskThreshold = Exclude<SkillsShRisk, "unknown">;
 
 export interface RemoteSkillPolicy {
@@ -50,17 +44,17 @@ interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
   audit?: SkillsShAuditState | null;
 }
 
-export type RemoteSkillCandidate =
+type RemoteSkillCandidate =
   | ClawhubRemoteSkillCandidate
   | SkillsShRemoteSkillCandidate;
 
-export type RemoteSkillDenyReason =
+type RemoteSkillDenyReason =
   | "clawhub_suspicious"
   | "clawhub_malware_blocked"
   | "clawhub_moderation_missing"
   | "skillssh_risk_exceeds_threshold";
 
-export type RemoteSkillInstallDecision =
+type RemoteSkillInstallDecision =
   | { ok: true }
   | { ok: false; reason: RemoteSkillDenyReason };
 
