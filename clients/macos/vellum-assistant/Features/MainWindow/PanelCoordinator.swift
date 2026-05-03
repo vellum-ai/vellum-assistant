@@ -1123,11 +1123,16 @@ struct ActiveChatViewWrapper: View {
 /// Immediate visual placeholder while switching conversations.
 private struct ConversationSwitchLoadingView: View {
     var body: some View {
-        ChatLoadingSkeleton()
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Loading chat history")
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                ChatLoadingSkeleton()
+                    .padding(VSpacing.lg)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Loading chat history")
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+        }
             .background(VColor.surfaceBase)
     }
 }
