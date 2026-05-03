@@ -43,7 +43,7 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute";
 
-const EMBED_JOB_TYPES: MemoryJobType[] = [
+export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
   "embed_summary",
   "embed_media",
@@ -51,6 +51,21 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_graph_node",
   "embed_pkb_file",
   "graph_trigger_embed",
+];
+
+export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
+  "graph_consolidate",
+  "graph_pattern_scan",
+  "graph_narrative_refine",
+  "graph_extract",
+  "conversation_analyze",
+  "build_conversation_summary",
+  "generate_conversation_starters",
+  "memory_v2_sweep",
+  "memory_v2_consolidate",
+  "memory_v2_migrate",
+  "backfill",
+  "graph_bootstrap",
 ];
 
 export interface MemoryJob<T = Record<string, unknown>> {
