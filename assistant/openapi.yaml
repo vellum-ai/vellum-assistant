@@ -8452,6 +8452,12 @@ paths:
                   type: boolean
                 reuseConversation:
                   type: boolean
+                maxRetries:
+                  type: number
+                  description: Maximum retry attempts
+                retryBackoffMs:
+                  type: number
+                  description: Retry backoff in milliseconds
               required:
                 - name
                 - expression
@@ -8462,6 +8468,8 @@ paths:
                 - routingIntent
                 - quiet
                 - reuseConversation
+                - maxRetries
+                - retryBackoffMs
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
