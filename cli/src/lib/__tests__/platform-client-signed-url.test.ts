@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   platformPollJobStatus,
   platformRequestSignedUrl,
+  VersionMismatchError,
   type UnifiedJobStatus,
 } from "../platform-client.js";
 
@@ -289,6 +290,240 @@ describe("platformRequestSignedUrl", () => {
     // Session tokens use X-Session-Token, not Bearer.
     expect(signedUrlCalls[0]!.headers["X-Session-Token"]).toBe(SESSION_TOKEN);
     expect(signedUrlCalls[0]!.headers.Authorization).toBeUndefined();
+  });
+
+  test("upload operation with min/max runtime versions → posts them in body", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          url: "https://storage.example/signed/v",
+          bundle_key: "bundles/v.tar.gz",
+          expires_at: "2026-04-22T05:00:00Z",
+        }),
+        { status: 201 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    await platformRequestSignedUrl(
+      {
+        operation: "upload",
+        minRuntimeVersion: "1.2.3",
+        maxRuntimeVersion: null,
+      },
+      VAK_TOKEN,
+      PLATFORM_URL,
+    );
+
+    expect(calls[0]!.body).toEqual({
+      operation: "upload",
+      min_runtime_version: "1.2.3",
+      max_runtime_version: null,
+    });
+  });
+
+  test("download operation with target_runtime_version → posts it in body", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          url: "https://storage.example/signed/dl-v",
+          bundle_key: "bundles/dl-v.tar.gz",
+          expires_at: "2026-04-22T06:00:00Z",
+        }),
+        { status: 201 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    await platformRequestSignedUrl(
+      {
+        operation: "download",
+        bundleKey: "bundles/dl-v.tar.gz",
+        targetRuntimeVersion: "2.0.0",
+      },
+      VAK_TOKEN,
+      PLATFORM_URL,
+    );
+
+    expect(calls[0]!.body).toEqual({
+      operation: "download",
+      bundle_key: "bundles/dl-v.tar.gz",
+      target_runtime_version: "2.0.0",
+    });
+  });
+
+  test("download 422 with version_mismatch body → throws VersionMismatchError", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          reason: "version_mismatch",
+          bundle_compat: {
+            min_runtime_version: "2.0.0",
+            max_runtime_version: "2.5.0",
+          },
+          target_runtime_version: "1.9.0",
+        }),
+        { status: 422 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    let caught: unknown;
+    try {
+      await platformRequestSignedUrl(
+        {
+          operation: "download",
+          bundleKey: "bundles/foo.tar.gz",
+          targetRuntimeVersion: "1.9.0",
+        },
+        VAK_TOKEN,
+        PLATFORM_URL,
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(VersionMismatchError);
+    expect(caught).toBeInstanceOf(Error);
+    const err = caught as VersionMismatchError;
+    expect(err.bundleCompat).toEqual({
+      min_runtime_version: "2.0.0",
+      max_runtime_version: "2.5.0",
+    });
+    expect(err.targetRuntimeVersion).toBe("1.9.0");
+    expect(err.message).toBe(
+      "Cannot import: bundle requires runtime 2.0.0–2.5.0, but this runtime is 1.9.0. Update your runtime before importing.",
+    );
+  });
+
+  test("download 422 with version_mismatch and null max_runtime_version → '+' suffix in message", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          reason: "version_mismatch",
+          bundle_compat: {
+            min_runtime_version: "3.0.0",
+            max_runtime_version: null,
+          },
+          target_runtime_version: "2.9.0",
+        }),
+        { status: 422 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    let caught: unknown;
+    try {
+      await platformRequestSignedUrl(
+        {
+          operation: "download",
+          bundleKey: "bundles/foo.tar.gz",
+          targetRuntimeVersion: "2.9.0",
+        },
+        VAK_TOKEN,
+        PLATFORM_URL,
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(VersionMismatchError);
+    const err = caught as VersionMismatchError;
+    expect(err.message).toBe(
+      "Cannot import: bundle requires runtime 3.0.0+, but this runtime is 2.9.0. Update your runtime before importing.",
+    );
+  });
+
+  test("download 422 with arbitrary body (no reason field) → falls through to generic Error", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ detail: "validation failed" }), {
+        status: 422,
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    let caught: unknown;
+    try {
+      await platformRequestSignedUrl(
+        { operation: "download", bundleKey: "bundles/foo.tar.gz" },
+        VAK_TOKEN,
+        PLATFORM_URL,
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(VersionMismatchError);
+    expect((caught as Error).message).toBe("validation failed");
+  });
+
+  test("422 is NOT retried after a 401", async () => {
+    let callCount = 0;
+    const { calls, fetchMock } = captureFetch(() => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ detail: "unauthorized" }), {
+          status: 401,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          reason: "version_mismatch",
+          bundle_compat: {
+            min_runtime_version: "2.0.0",
+            max_runtime_version: "2.5.0",
+          },
+          target_runtime_version: "1.9.0",
+        }),
+        { status: 422 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    let caught: unknown;
+    try {
+      await platformRequestSignedUrl(
+        {
+          operation: "download",
+          bundleKey: "bundles/foo.tar.gz",
+          targetRuntimeVersion: "1.9.0",
+        },
+        VAK_TOKEN,
+        PLATFORM_URL,
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(caught).toBeInstanceOf(VersionMismatchError);
+  });
+
+  test("non-422 download path remains unchanged (regression pin on body shape)", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          url: "https://storage.example/signed/dl-xyz",
+          bundle_key: "bundles/xyz.tar.gz",
+          expires_at: "2026-04-22T02:00:00Z",
+        }),
+        { status: 201 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await platformRequestSignedUrl(
+      { operation: "download", bundleKey: "bundles/xyz.tar.gz" },
+      VAK_TOKEN,
+      PLATFORM_URL,
+    );
+
+    expect(result.url).toBe("https://storage.example/signed/dl-xyz");
+    expect(calls[0]!.body).toEqual({
+      operation: "download",
+      bundle_key: "bundles/xyz.tar.gz",
+    });
   });
 
   test("5xx error response → surfaces platform detail message", async () => {
