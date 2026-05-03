@@ -163,18 +163,11 @@ export function getPlatformBaseUrl(): string {
 }
 
 /**
- * Derive the assistant service domain from the platform base URL.
- *
- * Known platform URLs map directly (via regex stripping of `platform.vellum.ai`):
- * - `dev-platform.vellum.ai`     → `dev.vellum.me`
- * - `staging-platform.vellum.ai` → `staging.vellum.me` (derived automatically from the staging URL)
- * - `platform.vellum.ai`         → `vellum.me`
- *
- * Non-vellum.ai hosts (localhost, host.docker.internal, etc.) use
- * VELLUM_ENVIRONMENT to derive the subdomain, defaulting to `local`:
- * - local                         → `local.vellum.me`
+ * Returns the environment-level apex domain (e.g. "vellum.me",
+ * "dev.vellum.me", "staging.vellum.me"). Never includes the
+ * assistant-specific subdomain.
  */
-export function getAssistantDomain(): string {
+export function getApexDomain(): string {
   try {
     const url = getPlatformBaseUrl();
     const host = new URL(url).hostname;
@@ -187,7 +180,6 @@ export function getAssistantDomain(): string {
       return "vellum.me";
     }
 
-    // Non-vellum.ai host (local dev, Docker, etc.) — derive from environment
     const env = str("VELLUM_ENVIRONMENT")?.trim();
     if (env && env !== "production") {
       return `${env}.vellum.me`;
@@ -197,6 +189,21 @@ export function getAssistantDomain(): string {
     // Fall through to default
   }
   return "vellum.me";
+}
+
+export function getAssistantDomain(): string {
+  const subdomain = (() => {
+    try {
+      return getConfig().platform?.subdomain;
+    } catch {
+      return undefined;
+    }
+  })();
+  const apex = getApexDomain();
+  if (subdomain) {
+    return `${subdomain}.${apex}`;
+  }
+  return apex;
 }
 
 let _platformAssistantIdOverride: string | undefined;
