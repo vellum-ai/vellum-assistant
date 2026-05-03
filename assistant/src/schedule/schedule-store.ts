@@ -33,6 +33,8 @@ export interface ScheduleJob {
   lastRunAt: number | null;
   lastStatus: string | null;
   retryCount: number;
+  maxRetries: number;
+  retryBackoffMs: number;
   createdBy: string;
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
@@ -83,6 +85,8 @@ export function createSchedule(params: {
   routingHints?: Record<string, unknown>;
   quiet?: boolean;
   reuseConversation?: boolean;
+  maxRetries?: number;
+  retryBackoffMs?: number;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -116,6 +120,8 @@ export function createSchedule(params: {
   const routingHints = params.routingHints ?? {};
   const quiet = params.quiet ?? false;
   const reuseConversation = params.reuseConversation ?? false;
+  const maxRetries = params.maxRetries ?? 3;
+  const retryBackoffMs = params.retryBackoffMs ?? 60000;
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -140,6 +146,8 @@ export function createSchedule(params: {
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
     retryCount: 0,
+    maxRetries,
+    retryBackoffMs,
     createdBy: params.createdBy ?? "agent",
     mode,
     routingIntent,
@@ -235,6 +243,8 @@ export function updateSchedule(
     quiet?: boolean;
     reuseConversation?: boolean;
     wakeConversationId?: string | null;
+    maxRetries?: number;
+    retryBackoffMs?: number;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -295,6 +305,9 @@ export function updateSchedule(
     set.reuseConversation = updates.reuseConversation;
   if (updates.wakeConversationId !== undefined)
     set.wakeConversationId = updates.wakeConversationId;
+  if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
+  if (updates.retryBackoffMs !== undefined)
+    set.retryBackoffMs = updates.retryBackoffMs;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -817,6 +830,37 @@ export function describeCronExpression(expr: string | null): string {
   }
 }
 
+/**
+ * Set the next retry time for a schedule and revert one-shot status from
+ * "firing" to "active" so the scheduler will claim it again when nextRetryAt
+ * arrives. No-op for recurring schedules (they stay in their current status).
+ */
+export function scheduleRetry(id: string, nextRetryAt: number): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({ nextRunAt: nextRetryAt, updatedAt: now })
+    .where(eq(scheduleJobs.id, id))
+    .run();
+  // Revert one-shot status from "firing" to "active" so the scheduler
+  // will claim it again when nextRetryAt arrives. No-op for recurring.
+  db.update(scheduleJobs)
+    .set({ status: "active", updatedAt: now })
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+    .run();
+}
+
+/**
+ * Reset the retry count for a schedule back to zero (e.g. after a successful run).
+ */
+export function resetRetryCount(id: string): void {
+  const db = getDb();
+  db.update(scheduleJobs)
+    .set({ retryCount: 0, updatedAt: Date.now() })
+    .where(eq(scheduleJobs.id, id))
+    .run();
+}
+
 function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
@@ -833,6 +877,8 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
     retryCount: row.retryCount,
+    maxRetries: row.maxRetries ?? 3,
+    retryBackoffMs: row.retryBackoffMs ?? 60000,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
