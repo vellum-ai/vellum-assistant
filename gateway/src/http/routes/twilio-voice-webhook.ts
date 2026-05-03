@@ -1,5 +1,6 @@
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
+import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
 import {
   CircuitBreakerOpenError,
@@ -125,11 +126,16 @@ export function createTwilioVoiceWebhookHandler(
     }
 
     try {
+      const platformAssistantId = (
+        await caches?.credentials?.get(
+          credentialKey("vellum", "platform_assistant_id"),
+        )
+      )?.trim();
       const runtimeResponse = await forwardTwilioVoiceWebhook(
         config,
         params,
         req.url,
-        resolvePublicBaseWssUrl(config, caches?.configFile),
+        resolvePublicBaseWssUrl(config, caches?.configFile, platformAssistantId),
       );
       return new Response(runtimeResponse.body, {
         status: runtimeResponse.status,

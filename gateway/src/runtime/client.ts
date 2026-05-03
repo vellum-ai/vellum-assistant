@@ -516,9 +516,12 @@ const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
 export function resolvePublicBaseWssUrl(
   config: GatewayConfig,
   configFile?: ConfigFileCache,
+  platformAssistantId?: string,
 ): string | undefined {
-  if (config.velayBaseUrl) {
-    const normalized = normalizePublicBaseUrl(config.velayBaseUrl);
+  if (config.velayBaseUrl && platformAssistantId) {
+    const withPath =
+      config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
+    const normalized = normalizePublicBaseUrl(withPath);
     if (normalized) return normalized.replace(/^http(s?)/, "ws$1");
   }
   const raw = configFile?.getString("ingress", "publicBaseUrl");
