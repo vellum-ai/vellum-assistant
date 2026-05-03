@@ -1165,6 +1165,13 @@ export class SlackSocketModeClient {
     const eventType: "app_mention" | "message" =
       mentionsBot && !isDm ? "app_mention" : "message";
 
+    // Pass through `subtype`, `files`, `attachments`, and `blocks` so the
+    // synthetic event has the same shape as a live Slack event for the
+    // same message. Without this, recovered `file_share` messages would be
+    // emitted as text-only and downstream attachment handling would diverge
+    // between the live and replay paths. See
+    // https://api.slack.com/events/message and
+    // https://api.slack.com/events/app_mention for the live event shape.
     const syntheticEvent = {
       type: eventType,
       user: msg.user ?? "",
@@ -1174,6 +1181,10 @@ export class SlackSocketModeClient {
       channel,
       channel_type: isDm ? "im" : "channel",
       team: msg.team,
+      ...(msg.subtype ? { subtype: msg.subtype } : {}),
+      ...(msg.files ? { files: msg.files } : {}),
+      ...(msg.attachments ? { attachments: msg.attachments } : {}),
+      ...(msg.blocks ? { blocks: msg.blocks } : {}),
     } as unknown as
       | SlackAppMentionEvent
       | SlackDirectMessageEvent

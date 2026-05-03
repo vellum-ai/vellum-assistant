@@ -659,6 +659,58 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("preserves subtype, files, attachments, and blocks on replayed file_share messages", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    const files = [
+      { id: "F123", name: "report.pdf", mimetype: "application/pdf" },
+    ];
+    const attachments = [{ id: 1, fallback: "legacy attachment" }];
+    const blocks = [{ type: "rich_text", block_id: "b1" }];
+
+    fetchMock = mock(async (input) => {
+      if (String(input).includes("conversations.history")) {
+        return makeHistoryResponse([
+          {
+            type: "message",
+            subtype: "file_share",
+            user: "U-uploader",
+            text: "<@UBOT> here's the doc",
+            ts: "1700000050.000000",
+            files,
+            attachments,
+            blocks,
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      const raw = emitted[0].event.raw as {
+        subtype?: string;
+        files?: unknown;
+        attachments?: unknown;
+        blocks?: unknown;
+      };
+      expect(raw.subtype).toBe("file_share");
+      expect(raw.files).toEqual(files);
+      expect(raw.attachments).toEqual(attachments);
+      expect(raw.blocks).toEqual(blocks);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("skips messages with no ts and the bot's own messages", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
