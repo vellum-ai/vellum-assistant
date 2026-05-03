@@ -167,6 +167,8 @@ function regexToOpenApiPath(escaped: string): string | null {
 const EXCLUDED_FROM_SCHEMA = new Set([
   // Runtime proxy catch-all — documented as /{path} in the schema
   "catch-all",
+  // Loopback-only pairing endpoint — not part of the public gateway API
+  "/v1/pair",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
