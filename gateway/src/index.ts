@@ -1522,34 +1522,36 @@ async function main() {
     } catch (err) {
       // Mirror the error() handler logic while retaining CORS context.
       // Bun's error() callback doesn't receive the request, so thrown
-      // errors during webview requests would otherwise lose CORS headers.
-      if (!webviewOrigin) throw err;
+      // errors during webview/extension requests would otherwise lose CORS headers.
+      if (!webviewOrigin && !extensionOrigin) throw err;
       if (err instanceof CircuitBreakerOpenError) {
-        return withCorsHeaders(
-          Response.json(
-            {
-              error:
-                "Service temporarily unavailable \u2014 runtime is unreachable",
-            },
-            {
-              status: 503,
-              headers: { "Retry-After": String(err.retryAfterSecs) },
-            },
-          ),
-          webviewOrigin,
+        const body = Response.json(
+          {
+            error:
+              "Service temporarily unavailable \u2014 runtime is unreachable",
+          },
+          {
+            status: 503,
+            headers: { "Retry-After": String(err.retryAfterSecs) },
+          },
         );
+        if (extensionOrigin) return withExtensionCorsHeaders(body, extensionOrigin);
+        return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
-      return withCorsHeaders(
-        Response.json({ error: "Internal server error" }, { status: 500 }),
-        webviewOrigin,
+      const errBody = Response.json(
+        { error: "Internal server error" },
+        { status: 500 },
       );
+      if (extensionOrigin) return withExtensionCorsHeaders(errBody, extensionOrigin);
+      return withCorsHeaders(errBody, webviewOrigin!);
     }
 
     const notFound = Response.json(
       { error: "Not found", source: "gateway" },
       { status: 404 },
     );
+    if (extensionOrigin) return withExtensionCorsHeaders(notFound, extensionOrigin);
     if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
     return notFound;
   }

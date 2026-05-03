@@ -49,12 +49,26 @@ export function resolveExtensionOrigin(req: Request): string | null {
 /**
  * Build CORS response headers for a Chrome extension origin, including the
  * Private Network Access header required for localhost fetches.
+ *
+ * We accept any `chrome-extension://` origin rather than an explicit allowlist
+ * because extension IDs differ across prod/staging/dev builds and change on
+ * republish. The real security boundary is the loopback IP check in the
+ * individual route handlers (e.g. pair.ts) — a CORS Allow header does not
+ * grant capability, it only tells Chrome the cross-origin request is permitted.
+ * Any extension that can reach localhost already has equivalent access without
+ * CORS headers.
  */
 export function extensionCorsHeaders(origin: string): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "content-type, x-vellum-interface-id",
+    // GET for SSE (/v1/events), POST for pair + host-browser callbacks
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    // All headers the extension service worker sends across these routes:
+    //   /v1/pair          → content-type, x-vellum-interface-id
+    //   /v1/events (SSE)  → accept, x-vellum-client-id, x-vellum-interface-id
+    //   /v1/host-browser-* → content-type, authorization
+    "Access-Control-Allow-Headers":
+      "Accept, Authorization, Content-Type, X-Vellum-Client-Id, X-Vellum-Interface-Id",
     "Access-Control-Allow-Private-Network": "true",
     "Access-Control-Max-Age": "86400",
   };
