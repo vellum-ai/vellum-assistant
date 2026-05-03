@@ -185,9 +185,12 @@ describe("assistant platform status", () => {
       enabled: true,
     });
 
-    // AND a webhook secret is stored in the keychain
+    // AND credentials are stored in the keychain
     mockGetSecureKeyAsync = async (account: string) => {
       if (account === "credential/vellum/webhook_secret") return "wh-secret";
+      if (account === "credential/vellum/platform_organization_id")
+        return "org-456";
+      if (account === "credential/vellum/platform_user_id") return "user-789";
       return undefined;
     };
 
@@ -210,12 +213,12 @@ describe("assistant platform status", () => {
     expect(parsed.hasAssistantApiKey).toBe(true);
     expect(parsed.hasWebhookSecret).toBe(true);
     expect(parsed.available).toBe(true);
+    expect(parsed.organizationId).toBe("org-456");
+    expect(parsed.userId).toBe("user-789");
 
-    // connected/organizationId/userId removed — those were keychain-only
-    // fields that were always false/null on managed pods
+    // connected removed — it only reflected keychain credentials from the
+    // connect flow, which is a no-op on managed pods (always false)
     expect(parsed.connected).toBeUndefined();
-    expect(parsed.organizationId).toBeUndefined();
-    expect(parsed.userId).toBeUndefined();
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {

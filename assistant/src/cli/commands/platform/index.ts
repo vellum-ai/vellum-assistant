@@ -8,7 +8,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { registerPlatformConnectCommand } from "./connect.js";
+import { CREDENTIAL_KEYS, registerPlatformConnectCommand } from "./connect.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
 
 export function registerPlatformCommand(program: Command): void {
@@ -68,6 +68,8 @@ Fields:
   hasWebhookSecret    Whether a stored webhook secret is available (needed
                       for email and other inbound webhook channels)
   available           Whether callback registration prerequisites are satisfied
+  organizationId      The platform organization ID (from stored credentials)
+  userId              The platform user ID (from stored credentials)
 
 Examples:
   $ assistant platform status
@@ -76,6 +78,25 @@ Examples:
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
         const context = await resolvePlatformCallbackRegistrationContext();
+
+        const organizationId =
+          (
+            await getSecureKeyAsync(
+              credentialKey(
+                CREDENTIAL_KEYS.organizationId.service,
+                CREDENTIAL_KEYS.organizationId.field,
+              ),
+            )
+          )?.trim() ?? "";
+        const userId =
+          (
+            await getSecureKeyAsync(
+              credentialKey(
+                CREDENTIAL_KEYS.userId.service,
+                CREDENTIAL_KEYS.userId.field,
+              ),
+            )
+          )?.trim() ?? "";
 
         const hasWebhookSecret = !!(await getSecureKeyAsync(
           credentialKey("vellum", "webhook_secret"),
@@ -89,6 +110,8 @@ Examples:
           hasAssistantApiKey: context.hasAssistantApiKey,
           hasWebhookSecret,
           available: context.enabled,
+          organizationId: organizationId || null,
+          userId: userId || null,
         };
 
         if (shouldOutputJson(cmd)) {
@@ -109,6 +132,8 @@ Examples:
           log.info(
             `Callback registration available: ${result.available ? "yes" : "no"}`,
           );
+          log.info(`Organization ID: ${organizationId || "(not set)"}`);
+          log.info(`User ID: ${userId || "(not set)"}`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
