@@ -54,6 +54,19 @@ export const cronRuns = sqliteTable("cron_runs", {
 export const scheduleJobs = cronJobs;
 export const scheduleRuns = cronRuns;
 
+export const heartbeatRuns = sqliteTable("heartbeat_runs", {
+  id: text("id").primaryKey(),
+  scheduledFor: integer("scheduled_for").notNull(),
+  startedAt: integer("started_at"),
+  finishedAt: integer("finished_at"),
+  durationMs: integer("duration_ms"),
+  status: text("status").notNull(), // 'pending' | 'running' | 'ok' | 'error' | 'timeout' | 'skipped' | 'missed' | 'superseded'
+  skipReason: text("skip_reason"), // 'disabled' | 'outside_active_hours' | 'overlap'
+  error: text("error"),
+  conversationId: text("conversation_id"),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const sharedAppLinks = sqliteTable("shared_app_links", {
   id: text("id").primaryKey(),
   shareToken: text("share_token").notNull().unique(),

@@ -196,6 +196,10 @@ export {
   migrateToolInvocationsMatchedRuleId,
 } from "./236-tool-invocations-matched-rule-id.js";
 export {
+  downHeartbeatRuns,
+  migrateHeartbeatRuns,
+} from "./237-heartbeat-runs.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
