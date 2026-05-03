@@ -11,17 +11,20 @@ import {
   type WatcherNotifier,
 } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
+import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
 import {
   claimDueSchedules,
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
-  failOneShot,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  resetRetryCount,
   retryOneShot,
   type RoutingIntent,
+  type ScheduleJob,
+  scheduleRetry,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -59,6 +62,26 @@ const TICK_INTERVAL_MS = 15_000;
  * ≈ 5 minutes of total retry window.
  */
 const WAKE_MAX_RETRIES = 20;
+
+function handleExecutionFailure(params: {
+  job: ScheduleJob;
+  errorMsg: string;
+  isOneShot: boolean;
+}): void {
+  const decision = decideRetry(params.job);
+  applyRetryDecision({
+    job: params.job,
+    isOneShot: params.isOneShot,
+    errorMsg: params.errorMsg,
+    decision,
+    scheduleRetry,
+    failOneShotPermanently,
+    resetRetryCount,
+    emitAlert: (title, summary, dedupKey) =>
+      emitScheduleFeedEvent({ title, summary, dedupKey }),
+    log,
+  });
+}
 
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
@@ -163,15 +186,10 @@ async function runScheduleOnce(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Schedule notification failed",
         );
-        if (isOneShot) {
-          failOneShot(job.id);
-        } else {
-          // Track recurring notify-mode failures via a schedule run so the
-          // occurrence isn't silently lost and lastStatus/retryCount update.
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          const runId = createScheduleRun(job.id, `notify-error:${job.id}`);
-          completeScheduleRun(runId, { status: "error", error: errorMsg });
-        }
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorRunId = createScheduleRun(job.id, `notify-error:${job.id}`);
+        completeScheduleRun(errorRunId, { status: "error", error: errorMsg });
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
@@ -209,7 +227,9 @@ async function runScheduleOnce(
           }
           if (isOneShot) completeOneShot(job.id);
         } else {
-          if (isOneShot) failOneShot(job.id);
+          const errorMsg =
+            result.stderr || "Script exited with non-zero status";
+          handleExecutionFailure({ job, errorMsg, isOneShot });
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -218,7 +238,7 @@ async function runScheduleOnce(
           "Script schedule execution failed",
         );
         completeScheduleRun(runId, { status: "error", error: errorMsg });
-        if (isOneShot) failOneShot(job.id);
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
@@ -309,7 +329,18 @@ async function runScheduleOnce(
           { err, jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Wake schedule execution failed",
         );
-        if (isOneShot) failOneShot(job.id);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const wakeErrorRunId = createScheduleRun(
+          job.id,
+          `wake-error:${job.id}`,
+        );
+        completeScheduleRun(wakeErrorRunId, {
+          status: "error",
+          error: errorMsg,
+        });
+        if (isOneShot) {
+          handleExecutionFailure({ job, errorMsg, isOneShot: true });
+        }
       }
       processed += 1;
       continue;
@@ -367,7 +398,11 @@ async function runScheduleOnce(
             status: "error",
             error: result.error ?? "Task run failed",
           });
-          if (isOneShot) failOneShot(job.id);
+          handleExecutionFailure({
+            job,
+            errorMsg: result.error ?? "Task run failed",
+            isOneShot,
+          });
         } else {
           completeScheduleRun(runId, { status: "ok" });
           if (!job.quiet) {
@@ -411,7 +446,11 @@ async function runScheduleOnce(
         });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
-        if (isOneShot) failOneShot(job.id);
+        handleExecutionFailure({
+          job,
+          errorMsg: message,
+          isOneShot,
+        });
       }
       continue;
     }
@@ -494,7 +533,7 @@ async function runScheduleOnce(
           : "Schedule execution failed",
       );
       completeScheduleRun(runId, { status: "error", error: message });
-      if (isOneShot) failOneShot(job.id);
+      handleExecutionFailure({ job, errorMsg: message, isOneShot });
 
       // Only skip invalidation when the conversation was *actually* reused,
       // i.e. it contains prior successful context worth preserving. When
