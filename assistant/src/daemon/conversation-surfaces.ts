@@ -24,6 +24,7 @@ import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
+import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
@@ -41,6 +42,7 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -320,6 +322,8 @@ export interface SurfaceConversationContext {
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
+  /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
+  hostAppControlProxy?: HostAppControlProxy;
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
@@ -1777,6 +1781,32 @@ export async function surfaceProxyResolver(
       ctx.hostCuProxy.stepCount,
       reasoning,
       signal,
+    );
+  }
+
+  // Route app-control proxy tools (all app_control_* tool variants)
+  if (toolName.startsWith("app_control_")) {
+    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
+      return {
+        content:
+          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+        isError: true,
+      };
+    }
+
+    // `app_control_stop` resolves immediately: tear down the proxy without
+    // a client round-trip. Mirrors CU's terminal-tool short-circuit
+    // (`computer_use_done` / `computer_use_respond`).
+    if (toolName === "app_control_stop") {
+      ctx.hostAppControlProxy.dispose();
+      return { content: "App control stopped.", isError: false };
+    }
+
+    return ctx.hostAppControlProxy.request(
+      toolName,
+      input as unknown as HostAppControlInput,
+      ctx.conversationId,
+      signal ?? new AbortController().signal,
     );
   }
 
