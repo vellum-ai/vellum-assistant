@@ -309,6 +309,8 @@ function setConnectionHealth(
 let currentAuthProfile: AssistantAuthProfile | null = null;
 
 let sseConnection: SseConnection | null = null;
+/** JWT obtained from POST /v1/pair during self-hosted connect. Used as Bearer on callback POSTs. */
+let selfHostedPairToken: string | null = null;
 let shouldConnect = false;
 
 // ── Host browser dispatcher ────────────────────────────────────────
@@ -393,6 +395,8 @@ async function dispatchHostBrowserResult(
       if (csrfToken) {
         headers["X-CSRFToken"] = csrfToken;
       }
+    } else if (selfHostedPairToken) {
+      headers["authorization"] = `Bearer ${selfHostedPairToken}`;
     }
     const resp = await fetch(url, {
       method: "POST",
@@ -412,11 +416,15 @@ async function dispatchHostBrowserResult(
   if (userMode !== "cloud") {
     const gatewayUrl = await getStoredGatewayUrl();
     try {
+      const fallbackHeaders: Record<string, string> = { "content-type": "application/json" };
+      if (selfHostedPairToken) {
+        fallbackHeaders["authorization"] = `Bearer ${selfHostedPairToken}`;
+      }
       const resp = await fetch(
         `${gatewayUrl.replace(/\/$/, "")}/v1/host-browser-result`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: fallbackHeaders,
           body: JSON.stringify(result),
         },
       );
@@ -451,6 +459,8 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (mode.kind === "vellum-cloud" && mode.token) {
     headers["authorization"] = `Bearer ${mode.token}`;
+  } else if (mode.kind === "self-hosted" && selfHostedPairToken) {
+    headers["authorization"] = `Bearer ${selfHostedPairToken}`;
   }
   void fetch(url, {
     method: "POST",
@@ -479,6 +489,8 @@ function dispatchHostBrowserSessionInvalidated(
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (mode.kind === "vellum-cloud" && mode.token) {
     headers["authorization"] = `Bearer ${mode.token}`;
+  } else if (mode.kind === "self-hosted" && selfHostedPairToken) {
+    headers["authorization"] = `Bearer ${selfHostedPairToken}`;
   }
   void fetch(url, {
     method: "POST",
@@ -781,10 +793,35 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
     });
     sseConnection.start();
   } else {
-    // Self-hosted: connect via SSE to the local gateway.
-    // Loopback peers are trusted without a JWT — no pairing needed.
+    // Self-hosted: pair first to obtain a JWT, then connect via SSE.
     currentAuthProfile = "self-hosted";
     const gatewayUrl = await getStoredGatewayUrl();
+    if (!shouldConnect) return;
+
+    // Best-effort pair — if it fails we still attempt SSE (which works
+    // for read-only subscriptions) but callbacks that need approval.write
+    // will be rejected until a successful pair.
+    try {
+      const pairResp = await fetch(
+        `${gatewayUrl.replace(/\/$/, "")}/v1/pair`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-vellum-interface-id": "chrome-extension",
+          },
+        },
+      );
+      if (pairResp.ok) {
+        const body = (await pairResp.json()) as { token?: string };
+        selfHostedPairToken = body.token ?? null;
+      } else {
+        console.warn("[vellum] pair failed:", pairResp.status);
+      }
+    } catch (err) {
+      console.warn("[vellum] pair request error:", err);
+    }
+
     if (!shouldConnect) return;
     sseConnection = createSseConnection({
       kind: "self-hosted",
@@ -804,6 +841,7 @@ function teardownConnections(): void {
     sseConnection.close();
     sseConnection = null;
   }
+  selfHostedPairToken = null;
 }
 
 function disconnect(): void {
