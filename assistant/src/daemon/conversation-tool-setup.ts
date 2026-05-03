@@ -12,6 +12,7 @@ import {
   supportsHostProxy,
 } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
@@ -394,6 +395,15 @@ export function isToolActiveForContext(
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
+      // Cross-client exception: allow host_bash for non-host-proxy interfaces when
+      // at least one capable client is connected via the event hub.
+      // Only applies to host_bash (not host_file, host_cu, host_browser — Phase 2).
+      if (
+        capability === "host_bash" &&
+        assistantEventHub.listClientsByCapability("host_bash").length > 0
+      ) {
+        return true;
+      }
       return false;
     }
 
