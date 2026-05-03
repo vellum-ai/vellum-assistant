@@ -5873,6 +5873,73 @@ paths:
                 additionalProperties: false
         "500":
           description: Failed to compute relationship state
+  /v1/host-app-control-result:
+    post:
+      operationId: hostappcontrolresult_post
+      summary: Submit host app-control result
+      description:
+        Resolve a pending host app-control request by requestId. Returns 200 even when no pending interaction
+        matches (late delivery is tolerated).
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending app-control request ID
+                state:
+                  type: string
+                  enum:
+                    - running
+                    - missing
+                    - minimized
+                  description: Lifecycle state of the targeted application
+                pngBase64:
+                  type: string
+                  description: Base64 PNG screenshot of the targeted app window
+                windowBounds:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+                    width:
+                      type: number
+                    height:
+                      type: number
+                  required:
+                    - x
+                    - y
+                    - width
+                    - height
+                  additionalProperties: false
+                executionResult:
+                  type: string
+                executionError:
+                  type: string
+              required:
+                - requestId
+                - state
+              additionalProperties: false
   /v1/host-bash-result:
     post:
       operationId: hostbashresult_post

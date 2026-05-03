@@ -206,6 +206,7 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     updateClient: () => {},
     setHostBrowserProxy: () => {},
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},

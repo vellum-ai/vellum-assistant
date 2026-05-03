@@ -29,10 +29,6 @@
           "skip_disclosure": {
             "type": "boolean",
             "description": "Skip the disclosure announcement at the start of the call. Set to true when calling someone who already knows who you are (e.g. your guardian, a family member, or a close contact)."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["phone_number", "task"]
@@ -51,10 +47,6 @@
           "call_session_id": {
             "type": "string",
             "description": "Specific call session ID to check. If omitted, checks for an active call in the current conversation."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -77,10 +69,6 @@
           "end_reason": {
             "type": "string",
             "description": "Reason for ending the call"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["call_session_id"]
