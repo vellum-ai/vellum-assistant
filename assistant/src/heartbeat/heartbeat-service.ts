@@ -313,21 +313,23 @@ export class HeartbeatService {
       // Release activeRun so the overlap guard doesn't permanently block
       // future heartbeat runs when executeRun hangs past the timeout.
       this.activeRun = null;
-      if (runId) {
-        completeHeartbeatRun(runId, {
-          status: "timeout",
-          error: "Heartbeat execution exceeded the 30-minute timeout",
-        });
+      const transitioned = runId
+        ? completeHeartbeatRun(runId, {
+            status: "timeout",
+            error: "Heartbeat execution exceeded the 30-minute timeout",
+          })
+        : false;
+      if (transitioned) {
+        const today = new Date().toISOString().split("T")[0];
+        void emitFeedEvent({
+          source: "assistant",
+          title: "Heartbeat Timed Out",
+          summary: "Heartbeat execution exceeded the 30-minute timeout.",
+          dedupKey: `heartbeat:timeout:${today}`,
+          priority: 55,
+          urgency: "high",
+        }).catch(() => {});
       }
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Heartbeat Timed Out",
-        summary: "Heartbeat execution exceeded the 30-minute timeout.",
-        dedupKey: `heartbeat:timeout:${today}`,
-        priority: 55,
-        urgency: "high",
-      }).catch(() => {});
     } finally {
       clearTimeout(timerId);
       this._lastRunAt = Date.now();

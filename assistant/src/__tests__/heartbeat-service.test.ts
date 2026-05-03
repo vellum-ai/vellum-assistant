@@ -1421,6 +1421,42 @@ describe("HeartbeatService", () => {
       }
     });
 
+    test("CAS false on timeout suppresses timeout feed event", async () => {
+      jest.useFakeTimers();
+      try {
+        mockCompleteHeartbeatRun.mockImplementation(() => false);
+
+        let resolveRun: () => void;
+        const runPromise = new Promise<void>((r) => {
+          resolveRun = r;
+        });
+
+        const service = createService({
+          processMessage: async () => {
+            await runPromise;
+            return { messageId: "msg-1" };
+          },
+        });
+
+        const runOncePromise = service.runOnce();
+        jest.advanceTimersByTime(30 * 60 * 1000 + 1000);
+        await runOncePromise;
+
+        // completeHeartbeatRun returned false, so no timeout feed event
+        const timeoutCalls = mockEmitFeedEvent.mock.calls.filter(
+          (call: unknown[]) => {
+            const opts = call[0] as { title?: string };
+            return opts.title === "Heartbeat Timed Out";
+          },
+        );
+        expect(timeoutCalls).toHaveLength(0);
+
+        resolveRun!();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     test("late run emits late feed event", async () => {
       const service = createService();
       service.start();
