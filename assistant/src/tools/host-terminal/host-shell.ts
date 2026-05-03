@@ -18,8 +18,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
-import { getConfig } from "../../config/loader.js";
 import { supportsHostProxy } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
