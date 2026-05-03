@@ -8,13 +8,6 @@
  * `loadRawConfig` + `saveRawConfig` writes only the user-set fields
  * while still returning the resolved (post-default) values in the
  * response payload.
- *
- * `getConfig` is stubbed to read raw + apply Zod defaults in-memory.
- * The real `loadConfig` would otherwise trigger `backfillConfigDefaults`,
- * which writes the full schema-defaulted config back to disk on every
- * read and would clobber the on-disk assertions below. PR 2 of this
- * plan removes that daemon-load backfill; once it lands, this stub
- * could be replaced with the real `getConfig`.
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,6 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { invalidateConfigCache } from "../../../config/loader.js";
+import { ROUTES } from "../heartbeat-routes.js";
 import type { RouteDefinition } from "../types.js";
 
 // ─── Module mocks ──────────────────────────────────────────────────────────
@@ -33,19 +28,6 @@ mock.module("../../../heartbeat/heartbeat-service.js", () => ({
     getInstance: () => undefined,
   },
 }));
-
-// Wrap the loader: keep loadRawConfig/saveRawConfig/invalidateConfigCache
-// real (they're the I/O paths under test) but replace getConfig so the
-// daemon-load backfill side effect doesn't write schema defaults back to
-// disk between our save and our assertions.
-const realLoader = await import("../../../config/loader.js");
-mock.module("../../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => realLoader.applyNestedDefaults(realLoader.loadRawConfig()),
-}));
-
-// Dynamic import after mocks are wired.
-const { ROUTES } = await import("../heartbeat-routes.js");
 
 // ─── Setup ─────────────────────────────────────────────────────────────────
 
@@ -68,7 +50,7 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   configPath = join(workspaceDir, "config.json");
-  realLoader.invalidateConfigCache();
+  invalidateConfigCache();
 });
 
 afterEach(() => {
@@ -77,7 +59,7 @@ afterEach(() => {
   } else {
     process.env.VELLUM_WORKSPACE_DIR = origWorkspaceDir;
   }
-  realLoader.invalidateConfigCache();
+  invalidateConfigCache();
   try {
     rmSync(workspaceDir, { recursive: true, force: true });
   } catch {
