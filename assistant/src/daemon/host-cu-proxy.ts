@@ -128,6 +128,7 @@ export class HostCuProxy {
     stepNumber: number,
     reasoning?: string,
     signal?: AbortSignal,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -184,6 +185,7 @@ export class HostCuProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_cu",
+        targetClientId,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -191,15 +193,19 @@ export class HostCuProxy {
       });
 
       try {
-        broadcastMessage({
-          type: "host_cu_request",
-          requestId,
+        broadcastMessage(
+          {
+            type: "host_cu_request",
+            requestId,
+            conversationId,
+            toolName,
+            input,
+            stepNumber,
+            reasoning,
+          },
           conversationId,
-          toolName,
-          input,
-          stepNumber,
-          reasoning,
-        });
+          { targetClientId },
+        );
       } catch (err) {
         this._ownedRequests.delete(requestId);
         pendingInteractions.resolve(requestId);
