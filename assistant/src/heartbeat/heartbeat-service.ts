@@ -151,6 +151,19 @@ export class HeartbeatService {
         },
         "Recovered stale heartbeat runs on startup",
       );
+
+      const total = this._startupMissedCount + this._startupCrashedCount;
+      const today = new Date().toISOString().split("T")[0];
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat Runs Missed",
+        summary: `${total} heartbeat run${total > 1 ? "s were" : " was"} missed while the assistant was offline.`,
+        dedupKey: `heartbeat:missed:${today}`,
+        priority: 55,
+        urgency: "high",
+      }).catch((err) => {
+        log.warn({ err }, "Failed to emit missed heartbeat feed event");
+      });
     }
 
     log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
@@ -306,6 +319,15 @@ export class HeartbeatService {
           error: "Heartbeat execution exceeded the 30-minute timeout",
         });
       }
+      const today = new Date().toISOString().split("T")[0];
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat Timed Out",
+        summary: "Heartbeat execution exceeded the 30-minute timeout.",
+        dedupKey: `heartbeat:timeout:${today}`,
+        priority: 55,
+        urgency: "high",
+      }).catch(() => {});
     } finally {
       clearTimeout(timerId);
       this._lastRunAt = Date.now();
@@ -441,13 +463,13 @@ export class HeartbeatService {
     }
   }
 
-  private async executeRun(
-    runId: string,
-    _scheduledFor: number,
-  ): Promise<void> {
+  private async executeRun(runId: string, scheduledFor: number): Promise<void> {
     log.info("Running heartbeat");
 
     startHeartbeatRun(runId);
+
+    const latenessMs = Date.now() - scheduledFor;
+    const LATE_THRESHOLD_MS = 5 * 60 * 1000;
 
     // Credential health check — surface broken credentials proactively
     // before the LLM heartbeat prompt runs. Returns unhealthy provider
@@ -519,6 +541,18 @@ export class HeartbeatService {
             "Failed to emit heartbeat feed event",
           );
         });
+
+        if (latenessMs > LATE_THRESHOLD_MS) {
+          const lateMinutes = Math.round(latenessMs / 60_000);
+          void emitFeedEvent({
+            source: "assistant",
+            title: "Heartbeat Ran Late",
+            summary: `Heartbeat ran ${lateMinutes} minutes late (scheduled for ${new Date(scheduledFor).toLocaleTimeString()}).`,
+            dedupKey: `heartbeat:late:${today}`,
+            priority: 45,
+            urgency: "medium",
+          }).catch(() => {});
+        }
       }
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
@@ -543,11 +577,11 @@ export class HeartbeatService {
         const today = new Date().toISOString().split("T")[0];
         void emitFeedEvent({
           source: "assistant",
-          title: "Heartbeat",
-          summary: "Heartbeat check failed. Check logs for details.",
+          title: "Heartbeat Failed",
+          summary: `Heartbeat check failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
           dedupKey: `heartbeat:fail:${today}`,
           priority: 55,
-          urgency: "medium",
+          urgency: "high",
         }).catch(() => {});
       }
     }
