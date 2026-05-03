@@ -227,6 +227,14 @@ struct AssistantProgressView: View {
         )
     }
 
+    private func completedHeadline(model: ProgressCardPresentationModel) -> String {
+        guard let start = model.earliestStartedAt else { return "Worked" }
+        let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
+        guard let end = effectiveEnd else { return "Worked" }
+        let seconds = end.timeIntervalSince(start)
+        return "Worked for \(VCollapsibleStepRowDurationFormatter.format(seconds))"
+    }
+
     private func headlineText(for model: ProgressCardPresentationModel) -> String {
         switch model.phase {
         case .thinking:
@@ -274,7 +282,7 @@ struct AssistantProgressView: View {
                 }
                 return "Completed with blocked permissions"
             }
-            return "Completed \(model.totalToolCount) step\(model.totalToolCount == 1 ? "" : "s")"
+            return completedHeadline(model: model)
         case .denied:
             let primary = model.uniqueToolNamesSorted.first ?? "Tool"
             return ChatBubble.friendlyRunningLabel(primary) + " denied"
@@ -631,11 +639,9 @@ struct AssistantProgressView: View {
 
             Spacer()
 
-            // Elapsed time: live counter when active, final duration when complete
+            // Elapsed time: live counter when active
             if model.isActive {
                 ElapsedTimeLabel(startDate: startDate)
-            } else if model.hasTools {
-                completedDurationLabel(model: model)
             }
 
             // Chevron (only if tools exist)
@@ -684,26 +690,6 @@ struct AssistantProgressView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .animation(.easeInOut(duration: 0.3), value: text)
-            }
-        }
-    }
-
-    // MARK: - Completed Duration
-
-    @ViewBuilder
-    private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
-        if let start = model.earliestStartedAt {
-            // Prefer thinkingAfterToolsEndDate (when real thinking was tracked) so the
-            // parent total matches the sum of sub-activity durations. Otherwise fall
-            // back to cardCompletedAt, captured at the `.complete` transition, so the
-            // live elapsed timer doesn't drop back to tool-runtime-only when the card
-            // passes through `.toolsCompleteThinking` without ever hitting `.processing`.
-            let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
-            if let end = effectiveEnd {
-                let seconds = end.timeIntervalSince(start)
-                Text(VCollapsibleStepRowDurationFormatter.format(seconds))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
