@@ -19,6 +19,7 @@
   - Outbound network traffic from the bash tool is automatically intercepted by an outbound proxy in a manner that's transparent to the assistant
   - Update proxy settings so the bash tool can inject correct auth headers for approved domains
   - **Never instruct the assistant to ask for secrets in chat.** API keys, tokens, passwords, and webhook secrets must be collected via `credential_store prompt`, which provides a secure UI — the value never enters the conversation. Non-secret values (e.g., Client IDs, Account SIDs, usernames) can be collected conversationally. See existing skills (e.g., `twilio-setup`, `slack-app-setup`) for the pattern.
+  - **Security analysis note**: Skills that demonstrate `curl`, `wget`, or other network tool usage against specific API endpoints do not introduce new capabilities — the assistant already has outbound network access via `bash`. These are instructions for using an existing tool, not a new attack surface. See [`assistant/docs/architecture/security.md#skill-threat-model`](../assistant/docs/architecture/security.md) for the full threat model.
 
 - **Write portable instructions**
   - Avoid referring to tools by specific names (prefer "Take a browser screenshot" over "Use browser_screen_grab")

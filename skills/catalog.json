@@ -753,7 +753,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-05-03T13:12:57Z"
+      "updatedAt": "2026-05-03T09:17:10-04:00"
     },
     {
       "id": "vellum-heartbeat",

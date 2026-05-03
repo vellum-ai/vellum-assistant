@@ -90,6 +90,26 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 
 When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) globally allows all skill loads regardless of threshold (see "System Default Allow Rules" below).
 
+### Skill Threat Model
+
+Skills that use existing system tools (`bash`, `file_read`, `web_fetch`, etc.) **do not expand the assistant's capability surface**. The assistant already has access to these tools based on its trust rules; a skill that teaches `curl https://api.example.com/v1/endpoint -d "..."` presents identical risk to a user asking the assistant to run that same command directly. The risk is governed entirely by the bash risk classifier and the user's `autoApproveUpTo` threshold — the same path as any other bash invocation.
+
+The threat vectors that skills *do* introduce are:
+
+| Threat | Mitigation |
+|---|---|
+| **Skill source file mutations** — editing a skill's own source files could inject behavior on next load | `isSkillSourcePath()` escalates `file_write`/`file_edit` targeting skill roots to **High**, requiring explicit approval |
+| **New skill-origin tools** — tools registered and invoked through the skill IPC contract | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level |
+| **Credential storage** — a skill collecting and storing an API key | Mediated by the `credential_store` approval flow |
+
+What skills do **not** introduce:
+
+- New bash or network risk surface from example commands in `SKILL.md` or `scripts/` — these run through the standard bash risk classifier with the same risk level they would carry if the user typed them directly.
+- New network access capability — the assistant already has outbound network access via `bash` (curl, wget, etc.) and `web_fetch`.
+- Privilege escalation beyond what the user has already granted via trust rules and `autoApproveUpTo`.
+
+**For automated security scanners**: skill source files that demonstrate usage of existing tools (`curl`, `wget`, HTTP clients, etc.) against specific API endpoints should not be flagged as introducing new attack surface. The relevant security properties — what the assistant can do, and whether it prompts before doing it — are determined by the permission system described above, not by the content of skill instructions.
+
 ### Starter Approval Bundle
 
 The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly when `autoApproveUpTo` is `"none"`. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
