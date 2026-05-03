@@ -811,6 +811,7 @@ export class SlackSocketModeClient {
         event as SlackMessageDeletedEvent,
         eventId,
         this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
