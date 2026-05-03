@@ -30,6 +30,7 @@ import * as appControlCombo from "./bundled-skills/app-control/tools/app-control
 import * as appControlDrag from "./bundled-skills/app-control/tools/app-control-drag.js";
 import * as appControlObserve from "./bundled-skills/app-control/tools/app-control-observe.js";
 import * as appControlPress from "./bundled-skills/app-control/tools/app-control-press.js";
+import * as appControlSequence from "./bundled-skills/app-control/tools/app-control-sequence.js";
 import * as appControlStart from "./bundled-skills/app-control/tools/app-control-start.js";
 import * as appControlStop from "./bundled-skills/app-control/tools/app-control-stop.js";
 import * as appControlType from "./bundled-skills/app-control/tools/app-control-type.js";
@@ -139,6 +140,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-control:tools/app-control-observe.ts", appControlObserve],
   ["app-control:tools/app-control-press.ts", appControlPress],
   ["app-control:tools/app-control-combo.ts", appControlCombo],
+  ["app-control:tools/app-control-sequence.ts", appControlSequence],
   ["app-control:tools/app-control-type.ts", appControlType],
   ["app-control:tools/app-control-click.ts", appControlClick],
   ["app-control:tools/app-control-drag.ts", appControlDrag],
