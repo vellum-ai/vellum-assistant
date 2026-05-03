@@ -14,6 +14,38 @@ import type { IpcRequest, IpcResponse, Logger } from "./types.js";
 import { noopLogger } from "./types.js";
 
 // ---------------------------------------------------------------------------
+// Error surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Error class thrown by `PersistentIpcClient.call` when the daemon returns
+ * a structured error envelope (i.e. `RouteError`-derived). Mirrors the HTTP
+ * adapter's `error.details` shape so IPC callers can branch on `errorCode`
+ * or recover machine-readable `errorDetails` (e.g. `version_incompatible`).
+ */
+export class IpcCallError extends Error {
+  readonly statusCode?: number;
+  readonly errorCode?: string;
+  readonly errorDetails?: unknown;
+
+  constructor(
+    message: string,
+    fields: {
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    } = {},
+  ) {
+    super(message);
+    this.name = "IpcCallError";
+    if (fields.statusCode !== undefined) this.statusCode = fields.statusCode;
+    if (fields.errorCode !== undefined) this.errorCode = fields.errorCode;
+    if (fields.errorDetails !== undefined)
+      this.errorDetails = fields.errorDetails;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -294,7 +326,13 @@ export class PersistentIpcClient {
             this.pending.delete(msg.id);
             clearTimeout(entry.timer);
             if (msg.error) {
-              entry.reject(new Error(msg.error));
+              entry.reject(
+                new IpcCallError(msg.error, {
+                  statusCode: msg.statusCode,
+                  errorCode: msg.errorCode,
+                  errorDetails: msg.errorDetails,
+                }),
+              );
             } else {
               entry.resolve(msg.result);
             }
