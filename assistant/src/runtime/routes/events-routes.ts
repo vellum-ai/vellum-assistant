@@ -77,6 +77,7 @@ export function handleSubscribeAssistantEvents(
   // ── Client identity from headers ──────────────────────────────────────
   const rawClientId = headers?.["x-vellum-client-id"];
   const rawInterfaceId = headers?.["x-vellum-interface-id"];
+  const rawMachineName = headers?.["x-vellum-machine-name"];
   const clientId = rawClientId?.trim() || null;
   const interfaceId = clientId
     ? parseInterfaceId(rawInterfaceId?.trim())
@@ -165,6 +166,7 @@ export function handleSubscribeAssistantEvents(
             capabilities: ALL_CAPABILITIES.filter((cap) =>
               supportsHostProxy(interfaceId, cap),
             ),
+            machineName: rawMachineName?.trim() || undefined,
           })
         : hub.subscribe({
             ...subscriberBase,
