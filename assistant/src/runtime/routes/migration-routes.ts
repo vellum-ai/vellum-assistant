@@ -65,6 +65,7 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
+import { formatRuntimeCompatibilityMessage } from "../migrations/vbundle-import-policy.js";
 import {
   commitImport,
   extractCredentialsFromBundle,
@@ -1014,6 +1015,7 @@ interface GcsImportErrorInit {
     | "fetch_failed"
     | "validation_failed"
     | "extraction_failed"
+    | "version_incompatible"
     | "write_failed";
   message: string;
   upstreamStatus?: number;
@@ -1340,6 +1342,18 @@ async function runGcsImport(
       throw new GcsImportError({
         code: "extraction_failed",
         message: result.message,
+        reason: result.reason,
+      });
+    }
+    if (result.reason === "version_incompatible") {
+      // Wired by PR 5 — until then the importer never returns this variant,
+      // but we narrow explicitly to keep the union exhaustive.
+      throw new GcsImportError({
+        code: "version_incompatible",
+        message: formatRuntimeCompatibilityMessage(
+          result.bundle_compat,
+          result.runtime_version,
+        ),
         reason: result.reason,
       });
     }
@@ -1672,6 +1686,17 @@ function throwImportCommitFailure(
 
   if (result.reason === "extraction_failed") {
     throw new InternalError(result.message);
+  }
+
+  if (result.reason === "version_incompatible") {
+    // Wired by PR 5 — until then the importer never returns this variant,
+    // but we narrow explicitly to keep the union exhaustive.
+    throw new InternalError(
+      formatRuntimeCompatibilityMessage(
+        result.bundle_compat,
+        result.runtime_version,
+      ),
+    );
   }
 
   // write_failed

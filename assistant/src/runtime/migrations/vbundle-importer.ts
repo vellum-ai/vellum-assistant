@@ -88,6 +88,15 @@ export type ImportCommitResult =
   | { ok: false; reason: "extraction_failed"; message: string }
   | {
       ok: false;
+      reason: "version_incompatible";
+      bundle_compat: {
+        min_runtime_version: string;
+        max_runtime_version: string | null;
+      };
+      runtime_version: string;
+    }
+  | {
+      ok: false;
       reason: "write_failed";
       message: string;
       partial_report?: ImportCommitReport;
