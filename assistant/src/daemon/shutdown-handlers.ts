@@ -1,6 +1,5 @@
 import * as Sentry from "@sentry/node";
 
-import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { McpServerManager } from "../mcp/manager.js";
@@ -26,7 +25,6 @@ export interface ShutdownDeps {
   scheduler: { stop(): void };
   feedScheduler: { stop(): void } | null;
   getMemoryWorker: () => { stop(): void } | null;
-  getBackupWorker: () => BackupWorkerHandle | null;
   getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
   telemetryReporter: { stop(): Promise<void> } | null;
@@ -123,7 +121,6 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     deps.scheduler.stop();
     deps.feedScheduler?.stop();
     deps.getMemoryWorker()?.stop();
-    deps.getBackupWorker()?.stop();
 
     if (deps.mcpManager) {
       try {

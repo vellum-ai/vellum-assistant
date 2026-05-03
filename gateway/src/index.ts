@@ -104,6 +104,11 @@ import {
   createMigrationJobStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
+import {
+  createListBackupsHandler,
+  createBackupSnapshotHandler,
+} from "./backup/backup-routes.js";
+import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -419,6 +424,10 @@ async function main() {
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
+
+  const backupDeps = { assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl };
+  const handleListBackups = createListBackupsHandler(backupDeps);
+  const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
 
   const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
@@ -986,6 +995,22 @@ async function main() {
       auth: "edge-scoped",
       scope: "admin.write",
       handler: (req) => migrationRollbackProxy(req),
+    },
+
+    // ── Backups ──
+    {
+      path: "/v1/backups",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleListBackups(req),
+    },
+    {
+      path: "/v1/backups/create",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleCreateBackup(req),
     },
 
     // ── Channel readiness ──
@@ -2006,6 +2031,11 @@ async function main() {
 
   void refreshRouteSchema();
 
+  // ── Backup worker ──
+  const backupWorkerHandle = startBackupWorker({
+    assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+  });
+
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
 
@@ -2051,6 +2081,7 @@ async function main() {
     draining = true;
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
+    backupWorkerHandle.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();
