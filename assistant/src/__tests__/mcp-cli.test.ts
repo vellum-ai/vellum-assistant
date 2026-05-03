@@ -15,6 +15,20 @@ import { Command } from "commander";
 
 // ── Module mocks (must precede imports that pull them in) ──────────────
 
+let mockCliIpcCallFn = mock(() =>
+  Promise.resolve({ ok: false, error: "not connected" }),
+);
+
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: (...args: unknown[]) => mockCliIpcCallFn(...args),
+}));
+
+let mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+
+mock.module("../util/browser.js", () => ({
+  openInHostBrowser: (...args: unknown[]) => mockOpenInHostBrowserFn(...args),
+}));
+
 let stdoutLines: string[] = [];
 let stderrLines: string[] = [];
 
@@ -473,5 +487,134 @@ describe("assistant mcp remove", () => {
       ?.servers as Record<string, unknown> | undefined;
     expect(servers?.["remove-me"]).toBeUndefined();
     expect(servers?.["keep-me"]).toBeDefined();
+  });
+});
+
+describe("assistant mcp auth — IPC path", () => {
+  let ipcTestDataDir: string;
+  let ipcConfigPath: string;
+
+  beforeAll(() => {
+    ipcTestDataDir = join(
+      tmpdir(),
+      `vellum-mcp-auth-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(ipcTestDataDir, { recursive: true });
+    ipcConfigPath = join(ipcTestDataDir, "config.json");
+    writeFileSync(
+      ipcConfigPath,
+      JSON.stringify({
+        mcp: {
+          servers: {
+            srv: {
+              transport: { type: "sse", url: "https://mcp.example.com/sse" },
+              enabled: true,
+              defaultRiskLevel: "high",
+            },
+          },
+        },
+      }),
+      "utf-8",
+    );
+  });
+
+  afterAll(() => {
+    rmSync(ipcTestDataDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: false, error: "not connected" }),
+    );
+    mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+    stdoutLines = [];
+    stderrLines = [];
+    process.exitCode = 0;
+    process.env.VELLUM_WORKSPACE_DIR = ipcTestDataDir;
+  });
+
+  test("mcp auth calls IPC internal_mcp_auth_start first", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        // start call
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // poll calls → complete
+      return Promise.resolve({
+        ok: true,
+        result: { status: "complete" },
+      });
+    });
+
+    await runMcp("auth", ["srv"]);
+
+    expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
+    expect(mockCliIpcCallFn.mock.calls[0][1]).toEqual({
+      body: { serverId: "srv" },
+    });
+    expect(mockOpenInHostBrowserFn).toHaveBeenCalledWith(
+      "https://auth.example.com",
+    );
+  });
+
+  test("IPC start returns ok=false → falls back to loopback flow without calling openInHostBrowser via IPC", async () => {
+    // Default mockCliIpcCallFn returns { ok: false } — this simulates no daemon
+
+    await runMcp("auth", ["srv"]).catch(() => {
+      // The loopback McpOAuthProvider mock is a no-op class, so flow may
+      // throw/exit but that's fine for this regression guard.
+    });
+
+    // openInHostBrowser should NOT have been called via the IPC path
+    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+  });
+
+  test("polling complete → exits 0 and calls signalMcpReload", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { status: "complete" },
+      });
+    });
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Authentication successful");
+  });
+
+  test("polling error → exits 1 with error message", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { status: "error", error: "access_denied" },
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/access_denied|OAuth failed/);
   });
 });

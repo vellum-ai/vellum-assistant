@@ -63,6 +63,7 @@ import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERFACE_ROUTES } from "./interface-routes.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
+import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
@@ -155,6 +156,7 @@ export const ROUTES: RouteDefinition[] = [
   ...IDENTITY_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
+  ...MCP_AUTH_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,

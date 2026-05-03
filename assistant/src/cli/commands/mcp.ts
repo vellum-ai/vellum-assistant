@@ -9,15 +9,38 @@ import type { Command } from "commander";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { McpClient } from "../../mcp/client.js";
 import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
+import { openInHostBrowser } from "../../util/browser.js";
 import { getSignalsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+
+async function pollMcpAuthStatus(
+  serverId: string,
+  options: { intervalMs: number; timeoutMs: number },
+): Promise<{ status: "complete" | "error"; error?: string }> {
+  const deadline = Date.now() + options.timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, options.intervalMs));
+    const result = await cliIpcCall<{ status: string; error?: string }>(
+      "internal_mcp_auth_status",
+      { pathParams: { serverId } },
+    );
+    if (result.ok && result.result?.status === "complete") {
+      return { status: "complete" };
+    }
+    if (result.ok && result.result?.status === "error") {
+      return { status: "error", error: result.result.error };
+    }
+  }
+  return { status: "error", error: "OAuth authorization timed out after 2.5 minutes" };
+}
 
 export async function checkServerHealth(
   serverId: string,
@@ -475,6 +498,52 @@ Examples:
         process.exitCode = 1;
         return;
       }
+
+      // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
+      const startResult = await cliIpcCall<{ auth_url: string; state: string }>(
+        "internal_mcp_auth_start",
+        { body: { serverId: name } },
+      );
+
+      if (startResult.ok && startResult.result?.auth_url) {
+        const authUrl = startResult.result.auth_url;
+        log.info(`Opening browser for "${name}" OAuth authorization...`);
+        await openInHostBrowser(authUrl);
+        console.log(`[MCP] If the browser did not open, visit:\n${authUrl}`);
+        log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
+
+        const finalStatus = await pollMcpAuthStatus(name, {
+          intervalMs: 2_000,
+          timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
+        });
+
+        if (finalStatus.status === "complete") {
+          log.info(`Authentication successful for "${name}".`);
+          log.info(
+            "The running assistant will pick up this change automatically. " +
+              "Or run 'vellum mcp reload' to apply now.",
+          );
+          signalMcpReload();
+          process.exit(0);
+          return;
+        }
+
+        const errMsg = finalStatus.error ?? "Unknown error";
+        if (errMsg.includes("denied") || errMsg.includes("cancelled")) {
+          log.error(`Authorization cancelled for "${name}".`);
+        } else if (errMsg.includes("timed out")) {
+          log.error(
+            `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
+          );
+        } else {
+          log.error(`OAuth failed for "${name}": ${errMsg}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      // IPC unavailable (old daemon, socket missing, route not registered)
+      // → fall through to existing in-process loopback flow.
 
       const provider = new McpOAuthProvider(
         name,
