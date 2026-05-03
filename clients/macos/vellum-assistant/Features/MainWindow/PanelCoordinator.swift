@@ -11,20 +11,6 @@ private let panelCoordinatorLog = Logger(
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
-    /// Conversation local-id explicitly targeted by current navigation state.
-    /// Used to avoid rendering stale chat content while a conversation switch
-    /// is still activating on the main actor.
-    private var selectedConversationIdForChatSurface: UUID? {
-        switch windowState.selection {
-        case .conversation(let id):
-            return id
-        case .appEditing(_, let id):
-            return id
-        default:
-            return nil
-        }
-    }
-
     /// Current conversation being rendered by `chatView`.
     private var renderedConversationIdForChatSurface: UUID? {
         conversationManager.activeConversationId ?? conversationManager.draftLocalId
@@ -32,10 +18,10 @@ extension MainWindowView {
 
     /// True while the chat surface should show a loading skeleton instead of
     /// rendering a stale or partially-initialized conversation.
-    private func shouldShowConversationSwitchSkeleton(targetConversationId: UUID?) -> Bool {
-        guard let targetConversationId else { return false }
+    private func shouldShowConversationSwitchSkeleton() -> Bool {
+        guard let targetConversationId = pendingConversationSwitchId else { return false }
         guard renderedConversationIdForChatSurface == targetConversationId else {
-            // Selection changed but ConversationManager has not activated yet.
+            // Explicit switch pending but ConversationManager has not activated yet.
             return true
         }
 
@@ -674,7 +660,7 @@ extension MainWindowView {
         let config = windowState.layoutConfig
         let isDisabledACPSessionsRightSlot = Self.isDisabledACPSessionsRightSlot(config.right)
         let showConfigPanel = config.right.visible && config.right.content != .empty && !isDisabledACPSessionsRightSlot
-        let isSwitchingConversation = shouldShowConversationSwitchSkeleton(targetConversationId: selectedConversationIdForChatSurface)
+        let isSwitchingConversation = shouldShowConversationSwitchSkeleton()
         let showSubagentPanel = !isSwitchingConversation
             && windowState.selectedSubagentId != nil
             && conversationManager.activeViewModel != nil
@@ -739,8 +725,7 @@ extension MainWindowView {
 
     @ViewBuilder
     var chatView: some View {
-        let targetConversationId = selectedConversationIdForChatSurface
-        if shouldShowConversationSwitchSkeleton(targetConversationId: targetConversationId) {
+        if shouldShowConversationSwitchSkeleton() {
             ConversationSwitchLoadingView()
         } else if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
