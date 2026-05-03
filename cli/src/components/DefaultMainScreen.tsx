@@ -170,14 +170,14 @@ async function runtimeRequest<T>(
   assistantId: string,
   path: string,
   init?: RequestInit,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
   const response = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...auth,
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
@@ -216,7 +216,7 @@ async function checkHealthRuntime(baseUrl: string): Promise<HealthResponse> {
 async function pollMessages(
   baseUrl: string,
   assistantId: string,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<ListMessagesResponse>(
@@ -224,7 +224,7 @@ async function pollMessages(
     assistantId,
     `/messages?${params.toString()}`,
     undefined,
-    bearerToken,
+    auth,
   );
 }
 
@@ -233,7 +233,7 @@ async function sendMessage(
   assistantId: string,
   content: string,
   signal?: AbortSignal,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<SendMessageResponse> {
   return runtimeRequest<SendMessageResponse>(
     baseUrl,
@@ -249,7 +249,7 @@ async function sendMessage(
       }),
       signal,
     },
-    bearerToken,
+    auth,
   );
 }
 
@@ -258,7 +258,7 @@ async function submitDecision(
   assistantId: string,
   requestId: string,
   decision: "allow" | "deny",
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<SubmitDecisionResponse> {
   return runtimeRequest<SubmitDecisionResponse>(
     baseUrl,
@@ -268,7 +268,7 @@ async function submitDecision(
       method: "POST",
       body: JSON.stringify({ requestId, decision }),
     },
-    bearerToken,
+    auth,
   );
 }
 
@@ -279,7 +279,7 @@ async function addTrustRule(
   pattern: string,
   scope: string,
   decision: "allow" | "deny",
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<AddTrustRuleResponse> {
   return runtimeRequest<AddTrustRuleResponse>(
     baseUrl,
@@ -289,7 +289,7 @@ async function addTrustRule(
       method: "POST",
       body: JSON.stringify({ requestId, pattern, scope, decision }),
     },
-    bearerToken,
+    auth,
   );
 }
 
@@ -348,7 +348,7 @@ async function* streamEvents(
   assistantId: string,
   conversationKey: string,
   signal: AbortSignal,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): AsyncGenerator<SseEvent> {
   const params = new URLSearchParams({ conversationKey });
   const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
@@ -357,7 +357,7 @@ async function* streamEvents(
   const response = await fetch(url, {
     headers: {
       Accept: "text/event-stream",
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...auth,
       ...clientHeaders,
     },
     signal,
@@ -454,7 +454,7 @@ async function handleConfirmationPrompt(
   requestId: string,
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<void> {
   const preview = formatConfirmationPreview(
     confirmation.toolName,
@@ -480,7 +480,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken);
+    await submitDecision(baseUrl, assistantId, requestId, "allow", auth);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -492,7 +492,7 @@ async function handleConfirmationPrompt(
       confirmation,
       chatApp,
       "always_allow",
-      bearerToken,
+      auth,
     );
     return;
   }
@@ -504,12 +504,12 @@ async function handleConfirmationPrompt(
       confirmation,
       chatApp,
       "always_deny",
-      bearerToken,
+      auth,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", auth);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -520,7 +520,7 @@ async function handlePatternSelection(
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   trustDecision: TrustDecision,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<void> {
   const allowlistOptions = confirmation.allowlistOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -541,12 +541,12 @@ async function handlePatternSelection(
       chatApp,
       selectedPattern,
       trustDecision,
-      bearerToken,
+      auth,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", auth);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -558,7 +558,7 @@ async function handleScopeSelection(
   chatApp: ChatAppHandle,
   selectedPattern: string,
   trustDecision: TrustDecision,
-  bearerToken?: string,
+  auth?: Record<string, string>,
 ): Promise<void> {
   const scopeOptions = confirmation.scopeOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -575,14 +575,14 @@ async function handleScopeSelection(
       selectedPattern,
       scopeOptions[index].scope,
       ruleDecision,
-      bearerToken,
+      auth,
     );
     await submitDecision(
       baseUrl,
       assistantId,
       requestId,
       ruleDecision === "deny" ? "deny" : "allow",
-      bearerToken,
+      auth,
     );
     const ruleLabel =
       trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
@@ -594,7 +594,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", auth);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -1361,7 +1361,9 @@ interface ChatAppProps {
   runtimeUrl: string;
   assistantId: string;
   species: Species;
-  bearerToken?: string;
+  /** Pre-built auth headers (e.g. { Authorization: "Bearer ..." } for local,
+   *  { "X-Session-Token": "...", "Vellum-Organization-Id": "..." } for platform). */
+  auth?: Record<string, string>;
   project?: string;
   zone?: string;
   onExit: () => void;
@@ -1372,7 +1374,7 @@ function ChatApp({
   runtimeUrl,
   assistantId,
   species,
-  bearerToken,
+  auth,
   project,
   zone,
   onExit,
@@ -1685,7 +1687,7 @@ function ChatApp({
         const historyResponse = await pollMessages(
           runtimeUrl,
           assistantId,
-          bearerToken,
+          auth,
         );
         h.hideSpinner();
         if (historyResponse.messages.length > 0) {
@@ -1710,7 +1712,7 @@ function ChatApp({
             assistantId,
             assistantId,
             sseAc.signal,
-            bearerToken,
+            auth,
           )) {
             const hRef = handleRef_.current;
             if (!hRef) continue;
@@ -1781,7 +1783,7 @@ function ChatApp({
                       event.persistentDecisionsAllowed,
                   },
                   hRef,
-                  bearerToken,
+                  auth,
                 );
                 hRef.showSpinner("Working...");
                 break;
@@ -1812,7 +1814,7 @@ function ChatApp({
                           delivery,
                         }),
                       },
-                      bearerToken,
+                      auth,
                     );
                   },
                 );
@@ -1896,7 +1898,7 @@ function ChatApp({
       );
       return false;
     }
-  }, [runtimeUrl, assistantId, bearerToken]);
+  }, [runtimeUrl, assistantId, auth]);
 
   const handleInput = useCallback(
     async (input: string): Promise<void> => {
@@ -2103,9 +2105,7 @@ function ChatApp({
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                ...(bearerToken
-                  ? { Authorization: `Bearer ${bearerToken}` }
-                  : {}),
+                ...auth,
               },
               body: JSON.stringify({
                 conversationKey: assistantId,
@@ -2192,7 +2192,7 @@ function ChatApp({
             assistantId,
             trimmed,
             controller.signal,
-            bearerToken,
+            auth,
           );
           clearTimeout(timeoutId);
           if (sendResult.accepted) {
@@ -2243,7 +2243,7 @@ function ChatApp({
           assistantId,
           trimmed,
           controller.signal,
-          bearerToken,
+          auth,
         );
         clearTimeout(timeoutId);
         if (!sendResult.accepted) {
@@ -2270,7 +2270,7 @@ function ChatApp({
     [
       runtimeUrl,
       assistantId,
-      bearerToken,
+      auth,
       project,
       zone,
       cleanup,
@@ -2584,7 +2584,7 @@ export function renderChatApp(
   assistantId: string,
   species: Species,
   onExit: () => void,
-  options?: { bearerToken?: string; project?: string; zone?: string },
+  options?: { auth?: Record<string, string>; project?: string; zone?: string },
 ): ChatAppInstance {
   let chatHandle: ChatAppHandle | null = null;
 
@@ -2593,7 +2593,7 @@ export function renderChatApp(
       runtimeUrl={runtimeUrl}
       assistantId={assistantId}
       species={species}
-      bearerToken={options?.bearerToken}
+      auth={options?.auth}
       project={options?.project}
       zone={options?.zone}
       onExit={onExit}

@@ -12,6 +12,10 @@ import {
 } from "../lib/constants";
 import { loadGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4 } from "../lib/local";
+import {
+  fetchOrganizationId,
+  readPlatformToken,
+} from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
 
 const ANSI = {
@@ -26,6 +30,11 @@ interface ParsedArgs {
   runtimeUrl: string;
   assistantId: string;
   species: Species;
+  /** "vellum" for platform-hosted assistants, undefined for local. */
+  cloud?: string;
+  /** Platform session token (X-Session-Token), set when cloud === "vellum". */
+  platformToken?: string;
+  /** Guardian JWT (Authorization: Bearer), set for local assistants. */
   bearerToken?: string;
   project?: string;
   zone?: string;
@@ -89,9 +98,16 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
-  const bearerToken =
-    loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined;
+  const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
+
+  // Platform-hosted assistants use a session token; local assistants use a guardian JWT.
+  const platformToken =
+    cloud === "vellum" ? (readPlatformToken() ?? undefined) : undefined;
+  const bearerToken =
+    cloud === "vellum"
+      ? undefined
+      : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
   for (let i = 0; i < flagArgs.length; i++) {
     const flag = flagArgs[i];
@@ -109,6 +125,8 @@ function parseArgs(): ParsedArgs {
     runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     species,
+    cloud,
+    platformToken,
     bearerToken,
     project: entry?.project,
     zone: entry?.zone,
@@ -181,11 +199,34 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 }
 
 export async function client(): Promise<void> {
-  const { runtimeUrl, assistantId, species, bearerToken, project, zone } =
-    parseArgs();
+  const {
+    runtimeUrl,
+    assistantId,
+    species,
+    cloud,
+    platformToken,
+    bearerToken,
+    project,
+    zone,
+  } = parseArgs();
 
   tuiLog.init();
-  tuiLog.info("session start", { runtimeUrl, assistantId, species });
+  tuiLog.info("session start", { runtimeUrl, assistantId, species, cloud });
+
+  // Build pre-constructed auth headers so all fetch sites share a single object.
+  let auth: Record<string, string> | undefined;
+  if (cloud === "vellum" && platformToken) {
+    const orgId = await fetchOrganizationId(platformToken).catch((err) => {
+      tuiLog.warn("failed to fetch organization id", { err: String(err) });
+      return undefined;
+    });
+    auth = {
+      "X-Session-Token": platformToken,
+      ...(orgId ? { "Vellum-Organization-Id": orgId } : {}),
+    };
+  } else if (bearerToken) {
+    auth = { Authorization: `Bearer ${bearerToken}` };
+  }
 
   const { renderChatApp } = await import("../components/DefaultMainScreen");
 
@@ -203,6 +244,6 @@ export async function client(): Promise<void> {
       console.log(`${ANSI.dim}Disconnected.${ANSI.reset}`);
       process.exit(0);
     },
-    { bearerToken, project, zone },
+    { auth, project, zone },
   );
 }
