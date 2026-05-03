@@ -637,8 +637,15 @@ export function loadConfig(): AssistantConfig {
         // remain the fallback for non-platform deployments.
         const contextDefaults = getDeploymentContextDefaults();
         if (Object.keys(contextDefaults).length > 0) {
+          // Apply to persistable so the correct values are written to disk…
           deepMergeOverwrite(
             persistable as Record<string, unknown>,
+            contextDefaults,
+          );
+          // …and also to the in-memory config so the first-load caller sees
+          // managed-mode values immediately without requiring a restart.
+          deepMergeOverwrite(
+            config as unknown as Record<string, unknown>,
             contextDefaults,
           );
         }
