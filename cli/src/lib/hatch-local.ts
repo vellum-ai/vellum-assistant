@@ -5,7 +5,6 @@ import {
   readlinkSync,
   symlinkSync,
   unlinkSync,
-  writeFileSync,
   appendFileSync,
   readFileSync,
 } from "fs";
@@ -20,7 +19,6 @@ import {
   findAssistantByName,
   saveAssistantEntry,
   setActiveAssistant,
-  syncConfigToLockfile,
 } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import type { Species } from "./constants.js";
@@ -31,7 +29,6 @@ import {
   startGateway,
   stopLocalProcesses,
 } from "./local.js";
-import { maybeStartNgrokTunnel } from "./ngrok.js";
 
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
@@ -233,17 +230,9 @@ export async function hatchLocal(
     resources: { ...resources, signingKey },
   };
 
-  const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort, workspaceDir);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-
   emitProgress(6, 6, "Saving configuration...");
   saveAssistantEntry(localEntry);
   setActiveAssistant(instanceName);
-  syncConfigToLockfile(resources.instanceDir);
 
   if (process.env.VELLUM_DESKTOP_APP) {
     installCLISymlink();
