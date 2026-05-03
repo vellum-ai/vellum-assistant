@@ -13,6 +13,8 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+import { eq } from "drizzle-orm";
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -24,6 +26,7 @@ import {
   _resetQdrantBreaker,
   withQdrantBreaker,
 } from "../memory/qdrant-circuit-breaker.js";
+import { memoryJobs } from "../memory/schema.js";
 
 describe("claimMemoryJobs with Qdrant circuit breaker", () => {
   beforeAll(() => {
@@ -111,6 +114,85 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     const types = claimedAfterClose.map((j) => j.type);
 
     expect(types).toContain("embed_graph_node");
+  });
+
+  test("lane budgets are honored when called with explicit budgets", () => {
+    // 5 slow-lane jobs
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("graph_extract", { conversationId: `slow-${i}` });
+    }
+    // 5 fast-lane jobs (rebuild_index is neither slow-LLM nor embed)
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("rebuild_index", { id: `fast-${i}` });
+    }
+    // 5 embed-lane jobs
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("embed_segment", { segmentId: `embed-${i}` });
+    }
+
+    const claimed = claimMemoryJobs({ slowLlm: 1, fast: 2, embed: 2 });
+    const slowClaimed = claimed.filter((j) => j.type === "graph_extract");
+    const fastClaimed = claimed.filter((j) => j.type === "rebuild_index");
+    const embedClaimed = claimed.filter((j) => j.type === "embed_segment");
+
+    expect(claimed).toHaveLength(5);
+    expect(slowClaimed).toHaveLength(1);
+    expect(fastClaimed).toHaveLength(2);
+    expect(embedClaimed).toHaveLength(2);
+
+    // Remaining 10 jobs should still be pending.
+    const db = getDb();
+    const pendingRows = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.status, "pending"))
+      .all();
+    expect(pendingRows).toHaveLength(10);
+  });
+
+  test("Qdrant breaker gates only the embed lane in lane-aware mode", async () => {
+    // 5 slow + 5 fast + 5 embed pending jobs
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("graph_extract", { conversationId: `slow-${i}` });
+    }
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("rebuild_index", { id: `fast-${i}` });
+    }
+    for (let i = 0; i < 5; i++) {
+      enqueueMemoryJob("embed_segment", { segmentId: `embed-${i}` });
+    }
+
+    // Trip the breaker
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+
+    const claimed = claimMemoryJobs({ slowLlm: 1, fast: 2, embed: 2 });
+    const slowClaimed = claimed.filter((j) => j.type === "graph_extract");
+    const fastClaimed = claimed.filter((j) => j.type === "rebuild_index");
+    const embedClaimed = claimed.filter((j) => j.type === "embed_segment");
+
+    expect(slowClaimed).toHaveLength(1);
+    expect(fastClaimed).toHaveLength(2);
+    // Breaker is open and probe window has not elapsed → no embed jobs claimed.
+    expect(embedClaimed).toHaveLength(0);
+  });
+
+  test("FIFO order within a lane is preserved by runAfter ascending", () => {
+    const t0 = Date.now() - 30_000;
+    enqueueMemoryJob("graph_extract", { conversationId: "third" }, t0 + 200);
+    enqueueMemoryJob("graph_extract", { conversationId: "first" }, t0);
+    enqueueMemoryJob("graph_extract", { conversationId: "second" }, t0 + 100);
+
+    const claimed = claimMemoryJobs({ slowLlm: 3, fast: 0, embed: 0 });
+    const order = claimed.map((j) => j.payload.conversationId);
+    expect(order).toEqual(["first", "second", "third"]);
   });
 
   test("all embed job types are skipped when breaker is open", async () => {
