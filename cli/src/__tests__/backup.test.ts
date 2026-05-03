@@ -230,12 +230,14 @@ describe("vellum backup <platform-managed>: GCS happy path", () => {
       "platform-export-job-1",
     );
 
-    // Download URL keyed off the upload's bundleKey.
+    // Download URL keyed off the upload's bundleKey. Also carries
+    // targetRuntimeVersion so the platform can enforce bundle compatibility.
     expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         operation: "download",
         bundleKey: "uploads/org-1/bundle-abc.vbundle",
-      },
+        targetRuntimeVersion: expect.any(String),
+      }),
       "platform-token",
       "https://platform.vellum.ai",
     );
@@ -471,5 +473,75 @@ describe("vellum backup <platform-managed>: failure cases", () => {
     } finally {
       consoleErrorSpy.mockRestore();
     }
+  });
+});
+
+describe("vellum backup <platform-managed>: VersionMismatchError handling", () => {
+  test("422 on download signed-URL exits 1 with friendly message and skips GCS fetch", async () => {
+    findAssistantByNameMock.mockReturnValue(VELLUM_ENTRY);
+    setArgv("my-platform");
+
+    // Upload signed-URL succeeds; download signed-URL throws version-mismatch.
+    platformRequestSignedUrlMock.mockImplementation(async (params) => {
+      if (params.operation === "download") {
+        throw new platformClient.VersionMismatchError(
+          { min_runtime_version: "99.0.0", max_runtime_version: null },
+          "0.7.1",
+        );
+      }
+      return {
+        url: "https://storage.googleapis.com/bucket/signed-upload",
+        bundleKey: params.bundleKey ?? "uploads/org-1/bundle-abc.vbundle",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    // Track GCS fetch calls so we can assert the download leg never fires.
+    const fetchMock = mock(
+      async () => new Response("not used", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const consoleErrorSpy = spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    try {
+      await expect(backup()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cannot import: bundle requires runtime"),
+      );
+
+      // No GCS download attempted.
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // No file written.
+      expect(writeFileSyncMock).not.toHaveBeenCalled();
+
+      // Terminal: only one download signed-URL request — no retry.
+      const downloadCalls = platformRequestSignedUrlMock.mock.calls.filter(
+        (c) => (c[0] as { operation: string }).operation === "download",
+      );
+      expect(downloadCalls).toHaveLength(1);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  test("non-VersionMismatchError on download signed-URL re-raises", async () => {
+    findAssistantByNameMock.mockReturnValue(VELLUM_ENTRY);
+    setArgv("my-platform");
+
+    platformRequestSignedUrlMock.mockImplementation(async (params) => {
+      if (params.operation === "download") {
+        throw new Error("network blew up");
+      }
+      return {
+        url: "https://storage.googleapis.com/bucket/signed-upload",
+        bundleKey: params.bundleKey ?? "uploads/org-1/bundle-abc.vbundle",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    await expect(backup()).rejects.toThrow("network blew up");
   });
 });

@@ -21,6 +21,7 @@ import {
   platformImportBundleFromGcs,
   platformImportPreflightFromGcs,
   platformRequestSignedUrl,
+  VersionMismatchError,
   ensureSelfHostedLocalRegistration,
   readGatewayCredential,
   reprovisionAssistantApiKey,
@@ -28,6 +29,7 @@ import {
   fetchCurrentUser,
   fetchOrganizationId,
 } from "../lib/platform-client.js";
+import cliPkg from "../../package.json";
 import {
   localRuntimeExportToGcs,
   localRuntimeImportFromGcs,
@@ -659,11 +661,28 @@ async function importToAssistant(
     // never touches the bytes. The URL must target the same platform the
     // bundle was uploaded to; otherwise the object won't exist on this
     // platform's GCS bucket.
-    const { url: bundleUrl } = await platformRequestSignedUrl(
-      { operation: "download", bundleKey },
-      platformToken,
-      bundlePlatformUrl,
-    );
+    let bundleUrl: string;
+    try {
+      const result = await platformRequestSignedUrl(
+        {
+          operation: "download",
+          bundleKey,
+          targetRuntimeVersion: cliPkg.version,
+        },
+        platformToken,
+        bundlePlatformUrl,
+      );
+      bundleUrl = result.url;
+    } catch (err) {
+      if (err instanceof VersionMismatchError) {
+        // 422 version_mismatch is terminal — the bundle's runtime range and
+        // this CLI's version don't overlap. Surface the platform-formatted
+        // message and exit; do NOT retry.
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+      throw err;
+    }
 
     console.log("Importing data...");
 

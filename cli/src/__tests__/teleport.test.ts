@@ -975,10 +975,11 @@ describe("unified GCS flow — four directions", () => {
       // (where the bundle was written) — pinned so a lockfile change
       // can't split upload and download across instances.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           operation: "download",
           bundleKey: "platform-exports/org-1/bundle-abc.vbundle",
-        },
+          targetRuntimeVersion: expect.any(String),
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -1040,10 +1041,11 @@ describe("unified GCS flow — four directions", () => {
 
       // Import: download-URL for the docker target, then runtime import.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           operation: "download",
           bundleKey: "bundle-key-123",
-        },
+          targetRuntimeVersion: expect.any(String),
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -1225,7 +1227,11 @@ describe("signed-URL request targets the bundle-owning platform", () => {
       // The download URL must be requested from the SOURCE platform (where
       // the bundle was written by the runtime export), not the default.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        { operation: "download", bundleKey: "dev-bundle-key" },
+        expect.objectContaining({
+          operation: "download",
+          bundleKey: "dev-bundle-key",
+          targetRuntimeVersion: expect.any(String),
+        }),
         "platform-token",
         "https://dev-platform.vellum.ai",
       );
@@ -1518,6 +1524,161 @@ describe("MigrationInProgressError handling", () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining("already in progress"),
       );
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VersionMismatchError handling — 422 from platformRequestSignedUrl on the
+// download leg is terminal: surface a friendly message + exit 1, no retry.
+// ---------------------------------------------------------------------------
+
+describe("VersionMismatchError handling", () => {
+  test("local target: 422 on download signed-URL exits 1 with friendly message", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "platform-bundle-key-abc",
+    });
+
+    // Upload signed-URL succeeds; download signed-URL throws version-mismatch.
+    platformRequestSignedUrlMock.mockImplementation(async (params) => {
+      if (params.operation === "download") {
+        throw new platformClient.VersionMismatchError(
+          { min_runtime_version: "99.0.0", max_runtime_version: null },
+          "0.7.1",
+        );
+      }
+      return {
+        url: "https://storage.googleapis.com/bucket/signed-upload",
+        bundleKey: params.bundleKey ?? "bundle-key-123",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Friendly message uses the prefix from VersionMismatchError.formatMessage.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cannot import: bundle requires runtime"),
+      );
+
+      // Terminal: no retry of the download signed-URL request.
+      const downloadCalls = platformRequestSignedUrlMock.mock.calls.filter(
+        (c) => (c[0] as { operation: string }).operation === "download",
+      );
+      expect(downloadCalls).toHaveLength(1);
+
+      // Runtime import-from-gcs must NOT be kicked off after the 422.
+      expect(localRuntimeImportFromGcsMock).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("docker target: 422 on download signed-URL exits 1 with friendly message", async () => {
+    setArgv("--from", "my-local", "--docker");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const dockerEntry = makeEntry("new-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7822",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchDockerMock.mock.calls.length > 0) {
+        return [localEntry, dockerEntry];
+      }
+      return [localEntry];
+    });
+
+    platformRequestSignedUrlMock.mockImplementation(async (params) => {
+      if (params.operation === "download") {
+        throw new platformClient.VersionMismatchError(
+          { min_runtime_version: "99.0.0", max_runtime_version: null },
+          "0.7.1",
+        );
+      }
+      return {
+        url: "https://storage.googleapis.com/bucket/signed-upload",
+        bundleKey: params.bundleKey ?? "bundle-key-123",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cannot import: bundle requires runtime"),
+      );
+
+      expect(localRuntimeImportFromGcsMock).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("non-VersionMismatchError on download signed-URL re-raises", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "platform-bundle-key-abc",
+    });
+
+    platformRequestSignedUrlMock.mockImplementation(async (params) => {
+      if (params.operation === "download") {
+        throw new Error("network blew up");
+      }
+      return {
+        url: "https://storage.googleapis.com/bucket/signed-upload",
+        bundleKey: params.bundleKey ?? "bundle-key-123",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("network blew up");
     } finally {
       restoreFetch();
     }
