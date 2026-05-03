@@ -2044,11 +2044,15 @@ public struct HostTransferRequest: Decodable, Sendable {
     public let sizeBytes: Int?
     public let sha256: String?
     public let overwrite: Bool?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostTransferProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, direction
         case transferId, destPath, sourcePath, sizeBytes
         case sha256, overwrite
+        case targetClientId
     }
 }
 

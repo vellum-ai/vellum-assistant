@@ -64,8 +64,8 @@ public enum GatewayHTTPClient {
     ///   - quiet: When `true`, suppresses HTTP request/response logging for this request.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, quiet: Bool = false, unprefixed: Bool = false) async throws -> Response {
-        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout, quiet: quiet, unprefixed: unprefixed)
+    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, quiet: Bool = false, unprefixed: Bool = false, extraHeaders: [String: String]? = nil) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout, quiet: quiet, unprefixed: unprefixed, configure: extraHeaders.map { h in { req in for (k, v) in h { req.setValue(v, forHTTPHeaderField: k) } } })
     }
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.

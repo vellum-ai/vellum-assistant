@@ -634,6 +634,7 @@ public final class EventStreamClient {
             log.warning("Ignoring host_browser_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostTransferRequest(let msg):
+            if msg.targetClientId != nil { return false }   // pass through targeted requests
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_transfer_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
