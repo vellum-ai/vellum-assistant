@@ -201,7 +201,11 @@ describe("vellum backup <platform-managed>: GCS happy path", () => {
 
     // Upload-URL request to the platform.
     expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "upload" }),
+      expect.objectContaining({
+        operation: "upload",
+        minRuntimeVersion: expect.any(String),
+        maxRuntimeVersion: null,
+      }),
       "platform-token",
       "https://platform.vellum.ai",
     );
@@ -306,7 +310,11 @@ describe("vellum backup <platform-managed>: GCS happy path", () => {
     // runtimeUrl. The signed URLs returned by the platform target the
     // GCS bucket the runtime can reach, not the default platform's.
     expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "upload" }),
+      expect.objectContaining({
+        operation: "upload",
+        minRuntimeVersion: expect.any(String),
+        maxRuntimeVersion: null,
+      }),
       "platform-token",
       "https://staging-platform.vellum.ai",
     );

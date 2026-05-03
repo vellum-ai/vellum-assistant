@@ -48,6 +48,7 @@ import { stopProcessByPidFile } from "../lib/process.js";
 import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
 import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
+import cliPkg from "../../package.json";
 
 function printHelp(): void {
   console.log(
@@ -373,7 +374,11 @@ async function exportFromAssistant(
     // the same platform — otherwise a non-default/stale platform URL would
     // cause the import to look at an empty object.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-      { operation: "upload" },
+      {
+        operation: "upload",
+        minRuntimeVersion: cliPkg.version,
+        maxRuntimeVersion: null,
+      },
       platformToken,
       bundlePlatformUrl,
     );
@@ -449,7 +454,11 @@ async function exportFromAssistant(
     // pick that shape for `cloud === "vellum"` and `migrationRequestHeaders`
     // to send platform-token auth (no guardian-token bootstrap).
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-      { operation: "upload" },
+      {
+        operation: "upload",
+        minRuntimeVersion: cliPkg.version,
+        maxRuntimeVersion: null,
+      },
       platformToken,
       bundlePlatformUrl,
     );

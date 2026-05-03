@@ -16,6 +16,7 @@ import {
   platformPollJobStatus,
 } from "../lib/platform-client.js";
 import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
+import cliPkg from "../../package.json";
 
 function printUsage(): void {
   console.log(
@@ -181,7 +182,11 @@ async function restorePlatform(
 
   // Step 1.5 — Upload to GCS via signed URL
   const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-    { operation: "upload" },
+    {
+      operation: "upload",
+      minRuntimeVersion: cliPkg.version,
+      maxRuntimeVersion: null,
+    },
     token,
     entry.runtimeUrl,
   );

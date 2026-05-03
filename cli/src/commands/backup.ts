@@ -15,6 +15,7 @@ import {
   platformRequestSignedUrl,
   readPlatformToken,
 } from "../lib/platform-client.js";
+import cliPkg from "../../package.json";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -234,7 +235,11 @@ async function backupPlatform(
 
   // Step 1 — Request a signed upload URL.
   const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-    { operation: "upload" },
+    {
+      operation: "upload",
+      minRuntimeVersion: cliPkg.version,
+      maxRuntimeVersion: null,
+    },
     exportPlatformToken,
     platformUrl,
   );

@@ -850,7 +850,11 @@ describe("unified GCS flow — four directions", () => {
       // Signed-URL request for upload — pinned to the platform target's URL
       // so upload and download land on the same platform.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: "upload" }),
+        expect.objectContaining({
+          operation: "upload",
+          minRuntimeVersion: expect.any(String),
+          maxRuntimeVersion: null,
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -937,7 +941,11 @@ describe("unified GCS flow — four directions", () => {
       // Platform side: requested an upload URL, kicked off a runtime export to
       // GCS, and polled the unified job status.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: "upload" }),
+        expect.objectContaining({
+          operation: "upload",
+          minRuntimeVersion: expect.any(String),
+          maxRuntimeVersion: null,
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -1032,7 +1040,11 @@ describe("unified GCS flow — four directions", () => {
       // lives in one place end-to-end. For local→docker neither side is
       // platform, so we default to getPlatformUrl() (resolved once).
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: "upload" }),
+        expect.objectContaining({
+          operation: "upload",
+          minRuntimeVersion: expect.any(String),
+          maxRuntimeVersion: null,
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -1099,7 +1111,11 @@ describe("unified GCS flow — four directions", () => {
       // Export leg: upload-URL (pinned to the same platform as import),
       // then runtime export.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: "upload" }),
+        expect.objectContaining({
+          operation: "upload",
+          minRuntimeVersion: expect.any(String),
+          maxRuntimeVersion: null,
+        }),
         "platform-token",
         "https://platform.vellum.ai",
       );
@@ -1163,7 +1179,11 @@ describe("signed-URL request targets the bundle-owning platform", () => {
       // The signed-URL request for upload MUST target the existing
       // platform assistant's runtimeUrl, not the default platform URL.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: "upload" }),
+        expect.objectContaining({
+          operation: "upload",
+          minRuntimeVersion: expect.any(String),
+          maxRuntimeVersion: null,
+        }),
         "platform-token",
         "https://staging-platform.vellum.ai",
       );
