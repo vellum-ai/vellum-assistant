@@ -30,13 +30,21 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+const pendingInteractionMap = new Map<string, Record<string, unknown>>();
 mock.module("../runtime/pending-interactions.js", () => ({
-  resolve: (requestId: string) => {
-    resolvedInteractionIds.push(requestId);
-    return undefined;
+  register: (requestId: string, interaction: Record<string, unknown>) => {
+    pendingInteractionMap.set(requestId, interaction);
   },
-  get: () => undefined,
-  getByKind: () => [],
+  resolve: (requestId: string) => {
+    const interaction = pendingInteractionMap.get(requestId);
+    pendingInteractionMap.delete(requestId);
+    resolvedInteractionIds.push(requestId);
+    return interaction;
+  },
+  get: (requestId: string) => pendingInteractionMap.get(requestId),
+  getByKind: (_kind: string) => Array.from(pendingInteractionMap.entries())
+    .filter(([, v]) => v.kind === _kind)
+    .map(([requestId, v]) => ({ requestId, ...v })),
   getByConversation: () => [],
   removeByConversation: () => {},
 }));
@@ -50,6 +58,7 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
     sentMessages.length = 0;
     sentMessageOptions.length = 0;
     resolvedInteractionIds.length = 0;
+    pendingInteractionMap.clear();
     mockHasClient = false;
     mockCapableClients = [];
     mockClientRegistry = new Map();

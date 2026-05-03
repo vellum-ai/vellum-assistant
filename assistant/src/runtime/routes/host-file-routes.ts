@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -49,11 +49,11 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
       throw new BadRequestError("x-vellum-client-id header is missing for a targeted host file request.");
     }
     if (submittingClientId !== peeked.targetClientId) {
-      throw new ConflictError("Submitting client does not match the targeted client for this request.");
+      throw new ForbiddenError("Submitting client does not match the targeted client for this request.");
     }
   }
 
-  HostFileProxy.instance.resolveResult(requestId, {
+  HostFileProxy.instance.resolve(requestId, {
     content: content ?? "",
     isError: isError ?? false,
     imageData,
@@ -93,6 +93,16 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host file request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this request.",
+      },
+    },
     handler: handleHostFileResult,
   },
 ];

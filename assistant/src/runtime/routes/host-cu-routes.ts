@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
       throw new BadRequestError("x-vellum-client-id header is missing for a targeted host CU request.");
     }
     if (submittingClientId !== peeked.targetClientId) {
-      throw new ConflictError("Submitting client does not match the targeted client for this request.");
+      throw new ForbiddenError("Submitting client does not match the targeted client for this request.");
     }
   }
 
@@ -132,6 +132,16 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host CU request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this request.",
+      },
+    },
     handler: handleHostCuResult,
   },
 ];
