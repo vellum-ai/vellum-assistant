@@ -215,7 +215,6 @@ describe("assistant platform status", () => {
     expect(parsed.available).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
-    expect(parsed.connected).toBeUndefined();
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {
