@@ -65,7 +65,10 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
-import { formatRuntimeCompatibilityMessage } from "../migrations/vbundle-import-policy.js";
+import {
+  formatRuntimeCompatibilityMessage,
+  type RuntimeCompatibility,
+} from "../migrations/vbundle-import-policy.js";
 import {
   commitImport,
   extractCredentialsFromBundle,
@@ -1031,10 +1034,7 @@ interface GcsImportErrorInit {
   partial_report?: ImportCommitReport;
   /** Populated for `version_incompatible` — mirrors the platform's PR #5470
    *  response shape so the URL-body endpoint can return the same body. */
-  bundle_compat?: {
-    min_runtime_version: string;
-    max_runtime_version: string | null;
-  };
+  bundle_compat?: RuntimeCompatibility;
   /** Populated for `version_incompatible`. */
   runtime_version?: string;
 }
@@ -1045,7 +1045,7 @@ class GcsImportError extends Error {
   public readonly reason?: string;
   public readonly errors?: GcsImportErrorInit["errors"];
   public readonly partial_report?: ImportCommitReport;
-  public readonly bundle_compat?: GcsImportErrorInit["bundle_compat"];
+  public readonly bundle_compat?: RuntimeCompatibility;
   public readonly runtime_version?: string;
 
   constructor(init: GcsImportErrorInit) {
