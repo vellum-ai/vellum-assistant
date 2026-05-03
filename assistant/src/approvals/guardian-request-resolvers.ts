@@ -13,7 +13,6 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { findConversation } from "../daemon/conversation-store.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import {
@@ -120,6 +119,12 @@ export type ResolverResult =
       applied: true;
       grantMinted?: boolean;
       guardianReplyText?: string;
+      activatedContact?: {
+        sourceChannel: string;
+        externalUserId: string;
+        externalChatId?: string;
+        displayName?: string;
+      };
     }
   | { ok: false; reason: string };
 
@@ -510,21 +515,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
-      try {
-        upsertContactChannel({
-          sourceChannel: "phone",
-          externalUserId: requesterExternalUserId,
-          externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
-        });
-      } catch (err) {
-        log.error(
-          { err, requesterExternalUserId },
-          "Access request resolver: failed to activate voice caller as trusted contact",
-        );
-      }
-
       log.info(
         {
           event: "resolver_access_request_voice_approved",
@@ -549,7 +539,16 @@ const accessRequestResolver: GuardianRequestResolver = {
         );
       });
 
-      return { ok: true, applied: true };
+      return {
+        ok: true,
+        applied: true,
+        activatedContact: {
+          sourceChannel: "phone",
+          externalUserId: requesterExternalUserId,
+          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
+          ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
+        },
+      };
     }
 
     // Non-voice approvals: mint an identity-bound verification session so the

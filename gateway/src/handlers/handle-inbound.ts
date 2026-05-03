@@ -14,6 +14,7 @@ import {
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
 import { tryTextVerificationIntercept } from "../verification/text-verification.js";
+import { upsertVerifiedContactChannel } from "../verification/contact-helpers.js";
 
 const log = getLogger("handle-inbound");
 
@@ -181,6 +182,17 @@ export async function handleInbound(
       void touchContactChannelStats(event, response.duplicate).catch(
         () => {},
       );
+    }
+
+    if (response.activatedContact) {
+      const { sourceChannel, externalUserId, externalChatId, displayName } =
+        response.activatedContact;
+      void upsertVerifiedContactChannel({
+        sourceChannel,
+        externalUserId,
+        externalChatId: externalChatId ?? externalUserId,
+        displayName,
+      }).catch(() => {});
     }
 
     return { forwarded: true, rejected: false, runtimeResponse: response };

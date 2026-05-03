@@ -99,6 +99,13 @@ export interface GuardianReplyResult {
   requestId?: string;
   /** Detailed result from the canonical decision primitive (when a decision was attempted). */
   canonicalResult?: CanonicalDecisionResult;
+  /** When a voice access request was approved, the contact that should be activated. */
+  activatedContact?: {
+    sourceChannel: string;
+    externalUserId: string;
+    externalChatId?: string;
+    displayName?: string;
+  };
   /**
    * When true, the caller should skip legacy approval interception for this
    * message. Set by the invite handoff bypass so that "open invite flow"
@@ -685,6 +692,9 @@ async function applyDecision(
       type: "canonical_decision_applied",
       ...(canonicalResult.resolverReplyText
         ? { replyText: canonicalResult.resolverReplyText }
+        : {}),
+      ...(canonicalResult.activatedContact
+        ? { activatedContact: canonicalResult.activatedContact }
         : {}),
       requestId,
       canonicalResult,
