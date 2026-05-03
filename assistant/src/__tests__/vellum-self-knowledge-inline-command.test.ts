@@ -56,7 +56,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => testConfig,
   loadConfig: () => testConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -153,9 +152,7 @@ describe("vellum-self-knowledge skill", () => {
 
   test("references the GitHub repo for deep implementation questions", async () => {
     const result = await executeSkillLoad({ skill: "vellum-self-knowledge" });
-    expect(result.content).toContain(
-      "github.com/vellum-ai/vellum-assistant",
-    );
+    expect(result.content).toContain("github.com/vellum-ai/vellum-assistant");
     expect(result.content).toContain("ARCHITECTURE.md");
   });
 

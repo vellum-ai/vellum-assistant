@@ -134,7 +134,7 @@ describe("enqueuePkbIndexJob", () => {
     });
     expect(id).toBeTruthy();
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     expect(claimed).toHaveLength(1);
     const [job] = claimed;
     const expectedType: MemoryJobType = "embed_pkb_file";
@@ -153,7 +153,7 @@ describe("enqueuePkbIndexJob", () => {
       memoryScopeId: "scope-rt",
     });
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     expect(claimed).toHaveLength(1);
     const [job] = claimed;
     expect(job.type).toBe("embed_pkb_file");

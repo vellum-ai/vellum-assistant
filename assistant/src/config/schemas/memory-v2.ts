@@ -116,17 +116,32 @@ export const MemoryV2ConfigSchema = z
       .number({ error: "memory.v2.dense_weight must be a number" })
       .min(0, "memory.v2.dense_weight must be >= 0")
       .max(1, "memory.v2.dense_weight must be <= 1")
-      .default(0.7)
+      .default(0.85)
       .describe(
-        "Weight on dense (cosine) similarity in the hybrid retrieval score",
+        "Weight on dense (cosine) similarity in the hybrid retrieval score — dense embeddings dominate the score.",
       ),
     sparse_weight: z
       .number({ error: "memory.v2.sparse_weight must be a number" })
       .min(0, "memory.v2.sparse_weight must be >= 0")
       .max(1, "memory.v2.sparse_weight must be <= 1")
-      .default(0.3)
+      .default(0.15)
       .describe(
-        "Weight on sparse (BM25-style) similarity in the hybrid retrieval score",
+        "Weight on sparse (BM25-style) similarity in the hybrid retrieval score — sparse acts as a discriminator for keyword-rich queries.",
+      ),
+    bm25_k1: z
+      .number({ error: "memory.v2.bm25_k1 must be a number" })
+      .min(0, "memory.v2.bm25_k1 must be >= 0")
+      .default(1.2)
+      .describe(
+        "BM25 term-frequency saturation parameter. Standard Lucene default — increase to make repeated mentions of a term matter more, decrease to flatten the curve.",
+      ),
+    bm25_b: z
+      .number({ error: "memory.v2.bm25_b must be a number" })
+      .min(0, "memory.v2.bm25_b must be >= 0")
+      .max(1, "memory.v2.bm25_b must be <= 1")
+      .default(0.4)
+      .describe(
+        "BM25 document-length normalization. 0 disables length normalization, 1 fully normalizes. Lucene's default is 0.75 (tuned for narrative/web corpora); we run lower because concept-page collections include structured list pages with high information density per word — full Lucene normalization over-penalizes them.",
       ),
     consolidation_interval_hours: z
       .number({

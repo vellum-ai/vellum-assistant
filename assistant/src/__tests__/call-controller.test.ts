@@ -81,7 +81,6 @@ mock.module("../config/loader.js", () => {
     getConfig: () => config,
     loadConfig: () => config,
     loadRawConfig: () => ({}),
-    saveConfig: () => {},
     saveRawConfig: () => {},
     invalidateConfigCache: () => {},
     applyNestedDefaults: (c: unknown) => c,

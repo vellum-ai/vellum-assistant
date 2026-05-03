@@ -148,6 +148,7 @@ describe("subcommand registration", () => {
       "activation",
       "explain",
       "migrate",
+      "rebuild-corpus-stats",
       "reembed",
       "reembed-skills",
       "validate",

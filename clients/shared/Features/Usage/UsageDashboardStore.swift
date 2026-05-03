@@ -149,6 +149,7 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
         .inferenceProfile,
         .model,
         .provider,
+        .conversation,
     ]
 
     public var displayName: String {

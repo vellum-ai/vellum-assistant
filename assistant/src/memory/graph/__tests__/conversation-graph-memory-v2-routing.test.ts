@@ -333,16 +333,54 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
 
     expect(result.mode).toBe("per-turn");
     expect(result.injectedBlockText).not.toBeNull();
-    expect(result.injectedBlockText).toContain("<memory>");
+    expect(result.injectedBlockText).not.toContain("<memory>");
     expect(result.injectedBlockText).toContain("### alice-vscode");
 
-    // The leading content block on the user message is the v2 block.
+    // The leading content block on the user message is the v2 block,
+    // wrapped exactly once.
     const lastMsg = result.runMessages[result.runMessages.length - 1];
     expect(lastMsg?.role).toBe("user");
     const firstBlock = lastMsg?.content[0];
     expect(firstBlock?.type).toBe("text");
     if (firstBlock?.type !== "text") throw new Error("unexpected block type");
-    expect(firstBlock.text).toContain("<memory>");
+    expect(firstBlock.text.startsWith("<memory>\n")).toBe(true);
+    expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
+    // No nested wrapper.
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+  });
+
+  test("reinjectCachedMemory after v2 injection wraps exactly once (no double-wrap)", async () => {
+    // Regression for the double-wrap bug: v2 cached `lastInjectedBlock`
+    // already wrapped, then `reinjectCachedMemory` re-wrapped via
+    // `injectTextBlock`, producing `<memory>\n<memory>\n...\n</memory>\n</memory>`.
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const initial = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+    expect(initial.injectedBlockText).not.toBeNull();
+
+    // Simulate post-compaction: caller re-runs `applyRuntimeInjections`
+    // (which strips memory injections) and then asks for the cached
+    // memory to be re-prepended.
+    const reinjected = memory.reinjectCachedMemory(messages);
+    const lastMsg = reinjected.runMessages[reinjected.runMessages.length - 1];
+    const firstBlock = lastMsg?.content[0];
+    expect(firstBlock?.type).toBe("text");
+    if (firstBlock?.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.startsWith("<memory>\n")).toBe(true);
+    expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+    expect(firstBlock.text.match(/<\/memory>/g)?.length).toBe(1);
+    expect(firstBlock.text).toContain("### alice-vscode");
   });
 
   test("flag on + config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
@@ -384,7 +422,14 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).not.toBeNull();
-    expect(result.injectedBlockText).toContain("<memory>");
+    expect(result.injectedBlockText).toContain("### alice-vscode");
+    // injectedBlockText is the unwrapped inner content; the wrapper is
+    // applied at injection time on the run message.
+    expect(result.injectedBlockText).not.toContain("<memory>");
+    const lastMsg = result.runMessages[result.runMessages.length - 1];
+    const firstBlock = lastMsg?.content[0];
+    if (firstBlock?.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
   test("flag off → v2 not run on first turn either", async () => {

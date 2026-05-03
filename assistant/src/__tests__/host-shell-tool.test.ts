@@ -40,7 +40,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -60,7 +59,8 @@ let mockProxyRequestFn: (
   input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string>; targetClientId?: string },
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-bash-proxy.js", () => ({
   HostBashProxy: {

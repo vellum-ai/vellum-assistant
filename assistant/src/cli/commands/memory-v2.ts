@@ -38,6 +38,7 @@ import type {
   MemoryV2BackfillResult,
   MemoryV2ExplainSimilarityResult,
   MemoryV2ExplainSimilarityStats,
+  MemoryV2RebuildCorpusStatsResult,
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
@@ -390,6 +391,48 @@ Examples:
         printExplainResult(result.result!);
       },
     );
+
+  // ── rebuild-corpus-stats ──────────────────────────────────────────────
+
+  v2.command("rebuild-corpus-stats")
+    .description(
+      "Rebuild the BM25 corpus stats (DF table + avg doc length) used by the sparse channel",
+    )
+    .addHelpText(
+      "after",
+      `
+Walks every concept page on disk and recomputes the document-frequency
+table and average document length used to weight BM25 sparse vectors.
+Atomic swap — the previous stats stay live until the new ones are ready.
+
+Run after bulk content imports, after manually editing many pages, or to
+recover from a startup rebuild that errored.
+
+Note: this only refreshes the in-memory stats used to *construct* new
+document-side sparse vectors. Existing sparse vectors stored in Qdrant
+are not refreshed by this command — pair with 'assistant memory v2
+reembed' if document-side weights need updating.
+
+Examples:
+  $ assistant memory v2 rebuild-corpus-stats`,
+    )
+    .action(async () => {
+      const result = await cliIpcCall<MemoryV2RebuildCorpusStatsResult>(
+        "memory_v2_rebuild_corpus_stats",
+        { body: {} },
+      );
+
+      if (!result.ok) {
+        log.error(result.error ?? "Failed to rebuild corpus stats");
+        process.exitCode = 1;
+        return;
+      }
+
+      const r = result.result!;
+      log.info(`Rebuilt BM25 corpus stats: ${r.totalDocs} docs.`);
+      log.info(`  avg doc length: ${r.avgDl.toFixed(2)} tokens`);
+      log.info(`  vocabulary buckets: ${r.vocabularyBuckets.toLocaleString()}`);
+    });
 
   // ── validate ──────────────────────────────────────────────────────────
 

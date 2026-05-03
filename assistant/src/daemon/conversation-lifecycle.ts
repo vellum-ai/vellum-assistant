@@ -240,11 +240,18 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           }
 
           // Memory remains rehydrated on all rows (existing behavior).
+          // Strip any pre-existing wrapper before re-wrapping so historical
+          // rows persisted with the wrapper (v2 path before the
+          // injectedBlockText contract was unified with v1's unwrapped form)
+          // don't render double-wrapped after rehydrate.
           if (typeof meta.memoryInjectedBlock === "string") {
+            const inner = meta.memoryInjectedBlock
+              .replace(/^<memory>\n/, "")
+              .replace(/\n<\/memory>$/, "");
             content = [
               {
                 type: "text" as const,
-                text: `<memory>\n${meta.memoryInjectedBlock}\n</memory>`,
+                text: `<memory>\n${inner}\n</memory>`,
               },
               ...content,
             ];

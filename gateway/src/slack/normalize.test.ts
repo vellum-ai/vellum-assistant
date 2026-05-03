@@ -1231,6 +1231,30 @@ describe("normalizeSlackMessageDelete", () => {
     // DMs should not be tagged as channel chat even when inferred.
     expect(result!.event.source.chatType).toBeUndefined();
   });
+
+  it("returns null when previous_message author is the bot itself", () => {
+    // Slack echoes self-deletes back via Socket Mode. Without this filter,
+    // the bot's user ID flows through as the actor and triggers a spurious
+    // ingress access-request notification to the guardian.
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+      previous_message: {
+        user: "UBOT",
+        text: "deleted bot message",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-self",
+      config,
+      "UBOT",
+    );
+
+    expect(result).toBeNull();
+  });
 });
 
 // --- source.threadId propagation ---

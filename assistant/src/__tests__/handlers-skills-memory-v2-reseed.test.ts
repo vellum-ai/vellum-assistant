@@ -69,7 +69,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 mock.module("../config/loader.js", () => ({
   API_KEY_PROVIDERS: [],
   applyNestedDefaults: (c: unknown) => c,
-  deepMergeMissing: (a: unknown) => a,
   deepMergeOverwrite: (a: unknown) => a,
   mergeDefaultWorkspaceConfig: () => {},
   getConfig: () => ({
@@ -81,7 +80,6 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     memory: { v2: { enabled: flagsState.configV2Enabled } },
   }),
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

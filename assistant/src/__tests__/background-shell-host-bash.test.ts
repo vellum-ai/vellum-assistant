@@ -74,7 +74,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -91,10 +90,16 @@ mock.module("../util/logger.js", () => ({
 // Mock HostBashProxy singleton — proxy delegation tests configure this.
 let mockProxyAvailable = false;
 let mockProxyRequestImpl: (
-  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string> },
+  input: {
+    command: string;
+    working_dir?: string;
+    timeout_seconds?: number;
+    env?: Record<string, string>;
+  },
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-bash-proxy.js", () => ({
   HostBashProxy: {
@@ -182,8 +187,7 @@ describe("host_bash background mode — proxy path", () => {
     };
     setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -203,8 +207,7 @@ describe("host_bash background mode — proxy path", () => {
     };
     setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -227,8 +230,7 @@ describe("host_bash background mode — proxy path", () => {
     };
     setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -257,8 +259,7 @@ describe("host_bash background mode — proxy path", () => {
     };
     setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "bad-command", background: true },
@@ -280,8 +281,7 @@ describe("host_bash background mode — proxy path", () => {
     mockProxyRequestImpl = () =>
       Promise.reject(new Error("proxy transport error"));
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo fail", background: true },
@@ -305,8 +305,7 @@ describe("host_bash background mode — proxy path", () => {
     };
     setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
 
     const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },

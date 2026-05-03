@@ -88,10 +88,11 @@ export interface InjectMemoryV2BlockParams {
 
 export interface InjectMemoryV2BlockResult {
   /**
-   * Rendered `<memory>` block, ready to prepend to the current
-   * user message — or `null` when nothing new is eligible for injection.
-   * `null` is the cache-stable default: the caller adds nothing to the new
-   * user message and prior attachments stay byte-identical.
+   * Inner content for the `<memory>` block, ready for the caller to wrap
+   * exactly once at injection time — or `null` when nothing new is eligible
+   * for injection. `null` is the cache-stable default: the caller adds
+   * nothing to the new user message and prior attachments stay
+   * byte-identical.
    */
   block: string | null;
   /**
@@ -358,10 +359,15 @@ export async function injectMemoryV2Block(
 
 interface RenderInjectionBlockResult {
   /**
-   * Rendered `<memory>` block, or `null` when both the concept-page list
-   * and the skill list collapse to empty after cache misses (no on-disk
-   * pages, no resolvable skill ids). The caller falls through to its
-   * empty-block path instead of attaching an empty `<memory>` wrapper.
+   * Inner content for the `<memory>` block (concept-page sections + optional
+   * skills suffix), or `null` when both the concept-page list and the skill
+   * list collapse to empty after cache misses (no on-disk pages, no
+   * resolvable skill ids). Returned unwrapped so the caller can wrap it
+   * exactly once at injection time, matching v1's contract: callers that
+   * cache the value (`lastInjectedBlock`) or persist it (`memoryInjectedBlock`
+   * in message metadata) re-wrap on use, and storing the wrapped form here
+   * caused a double wrap on reinject after compaction and on rehydrate from
+   * DB.
    */
   block: string | null;
   /**
@@ -374,8 +380,9 @@ interface RenderInjectionBlockResult {
 }
 
 /**
- * Render the `<memory>` block for a list of slugs and a list of
- * ranked skill ids.
+ * Render the inner content of the `<memory>` block for a list of slugs and
+ * a list of ranked skill ids. The caller wraps the result in
+ * `<memory>...</memory>` exactly once at injection time.
  *
  * Concept pages are read in parallel via `readPage`. Pages whose file has
  * gone missing between selection and render (e.g. consolidation deleted
@@ -393,7 +400,6 @@ interface RenderInjectionBlockResult {
  * the agent sees the page's edges and any referenced media paths alongside
  * the prose:
  *
- *   <memory>
  *   ### <slug-1>
  *   ---
  *   edges:
@@ -413,7 +419,6 @@ interface RenderInjectionBlockResult {
  *   ### Skills You Can Use
  *   - <skill-1 content>
  *   - <skill-2 content>
- *   </memory>
  */
 async function renderInjectionBlock(
   workspaceDir: string,
@@ -453,7 +458,7 @@ async function renderInjectionBlock(
   if (sections.length === 0) return { block: null, missingSlugs };
 
   return {
-    block: `<memory>\n${sections.join("\n\n")}\n</memory>`,
+    block: sections.join("\n\n"),
     missingSlugs,
   };
 }
