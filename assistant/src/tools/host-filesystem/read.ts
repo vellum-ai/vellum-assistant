@@ -1,8 +1,10 @@
 import { extname } from "node:path";
 
+import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
@@ -37,6 +39,11 @@ class HostFileReadTool implements Tool {
             type: "number",
             description: "Maximum number of lines to read",
           },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+          },
         },
         required: ["path"],
       },
@@ -55,6 +62,24 @@ class HostFileReadTool implements Tool {
       };
     }
 
+    const targetClientId =
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
+    const transportInterface = context.transportInterface;
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      assistantEventHub.listClientsByCapability("host_file").length > 1
+    ) {
+      return {
+        content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode),
     // including image reads that need the host filesystem view.
@@ -65,6 +90,7 @@ class HostFileReadTool implements Tool {
           path: rawPath,
           offset: typeof input.offset === "number" ? input.offset : undefined,
           limit: typeof input.limit === "number" ? input.limit : undefined,
+          targetClientId,
         },
         context.conversationId,
         context.signal,
