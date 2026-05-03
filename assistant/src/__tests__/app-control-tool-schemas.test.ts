@@ -1,28 +1,20 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { RiskLevel } from "../permissions/types.js";
-import {
-  appControlClickTool,
-  appControlComboTool,
-  appControlDragTool,
-  appControlObserveTool,
-  appControlPressTool,
-  appControlStartTool,
-  appControlStopTool,
-  appControlTools,
-  appControlTypeTool,
-} from "../tools/app-control/definitions.js";
 import { forwardAppControlProxyTool } from "../tools/app-control/skill-proxy-bridge.js";
-import type { Tool, ToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Load TOOLS.json (the production source of truth for app-control tool
+// schemas, consumed by the bundled-skill registry).
 // ---------------------------------------------------------------------------
 
 interface JsonSchemaProp {
   type?: string;
   enum?: string[];
   items?: { type?: string };
+  description?: string;
 }
 
 interface JsonSchema {
@@ -31,9 +23,43 @@ interface JsonSchema {
   properties?: Record<string, JsonSchemaProp>;
 }
 
-function schema(tool: Tool): JsonSchema {
-  return tool.getDefinition().input_schema as JsonSchema;
+interface ToolEntry {
+  name: string;
+  description: string;
+  category: string;
+  risk: string;
+  input_schema: JsonSchema;
+  executor: string;
+  execution_target: string;
 }
+
+interface ToolsJson {
+  version: number;
+  tools: ToolEntry[];
+}
+
+const TOOLS_JSON_PATH = join(
+  import.meta.dir,
+  "..",
+  "config",
+  "bundled-skills",
+  "app-control",
+  "TOOLS.json",
+);
+
+const toolsJson: ToolsJson = JSON.parse(readFileSync(TOOLS_JSON_PATH, "utf-8"));
+
+function toolByName(name: string): ToolEntry {
+  const tool = toolsJson.tools.find((t) => t.name === name);
+  if (!tool) {
+    throw new Error(`tool ${name} not found in TOOLS.json`);
+  }
+  return tool;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Lightweight, schema-driven validator covering the cases this PR exercises:
@@ -116,45 +142,56 @@ const ctx: ToolContext = {
 // Aggregate invariants
 // ---------------------------------------------------------------------------
 
-describe("app-control tool definitions (aggregate)", () => {
-  test("appControlTools contains exactly 8 tools", () => {
-    expect(appControlTools.length).toBe(8);
+describe("app-control TOOLS.json (aggregate)", () => {
+  test("contains exactly 8 tools", () => {
+    expect(toolsJson.tools.length).toBe(8);
   });
 
-  test("all tools have proxy execution mode", () => {
-    for (const tool of appControlTools) {
-      expect(tool.executionMode).toBe("proxy");
+  test("all tools target host execution", () => {
+    for (const tool of toolsJson.tools) {
+      expect(tool.execution_target).toBe("host");
     }
   });
 
   test("all tools belong to the app-control category", () => {
-    for (const tool of appControlTools) {
+    for (const tool of toolsJson.tools) {
       expect(tool.category).toBe("app-control");
     }
   });
 
   test("all tools have unique names", () => {
-    const names = appControlTools.map((t) => t.name);
+    const names = toolsJson.tools.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
   });
 
   test("all tool names use the app_control_ prefix", () => {
-    for (const tool of appControlTools) {
+    for (const tool of toolsJson.tools) {
       expect(tool.name.startsWith("app_control_")).toBe(true);
     }
   });
 
   test("all tools have non-empty descriptions", () => {
-    for (const tool of appControlTools) {
+    for (const tool of toolsJson.tools) {
       expect(tool.description.length).toBeGreaterThan(0);
     }
   });
 
-  test("stub execute() throws for every tool", () => {
-    for (const tool of appControlTools) {
-      expect(() => tool.execute({}, ctx)).toThrow(
-        "app-control tool must be forwarded to the connected client",
-      );
+  test("every tool declares an `app` schema property (required for all but stop)", () => {
+    for (const tool of toolsJson.tools) {
+      const props = tool.input_schema.properties ?? {};
+      expect(
+        props.app,
+        `${tool.name} must declare an 'app' property`,
+      ).toBeDefined();
+      expect(props.app.type).toBe("string");
+
+      if (tool.name === "app_control_stop") {
+        // stop is the terminal tool; `app` is optional.
+        expect(tool.input_schema.required ?? []).not.toContain("app");
+      } else {
+        // every other tool requires `app`.
+        expect(tool.input_schema.required ?? []).toContain("app");
+      }
     }
   });
 });
@@ -164,7 +201,8 @@ describe("app-control tool definitions (aggregate)", () => {
 // ---------------------------------------------------------------------------
 
 describe("app_control_start", () => {
-  const s = schema(appControlStartTool);
+  const tool = toolByName("app_control_start");
+  const s = tool.input_schema;
 
   test("well-formed input passes (with args)", () => {
     expect(
@@ -188,13 +226,14 @@ describe("app_control_start", () => {
     expect(result.error).toContain("app");
   });
 
-  test("default risk level is Medium", () => {
-    expect(appControlStartTool.defaultRiskLevel).toBe(RiskLevel.Medium);
+  test("declares medium risk", () => {
+    expect(tool.risk).toBe("medium");
   });
 });
 
 describe("app_control_observe", () => {
-  const s = schema(appControlObserveTool);
+  const tool = toolByName("app_control_observe");
+  const s = tool.input_schema;
 
   test("well-formed input passes", () => {
     expect(
@@ -208,13 +247,13 @@ describe("app_control_observe", () => {
     expect(result.error).toContain("app");
   });
 
-  test("default risk level is Low", () => {
-    expect(appControlObserveTool.defaultRiskLevel).toBe(RiskLevel.Low);
+  test("declares low risk", () => {
+    expect(tool.risk).toBe("low");
   });
 });
 
 describe("app_control_press", () => {
-  const s = schema(appControlPressTool);
+  const s = toolByName("app_control_press").input_schema;
 
   test("well-formed input passes (with optional fields)", () => {
     expect(
@@ -255,7 +294,7 @@ describe("app_control_press", () => {
 });
 
 describe("app_control_combo", () => {
-  const s = schema(appControlComboTool);
+  const s = toolByName("app_control_combo").input_schema;
 
   test("well-formed input passes", () => {
     expect(
@@ -288,7 +327,7 @@ describe("app_control_combo", () => {
 });
 
 describe("app_control_type", () => {
-  const s = schema(appControlTypeTool);
+  const s = toolByName("app_control_type").input_schema;
 
   test("well-formed input passes", () => {
     expect(
@@ -317,7 +356,7 @@ describe("app_control_type", () => {
 });
 
 describe("app_control_click", () => {
-  const s = schema(appControlClickTool);
+  const s = toolByName("app_control_click").input_schema;
 
   test("well-formed input passes (defaults)", () => {
     expect(
@@ -378,7 +417,7 @@ describe("app_control_click", () => {
 });
 
 describe("app_control_drag", () => {
-  const s = schema(appControlDragTool);
+  const s = toolByName("app_control_drag").input_schema;
 
   test("well-formed input passes", () => {
     expect(
@@ -429,10 +468,15 @@ describe("app_control_drag", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("button");
   });
+
+  test("button enum is left/right/middle", () => {
+    const props = s.properties as Record<string, JsonSchemaProp>;
+    expect(props.button.enum).toEqual(["left", "right", "middle"]);
+  });
 });
 
 describe("app_control_stop", () => {
-  const s = schema(appControlStopTool);
+  const s = toolByName("app_control_stop").input_schema;
 
   test("well-formed input passes (no app — terminal)", () => {
     expect(validate(s, { activity: "wrap up" }).ok).toBe(true);
