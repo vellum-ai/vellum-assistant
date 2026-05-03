@@ -137,15 +137,7 @@ export class SlackSocketModeClient {
         if (data.team) {
           this.config.teamName = data.team;
         }
-        // Warn if the bot token is missing scopes needed for file downloads.
-        const scopes = resp.headers.get("x-oauth-scopes") ?? "";
-        if (!scopes.split(",").some((s) => s.trim() === "files:read")) {
-          log.warn(
-            "Slack bot token is missing the 'files:read' scope — file/image " +
-              "attachments will not be downloaded. Add 'files:read' to your " +
-              "Slack app's Bot Token Scopes and reinstall the app.",
-          );
-        }
+        warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
 
         log.info(
           {
@@ -1334,6 +1326,54 @@ function toSlackTs(ms: number): string {
  */
 function isSlackConversationId(id: string): boolean {
   return /^[CDG][A-Z0-9]+$/.test(id);
+}
+
+/**
+ * Warn on bot-token scopes whose absence makes the gateway silently degrade
+ * rather than fail loudly. Without this startup check the user sees a
+ * successful boot followed by quiet "recovered: 0" log lines on every
+ * reconnect, with no signal that catch-up is no-op'ing on `missing_scope`.
+ *
+ *   - `files:read` — required for downloading file/image attachments.
+ *   - `*:history` (channels/im/groups/mpim) — required for
+ *     `conversations.history` and `conversations.replies`. Slack returns
+ *     `ok: false, error: "missing_scope"` per channel type that is missing
+ *     the corresponding scope (see
+ *     https://api.slack.com/methods/conversations.history), and the
+ *     catch-up error handler treats that as zero messages.
+ *
+ * Exported for direct unit testing without driving the full WebSocket
+ * bootstrap.
+ */
+export function warnOnMissingSlackScopes(scopesHeader: string): void {
+  const scopes = new Set(
+    scopesHeader
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  if (!scopes.has("files:read")) {
+    log.warn(
+      "Slack bot token is missing the 'files:read' scope — file/image " +
+        "attachments will not be downloaded. Add 'files:read' to your " +
+        "Slack app's Bot Token Scopes and reinstall the app.",
+    );
+  }
+  const missingHistoryScopes = [
+    "channels:history",
+    "im:history",
+    "groups:history",
+    "mpim:history",
+  ].filter((scope) => !scopes.has(scope));
+  if (missingHistoryScopes.length > 0) {
+    log.warn(
+      { missingHistoryScopes },
+      "Slack bot token is missing one or more *:history scopes — " +
+        "reconnect catch-up will not recover messages from the affected " +
+        "channel types. Add the missing scopes to your Slack app's Bot " +
+        "Token Scopes and reinstall the app.",
+    );
+  }
 }
 
 /**
