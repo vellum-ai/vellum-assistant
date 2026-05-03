@@ -7,6 +7,27 @@ import {
 import { resolveRuntimeMigrationUrl } from "./runtime-url.js";
 
 /**
+ * Build the URL for a non-migration runtime endpoint, taking topology into
+ * account. Mirrors {@link resolveRuntimeMigrationUrl} but for
+ * `/v1/<subpath>` endpoints (e.g. `/v1/identity`).
+ *
+ * - Local/docker assistants: `{runtimeUrl}/v1/<subpath>` (the gateway forwards
+ *   to the runtime; auth is guardian-token bearer).
+ * - Platform-managed (cloud="vellum"): the wildcard runtime proxy at
+ *   `{platformUrl}/v1/assistants/<id>/<subpath>` forwards arbitrary runtime
+ *   paths to the managed runtime, authenticated by the platform token.
+ */
+function resolveRuntimeUrl(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
+  subpath: string,
+): string {
+  if (entry.cloud === "vellum") {
+    return `${entry.runtimeUrl}/v1/assistants/${entry.assistantId}/${subpath}`;
+  }
+  return `${entry.runtimeUrl}/v1/${subpath}`;
+}
+
+/**
  * Thrown when the local runtime returns 409 for an export/import request
  * because another migration of the same type is already in-flight. The
  * caller can inspect {@link existingJobId} and decide whether to poll the
@@ -228,4 +249,52 @@ export async function localRuntimePollJobStatus(
     typeof parseUnifiedJobStatus
   >[0];
   return parseUnifiedJobStatus(raw);
+}
+
+/**
+ * The subset of `/v1/identity` we care about. The runtime's full response
+ * includes additional fields (name, role, etc.) — we only model `version`
+ * here because that's all the CLI consumes today.
+ */
+export interface RuntimeIdentity {
+  version: string;
+}
+
+/**
+ * Fetch the target runtime's `/v1/identity` so callers can read its
+ * APP_VERSION. Used by `vellum teleport` to gate bundle imports on the
+ * version of the **target** assistant runtime — which can diverge from the
+ * orchestrating CLI's version when the target was upgraded independently.
+ *
+ * For local/docker assistants this GETs `{runtimeUrl}/v1/identity` with
+ * guardian-token bearer auth. For platform-managed (cloud="vellum")
+ * assistants the URL is rewritten to the wildcard runtime proxy shape
+ * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated via
+ * the platform token. Throws on non-2xx so callers can surface the failure
+ * (we never silently fall back — see teleport.ts call site).
+ */
+export async function localRuntimeIdentity(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
+  token: string,
+): Promise<RuntimeIdentity> {
+  const response = await fetch(resolveRuntimeUrl(entry, "identity"), {
+    headers: await migrationRequestHeaders(entry, token),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(
+      `Local runtime identity failed (${response.status}): ${
+        errText || response.statusText
+      }`,
+    );
+  }
+
+  const json = (await response.json()) as { version?: unknown };
+  if (typeof json.version !== "string" || json.version.length === 0) {
+    throw new Error(
+      `Local runtime identity returned no version field (got ${JSON.stringify(json.version)})`,
+    );
+  }
+  return { version: json.version };
 }
