@@ -48,6 +48,12 @@ mock.module("../daemon/host-file-proxy.js", () => ({
           requestId: string,
           result: { content: string; isError: boolean; imageData?: string },
         ) {
+          // Simulate the real resolve: consume the pending interaction
+          const entry = pendingStore.get(requestId);
+          if (entry) {
+            pendingStore.delete(requestId);
+            resolvedIds.push(requestId);
+          }
           resolveSpy.push({ requestId, result });
         },
       };

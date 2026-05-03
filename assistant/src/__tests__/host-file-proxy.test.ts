@@ -67,7 +67,7 @@ describe("HostFileProxy", () => {
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Simulate client response
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "file contents here",
         isError: false,
       });
@@ -92,7 +92,7 @@ describe("HostFileProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "ENOENT: no such file or directory",
         isError: true,
       });
@@ -116,7 +116,7 @@ describe("HostFileProxy", () => {
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
 
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "Image loaded on host",
         isError: false,
         imageData: PNG_HEADER.toString("base64"),
@@ -152,7 +152,7 @@ describe("HostFileProxy", () => {
       expect(sent.content).toBe("new content");
 
       const requestId = sent.requestId as string;
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "File written successfully",
         isError: false,
       });
@@ -180,7 +180,7 @@ describe("HostFileProxy", () => {
       expect(sent.new_string).toBe("bar");
 
       const requestId = sent.requestId as string;
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "Edit applied successfully",
         isError: false,
       });
@@ -207,7 +207,7 @@ describe("HostFileProxy", () => {
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Resolve to avoid test hanging (actual 30s timeout too long for test)
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "",
         isError: false,
       });
@@ -380,7 +380,7 @@ describe("HostFileProxy", () => {
       expect(result.content).toBe("Aborted");
 
       // Late resolve should be silently ignored (no throw, no double-resolve)
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "late response",
         isError: false,
       });
@@ -393,7 +393,7 @@ describe("HostFileProxy", () => {
     test("silently ignores unknown requestId", () => {
       setup();
       // Should not throw
-      proxy.resolveResult("unknown-id", {
+      proxy.resolve("unknown-id", {
         content: "",
         isError: false,
       });
@@ -453,7 +453,7 @@ describe("HostFileProxy", () => {
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "file contents",
         isError: false,
       });
@@ -575,7 +575,7 @@ describe("HostFileProxy", () => {
       const requestId = sent.requestId as string;
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolveResult(requestId, {
+      proxy.resolve(requestId, {
         content: "file contents",
         isError: false,
       });
