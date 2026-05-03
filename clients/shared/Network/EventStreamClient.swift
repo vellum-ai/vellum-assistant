@@ -607,6 +607,9 @@ public final class EventStreamClient {
     private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
         switch message {
         case .hostBashRequest(let msg):
+            // Targeted cross-client requests carry a non-local conversationId by design.
+            // Pass them through so AppDelegate+ConnectionSetup can perform the targetClientId check.
+            if msg.targetClientId != nil { return false }
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_bash_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
