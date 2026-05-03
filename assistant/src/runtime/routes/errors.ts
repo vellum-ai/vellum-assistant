@@ -10,12 +10,27 @@
 export class RouteError extends Error {
   readonly code: string;
   readonly statusCode: number;
+  /**
+   * Optional structured payload surfaced to clients in the standard
+   * error envelope as `error.details`. Use sparingly — only when the
+   * client genuinely needs machine-readable context beyond `code` and
+   * `message` (e.g. mirroring a platform-side response shape).
+   */
+  readonly details?: unknown;
 
-  constructor(message: string, code: string, statusCode: number) {
+  constructor(
+    message: string,
+    code: string,
+    statusCode: number,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "RouteError";
     this.code = code;
     this.statusCode = statusCode;
+    if (details !== undefined) {
+      this.details = details;
+    }
   }
 }
 
@@ -55,8 +70,8 @@ export class NotFoundError extends RouteError {
 }
 
 export class UnprocessableEntityError extends RouteError {
-  constructor(message: string) {
-    super(message, "UNPROCESSABLE_ENTITY", 422);
+  constructor(message: string, details?: unknown) {
+    super(message, "UNPROCESSABLE_ENTITY", 422, details);
     this.name = "UnprocessableEntityError";
   }
 }
