@@ -32,7 +32,7 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
  * on its `type` field.  Returns `undefined` for message types that are not
  * host-proxy messages (i.e. they should broadcast to all subscribers).
  */
-function capabilityForMessageType(
+export function capabilityForMessageType(
   type: string,
 ): HostProxyCapability | undefined {
   const first = type.indexOf("_");
