@@ -270,6 +270,31 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
       ),
     ).toBe(false);
   });
+
+  test("host_bash is NOT active for chrome-extension even when a capable client is connected", () => {
+    // Security boundary: chrome-extension only gets host_browser. The
+    // cross-client exception explicitly excludes chrome-extension transport
+    // regardless of how many host_bash-capable clients are in the hub.
+    mockHostBashClientCount = 1;
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({ hasNoClient: false, transportInterface: "chrome-extension" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_bash is NOT active for web transport when hasNoClient is true (no approval UI)", () => {
+    // hasNoClient gate: no interactive approval UI available for this turn.
+    // Cross-client exception must not bypass this gate.
+    mockHostBashClientCount = 1;
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({ hasNoClient: true, transportInterface: "web" }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("HOST_TOOL_NAMES derivation", () => {
