@@ -13,7 +13,7 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { buildServiceRunArgs } from "./docker-statefulset.js";
+import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -39,9 +39,8 @@ export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
   gateway: `${DOCKERHUB_ORG}/vellum-gateway`,
 };
 
-/** Internal ports exposed by each service's Dockerfile. */
-export const ASSISTANT_INTERNAL_PORT = 7821;
-export const GATEWAY_INTERNAL_PORT = 7830;
+/** Internal ports exposed by each service's Dockerfile. Re-exported from environments/paths.ts. */
+export { ASSISTANT_INTERNAL_PORT, GATEWAY_INTERNAL_PORT } from "./environments/paths.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
@@ -560,28 +559,6 @@ async function buildAllImages(
   );
 }
 
-/**
- * Build `docker run` argument arrays for each service in the StatefulSet.
- *
- * Delegates to `buildServiceRunArgs` from `docker-statefulset.ts`, which owns
- * the declarative container / volume / env spec. Signature preserved for
- * backward compatibility with callers throughout this file.
- */
-export function serviceDockerRunArgs(opts: {
-  signingKey?: string;
-  bootstrapSecret?: string;
-  cesServiceToken?: string;
-  extraAssistantEnv?: Record<string, string>;
-  gatewayPort: number;
-  imageTags: Record<ServiceName, string>;
-  defaultWorkspaceConfigPath?: string;
-  instanceName: string;
-  res: ReturnType<typeof dockerResourceNames>;
-}): Record<ServiceName, () => string[]> {
-  const avatarDevice = resolveAvatarDevicePath();
-  return buildServiceRunArgs({ ...opts, avatarDevicePath: avatarDevice });
-}
-
 /** The order in which services must be started. */
 export const SERVICE_START_ORDER: ServiceName[] = [
   "assistant",
@@ -604,7 +581,7 @@ export async function startContainers(
   },
   log: (msg: string) => void,
 ): Promise<void> {
-  const runArgs = serviceDockerRunArgs(opts);
+  const runArgs = buildServiceRunArgs({ ...opts, avatarDevicePath: resolveAvatarDevicePath() });
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
     await exec("docker", runArgs[service]());
@@ -782,7 +759,7 @@ function startFileWatcher(opts: {
   let rebuilding = false;
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
-  const runArgs = serviceDockerRunArgs({
+  const runArgs = buildServiceRunArgs({
     signingKey: opts.signingKey,
     bootstrapSecret: opts.bootstrapSecret,
     cesServiceToken: opts.cesServiceToken,
@@ -790,6 +767,7 @@ function startFileWatcher(opts: {
     imageTags,
     instanceName,
     res,
+    avatarDevicePath: resolveAvatarDevicePath(),
   });
   const containerForService: Record<ServiceName, string> = {
     assistant: res.assistantContainer,

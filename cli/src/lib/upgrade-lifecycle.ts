@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 
 import type { AssistantEntry } from "./assistant-config.js";
@@ -16,6 +15,8 @@ import {
   startContainers,
   stopContainers,
 } from "./docker.js";
+import { getStateDir } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
 import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
@@ -26,11 +27,9 @@ import { compareVersions } from "./version-compat.js";
 // Failure log capture
 // ---------------------------------------------------------------------------
 
-/** XDG-compliant directory for upgrade failure logs */
+/** XDG-compliant directory for upgrade failure logs, scoped to the current environment. */
 function getUpgradeLogsDir(): string {
-  const stateHome =
-    process.env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
-  return join(stateHome, "vellum", "upgrade-logs");
+  return join(getStateDir(getCurrentEnvironment()), "upgrade-logs");
 }
 
 /**
@@ -605,7 +604,7 @@ export async function performDockerRollback(
   const signingKey =
     capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
-  // Build extra env vars, excluding keys managed by serviceDockerRunArgs
+  // Build extra env vars, excluding keys managed by buildServiceRunArgs
   const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
   for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {

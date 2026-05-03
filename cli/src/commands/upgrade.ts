@@ -429,9 +429,9 @@ async function upgradeDocker(
 
   // Build the set of extra env vars to replay on the new assistant container.
   // Captured env vars serve as the base; keys already managed by
-  // serviceDockerRunArgs are excluded to avoid duplicates.
+  // buildServiceRunArgs are excluded to avoid duplicates.
   const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-  // Only exclude keys that serviceDockerRunArgs will actually set
+  // Only exclude keys that buildServiceRunArgs will actually set
   for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {
       envKeysSetByRunArgs.add(envVar);

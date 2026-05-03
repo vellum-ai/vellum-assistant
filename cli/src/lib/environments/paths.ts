@@ -98,6 +98,26 @@ export function getDefaultPorts(env: EnvironmentDefinition): PortMap {
   };
 }
 
+/**
+ * Runtime state directory for an environment (upgrade logs, etc.).
+ * Production uses `~/.local/share/vellum/`; non-production environments
+ * use `~/.local/share/vellum-<env>/`.
+ */
+export function getStateDir(env: EnvironmentDefinition): string {
+  if (env.name === PRODUCTION_ENVIRONMENT_NAME) {
+    return join(xdgDataHome(), "vellum");
+  }
+  return join(xdgDataHome(), `vellum-${env.name}`);
+}
+
+/**
+ * Named port constants derived from `DEFAULT_PORTS`.
+ * These are the ports the assistant and gateway services bind to *inside*
+ * their container (or process). They are stable across environments.
+ */
+export const ASSISTANT_INTERNAL_PORT = DEFAULT_PORTS.daemon;
+export const GATEWAY_INTERNAL_PORT = DEFAULT_PORTS.gateway;
+
 function xdgDataHome(): string {
   return (
     process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share")

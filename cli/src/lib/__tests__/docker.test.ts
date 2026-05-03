@@ -4,9 +4,9 @@ import {
   AVATAR_DEVICE_ENV_VAR,
   dockerResourceNames,
   resolveAvatarDevicePath,
-  serviceDockerRunArgs,
   type ServiceName,
 } from "../docker.js";
+import { buildServiceRunArgs } from "../statefulset.js";
 
 const instanceName = "test-instance";
 const imageTags: Record<ServiceName, string> = {
@@ -16,10 +16,10 @@ const imageTags: Record<ServiceName, string> = {
 };
 
 function buildAssistantArgs(
-  overrides: Partial<Parameters<typeof serviceDockerRunArgs>[0]> = {},
+  overrides: Partial<Parameters<typeof buildServiceRunArgs>[0]> = {},
 ): string[] {
   const res = dockerResourceNames(instanceName);
-  const builders = serviceDockerRunArgs({
+  const builders = buildServiceRunArgs({
     gatewayPort: 7830,
     imageTags,
     instanceName,
@@ -30,10 +30,10 @@ function buildAssistantArgs(
 }
 
 function buildGatewayArgs(
-  overrides: Partial<Parameters<typeof serviceDockerRunArgs>[0]> = {},
+  overrides: Partial<Parameters<typeof buildServiceRunArgs>[0]> = {},
 ): string[] {
   const res = dockerResourceNames(instanceName);
-  const builders = serviceDockerRunArgs({
+  const builders = buildServiceRunArgs({
     gatewayPort: 7830,
     imageTags,
     instanceName,
@@ -43,7 +43,7 @@ function buildGatewayArgs(
   return builders.gateway();
 }
 
-describe("serviceDockerRunArgs — assistant", () => {
+describe("buildServiceRunArgs — assistant", () => {
   test("does not grant elevated capabilities or disable security profiles", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("--privileged");
@@ -103,7 +103,7 @@ describe("serviceDockerRunArgs — assistant", () => {
   });
 });
 
-describe("serviceDockerRunArgs — gateway", () => {
+describe("buildServiceRunArgs — gateway", () => {
   const savedVelayBaseUrl = process.env.VELAY_BASE_URL;
 
   beforeEach(() => {

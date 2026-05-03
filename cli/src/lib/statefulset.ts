@@ -1,25 +1,19 @@
 /**
- * Declarative StatefulSet spec for the Docker service group.
+ * Declarative StatefulSet spec for the assistant service group.
  *
- * Mirrors the schema of the platform's `stateful_template.yaml` (vembda).
- * Container names, volume names, and env var names are kept in sync with
- * the K8s template so the two topologies are auditable side-by-side.
- *
- * This file is self-contained — it does not import from `docker.ts` to
- * avoid a circular dependency. Constants are inlined from their definitions
- * in `docker.ts` and must be kept in sync if those change.
+ * Defines the static topology of all three containers (assistant, gateway,
+ * credential-executor), their volumes, ports, and env vars. Used by both
+ * the hatch and upgrade flows to build `docker run` argument arrays.
  */
 
 import { existsSync } from "fs";
 
+import {
+  ASSISTANT_INTERNAL_PORT,
+  GATEWAY_INTERNAL_PORT,
+} from "./environments/paths.js";
 import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 
-// ---------------------------------------------------------------------------
-// Constants (mirrored from docker.ts — keep in sync)
-// ---------------------------------------------------------------------------
-
-const GATEWAY_INTERNAL_PORT = 7830;
-const ASSISTANT_INTERNAL_PORT = 7821;
 const AVATAR_DEVICE_ENV_VAR = "VELLUM_AVATAR_DEVICE";
 
 /** Logical service name used throughout the CLI. */
