@@ -15,7 +15,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-file-result
 // ---------------------------------------------------------------------------
 
-function handleHostFileResult({ body }: RouteHandlerArgs) {
+function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -40,6 +40,17 @@ function handleHostFileResult({ body }: RouteHandlerArgs) {
     throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_file"`,
     );
+  }
+
+  // Validate submitting client matches the targeted client (if any).
+  if (peeked.targetClientId != null) {
+    const submittingClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    if (!submittingClientId) {
+      throw new BadRequestError("x-vellum-client-id header is missing for a targeted host file request.");
+    }
+    if (submittingClientId !== peeked.targetClientId) {
+      throw new ConflictError("Submitting client does not match the targeted client for this request.");
+    }
   }
 
   HostFileProxy.instance.resolveResult(requestId, {
