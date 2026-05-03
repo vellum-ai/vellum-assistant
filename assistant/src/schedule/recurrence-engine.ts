@@ -107,7 +107,10 @@ export function validateRruleSetLines(expression: string): string | null {
 export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
   try {
     if (spec.syntax === "cron") {
-      new Cron(spec.expression, { maxRuns: 0 });
+      new Cron(spec.expression, {
+        maxRuns: 0,
+        timezone: spec.timezone ?? undefined,
+      });
       return true;
     }
 
