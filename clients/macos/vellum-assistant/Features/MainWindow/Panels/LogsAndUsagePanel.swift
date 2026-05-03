@@ -431,7 +431,7 @@ struct UsageTabContent: View {
         let isHourly = store.isHourlyGranularity
         SettingsCard(title: "Inference Usage") {
             HStack(alignment: .center, spacing: VSpacing.md) {
-                Text(isHourly ? "Hourly Trend by \(store.selectedGroupBy.displayName)" : "Daily Trend by \(store.selectedGroupBy.displayName)")
+                Text(trendTitle(isHourly: isHourly))
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                 Spacer()
@@ -464,6 +464,16 @@ struct UsageTabContent: View {
                 errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
             }
         }
+    }
+
+    /// Conversation grouping is breakdown-only; the chart falls back to
+    /// ungrouped totals, so the title omits the `by Conversation` suffix.
+    private func trendTitle(isHourly: Bool) -> String {
+        let prefix = isHourly ? "Hourly Trend" : "Daily Trend"
+        if store.selectedGroupBy == .conversation {
+            return prefix
+        }
+        return "\(prefix) by \(store.selectedGroupBy.displayName)"
     }
 
     private let barChartHeight: CGFloat = 140

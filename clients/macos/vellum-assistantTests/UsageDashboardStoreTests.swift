@@ -504,13 +504,42 @@ struct UsageDashboardStoreGroupTests {
     }
 
     @Test
-    func dashboardPickerOptionsMatchGroupedSeriesSupport() {
+    func dashboardPickerOptionsIncludeConversation() {
         #expect(UsageGroupByDimension.dashboardOptions == [
             .callSite,
             .inferenceProfile,
             .model,
             .provider,
+            .conversation,
         ])
+    }
+
+    @Test @MainActor
+    func conversationGroupByPreservesSelectionAndFallsBackToDailySeries() async {
+        let client = MockUsageClient()
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.simulateMissingSeriesEndpoint = true
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore()
+        store.updateClient(client)
+        await store.refresh()
+        await store.selectGroupBy(.conversation)
+
+        #expect(store.selectedGroupBy == .conversation)
+        #expect(client.lastBreakdownGroupBy == "conversation")
+        #expect(client.lastSeriesGroupBy == "conversation")
+        if case .loaded = store.seriesState {
+            // OK: chart fell back to daily totals after the series endpoint
+            // rejected the conversation dimension.
+        } else {
+            Issue.record("Expected loaded series via daily fallback for conversation grouping")
+        }
+        if case .loaded = store.breakdownState {
+            // OK: breakdown still loaded with conversation grouping.
+        } else {
+            Issue.record("Expected loaded breakdown for conversation grouping")
+        }
     }
 
     @Test @MainActor
