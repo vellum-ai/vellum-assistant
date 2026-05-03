@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -30,6 +30,7 @@ function findProxyByTransferId(transferId: string) {
 
 function handleTransferContentGet({
   pathParams = {},
+  headers = {},
 }: RouteHandlerArgs): Uint8Array {
   const transferId = pathParams.transferId;
   if (!transferId) {
@@ -39,6 +40,13 @@ function handleTransferContentGet({
   const match = findProxyByTransferId(transferId);
   if (!match) {
     throw new NotFoundError("Unknown or consumed transfer");
+  }
+
+  const targetClientId = match.proxy.getTargetClientIdForTransfer(transferId);
+  if (targetClientId != null) {
+    const submittingClientId = (headers as Record<string, string>)["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId) throw new BadRequestError("x-vellum-client-id header required for targeted transfer");
+    if (submittingClientId !== targetClientId) throw new ForbiddenError(`Client "${submittingClientId}" is not the owner of this transfer`);
   }
 
   const content = match.proxy.getTransferContent(transferId);
@@ -94,6 +102,13 @@ async function handleTransferContentPut({
     throw new NotFoundError("Unknown or consumed transfer");
   }
 
+  const targetClientId = match.proxy.getTargetClientIdForTransfer(transferId);
+  if (targetClientId != null) {
+    const submittingClientId = (headers as Record<string, string>)["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId) throw new BadRequestError("x-vellum-client-id header required for targeted transfer");
+    if (submittingClientId !== targetClientId) throw new ForbiddenError(`Client "${submittingClientId}" is not the owner of this transfer`);
+  }
+
   const data = rawBody ? Buffer.from(rawBody) : Buffer.alloc(0);
   const sha256 = headers["x-transfer-sha256"] ?? "";
 
@@ -114,7 +129,7 @@ async function handleTransferContentPut({
 // POST /v1/host-transfer-result
 // ---------------------------------------------------------------------------
 
-function handleTransferResult({ body }: RouteHandlerArgs) {
+function handleTransferResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -139,6 +154,13 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
     throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_transfer"`,
     );
+  }
+
+  if (peeked.targetClientId != null) {
+    const rawClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    const submittingClientId = rawClientId?.trim() || undefined;
+    if (!submittingClientId) throw new BadRequestError("x-vellum-client-id header is missing for a targeted host transfer request.");
+    if (submittingClientId !== peeked.targetClientId) throw new ForbiddenError(`Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}").`);
   }
 
   HostTransferProxy.instance.resolveTransferResult(requestId, {
@@ -166,6 +188,16 @@ export const ROUTES: RouteDefinition[] = [
       "Serve raw file bytes for a to_host transfer. Single-use: returns 404 after first consumption.",
     tags: ["host-transfer"],
     responseHeaders: resolveTransferContentGetHeaders,
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted transfer.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this transfer.",
+      },
+    },
     handler: handleTransferContentGet,
   },
   {
@@ -178,6 +210,16 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Receive raw file bytes for a to_sandbox transfer. Verifies SHA-256 integrity via the X-Transfer-SHA256 header.",
     tags: ["host-transfer"],
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted transfer.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this transfer.",
+      },
+    },
     handler: handleTransferContentPut,
   },
   {
@@ -198,6 +240,16 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host transfer request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this transfer.",
+      },
+    },
     handler: handleTransferResult,
   },
 ];

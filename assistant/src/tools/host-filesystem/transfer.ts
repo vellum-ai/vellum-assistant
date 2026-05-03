@@ -2,16 +2,18 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 
+import { supportsHostProxy } from "../../channels/types.js";
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class HostFileTransferTool implements Tool {
   name = "host_file_transfer";
   description =
-    "Copy a file between the assistant's workspace and the user's host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace.";
+    "Copy a file between the assistant's workspace and the user's host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
@@ -47,6 +49,11 @@ class HostFileTransferTool implements Tool {
             type: "string",
             description:
               "Brief description of why the file is being transferred (for audit logging)",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to transfer files to/from. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
           },
         },
         required: ["source_path", "dest_path", "direction"],
@@ -84,6 +91,20 @@ class HostFileTransferTool implements Tool {
     }
 
     const overwrite = input.overwrite === true;
+
+    const targetClientId =
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
+    if (
+      targetClientId == null &&
+      context.transportInterface != null &&
+      !supportsHostProxy(context.transportInterface) &&
+      assistantEventHub.listClientsByCapability("host_file").length > 1
+    ) {
+      return { content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`, isError: true };
+    }
 
     // Validate that host-side paths are absolute.
     if (direction === "to_host" && !isAbsolute(destPath)) {
@@ -134,6 +155,7 @@ class HostFileTransferTool implements Tool {
             destPath,
             overwrite,
             conversationId: context.conversationId,
+            targetClientId,
           },
           context.signal,
         );
@@ -144,9 +166,17 @@ class HostFileTransferTool implements Tool {
           destPath: resolvedDestPath,
           overwrite,
           conversationId: context.conversationId,
+          targetClientId,
         },
         context.signal,
       );
+    }
+
+    if (targetClientId != null) {
+      return {
+        content: `Error: target_client_id '${targetClientId}' was specified but no host client is available. Ensure the client is connected.`,
+        isError: true,
+      };
     }
 
     // Local mode: direct filesystem copy.
