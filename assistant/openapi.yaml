@@ -5321,7 +5321,53 @@ paths:
                 properties:
                   runs:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        scheduledFor:
+                          type: number
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        status:
+                          type: string
+                        skipReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - scheduledFor
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - status
+                        - skipReason
+                        - error
+                        - conversationId
+                        - createdAt
+                      additionalProperties: false
                     description: Heartbeat run records
                 required:
                   - runs

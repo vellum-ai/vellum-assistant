@@ -116,6 +116,7 @@ export class HeartbeatService {
   private _pendingRunId: string | null = null;
   private _startupMissedCount = 0;
   private _startupCrashedCount = 0;
+  private _hasRunStartupRecovery = false;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -141,29 +142,36 @@ export class HeartbeatService {
     }
     if (this.timer) return;
 
-    this._startupMissedCount = markStaleRunsAsMissed();
-    this._startupCrashedCount = markStaleRunningAsError();
-    if (this._startupMissedCount > 0 || this._startupCrashedCount > 0) {
-      log.info(
-        {
-          missedCount: this._startupMissedCount,
-          crashedCount: this._startupCrashedCount,
-        },
-        "Recovered stale heartbeat runs on startup",
-      );
+    if (!this._hasRunStartupRecovery) {
+      this._hasRunStartupRecovery = true;
+      try {
+        this._startupMissedCount = markStaleRunsAsMissed();
+        this._startupCrashedCount = markStaleRunningAsError();
+      } catch (err) {
+        log.error({ err }, "Failed to recover stale heartbeat runs on startup");
+      }
+      if (this._startupMissedCount > 0 || this._startupCrashedCount > 0) {
+        log.info(
+          {
+            missedCount: this._startupMissedCount,
+            crashedCount: this._startupCrashedCount,
+          },
+          "Recovered stale heartbeat runs on startup",
+        );
 
-      const total = this._startupMissedCount + this._startupCrashedCount;
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Heartbeat Runs Missed",
-        summary: `${total} heartbeat run${total > 1 ? "s were" : " was"} missed while the assistant was offline.`,
-        dedupKey: `heartbeat:missed:${today}`,
-        priority: 55,
-        urgency: "high",
-      }).catch((err) => {
-        log.warn({ err }, "Failed to emit missed heartbeat feed event");
-      });
+        const total = this._startupMissedCount + this._startupCrashedCount;
+        const today = new Date().toISOString().split("T")[0];
+        void emitFeedEvent({
+          source: "assistant",
+          title: "Heartbeat Runs Missed",
+          summary: `${total} heartbeat run${total > 1 ? "s were" : " was"} missed while the assistant was offline.`,
+          dedupKey: `heartbeat:missed:${today}`,
+          priority: 55,
+          urgency: "high",
+        }).catch((err) => {
+          log.warn({ err }, "Failed to emit missed heartbeat feed event");
+        });
+      }
     }
 
     log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
@@ -177,6 +185,10 @@ export class HeartbeatService {
 
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

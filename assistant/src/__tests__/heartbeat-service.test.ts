@@ -307,13 +307,21 @@ describe("HeartbeatService", () => {
     });
 
     mockInsertPendingHeartbeatRun.mockClear();
+    mockInsertPendingHeartbeatRun.mockImplementation(() => "mock-run-id");
     mockStartHeartbeatRun.mockClear();
+    mockStartHeartbeatRun.mockImplementation(() => true);
     mockCompleteHeartbeatRun.mockClear();
+    mockCompleteHeartbeatRun.mockImplementation(() => true);
     mockSkipHeartbeatRun.mockClear();
+    mockSkipHeartbeatRun.mockImplementation(() => true);
     mockSupersedePendingRun.mockClear();
+    mockSupersedePendingRun.mockImplementation(() => true);
     mockMarkStaleRunsAsMissed.mockClear();
+    mockMarkStaleRunsAsMissed.mockImplementation(() => 0);
     mockMarkStaleRunningAsError.mockClear();
+    mockMarkStaleRunningAsError.mockImplementation(() => 0);
     mockEmitFeedEvent.mockClear();
+    mockEmitFeedEvent.mockImplementation(() => Promise.resolve());
 
     mockConfig = {
       heartbeat: {
@@ -1224,11 +1232,14 @@ describe("HeartbeatService", () => {
       service.stop();
     });
 
-    test("scheduleNextRun supersedes old pending row before creating new one", async () => {
+    test("scheduleNextRun supersedes old pending row before creating new one", () => {
       const service = createService();
+      service.start();
 
-      // First runOnce: scheduleNextRun is called in the finally block, creating a pending row
-      await service.runOnce();
+      // start() called scheduleNextRun which set _pendingRunId.
+      // Calling resetTimer triggers another scheduleNextRun which
+      // should supersede the existing pending row before inserting
+      // a new one.
       const callOrder: string[] = [];
       mockSupersedePendingRun.mockImplementation(() => {
         callOrder.push("supersede");
@@ -1239,16 +1250,17 @@ describe("HeartbeatService", () => {
         return "mock-run-id";
       });
 
-      // Second runOnce: scheduleNextRun should supersede the old pending row first
-      await service.runOnce();
+      service.resetTimer();
 
-      // The finally block's scheduleNextRun should supersede then insert
+      // resetTimer's scheduleNextRun should supersede then insert
       expect(callOrder.filter((c) => c === "supersede").length).toBeGreaterThan(
         0,
       );
       const firstSupersede = callOrder.indexOf("supersede");
       const firstInsert = callOrder.indexOf("insert");
       expect(firstSupersede).toBeLessThan(firstInsert);
+
+      service.stop();
     });
 
     test("resetTimer() supersedes pending row", () => {
@@ -1356,7 +1368,7 @@ describe("HeartbeatService", () => {
         },
       );
       expect(failCalls).toHaveLength(1);
-      const opts = failCalls[0][0] as {
+      const opts = (failCalls as any[][])[0][0] as {
         urgency?: string;
         summary?: string;
       };
@@ -1410,7 +1422,7 @@ describe("HeartbeatService", () => {
           },
         );
         expect(timeoutCalls).toHaveLength(1);
-        const opts = timeoutCalls[0][0] as {
+        const opts = (timeoutCalls as any[][])[0][0] as {
           urgency?: string;
         };
         expect(opts.urgency).toBe("high");
@@ -1474,7 +1486,7 @@ describe("HeartbeatService", () => {
         },
       );
       expect(lateCalls).toHaveLength(1);
-      const opts = lateCalls[0][0] as {
+      const opts = (lateCalls as any[][])[0][0] as {
         urgency?: string;
         summary?: string;
       };
@@ -1511,7 +1523,7 @@ describe("HeartbeatService", () => {
         },
       );
       expect(missedCalls).toHaveLength(1);
-      const opts = missedCalls[0][0] as {
+      const opts = (missedCalls as any[][])[0][0] as {
         urgency?: string;
         summary?: string;
       };

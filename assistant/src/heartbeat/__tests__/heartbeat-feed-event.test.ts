@@ -5,6 +5,18 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let workspaceDir: string;
 
+// Stub the heartbeat run store so HeartbeatService doesn't hit the real DB.
+mock.module("../heartbeat-run-store.js", () => ({
+  insertPendingHeartbeatRun: () => "mock-run-id",
+  startHeartbeatRun: () => true,
+  completeHeartbeatRun: () => true,
+  skipHeartbeatRun: () => true,
+  supersedePendingRun: () => true,
+  markStaleRunsAsMissed: () => 0,
+  markStaleRunningAsError: () => 0,
+  listHeartbeatRuns: () => [],
+}));
+
 // Stub the in-process SSE hub so the writer's publish path is a
 // no-op in these tests.
 const publishSpy = mock<(event: unknown) => Promise<void>>(async () => {});
@@ -200,13 +212,11 @@ describe("heartbeat feed events", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     const items = readFeedItems();
-    const heartbeatItem = items.find((i) => i.title === "Heartbeat");
+    const heartbeatItem = items.find((i) => i.title === "Heartbeat Failed");
     expect(heartbeatItem).toBeDefined();
-    expect(heartbeatItem!.summary).toBe(
-      "Heartbeat check failed. Check logs for details.",
-    );
+    expect(heartbeatItem!.summary).toContain("LLM call failed");
     expect(heartbeatItem!.priority).toBe(55);
-    expect(heartbeatItem!.urgency).toBe("medium");
+    expect(heartbeatItem!.urgency).toBe("high");
     expect(heartbeatItem!.source).toBe("assistant");
   });
 
