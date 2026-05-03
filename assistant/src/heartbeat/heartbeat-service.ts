@@ -110,6 +110,7 @@ export class HeartbeatService {
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
   private cronMode = false;
+  private stopped = false;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -127,6 +128,7 @@ export class HeartbeatService {
   }
 
   start(): void {
+    this.stopped = false;
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
@@ -163,6 +165,7 @@ export class HeartbeatService {
   }
 
   private scheduleNextCronRun(config: HeartbeatConfig): void {
+    if (this.stopped) return;
     try {
       const nextRunAt = computeNextRunAt({
         syntax: "cron",
@@ -232,6 +235,7 @@ export class HeartbeatService {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
       clearInterval(this.timer as ReturnType<typeof setInterval>);
