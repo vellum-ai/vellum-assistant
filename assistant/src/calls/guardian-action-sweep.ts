@@ -18,7 +18,7 @@ import {
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
-import type { GuardianActionCopyGenerator } from "../runtime/http-types.js";
+import type { GuardianActionCopyGenerator } from "../runtime/message-composer-types.js";
 import { getLogger } from "../util/logger.js";
 import { expirePendingQuestions } from "./call-store.js";
 

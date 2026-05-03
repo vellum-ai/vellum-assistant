@@ -178,16 +178,9 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
 }
 
-export interface RuntimeAttachmentMetadata {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
+import type { RuntimeAttachmentMetadata } from "./attachment-types.js";
+
+export type { RuntimeAttachmentMetadata };
 
 export interface RuntimeMessagePayload {
   id: string;

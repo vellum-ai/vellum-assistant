@@ -8,7 +8,7 @@
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../memory/attachments-store.js";
-import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
+import type { RuntimeAttachmentMetadata } from "../../../runtime/attachment-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callTelegramBotApi, callTelegramBotApiMultipart } from "./api.js";
 
