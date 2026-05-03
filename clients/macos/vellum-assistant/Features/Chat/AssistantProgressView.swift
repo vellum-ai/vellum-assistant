@@ -570,7 +570,7 @@ struct AssistantProgressView: View {
                 suppressNextExpand = false
                 return
             }
-            guard model.hasTools || expandedItems != nil else { return }
+            guard model.hasTools else { return }
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
             if isExpanded && model.hasPendingConfirmation { return }
@@ -618,8 +618,8 @@ struct AssistantProgressView: View {
                 ElapsedTimeLabel(startDate: startDate)
             }
 
-            // Chevron (tools or expanded items)
-            if model.hasTools || expandedItems != nil {
+            // Chevron (only if tools exist)
+            if model.hasTools {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }

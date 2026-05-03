@@ -165,33 +165,9 @@ extension ChatBubble {
         // Flush any trailing burst
         flushBurst()
 
-        // If orphan thinking remains with no following tool burst, create
-        // a thinking-only burst so it renders as a "Worked" row instead
-        // of a standalone ThinkingBlockView.
-        if !orphanThinkingIndices.isEmpty {
-            let thinkingSet = Set(orphanThinkingIndices)
-            var items: [ProgressExpandedItem] = []
-            if showThinking {
-                for ref in contentOrder {
-                    if case .thinking(let i) = ref,
-                       thinkingSet.contains(i),
-                       i < thinkingSegments.count,
-                       !thinkingSegments[i].isEmpty {
-                        items.append(.thinking(
-                            content: thinkingSegments[i],
-                            expansionKey: "\(messageId.uuidString)-th\(i)",
-                            isStreaming: false
-                        ))
-                    }
-                }
-            }
-            bursts.append(WorkBurst(
-                toolIndices: [],
-                thinkingIndices: orphanThinkingIndices,
-                stableId: orphanThinkingStableId ?? "burst-\(bursts.count)",
-                expandedItems: items
-            ))
-        }
+        // Orphan thinking with no following tool burst is NOT wrapped in a
+        // burst — it renders as a standalone ThinkingBlockView instead.
+        // (Thinking-only content doesn't need a "Worked for" card.)
 
         // Set isStreaming on the last thinking item in the last burst, but
         // only when it's also the last item overall — if a tool call follows
@@ -449,8 +425,7 @@ extension ChatBubble {
             guard idx < message.toolCalls.count else { return nil }
             return message.toolCalls[idx]
         }
-        let hasExpandedContent = expandedItems?.isEmpty == false
-        if !groupedToolCalls.isEmpty || hasExpandedContent {
+        if !groupedToolCalls.isEmpty {
             // Derive confirmations from this group's own tool call stamps.
             // We intentionally do NOT use the message-level decidedConfirmation
             // here because it comes from the confirmation message at index+1,
@@ -730,10 +705,25 @@ extension ChatBubble {
                     } else {
                         EmptyView()
                     }
-                } else {
-                    // All thinking is now absorbed into bursts (either
-                    // forwarded to the next burst or wrapped in its own).
-                    EmptyView()
+                } else if showThinking, case .thinking(let indices) = group {
+                    // Standalone thinking (no adjacent tools, not forwarded
+                    // to a burst) — render as ThinkingBlockView.
+                    let joined = indices
+                        .compactMap { i in
+                            i < message.thinkingSegments.count
+                                ? message.thinkingSegments[i]
+                                : nil
+                        }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                    if !joined.isEmpty {
+                        ThinkingBlockView(
+                            content: joined,
+                            isStreaming: message.isStreaming,
+                            expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
+                            typographyGeneration: typographyGeneration
+                        )
+                    }
                 }
             }
         }
