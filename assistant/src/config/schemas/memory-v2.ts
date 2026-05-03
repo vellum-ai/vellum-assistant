@@ -139,9 +139,9 @@ export const MemoryV2ConfigSchema = z
       .number({ error: "memory.v2.bm25_b must be a number" })
       .min(0, "memory.v2.bm25_b must be >= 0")
       .max(1, "memory.v2.bm25_b must be <= 1")
-      .default(0.75)
+      .default(0.4)
       .describe(
-        "BM25 document-length normalization. 0 disables length normalization, 1 fully normalizes — standard Lucene default is 0.75.",
+        "BM25 document-length normalization. 0 disables length normalization, 1 fully normalizes. Lucene's default is 0.75 (tuned for narrative/web corpora); we run lower because concept-page collections include structured list pages with high information density per word — full Lucene normalization over-penalizes them.",
       ),
     consolidation_interval_hours: z
       .number({
