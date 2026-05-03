@@ -64,6 +64,14 @@
             "type": "boolean",
             "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules. Defaults to false."
           },
+          "max_retries": {
+            "type": "integer",
+            "description": "Maximum number of retries after the initial execution fails. Defaults to 3."
+          },
+          "retry_backoff_ms": {
+            "type": "integer",
+            "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -162,6 +170,14 @@
           "reuse_conversation": {
             "type": "boolean",
             "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules."
+          },
+          "max_retries": {
+            "type": "integer",
+            "description": "Maximum number of retries after the initial execution fails. Defaults to 3."
+          },
+          "retry_backoff_ms": {
+            "type": "integer",
+            "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
           },
           "activity": {
             "type": "string",

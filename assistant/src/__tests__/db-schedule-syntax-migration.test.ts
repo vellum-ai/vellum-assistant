@@ -36,6 +36,8 @@ describe("schedule_syntax column migration", () => {
         last_run_at INTEGER,
         last_status TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retries INTEGER NOT NULL DEFAULT 3,
+        retry_backoff_ms INTEGER NOT NULL DEFAULT 60000,
         created_by TEXT NOT NULL,
         mode TEXT NOT NULL DEFAULT 'execute',
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
