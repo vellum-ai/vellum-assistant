@@ -659,6 +659,59 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("emits replayed channel messages in chronological order regardless of API order", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    fetchMock = mock(async (input) => {
+      const url = String(input);
+      if (url.includes("conversations.history")) {
+        // Slack's conversations.history returns messages newest-first per
+        // https://api.slack.com/methods/conversations.history. The replay
+        // path must reorder them so the runtime sees the conversational
+        // sequence in the order the user sent it.
+        return makeHistoryResponse([
+          {
+            type: "message",
+            user: "U-author",
+            text: "<@UBOT> please respond",
+            ts: "1700000300.000000",
+          },
+          {
+            type: "message",
+            user: "U-author",
+            text: "<@UBOT> can you help?",
+            ts: "1700000200.000000",
+          },
+          {
+            type: "message",
+            user: "U-author",
+            text: "<@UBOT> hello",
+            ts: "1700000100.000000",
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+      expect(emitted.map((e) => e.event.source.messageId)).toEqual([
+        "1700000100.000000",
+        "1700000200.000000",
+        "1700000300.000000",
+      ]);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("preserves subtype, files, attachments, and blocks on replayed file_share messages", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

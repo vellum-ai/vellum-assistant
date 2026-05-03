@@ -1081,7 +1081,7 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
-        for (const msg of result.messages) {
+        for (const msg of sortMessagesAscendingByTs(result.messages)) {
           if (this.injectReplayMessage(channel, msg, botUserId)) recovered++;
         }
       };
@@ -1099,7 +1099,7 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
-        for (const msg of result.messages) {
+        for (const msg of sortMessagesAscendingByTs(result.messages)) {
           // conversations.replies always returns the thread parent as the
           // first element regardless of `oldest` / `inclusive` — see
           // https://api.slack.com/methods/conversations.replies. The parent
@@ -1334,6 +1334,29 @@ function toSlackTs(ms: number): string {
  */
 function isSlackConversationId(id: string): boolean {
   return /^[CDG][A-Z0-9]+$/.test(id);
+}
+
+/**
+ * Sort Slack messages by `ts` ascending so they replay through the
+ * per-channel emit queue in chronological order. `conversations.history`
+ * returns messages newest-first
+ * (https://api.slack.com/methods/conversations.history) and
+ * `conversations.replies` makes no strict ordering guarantee beyond
+ * "parent first", so we sort defensively rather than rely on either API's
+ * order. Without this, a flurry of missed messages emits in reverse
+ * order — the runtime sees the latest user message before the earlier
+ * ones it depends on. Messages without a `ts` are dropped by
+ * `injectReplayMessage` anyway; sort them last so they don't perturb
+ * the order of the rest.
+ */
+function sortMessagesAscendingByTs<T extends { ts?: string }>(
+  messages: readonly T[],
+): T[] {
+  return [...messages].sort((a, b) => {
+    const aTs = a.ts ? Number(a.ts) : Number.POSITIVE_INFINITY;
+    const bTs = b.ts ? Number(b.ts) : Number.POSITIVE_INFINITY;
+    return aTs - bTs;
+  });
 }
 
 /**
