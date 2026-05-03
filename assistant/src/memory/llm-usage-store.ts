@@ -20,6 +20,13 @@ import {
   type UsageGroupedBucketRow,
   type UsageGroupedSeriesBucket,
 } from "./usage-grouped-buckets.js";
+import {
+  type GroupByDimension,
+  USAGE_GROUP_BY_DIMENSIONS,
+  type UsageBucketOptions,
+  type UsageDayBucket,
+  type UsageTimeRange,
+} from "./usage-types.js";
 
 // ---------------------------------------------------------------------------
 // Write
@@ -154,10 +161,7 @@ export function queryUnreportedUsageEvents(
 // ---------------------------------------------------------------------------
 
 /** Epoch-millis time range (inclusive on both ends). */
-export interface UsageTimeRange {
-  from: number;
-  to: number;
-}
+export type { UsageTimeRange } from "./usage-types.js";
 
 /** Aggregate totals across a time range. */
 export interface UsageTotals {
@@ -174,33 +178,7 @@ export interface UsageTotals {
 
 export type UsageGranularity = "daily" | "hourly";
 
-/** A single time bucket with its aggregate totals. */
-export interface UsageDayBucket {
-  /**
-   * Stable unique identifier for the bucket. Safe for use as a SwiftUI/React
-   * list key. Distinct even for DST fall-back duplicate hours (which share the
-   * same `date` string). Daily buckets use `date` directly; hourly buckets use
-   * "YYYY-MM-DD HH:00|<offsetMinutes>" to disambiguate repeated local hours.
-   */
-  bucketId: string;
-  /**
-   * Local-time bucket key in the requested tz:
-   * "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly).
-   * NOT unique: on DST fall-back days, two 01:00 hourly buckets share this key.
-   * Use `bucketId` as a list identifier and `date` for display/sort only.
-   */
-  date: string;
-  /**
-   * Human-readable label for the bucket, formatted in the requested tz.
-   * Hourly: "3pm". Daily: "Apr 11".
-   */
-  displayLabel?: string;
-  /** Direct input tokens only; cache traffic is tracked separately in totals. */
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-}
+export type { UsageDayBucket } from "./usage-types.js";
 
 /** A grouped breakdown row. */
 export interface UsageGroupBreakdown {
@@ -305,15 +283,7 @@ function fetchRawBucketRows(range: UsageTimeRange): UsageEventBucketRow[] {
   );
 }
 
-/** Options for bucket aggregation. */
-export interface UsageBucketOptions {
-  /**
-   * When true, emit a zero-value bucket for every day (or hour) in the range
-   * even if no events fall inside it. Defaults to false so the CLI and other
-   * callers only see active periods; the chart route opts in.
-   */
-  fillEmpty?: boolean;
-}
+export type { UsageBucketOptions } from "./usage-types.js";
 
 /**
  * Return per-day aggregates within the given time range, keyed by local date
@@ -351,16 +321,7 @@ export function getUsageHourBuckets(
   return bucketEventsByHour(rows, range, tz, options);
 }
 
-export const USAGE_GROUP_BY_DIMENSIONS = [
-  "actor",
-  "provider",
-  "model",
-  "conversation",
-  "call_site",
-  "inference_profile",
-] as const;
-
-export type GroupByDimension = (typeof USAGE_GROUP_BY_DIMENSIONS)[number];
+export { type GroupByDimension,USAGE_GROUP_BY_DIMENSIONS } from "./usage-types.js";
 
 export const USAGE_SERIES_GROUP_BY_DIMENSIONS = [
   "actor",
