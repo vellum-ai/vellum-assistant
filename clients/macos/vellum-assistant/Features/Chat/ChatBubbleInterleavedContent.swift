@@ -631,7 +631,7 @@ extension ChatBubble {
                             toolIndices: burst.toolIndices,
                             isLatestGroup: burst.stableId == latestBurstId,
                             hasTrailingText: burstTrailingText[burst.stableId] ?? false,
-                            expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
+                            expandedItems: burst.expandedItems.contains(where: { if case .thinking = $0 { return true }; return false }) ? burst.expandedItems : nil
                         )
                         // Render tool call images unless deferred to the following text group
                         if !deferredImageBurstIds.contains(burst.stableId) {
@@ -671,7 +671,7 @@ extension ChatBubble {
                                 toolIndices: burst.toolIndices,
                                 isLatestGroup: burst.stableId == latestBurstId,
                                 hasTrailingText: burstTrailingText[burst.stableId] ?? false,
-                                expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
+                                expandedItems: burst.expandedItems.contains(where: { if case .thinking = $0 { return true }; return false }) ? burst.expandedItems : nil
                             )
                             if !deferredImageBurstIds.contains(burst.stableId) {
                                 let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
