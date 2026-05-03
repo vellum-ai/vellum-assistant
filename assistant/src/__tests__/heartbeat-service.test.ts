@@ -1339,5 +1339,168 @@ describe("HeartbeatService", () => {
         jest.useRealTimers();
       }
     });
+
+    test("failure feed event has urgency high and includes error message", async () => {
+      const service = createService({
+        processMessage: async () => {
+          throw new Error("web_search outage");
+        },
+      });
+
+      await service.runOnce();
+
+      const failCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Failed";
+        },
+      );
+      expect(failCalls).toHaveLength(1);
+      const opts = failCalls[0][0] as {
+        urgency?: string;
+        summary?: string;
+      };
+      expect(opts.urgency).toBe("high");
+      expect(opts.summary).toContain("web_search outage");
+    });
+
+    test("CAS false on complete suppresses failure feed event", async () => {
+      mockCompleteHeartbeatRun.mockImplementation(() => false);
+
+      const service = createService({
+        processMessage: async () => {
+          throw new Error("some error");
+        },
+      });
+
+      await service.runOnce();
+
+      const failCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Failed";
+        },
+      );
+      expect(failCalls).toHaveLength(0);
+    });
+
+    test("timeout emits feed event with urgency high", async () => {
+      jest.useFakeTimers();
+      try {
+        let resolveRun: () => void;
+        const runPromise = new Promise<void>((r) => {
+          resolveRun = r;
+        });
+
+        const service = createService({
+          processMessage: async () => {
+            await runPromise;
+            return { messageId: "msg-1" };
+          },
+        });
+
+        const runOncePromise = service.runOnce();
+        jest.advanceTimersByTime(30 * 60 * 1000 + 1000);
+        await runOncePromise;
+
+        const timeoutCalls = mockEmitFeedEvent.mock.calls.filter(
+          (call: unknown[]) => {
+            const opts = call[0] as { title?: string };
+            return opts.title === "Heartbeat Timed Out";
+          },
+        );
+        expect(timeoutCalls).toHaveLength(1);
+        const opts = timeoutCalls[0][0] as {
+          urgency?: string;
+        };
+        expect(opts.urgency).toBe("high");
+
+        resolveRun!();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test("late run emits late feed event", async () => {
+      const service = createService();
+      service.start();
+
+      // Set the pending run to be 10 minutes in the past
+      (service as any)._nextRunAt = Date.now() - 10 * 60 * 1000;
+      (service as any)._pendingRunId = "late-run-id";
+
+      await service.runOnce();
+
+      const lateCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Ran Late";
+        },
+      );
+      expect(lateCalls).toHaveLength(1);
+      const opts = lateCalls[0][0] as {
+        urgency?: string;
+        summary?: string;
+      };
+      expect(opts.urgency).toBe("medium");
+      expect(opts.summary).toContain("10 minutes late");
+
+      await service.stop();
+    });
+
+    test("on-time run does not emit late feed event", async () => {
+      const service = createService();
+      await service.runOnce();
+
+      const lateCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Ran Late";
+        },
+      );
+      expect(lateCalls).toHaveLength(0);
+    });
+
+    test("start() emits missed-run feed event when stale rows exist", () => {
+      mockMarkStaleRunsAsMissed.mockImplementation(() => 2);
+      mockMarkStaleRunningAsError.mockImplementation(() => 1);
+
+      const service = createService();
+      service.start();
+
+      const missedCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Runs Missed";
+        },
+      );
+      expect(missedCalls).toHaveLength(1);
+      const opts = missedCalls[0][0] as {
+        urgency?: string;
+        summary?: string;
+      };
+      expect(opts.urgency).toBe("high");
+      expect(opts.summary).toContain("3");
+
+      service.stop();
+    });
+
+    test("start() does not emit missed-run feed event when counts are 0", () => {
+      mockMarkStaleRunsAsMissed.mockImplementation(() => 0);
+      mockMarkStaleRunningAsError.mockImplementation(() => 0);
+
+      const service = createService();
+      service.start();
+
+      const missedCalls = mockEmitFeedEvent.mock.calls.filter(
+        (call: unknown[]) => {
+          const opts = call[0] as { title?: string };
+          return opts.title === "Heartbeat Runs Missed";
+        },
+      );
+      expect(missedCalls).toHaveLength(0);
+
+      service.stop();
+    });
   });
 });
