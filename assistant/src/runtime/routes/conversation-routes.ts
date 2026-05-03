@@ -44,6 +44,7 @@ import {
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
@@ -1403,6 +1404,24 @@ export async function handleSendMessage(
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
+  }
+  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
+  // singleton lock plus per-session loop tracking. Instantiation is
+  // unconditional when the client supports the capability — feature-flag
+  // gating lives in the skill-projection layer (which reads the
+  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
+  // an attached proxy is harmless when the flag resolves to off.
+  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(mapping.conversationId),
+      );
+    }
+    if (!conversation.isProcessing()) {
+      conversation.addPreactivatedSkillId("app-control");
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating
