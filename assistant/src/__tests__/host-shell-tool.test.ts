@@ -57,7 +57,7 @@ mock.module("../util/logger.js", () => ({
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (
-  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string> },
+  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string>; targetClientId?: string },
   conversationId: string,
   signal?: AbortSignal,
 ) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
@@ -276,12 +276,13 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(schemaProps).not.toHaveProperty("credential_ids");
   });
 
-  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity, background)", () => {
+  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity, background, target_client_id)", () => {
     const propertyNames = Object.keys(schemaProps).sort();
     expect(propertyNames).toEqual([
       "activity",
       "background",
       "command",
+      "target_client_id",
       "timeout_seconds",
       "working_dir",
     ]);
@@ -727,6 +728,7 @@ describe("host_bash — proxy delegation", () => {
         working_dir?: string;
         timeout_seconds?: number;
         env?: Record<string, string>;
+        targetClientId?: string;
       };
       conversationId: string;
     }> = [];
