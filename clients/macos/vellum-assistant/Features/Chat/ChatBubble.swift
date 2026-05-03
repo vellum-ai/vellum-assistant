@@ -811,6 +811,11 @@ struct ChatBubble: View, Equatable {
     /// rendered alongside a bubble that contains the remaining content.
     /// This keeps the transformation at the presentation layer — the
     /// streaming pipeline and `ChatMessage` data model are unchanged.
+    ///
+    /// When tool calls are present, thinking content is folded into the
+    /// progress card (via `expandedItemsForProgressCard`) instead of
+    /// rendering as standalone `ThinkingBlockView`s. Only the stripped
+    /// text is rendered in the bubble.
     @ViewBuilder
     private var bubbleContentWithInlineThinking: some View {
         let chunks = parseInlineThinkingTags(message.text)
@@ -828,17 +833,28 @@ struct ChatBubble: View, Equatable {
         let hasRenderedText = !joinedText.isEmpty
         let hasAttachments = !message.attachments.isEmpty
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
-                ThinkingBlockView(
-                    content: content,
-                    isStreaming: message.isStreaming,
-                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
-                    typographyGeneration: typographyGeneration
-                )
-            }
+        if !message.toolCalls.isEmpty {
+            // Tool calls present — thinking is folded into the progress
+            // card via expandedItemsForProgressCard. Render only the
+            // stripped text content in the bubble.
             if hasRenderedText || hasAttachments {
                 bubbleContent(renderingText: joinedText)
+            }
+        } else {
+            // No tool calls — render ThinkingBlockViews above the text
+            // bubble as before (no progress card to fold into).
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
+                    ThinkingBlockView(
+                        content: content,
+                        isStreaming: message.isStreaming,
+                        expansionKey: "\(message.id.uuidString)-inline-\(offset)",
+                        typographyGeneration: typographyGeneration
+                    )
+                }
+                if hasRenderedText || hasAttachments {
+                    bubbleContent(renderingText: joinedText)
+                }
             }
         }
     }
