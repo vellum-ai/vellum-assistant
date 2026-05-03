@@ -233,34 +233,6 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
   }
 
   /**
-   * Cancel a pending request out-of-band (e.g. when the conversation is
-   * being torn down). Broadcasts a cancel envelope and rejects with
-   * `"aborted"`. No-op when no entry is registered.
-   */
-  cancel(requestId: string, reason: string): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-    pendingInteractions.resolve(requestId);
-    log.info(
-      { requestId, reason, kind: this.resultPendingKind },
-      "Host proxy request canceled",
-    );
-    try {
-      broadcastDynamic({
-        type: this.cancelEventName,
-        requestId,
-        conversationId: entry.conversationId,
-      });
-    } catch {
-      // Best-effort cancel notification — connection may already be closed.
-    }
-    entry.reject(new HostProxyRequestError("aborted", "aborted"));
-  }
-
-  /**
    * Reject every pending request and clear the map. Called during graceful
    * shutdown or proxy teardown.
    */

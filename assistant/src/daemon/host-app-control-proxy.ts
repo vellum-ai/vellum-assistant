@@ -8,8 +8,8 @@
  *
  * Lifecycle (pending map, timeout, abort SSE, dispose, isAvailable) lives
  * in {@link HostProxyBase}; this class layers app-control-specific state
- * (active app, PNG-hash loop guard) and the result-payload →
- * ToolExecutionResult translation on top.
+ * (PNG-hash loop guard) and the result-payload → ToolExecutionResult
+ * translation on top.
  *
  * **Singleton lock.** Only one conversation may hold an active app-control
  * session at a time. The lock is module-level (`activeAppControlConversationId`)
@@ -84,16 +84,6 @@ export function _resetActiveAppControlConversationId(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Per-instance state types
-// ---------------------------------------------------------------------------
-
-interface ActiveApp {
-  bundleId?: string;
-  pid?: number;
-  name: string;
-}
-
-// ---------------------------------------------------------------------------
 // HostAppControlProxy
 // ---------------------------------------------------------------------------
 
@@ -103,9 +93,6 @@ export class HostAppControlProxy extends HostProxyBase<
 > {
   /** Conversation that owns this proxy instance. Used by `dispose()` to release the singleton lock only when this proxy is the holder. */
   private readonly conversationId: string;
-
-  /** Application identity captured from the most recent successful `start` result. */
-  private activeApp?: ActiveApp;
 
   /** sha256 hex of the most recent observation's `pngBase64`, or undefined. */
   private lastObservationHash?: string;
@@ -132,10 +119,6 @@ export class HostAppControlProxy extends HostProxyBase<
   // ---------------------------------------------------------------------------
   // State accessors (testing / external inspection)
   // ---------------------------------------------------------------------------
-
-  get currentApp(): ActiveApp | undefined {
-    return this.activeApp;
-  }
 
   get observationRepeatCount(): number {
     return this.observationHashRepeatCount;
@@ -184,7 +167,7 @@ export class HostAppControlProxy extends HostProxyBase<
         conversationId,
         signal,
       );
-      return this.handleSuccess(toolName, input, payload);
+      return this.handleSuccess(toolName, payload);
     } catch (err) {
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
@@ -210,7 +193,6 @@ export class HostAppControlProxy extends HostProxyBase<
 
   private handleSuccess(
     toolName: string,
-    input: HostAppControlInput,
     payload: HostAppControlResultPayload,
   ): ToolExecutionResult {
     // Update PNG-hash loop tracking only for the "running" state — other
@@ -230,18 +212,9 @@ export class HostAppControlProxy extends HostProxyBase<
       }
     }
 
-    // Acquire the singleton lock on a successful `start`. Capture the
-    // app identity from the request input — the current result-payload
-    // shape doesn't carry bundleId/pid, but the start input names the
-    // target app (bundle id or process name), which is the most
-    // authoritative identity we have at this layer.
-    if (
-      toolName === TOOL_START &&
-      input.tool === "start" &&
-      payload.state === "running"
-    ) {
+    // Acquire the singleton lock on a successful `start`.
+    if (toolName === TOOL_START && payload.state === "running") {
       activeAppControlConversationId = this.conversationId;
-      this.activeApp = { name: input.app };
     }
 
     return this.formatResult(payload, stuck);

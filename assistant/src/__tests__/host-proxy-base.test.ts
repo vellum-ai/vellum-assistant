@@ -308,31 +308,4 @@ describe("HostProxyBase", () => {
       expect(proxy.isAvailable()).toBe(true);
     });
   });
-
-  describe("cancel", () => {
-    test("broadcasts cancel envelope and rejects the pending request", async () => {
-      setup();
-
-      const promise = proxy.send("t1", { payload: "1" }, "conv-1");
-      promise.catch(() => {});
-      const requestId = (sentMessages[0] as Record<string, unknown>)
-        .requestId as string;
-
-      proxy.cancel(requestId, "user-canceled");
-
-      await expect(promise).rejects.toMatchObject({ reason: "aborted" });
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
-
-      const cancel = sentMessages[1] as Record<string, unknown>;
-      expect(cancel.type).toBe("test_cancel");
-      expect(cancel.requestId).toBe(requestId);
-      expect(resolvedInteractionIds).toContain(requestId);
-    });
-
-    test("is a no-op for unknown request id", () => {
-      setup();
-      proxy.cancel("nope", "any");
-      expect(sentMessages).toHaveLength(0);
-    });
-  });
 });
