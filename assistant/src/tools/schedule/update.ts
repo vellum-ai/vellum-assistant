@@ -108,6 +108,14 @@ export async function executeScheduleUpdate(
     updates.reuseConversation = input.reuse_conversation;
   }
 
+  // Retry policy
+  if (input.max_retries !== undefined) {
+    updates.maxRetries = input.max_retries;
+  }
+  if (input.retry_backoff_ms !== undefined) {
+    updates.retryBackoffMs = input.retry_backoff_ms;
+  }
+
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
@@ -173,6 +181,8 @@ export async function executeScheduleUpdate(
         routingHints?: Record<string, unknown>;
         quiet?: boolean;
         reuseConversation?: boolean;
+        maxRetries?: number;
+        retryBackoffMs?: number;
       },
     );
 

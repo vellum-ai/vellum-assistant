@@ -54,6 +54,9 @@ function handleListSchedules(queryParams: Record<string, string>) {
       nextRunAt: j.nextRunAt,
       lastRunAt: j.lastRunAt,
       lastStatus: j.lastStatus,
+      retryCount: j.retryCount,
+      maxRetries: j.maxRetries,
+      retryBackoffMs: j.retryBackoffMs,
       description:
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
@@ -139,6 +142,8 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "quiet",
     "reuseConversation",
     "wakeConversationId",
+    "maxRetries",
+    "retryBackoffMs",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
@@ -294,6 +299,8 @@ export const ROUTES: RouteDefinition[] = [
         .describe("single_channel, multi_channel, or all_channels"),
       quiet: z.boolean(),
       reuseConversation: z.boolean(),
+      maxRetries: z.number().describe("Maximum retry attempts"),
+      retryBackoffMs: z.number().describe("Retry backoff in milliseconds"),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),

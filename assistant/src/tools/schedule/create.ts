@@ -44,6 +44,8 @@ export async function executeScheduleCreate(
     | undefined;
   const quiet = (input.quiet as boolean) ?? false;
   const reuseConversation = (input.reuse_conversation as boolean) ?? false;
+  const maxRetries = input.max_retries as number | undefined;
+  const retryBackoffMs = input.retry_backoff_ms as number | undefined;
 
   if (!name || typeof name !== "string") {
     return {
@@ -130,6 +132,8 @@ export async function executeScheduleCreate(
         routingHints,
         quiet,
         reuseConversation,
+        maxRetries,
+        retryBackoffMs,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -208,6 +212,8 @@ export async function executeScheduleCreate(
       routingHints,
       quiet,
       reuseConversation,
+      maxRetries,
+      retryBackoffMs,
     });
 
     const scheduleDescription =
