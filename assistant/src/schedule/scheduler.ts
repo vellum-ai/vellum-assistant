@@ -338,9 +338,7 @@ async function runScheduleOnce(
           status: "error",
           error: errorMsg,
         });
-        if (isOneShot) {
-          handleExecutionFailure({ job, errorMsg, isOneShot: true });
-        }
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
