@@ -213,6 +213,7 @@ function makeSendMessageDeps() {
     hasPendingConfirmation: () => false,
     setHostBrowserProxy: () => {},
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
   } as unknown as import("../daemon/conversation.js").Conversation;
 
