@@ -44,6 +44,7 @@ import { join } from "node:path";
 
 import { resetDb } from "../memory/db-connection.js";
 import type { PathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
+import { formatRuntimeCompatibilityMessage } from "../runtime/migrations/vbundle-import-policy.js";
 import { commitImport } from "../runtime/migrations/vbundle-importer.js";
 import type { ManifestType } from "../runtime/migrations/vbundle-validator.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
@@ -239,6 +240,12 @@ export async function restoreFromSnapshot(
         case "extraction_failed":
         case "write_failed":
           message = commitResult.message;
+          break;
+        case "version_incompatible":
+          message = formatRuntimeCompatibilityMessage(
+            commitResult.bundle_compat,
+            commitResult.runtime_version,
+          );
           break;
       }
       throw new Error(`Snapshot restore failed: ${message}`);

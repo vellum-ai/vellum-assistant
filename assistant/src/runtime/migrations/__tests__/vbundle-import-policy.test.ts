@@ -8,8 +8,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  compareSemver,
   CONFIG_ARCHIVE_PATHS,
   CREDENTIAL_METADATA_ARCHIVE_PATH,
+  evaluateRuntimeCompatibility,
   isConfigArchivePath,
   isCredentialMetadataArchivePath,
   isLegacyPersonaArchivePath,
@@ -122,5 +124,95 @@ describe("partitionWorkspacePreserveSkipDirs", () => {
     expect(dataSubdirSkipDirs.size).toBe(2);
     expect(dataSubdirSkipDirs.has("db")).toBe(true);
     expect(dataSubdirSkipDirs.has("qdrant")).toBe(true);
+  });
+});
+
+describe("compareSemver", () => {
+  test("0.10.0 > 0.9.0 (numeric, not lexical)", () => {
+    expect(compareSemver("0.10.0", "0.9.0")).toBe(1);
+  });
+
+  test("equal triples return 0", () => {
+    expect(compareSemver("0.7.1", "0.7.1")).toBe(0);
+  });
+
+  test("smaller patch returns -1", () => {
+    expect(compareSemver("0.7.0", "0.7.1")).toBe(-1);
+  });
+
+  test("prerelease tag is stripped (treated as base release)", () => {
+    expect(compareSemver("0.7.1-staging.1", "0.7.1")).toBe(0);
+  });
+
+  test("non-version string returns null", () => {
+    expect(compareSemver("not-a-version", "0.7.1")).toBe(null);
+  });
+
+  test("two-part version returns null", () => {
+    expect(compareSemver("1.2", "0.7.1")).toBe(null);
+  });
+});
+
+describe("evaluateRuntimeCompatibility", () => {
+  test("legacy sentinel passes regardless of runtime version", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.0.0-legacy", max_runtime_version: null },
+        "0.7.1",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("runtime above min with no max passes", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.7.0", max_runtime_version: null },
+        "0.7.1",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("runtime below min fails with full echo", () => {
+    const compat = {
+      min_runtime_version: "0.8.0",
+      max_runtime_version: null,
+    };
+    expect(evaluateRuntimeCompatibility(compat, "0.7.1")).toEqual({
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: compat,
+      runtime_version: "0.7.1",
+    });
+  });
+
+  test("runtime above max fails", () => {
+    const compat = {
+      min_runtime_version: "0.7.0",
+      max_runtime_version: "0.7.5",
+    };
+    expect(evaluateRuntimeCompatibility(compat, "0.8.0")).toEqual({
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: compat,
+      runtime_version: "0.8.0",
+    });
+  });
+
+  test("max is inclusive", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.7.0", max_runtime_version: "0.7.5" },
+        "0.7.5",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("unparsable min skips the gate (fail-open)", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "garbage", max_runtime_version: null },
+        "0.7.1",
+      ),
+    ).toEqual({ ok: true });
   });
 });
