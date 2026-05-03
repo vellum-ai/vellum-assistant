@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -64,8 +65,8 @@ afterAll(() => {
 });
 
 import {
-  deepMergeMissing,
   deepMergeOverwrite,
+  getConfig,
   invalidateConfigCache,
   loadConfig,
 } from "../config/loader.js";
@@ -79,73 +80,13 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
-function readConfig(): Record<string, unknown> {
-  return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-}
-
-// ---------------------------------------------------------------------------
-// Tests: deepMergeMissing (unit)
-// ---------------------------------------------------------------------------
-
-describe("deepMergeMissing", () => {
-  test("adds missing top-level keys", () => {
-    const target: Record<string, unknown> = { a: 1 };
-    const defaults: Record<string, unknown> = { a: 99, b: 2 };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(true);
-    expect(target).toEqual({ a: 1, b: 2 });
-  });
-
-  test("does not overwrite existing values", () => {
-    const target: Record<string, unknown> = { a: 1, b: "user" };
-    const defaults: Record<string, unknown> = { a: 99, b: "default" };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(false);
-    expect(target).toEqual({ a: 1, b: "user" });
-  });
-
-  test("recursively fills nested objects", () => {
-    const target: Record<string, unknown> = {
-      nested: { existingKey: "keep" },
-    };
-    const defaults: Record<string, unknown> = {
-      nested: { existingKey: "default", newKey: 42 },
-    };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(true);
-    expect(target).toEqual({
-      nested: { existingKey: "keep", newKey: 42 },
-    });
-  });
-
-  test("returns false when no changes needed", () => {
-    const target: Record<string, unknown> = { a: 1, b: { c: 3 } };
-    const defaults: Record<string, unknown> = { a: 99, b: { c: 100 } };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(false);
-  });
-
-  test("does not merge arrays", () => {
-    const target: Record<string, unknown> = { items: [1, 2] };
-    const defaults: Record<string, unknown> = { items: [3, 4, 5] };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(false);
-    expect(target).toEqual({ items: [1, 2] });
-  });
-
-  test("adds entire missing nested section", () => {
-    const target: Record<string, unknown> = {};
-    const defaults: Record<string, unknown> = {
-      slack: { deliverAuthBypass: false },
-    };
-    const changed = deepMergeMissing(target, defaults);
-    expect(changed).toBe(true);
-    expect(target).toEqual({ slack: { deliverAuthBypass: false } });
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Tests: deepMergeOverwrite (unit) — JSON-null-as-deletion semantics
+//
+// `deepMergeMissing` is no longer used in production code (the on-load
+// backfill that consumed it was deleted), so its unit tests have been
+// removed alongside it. `deepMergeOverwrite` remains in use by
+// `mergeDefaultWorkspaceConfig` and platform override paths.
 // ---------------------------------------------------------------------------
 
 describe("deepMergeOverwrite", () => {
@@ -275,7 +216,11 @@ describe("deepMergeOverwrite", () => {
       heartbeat: { activeHoursStart: null, activeHoursEnd: null },
     });
     expect(target).toEqual({
-      heartbeat: { intervalMs: 6000, activeHoursStart: null, activeHoursEnd: null },
+      heartbeat: {
+        intervalMs: 6000,
+        activeHoursStart: null,
+        activeHoursEnd: null,
+      },
     });
   });
 
@@ -318,10 +263,15 @@ describe("deepMergeOverwrite", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: startup backfill integration
+// Tests: loadConfig() startup behavior
+//
+// Contract: disk = user intent, in-memory cache = effective values. loadConfig
+// must NOT silently materialize schema defaults into config.json on load.
+// The legitimate self-healing paths that DO rewrite the file (deprecated-key
+// strip, fresh-config seed, corrupt-JSON quarantine) are protected below.
 // ---------------------------------------------------------------------------
 
-describe("config loader backfill", () => {
+describe("loadConfig startup behavior", () => {
   beforeEach(() => {
     ensureTestDir();
     const resetPaths = [
@@ -335,6 +285,16 @@ describe("config loader backfill", () => {
         rmSync(path, { recursive: true, force: true });
       }
     }
+    // Also clear any leftover quarantine files from previous test runs.
+    if (existsSync(WORKSPACE_DIR)) {
+      for (const entry of readdirSync(WORKSPACE_DIR)) {
+        if (entry.startsWith("config.json.corrupt-")) {
+          rmSync(join(WORKSPACE_DIR, entry), { force: true });
+        }
+      }
+    }
+    const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
+    if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
     ensureTestDir();
     _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
@@ -345,119 +305,78 @@ describe("config loader backfill", () => {
     invalidateConfigCache();
   });
 
-  test("backfills missing schema keys into existing config.json", () => {
-    // Write a minimal config that is missing many sections
-    writeConfig({ provider: "anthropic", model: "claude-opus-4-6" });
+  test("does not modify existing config.json on load", () => {
+    // Write a partial config and confirm the file's bytes are unchanged
+    // after loadConfig(). Schema defaults must apply in-memory only; disk
+    // is the user's source of truth.
+    writeConfig({ provider: "anthropic" });
+    const before = readFileSync(CONFIG_PATH);
 
     loadConfig();
 
-    // Re-read the file from disk — it should have been backfilled
-    const raw = readConfig();
-    // New fields from this PR should be present
-    expect(raw.telegram).toBeDefined();
-    expect((raw.telegram as Record<string, unknown>).apiBaseUrl).toBe(
-      "https://api.telegram.org",
-    );
-    expect((raw.telegram as Record<string, unknown>).deliverAuthBypass).toBe(
-      false,
-    );
-    expect((raw.telegram as Record<string, unknown>).timeoutMs).toBe(15_000);
-    expect((raw.telegram as Record<string, unknown>).maxRetries).toBe(3);
-    expect((raw.telegram as Record<string, unknown>).initialBackoffMs).toBe(
-      1_000,
-    );
-
-    expect(raw.whatsapp).toBeDefined();
-    expect((raw.whatsapp as Record<string, unknown>).deliverAuthBypass).toBe(
-      false,
-    );
-    expect((raw.whatsapp as Record<string, unknown>).timeoutMs).toBe(15_000);
-    expect((raw.whatsapp as Record<string, unknown>).maxRetries).toBe(3);
-    expect((raw.whatsapp as Record<string, unknown>).initialBackoffMs).toBe(
-      1_000,
-    );
-
-    expect(raw.slack).toBeDefined();
-    expect((raw.slack as Record<string, unknown>).deliverAuthBypass).toBe(
-      false,
-    );
+    const after = readFileSync(CONFIG_PATH);
+    expect(after.equals(before)).toBe(true);
   });
 
-  test("preserves existing user-defined values during backfill", () => {
+  test("getConfig().memory.v2.bm25_b returns schema default when absent on disk", () => {
+    // Consumer-side correctness: even though loadConfig no longer writes
+    // schema defaults back to disk, accessors still see them via the
+    // in-memory `cached: AssistantConfig` populated by `applyNestedDefaults`.
+    writeConfig({ provider: "anthropic" });
+
+    const config = getConfig();
+
+    expect(config.memory.v2.bm25_b).toBe(0.4);
+  });
+
+  test("still strips deprecated fields and rewrites", () => {
+    // `warnAndStripDeprecatedFields` is a legitimate self-healing path:
+    // it removes fields the schema no longer recognizes and persists the
+    // cleaned config so the deprecation warning fires only once.
     writeConfig({
-      services: {
-        inference: { provider: "openai", model: "gpt-4" },
-      },
-      telegram: { botUsername: "mybot", timeoutMs: 30_000 },
-      whatsapp: { phoneNumber: "+1234567890" },
+      provider: "anthropic",
+      rateLimit: { maxTokensPerSession: 100_000 },
     });
 
     loadConfig();
 
-    const raw = readConfig();
-    // User values preserved
-    const services = raw.services as Record<string, Record<string, unknown>>;
-    expect(services.inference.provider).toBe("openai");
-    expect(services.inference.model).toBe("gpt-4");
-    expect((raw.telegram as Record<string, unknown>).botUsername).toBe("mybot");
-    expect((raw.telegram as Record<string, unknown>).timeoutMs).toBe(30_000);
-    expect((raw.whatsapp as Record<string, unknown>).phoneNumber).toBe(
-      "+1234567890",
-    );
-
-    // Missing fields backfilled
-    expect((raw.telegram as Record<string, unknown>).apiBaseUrl).toBe(
-      "https://api.telegram.org",
-    );
-    expect((raw.telegram as Record<string, unknown>).deliverAuthBypass).toBe(
-      false,
-    );
-    expect((raw.whatsapp as Record<string, unknown>).deliverAuthBypass).toBe(
-      false,
-    );
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.rateLimit?.maxTokensPerSession).toBeUndefined();
+    // Other rateLimit keys are not affected — only the deprecated entry is stripped
+    expect(raw.provider).toBe("anthropic");
   });
 
-  test("does not rewrite config.json when no effective change exists", () => {
-    // First load: creates config from scratch with all defaults
-    loadConfig();
-    invalidateConfigCache();
-
-    // Read file and record its content
-    const contentBefore = readFileSync(CONFIG_PATH, "utf-8");
-
-    // Second load: file already has all keys — no write expected
-    loadConfig();
-
-    const contentAfter = readFileSync(CONFIG_PATH, "utf-8");
-    expect(contentAfter).toBe(contentBefore);
-  });
-
-  test("does not write dataDir during backfill", () => {
-    writeConfig({ provider: "anthropic" });
+  test("still writes a default config on first launch when file is absent", () => {
+    // Discoverability: when no config.json exists, write one populated with
+    // all schema defaults so users can see and edit available options.
+    expect(existsSync(CONFIG_PATH)).toBe(false);
 
     loadConfig();
 
-    const raw = readConfig();
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // Sanity: schema-defaulted nested fields are materialized
+    expect(raw.memory?.v2?.bm25_b).toBe(0.4);
     expect(raw.dataDir).toBeUndefined();
   });
 
-  test("backfills new nested fields into existing sections", () => {
-    // Config with only the old telegram.botUsername field
-    writeConfig({
-      telegram: { botUsername: "oldbot" },
-    });
+  test("still quarantines corrupt JSON", () => {
+    // Corrupt-config quarantine is a recovery path: the broken file is
+    // renamed to `config.json.corrupt-<ts>.json` and the daemon proceeds
+    // with defaults. This must keep working.
+    writeFileSync(CONFIG_PATH, "{not valid json");
 
     loadConfig();
 
-    const raw = readConfig();
-    const telegram = raw.telegram as Record<string, unknown>;
-    // Old field preserved
-    expect(telegram.botUsername).toBe("oldbot");
-    // New fields backfilled
-    expect(telegram.apiBaseUrl).toBe("https://api.telegram.org");
-    expect(telegram.deliverAuthBypass).toBe(false);
-    expect(telegram.timeoutMs).toBe(15_000);
-    expect(telegram.maxRetries).toBe(3);
-    expect(telegram.initialBackoffMs).toBe(1_000);
+    // A new defaults-populated config.json is written in place
+    expect(existsSync(CONFIG_PATH)).toBe(true);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.memory?.v2?.bm25_b).toBe(0.4);
+
+    // The corrupt original is preserved as a `*.corrupt-*.json` sibling
+    const quarantined = readdirSync(WORKSPACE_DIR).filter((n) =>
+      n.startsWith("config.json.corrupt-"),
+    );
+    expect(quarantined.length).toBeGreaterThan(0);
   });
 });
