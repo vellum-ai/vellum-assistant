@@ -1,6 +1,7 @@
 import type { AssistantEntry } from "./assistant-config.js";
 import {
   authHeaders,
+  invalidateOrgIdCache,
   parseUnifiedJobStatus,
   type UnifiedJobStatus,
 } from "./platform-client.js";
@@ -246,6 +247,15 @@ export interface RuntimeIdentity {
  * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated
  * via the platform token.
  *
+ * For the vellum target this is the FIRST network call in the
+ * teleport/backup export flow, so a stale `Vellum-Organization-Id` cache
+ * entry would surface as a hard abort before any retry-friendly call (like
+ * `platformRequestSignedUrl`) gets a chance to recover. Mirror that helper's
+ * one-shot 401-retry: invalidate the org-ID cache and retry once. Local /
+ * docker entries do not use the org-ID cache and are wrapped in
+ * `callRuntimeWithAuthRetry` by callers for guardian-token refresh, so the
+ * retry is intentionally vellum-only.
+ *
  * Used by export flows (teleport, backup) to stamp the bundle's
  * `min_runtime_version` with the version of the runtime that actually
  * produced it — not the CLI version, which can drift independently.
@@ -255,10 +265,21 @@ export async function localRuntimeIdentity(
   token: string,
 ): Promise<RuntimeIdentity> {
   const url = resolveRuntimeUrl(entry, "identity");
-  const response = await fetch(url, {
-    method: "GET",
-    headers: await migrationRequestHeaders(entry, token),
-  });
+  const doRequest = async (): Promise<Response> =>
+    fetch(url, {
+      method: "GET",
+      headers: await migrationRequestHeaders(entry, token),
+    });
+
+  let response = await doRequest();
+  if (response.status === 401 && entry.cloud === "vellum") {
+    // `entry.runtimeUrl` is the platform host for vellum-cloud entries
+    // (the wildcard runtime proxy lives there). Pass it as the cache key
+    // platformUrl so we invalidate the same entry that authHeaders cached.
+    invalidateOrgIdCache(token, entry.runtimeUrl);
+    response = await doRequest();
+  }
+
   if (!response.ok) {
     throw new Error(
       `Failed to fetch runtime identity: ${response.status} ${response.statusText}`,

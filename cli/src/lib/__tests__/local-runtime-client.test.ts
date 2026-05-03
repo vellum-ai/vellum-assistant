@@ -562,4 +562,81 @@ describe("localRuntimeIdentity", () => {
       /Runtime identity response missing version/,
     );
   });
+
+  // ---------------------------------------------------------------------
+  // 401-retry parity with platformRequestSignedUrl (Codex P2 regression
+  // guard). localRuntimeIdentity is the first network call in the
+  // backup/teleport export flow for vellum-cloud assistants, so a stale
+  // Vellum-Organization-Id cache entry would surface as a hard abort
+  // before any other helper got a chance to clear the cache and retry.
+  // ---------------------------------------------------------------------
+
+  test("vellum entry: retries once after 401 with a fresh org-ID lookup", async () => {
+    // Use a non-vak session token so authHeaders fetches + caches an org ID.
+    const SESSION_TOKEN = "session-abcdef";
+    const PLATFORM_URL = "https://platform.vellum.ai";
+    const ASSISTANT_ID = "11111111-2222-3333-4444-555555555555";
+
+    let identityCalls = 0;
+    const orgIdFetchedAs: string[] = [];
+
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.endsWith("/v1/organizations/")) {
+        // Each org-ID fetch returns a different ID to prove that the
+        // second identity request DID re-resolve the org rather than
+        // reuse a stale cache entry.
+        orgIdFetchedAs.push(`org-${orgIdFetchedAs.length + 1}`);
+        return new Response(
+          JSON.stringify({
+            results: [{ id: orgIdFetchedAs[orgIdFetchedAs.length - 1]! }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (urlStr.endsWith(`/v1/assistants/${ASSISTANT_ID}/identity`)) {
+        identityCalls += 1;
+        if (identityCalls === 1) {
+          return new Response("unauthorized", { status: 401 });
+        }
+        return new Response(JSON.stringify({ version: "0.7.4" }), {
+          status: 200,
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const result = await localRuntimeIdentity(
+      {
+        cloud: "vellum",
+        runtimeUrl: PLATFORM_URL,
+        assistantId: ASSISTANT_ID,
+      },
+      SESSION_TOKEN,
+    );
+
+    expect(result.version).toBe("0.7.4");
+    expect(identityCalls).toBe(2);
+    // Two org-ID fetches: the first to satisfy the initial authHeaders
+    // call, the second after the 401-driven cache invalidation.
+    expect(orgIdFetchedAs).toEqual(["org-1", "org-2"]);
+  });
+
+  test("local entry: does NOT retry after 401 (guardian-token refresh is the caller's job via callRuntimeWithAuthRetry)", async () => {
+    let identityCalls = 0;
+    const fetchMock = mock(async () => {
+      identityCalls += 1;
+      return new Response("unauthorized", {
+        status: 401,
+        statusText: "Unauthorized",
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Failed to fetch runtime identity: 401/,
+    );
+    expect(identityCalls).toBe(1);
+  });
 });
