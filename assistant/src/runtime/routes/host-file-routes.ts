@@ -44,12 +44,15 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
 
   // Validate submitting client matches the targeted client (if any).
   if (peeked.targetClientId != null) {
-    const submittingClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    const rawClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    const submittingClientId = rawClientId?.trim() || undefined;
     if (!submittingClientId) {
       throw new BadRequestError("x-vellum-client-id header is missing for a targeted host file request.");
     }
     if (submittingClientId !== peeked.targetClientId) {
-      throw new ForbiddenError("Submitting client does not match the targeted client for this request.");
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
+      );
     }
   }
 

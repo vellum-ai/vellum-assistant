@@ -23,6 +23,27 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
+  getPlatformBaseUrl: () => "https://platform.example.com",
+  getGatewayInternalBaseUrl: () => "http://localhost:8080",
+  getIngressPublicBaseUrl: () => undefined,
+  setIngressPublicBaseUrl: () => {},
+  getRuntimeHttpPort: () => 3000,
+  getRuntimeHttpHost: () => "0.0.0.0",
+  getSentryDsn: () => "",
+  getQdrantUrlEnv: () => undefined,
+  getQdrantHttpPortEnv: () => undefined,
+  getQdrantReadyzTimeoutMs: () => undefined,
+  getOllamaBaseUrlEnv: () => undefined,
+  setPlatformBaseUrl: () => {},
+  getAssistantDomain: () => "example.com",
+  setPlatformAssistantId: () => {},
+  getPlatformAssistantId: () => "test-assistant-id",
+  setPlatformOrganizationId: () => {},
+  getPlatformOrganizationId: () => "test-org-id",
+  setPlatformUserId: () => {},
+  getPlatformUserId: () => "test-user-id",
+  getPlatformInternalApiKey: () => "test-api-key",
+  validateEnv: () => {},
 }));
 
 import type { PendingInteraction } from "../runtime/pending-interactions.js";
@@ -50,7 +71,7 @@ interface CuResolveCall {
 const cuResolveSpy: CuResolveCall[] = [];
 
 // Controlled conversation map: conversationId → conversation object
-const conversationStore = new Map<string, { hostCuProxy?: { resolve: (...args: unknown[]) => void } }>();
+const conversationStore = new Map<string, { hostCuProxy?: { processObservation: (...args: unknown[]) => void } }>();
 
 mock.module("../daemon/conversation-store.js", () => ({
   findConversation: (conversationId: string) => conversationStore.get(conversationId),
@@ -91,7 +112,10 @@ function registerPending(
 function registerConversation(conversationId = "conv-cu-1"): void {
   conversationStore.set(conversationId, {
     hostCuProxy: {
-      resolve(requestId: unknown, payload: unknown) {
+      processObservation(requestId: unknown, payload: unknown) {
+        // Simulate what the real processObservation does: consume the pending interaction
+        pendingStore.delete(requestId as string);
+        resolvedIds.push(requestId as string);
         cuResolveSpy.push({
           requestId: requestId as string,
           payload: payload as Record<string, unknown>,
