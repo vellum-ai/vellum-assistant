@@ -41,7 +41,11 @@ import { buildVBundle } from "../vbundle-builder.js";
 import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
 import { LEGACY_RUNTIME_VERSION_SENTINEL } from "../vbundle-import-policy.js";
 import { commitImport } from "../vbundle-importer.js";
-import { streamCommitImport } from "../vbundle-streaming-importer.js";
+import {
+  IMPORT_BACKUP_PREFIX,
+  IMPORT_TEMP_PREFIX,
+  streamCommitImport,
+} from "../vbundle-streaming-importer.js";
 import { canonicalizeJson } from "../vbundle-validator.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
 
@@ -615,14 +619,21 @@ describe("streamCommitImport — runtime-version compat gate", () => {
     }
   });
 
+  /**
+   * The streaming importer creates scratch dirs `${workspaceDir}/.import-<uuid>`
+   * and `${workspaceDir}/.pre-import-<ts>-<uuid>` INSIDE workspaceDir (so every
+   * rename during the content-level swap stays on the same filesystem). Scan
+   * for orphan entries with those prefixes inside workspaceDir using the
+   * importer's own constants so this assertion stays in sync with the
+   * importer's actual layout.
+   */
   function assertNoLeftoverTempDirs(): void {
-    const parent = join(workspaceDir, "..");
-    const base = workspaceDir.split("/").pop()!;
-    const siblings = readdirSync(parent);
-    const leftover = siblings.filter(
+    if (!existsSync(workspaceDir)) return;
+    const entries = readdirSync(workspaceDir);
+    const leftover = entries.filter(
       (name) =>
-        name.startsWith(`${base}.import-`) ||
-        name.startsWith(`${base}.pre-import-`),
+        name.startsWith(IMPORT_TEMP_PREFIX) ||
+        name.startsWith(IMPORT_BACKUP_PREFIX),
     );
     expect(leftover).toEqual([]);
   }

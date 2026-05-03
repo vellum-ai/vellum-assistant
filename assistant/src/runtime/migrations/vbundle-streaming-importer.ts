@@ -104,9 +104,13 @@ const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
  * this run (via a `Set<string>` built from the backupDir/tempWorkspaceDir
  * basenames), so a user entry that happens to start with one of these
  * prefixes is still swept into the swap.
+ *
+ * Exported so tests asserting "no orphan temp/backup dirs" stay in sync with
+ * the actual layout. Both dirs are created at `${workspaceDir}/<prefix><uuid>`
+ * (i.e. INSIDE workspaceDir, not as a sibling).
  */
-const IMPORT_TEMP_PREFIX = ".import-";
-const IMPORT_BACKUP_PREFIX = ".pre-import-";
+export const IMPORT_TEMP_PREFIX = ".import-";
+export const IMPORT_BACKUP_PREFIX = ".pre-import-";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -318,7 +322,7 @@ export async function streamCommitImport(
         // Defense-in-depth: refuse to populate the temp tree when the
         // bundle's compat range excludes APP_VERSION. Throwing inside the
         // generator's try block triggers cleanupTempDir() in the catch,
-        // so the empty `${workspaceDir}.import-<uuid>` is removed and the
+        // so the empty `${workspaceDir}/.import-<uuid>` is removed and the
         // real workspace is untouched. Catches legacy bundles whose
         // ExportJob row predates the platform compat-column rollout
         // (compat columns NULL → platform gate skipped) and any future
