@@ -1538,6 +1538,9 @@ public struct HostBashRequest: Decodable, Sendable {
     public let timeoutSeconds: Double?
     /// Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL).
     public let env: [String: String]?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostBashProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1547,6 +1550,7 @@ public struct HostBashRequest: Decodable, Sendable {
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
         case env
+        case targetClientId
     }
 }
 
