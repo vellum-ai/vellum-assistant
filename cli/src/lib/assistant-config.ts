@@ -109,7 +109,7 @@ interface LockfileData {
 }
 
 export function getBaseDir(): string {
-  return process.env.BASE_DATA_DIR?.trim() || homedir();
+  return homedir();
 }
 
 /**
@@ -517,8 +517,9 @@ export function getLockfilePlatformBaseUrl(): string | undefined {
  * lockfile. This lets external tools (e.g. vel) discover the platform URL
  * without importing the assistant config schema.
  */
-export function syncConfigToLockfile(): void {
-  const configPath = join(getBaseDir(), ".vellum", "workspace", "config.json");
+export function syncConfigToLockfile(instanceDir?: string): void {
+  const baseDir = instanceDir ?? homedir();
+  const configPath = join(baseDir, ".vellum", "workspace", "config.json");
   if (!existsSync(configPath)) return;
 
   try {

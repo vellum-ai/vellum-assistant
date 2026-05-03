@@ -4,8 +4,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 
 function getVellumDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
+  return join(homedir(), ".vellum");
 }
 
 function getEnvFilePath(): string {
@@ -111,7 +110,7 @@ export async function setup(): Promise<void> {
     console.log("");
     console.log("Interactive wizard to configure API keys.");
     console.log(
-      "Keys are validated against their APIs and saved to <BASE_DATA_DIR>/.vellum/.env.",
+      "Keys are validated against their APIs and saved to ~/.vellum/.env.",
     );
     process.exit(0);
   }
