@@ -671,7 +671,7 @@ public struct LLMLogPayloadResponse: Codable, Sendable {
 /// `assistant/src/runtime/routes/conversation-query-routes.ts`. Unknown
 /// values from a newer daemon decode to `nil` rather than failing the
 /// whole response.
-public enum ConversationKind: String, Sendable, Equatable, Hashable {
+public enum ConversationKind: String, Codable, Sendable, Equatable, Hashable {
     case user
     case background
     case backgroundMemoryConsolidation = "background_memory_consolidation"
