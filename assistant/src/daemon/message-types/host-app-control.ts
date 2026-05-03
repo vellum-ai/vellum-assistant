@@ -29,6 +29,14 @@ export interface HostAppControlStartInput {
 export interface HostAppControlObserveInput {
   tool: "observe";
   app: string;
+  /**
+   * Milliseconds to wait between receiving the request and capturing the
+   * window. Lets the target app process pending input and the WindowServer
+   * composite a fresh frame. When omitted, the client uses its default
+   * (~200ms, sized for emulator-class apps at 60fps). Pass `0` for static
+   * UIs to make `observe` snappier; raise it for slow-feedback apps.
+   */
+  settle_ms?: number;
 }
 
 export interface HostAppControlPressInput {

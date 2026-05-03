@@ -72,7 +72,7 @@ final class AppControlExecutorTests: XCTestCase {
             type: "host_app_control_request",
             requestId: "req-observe-missing",
             conversationId: "conv-test",
-            input: .observe(app: "com.example.does-not-exist")
+            input: .observe(app: "com.example.does-not-exist", settleMs: 0)
         )
 
         let result = await AppControlExecutor.perform(request)

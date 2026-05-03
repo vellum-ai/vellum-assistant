@@ -1741,7 +1741,7 @@ public struct HostAppControlSequenceStep: Codable, Equatable, Sendable {
 /// hides the discriminator inside the enum case.
 public enum HostAppControlInput: Codable, Equatable, Sendable {
     case start(app: String, args: [String]?)
-    case observe(app: String)
+    case observe(app: String, settleMs: Int?)
     case press(app: String, key: String, modifiers: [String]?, durationMs: Int?)
     case combo(app: String, keys: [String], durationMs: Int?)
     case sequence(app: String, steps: [HostAppControlSequenceStep])
@@ -1762,6 +1762,7 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
         // raw values, decode silently misses `duration_ms` / `from_x` / etc.
         // and hold-durations and drag coordinates fall through to defaults.
         case durationMs = "duration_ms"
+        case settleMs = "settle_ms"
         case steps
         case text
         case x
@@ -1785,7 +1786,8 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
             self = .start(app: app, args: args)
         case "observe":
             let app = try container.decode(String.self, forKey: .app)
-            self = .observe(app: app)
+            let settleMs = try container.decodeIfPresent(Int.self, forKey: .settleMs)
+            self = .observe(app: app, settleMs: settleMs)
         case "press":
             let app = try container.decode(String.self, forKey: .app)
             let key = try container.decode(String.self, forKey: .key)
@@ -1840,9 +1842,10 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
             try container.encode("start", forKey: .tool)
             try container.encode(app, forKey: .app)
             try container.encodeIfPresent(args, forKey: .args)
-        case .observe(let app):
+        case .observe(let app, let settleMs):
             try container.encode("observe", forKey: .tool)
             try container.encode(app, forKey: .app)
+            try container.encodeIfPresent(settleMs, forKey: .settleMs)
         case .press(let app, let key, let modifiers, let durationMs):
             try container.encode("press", forKey: .tool)
             try container.encode(app, forKey: .app)

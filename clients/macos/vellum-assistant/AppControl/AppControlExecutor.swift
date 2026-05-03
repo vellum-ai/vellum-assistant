@@ -17,9 +17,14 @@ private let ACTIVATE_WAIT_DEADLINE_MS = 100
 /// to true after `activate()`.
 private let ACTIVATE_POLL_INTERVAL_MS = 5
 
-/// Settle delay applied at the start of `observe` so the window server has
-/// time to composite a fresh frame after recent synthetic input events.
-private let OBSERVE_SETTLE_DELAY_MS = 80
+/// Default settle delay applied at the start of `observe` so the target
+/// app and the WindowServer have time to composite a fresh frame after
+/// recent synthetic input events. ~12 frames at 60fps — sized for
+/// emulator-class apps where the input → game-state-update → render →
+/// composite → ScreenCaptureKit-pickup pipeline is the limiting factor.
+/// Callers can override per-request via `HostAppControlInput.observe`'s
+/// `settleMs` field.
+private let DEFAULT_OBSERVE_SETTLE_DELAY_MS = 200
 
 /// Default per-step gap inside `app_control_sequence` when a step omits its
 /// own `gap_ms`. Keeps consecutive presses far enough apart that emulators
@@ -70,8 +75,12 @@ enum AppControlExecutor {
         switch request.input {
         case .start(let app, let args):
             return await performStart(requestId: request.requestId, app: app, args: args)
-        case .observe(let app):
-            return await performObserve(requestId: request.requestId, app: app)
+        case .observe(let app, let settleMs):
+            return await performObserve(
+                requestId: request.requestId,
+                app: app,
+                settleMs: settleMs
+            )
         case .press(let app, let key, let modifiers, let durationMs):
             return await performPress(
                 requestId: request.requestId,
@@ -184,7 +193,8 @@ enum AppControlExecutor {
 
     private static func performObserve(
         requestId: String,
-        app: String
+        app: String,
+        settleMs: Int?
     ) async -> HostAppControlResultPayload {
         guard let resolved = resolvePid(forApp: app) else {
             return HostAppControlResultPayload(
@@ -193,12 +203,16 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
-        // Brief settle delay before capture: lets the target app finish
-        // processing any pending synthetic input events and lets the window
-        // server composite a fresh frame for ScreenCaptureKit. Without this,
+        // Settle delay before capture: lets the target app finish processing
+        // any pending synthetic input events and lets the window server
+        // composite a fresh frame for ScreenCaptureKit. Without this,
         // back-to-back press → observe sequences can return a screenshot
-        // captured one input behind the latest state.
-        try? await Task.sleep(nanoseconds: UInt64(OBSERVE_SETTLE_DELAY_MS) * 1_000_000)
+        // captured one input behind the latest state. Caller may override
+        // via `settleMs` (clamped at zero); omit it to use the default.
+        let effectiveSettle = max(0, settleMs ?? DEFAULT_OBSERVE_SETTLE_DELAY_MS)
+        if effectiveSettle > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(effectiveSettle) * 1_000_000)
+        }
         let capture = await AppWindowCapture.capture(forPid: resolved.pid)
         return HostAppControlResultPayload(
             requestId: requestId,

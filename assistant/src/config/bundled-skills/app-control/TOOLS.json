@@ -44,6 +44,10 @@
             "type": "string",
             "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
           },
+          "settle_ms": {
+            "type": "integer",
+            "description": "Milliseconds to wait before capturing so the target app and the WindowServer can flush pending input + composite a fresh frame. Default ~200ms (sized for emulator-class apps at 60fps). Pass 0 for static UIs; raise for slow-feedback apps."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"

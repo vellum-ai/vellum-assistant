@@ -24,7 +24,12 @@ final class HostAppControlTypesTests: XCTestCase {
     }
 
     func test_input_observe_roundTrips() throws {
-        let input = HostAppControlInput.observe(app: "com.apple.Safari")
+        let input = HostAppControlInput.observe(app: "com.apple.Safari", settleMs: nil)
+        XCTAssertEqual(try roundTrip(input), input)
+    }
+
+    func test_input_observe_withSettle_roundTrips() throws {
+        let input = HostAppControlInput.observe(app: "com.apple.Safari", settleMs: 350)
         XCTAssertEqual(try roundTrip(input), input)
     }
 
@@ -119,6 +124,43 @@ final class HostAppControlTypesTests: XCTestCase {
         XCTAssertEqual(key, "Return")
         XCTAssertEqual(modifiers, ["cmd"])
         XCTAssertEqual(durationMs, 100)
+    }
+
+    func test_input_observe_decodes_snake_case_settle_ms() throws {
+        // Wire format uses snake_case `settle_ms`; Swift maps to camelCase via
+        // the explicit `case settleMs = "settle_ms"` raw value. Without that
+        // mapping the override would silently fall through to nil and the
+        // executor would always use its default settle.
+        let json = #"""
+        {
+          "tool": "observe",
+          "app": "com.apple.Safari",
+          "settle_ms": 350
+        }
+        """#
+        let decoded = try JSONDecoder().decode(HostAppControlInput.self, from: Data(json.utf8))
+        guard case .observe(let app, let settleMs) = decoded else {
+            return XCTFail("Expected .observe variant, got \(decoded)")
+        }
+        XCTAssertEqual(app, "com.apple.Safari")
+        XCTAssertEqual(settleMs, 350)
+    }
+
+    func test_input_observe_decodes_without_settle_ms() throws {
+        // Caller may omit `settle_ms`; decode must still succeed with nil so
+        // the executor falls back to its default settle delay.
+        let json = #"""
+        {
+          "tool": "observe",
+          "app": "com.apple.Safari"
+        }
+        """#
+        let decoded = try JSONDecoder().decode(HostAppControlInput.self, from: Data(json.utf8))
+        guard case .observe(let app, let settleMs) = decoded else {
+            return XCTFail("Expected .observe variant, got \(decoded)")
+        }
+        XCTAssertEqual(app, "com.apple.Safari")
+        XCTAssertNil(settleMs)
     }
 
     func test_input_drag_decodes_snake_case_coordinates() throws {

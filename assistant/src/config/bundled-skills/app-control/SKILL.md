@@ -37,6 +37,13 @@ state matters (e.g. you need to know what is on screen, where a UI element is,
 or whether the app is even running). Re-observe after actions that may have
 moved the window or changed visibility.
 
+`observe` waits a short settle delay (default ~200ms) before capturing so the
+target app and the WindowServer can flush pending input and composite a fresh
+frame. If the captured screenshot looks one input behind the latest state
+(common with emulators or other slow-feedback apps), pass a larger
+`settle_ms`. For static UIs where you just want a quick snapshot, pass
+`settle_ms: 0` to skip the wait.
+
 ## Input choice
 
 - Prefer `app_control_sequence` over multiple back-to-back `app_control_press`
