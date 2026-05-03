@@ -65,19 +65,30 @@ struct ProgressCardPresentationModelTests {
         )
     }
 
-    // MARK: - Phase: Thinking
+    // MARK: - Phase: No Tools
 
     @Test
-    func emptyToolCallsIdleYieldsThinking() {
+    func emptyToolCallsIdleYieldsComplete() {
         let model = ProgressCardPresentationModel.build(
             toolCalls: [],
             decidedConfirmations: [],
             context: Self.idleContext
         )
-        #expect(model.phase == ProgressCardPhase.thinking)
+        #expect(model.phase == ProgressCardPhase.complete)
         #expect(!model.hasTools)
         #expect(model.totalToolCount == 0)
         #expect(model.groupId == "no-tools")
+    }
+
+    @Test
+    func emptyToolCallsStreamingYieldsProcessing() {
+        let model = ProgressCardPresentationModel.build(
+            toolCalls: [],
+            decidedConfirmations: [],
+            context: Self.streamingContext(isStreaming: true)
+        )
+        #expect(model.phase == ProgressCardPhase.processing)
+        #expect(model.isActive)
     }
 
     // MARK: - Phase: Tool Running

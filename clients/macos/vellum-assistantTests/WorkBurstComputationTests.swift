@@ -141,9 +141,9 @@ struct WorkBurstComputationTests {
         #expect(bursts[1].stableId == "th1")
     }
 
-    // MARK: - Standalone thinking (no adjacent tools) -> not part of any burst
+    // MARK: - Standalone thinking (no adjacent tools) -> own burst
 
-    @Test("Standalone thinking without adjacent tools is not part of any burst")
+    @Test("Standalone thinking without adjacent tools becomes its own burst")
     func standaloneThinking() {
         let groups: [ContentGroup] = [
             .thinking([0]),
@@ -166,11 +166,15 @@ struct WorkBurstComputationTests {
             messageId: Self.messageId
         )
 
-        // Only one burst — the tool call. The thinking is standalone (separated by text).
-        #expect(bursts.count == 1)
-        #expect(bursts[0].toolIndices == [0])
-        #expect(bursts[0].thinkingIndices.isEmpty)
-        #expect(bursts[0].stableId == "tc0")
+        // The text boundary prevents the thinking from being forwarded into
+        // the later tool burst; it renders as its own card at the original point.
+        #expect(bursts.count == 2)
+        #expect(bursts[0].toolIndices.isEmpty)
+        #expect(bursts[0].thinkingIndices == [0])
+        #expect(bursts[0].stableId == "th0")
+        #expect(bursts[1].toolIndices == [0])
+        #expect(bursts[1].thinkingIndices.isEmpty)
+        #expect(bursts[1].stableId == "tc0")
     }
 
     // MARK: - thinking-tool-tool-thinking-tool-text -> one burst with all items
@@ -344,10 +348,10 @@ struct WorkBurstComputationTests {
         }
     }
 
-    // MARK: - isStreaming only applies to last burst thinking items
+    // MARK: - isStreaming only applies to final thinking content
 
-    @Test("isStreaming flag only applies to thinking items in the last burst")
-    func streamingOnlyLastBurst() {
+    @Test("isStreaming flag does not apply when a tool follows thinking")
+    func streamingClearsWhenToolFollowsThinking() {
         let groups: [ContentGroup] = [
             .thinking([0]),
             .toolCalls([0]),
@@ -380,11 +384,73 @@ struct WorkBurstComputationTests {
             Issue.record("Expected thinking item in first burst")
         }
 
-        // Second burst's thinking SHOULD be streaming
+        // The second burst is latest, but its thinking is followed by a tool
+        // call, so the UI has moved past thinking into execution.
         if case .thinking(_, _, let isStreaming) = bursts[1].expandedItems[0] {
-            #expect(isStreaming)
+            #expect(!isStreaming)
         } else {
             Issue.record("Expected thinking item in second burst")
+        }
+    }
+
+    @Test("isStreaming flag applies when thinking is the final content block")
+    func streamingAppliesToFinalThinkingBlock() {
+        let groups: [ContentGroup] = [
+            .toolCalls([0]),
+            .thinking([0])
+        ]
+        let contentOrder: [ContentBlockRef] = [
+            .toolCall(0), .thinking(0)
+        ]
+        let toolCalls = [Self.makeToolCall(index: 0)]
+        let thinkingSegments = ["Final thought"]
+
+        let bursts = ChatBubble.computeWorkBursts(
+            groups: groups,
+            contentOrder: contentOrder,
+            toolCalls: toolCalls,
+            thinkingSegments: thinkingSegments,
+            showThinking: true,
+            isStreaming: true,
+            messageId: Self.messageId
+        )
+
+        #expect(bursts.count == 1)
+        if case .thinking(_, _, let isStreaming) = bursts[0].expandedItems[1] {
+            #expect(isStreaming)
+        } else {
+            Issue.record("Expected final thinking item")
+        }
+    }
+
+    @Test("isStreaming flag does not apply when text follows thinking")
+    func streamingClearsWhenTextFollowsThinking() {
+        let groups: [ContentGroup] = [
+            .toolCalls([0]),
+            .thinking([0]),
+            .texts([0])
+        ]
+        let contentOrder: [ContentBlockRef] = [
+            .toolCall(0), .thinking(0), .text(0)
+        ]
+        let toolCalls = [Self.makeToolCall(index: 0)]
+        let thinkingSegments = ["Thought before answer"]
+
+        let bursts = ChatBubble.computeWorkBursts(
+            groups: groups,
+            contentOrder: contentOrder,
+            toolCalls: toolCalls,
+            thinkingSegments: thinkingSegments,
+            showThinking: true,
+            isStreaming: true,
+            messageId: Self.messageId
+        )
+
+        #expect(bursts.count == 1)
+        if case .thinking(_, _, let isStreaming) = bursts[0].expandedItems[1] {
+            #expect(!isStreaming)
+        } else {
+            Issue.record("Expected thinking item before trailing text")
         }
     }
 

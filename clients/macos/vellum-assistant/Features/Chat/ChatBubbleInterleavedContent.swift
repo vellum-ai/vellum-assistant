@@ -58,9 +58,9 @@ extension ChatBubble {
     /// and thinking groups into a single burst. Text and surface groups flush the
     /// current burst and create boundaries.
     ///
-    /// A burst MUST contain at least one tool call. Thinking-only groups (thinking
-    /// with no adjacent tool calls) are NOT included in any burst — they remain
-    /// standalone groups for separate rendering.
+    /// Adjacent thinking is folded into tool bursts. Thinking separated from tools
+    /// by text or surfaces becomes its own thinking-only burst at that position,
+    /// so it renders as a progress card without being forwarded across boundaries.
     static func computeWorkBursts(
         groups: [ContentGroup],
         contentOrder: [ContentBlockRef],
@@ -76,35 +76,50 @@ extension ChatBubble {
         var pendingToolIndices: [Int] = []
         var pendingThinkingIndices: [Int] = []
         var pendingStableId: String?
-        var pendingGroupStableIds: [String] = []
 
-        // Orphan thinking: thinking flushed without adjacent tool calls.
-        // Gets prepended to the next burst that has tools.
-        var orphanThinkingIndices: [Int] = []
-        var orphanThinkingStableId: String?
+        func isStreamingThinkingIndex(_ index: Int) -> Bool {
+            guard isStreaming, let lastRef = contentOrder.last else { return false }
+            if case .thinking(let lastIndex) = lastRef {
+                return lastIndex == index
+            }
+            return false
+        }
 
         func flushBurst() {
+            let thinkingSet = Set(pendingThinkingIndices)
+
             guard !pendingToolIndices.isEmpty else {
-                // Thinking-only — save as orphan to forward to the next burst
                 if !pendingThinkingIndices.isEmpty {
-                    orphanThinkingIndices.append(contentsOf: pendingThinkingIndices)
-                    if orphanThinkingStableId == nil {
-                        orphanThinkingStableId = pendingStableId
+                    var items: [ProgressExpandedItem] = []
+                    if showThinking {
+                        for ref in contentOrder {
+                            if case .thinking(let i) = ref,
+                               thinkingSet.contains(i),
+                               i < thinkingSegments.count,
+                               !thinkingSegments[i].isEmpty {
+                                items.append(.thinking(
+                                    content: thinkingSegments[i],
+                                    expansionKey: "\(messageId.uuidString)-th\(i)",
+                                    isStreaming: isStreamingThinkingIndex(i)
+                                ))
+                            }
+                        }
                     }
+                    bursts.append(WorkBurst(
+                        toolIndices: [],
+                        thinkingIndices: pendingThinkingIndices,
+                        stableId: pendingStableId ?? "burst-\(bursts.count)",
+                        expandedItems: items
+                    ))
                 }
                 pendingToolIndices = []
                 pendingThinkingIndices = []
                 pendingStableId = nil
-                pendingGroupStableIds = []
                 return
             }
 
-            // Absorb any orphan thinking from before this burst
-            let allThinkingIndices = orphanThinkingIndices + pendingThinkingIndices
-            let burstStableId = orphanThinkingStableId ?? pendingStableId ?? "burst-\(bursts.count)"
-
             let toolSet = Set(pendingToolIndices)
-            let thinkingSet = Set(allThinkingIndices)
+            let burstStableId = pendingStableId ?? "burst-\(bursts.count)"
 
             // Build expandedItems by walking contentOrder for chronological ordering
             var items: [ProgressExpandedItem] = []
@@ -121,7 +136,7 @@ extension ChatBubble {
                     items.append(.thinking(
                         content: thinkingSegments[i],
                         expansionKey: expansionKey,
-                        isStreaming: false
+                        isStreaming: isStreamingThinkingIndex(i)
                     ))
                 default:
                     continue
@@ -130,18 +145,14 @@ extension ChatBubble {
 
             bursts.append(WorkBurst(
                 toolIndices: pendingToolIndices,
-                thinkingIndices: allThinkingIndices,
+                thinkingIndices: pendingThinkingIndices,
                 stableId: burstStableId,
                 expandedItems: items
             ))
 
-            orphanThinkingIndices = []
-            orphanThinkingStableId = nil
-
             pendingToolIndices = []
             pendingThinkingIndices = []
             pendingStableId = nil
-            pendingGroupStableIds = []
         }
 
         for group in groups {
@@ -151,64 +162,17 @@ extension ChatBubble {
                     pendingStableId = group.stableId
                 }
                 pendingToolIndices.append(contentsOf: indices)
-                pendingGroupStableIds.append(group.stableId)
             case .thinking(let indices):
                 if pendingStableId == nil {
                     pendingStableId = group.stableId
                 }
                 pendingThinkingIndices.append(contentsOf: indices)
-                pendingGroupStableIds.append(group.stableId)
             case .texts, .surface:
                 flushBurst()
             }
         }
         // Flush any trailing burst
         flushBurst()
-
-        // If orphan thinking remains with no following tool burst, create
-        // a thinking-only burst so it renders as a "Worked" row instead
-        // of a standalone ThinkingBlockView.
-        if !orphanThinkingIndices.isEmpty {
-            let thinkingSet = Set(orphanThinkingIndices)
-            var items: [ProgressExpandedItem] = []
-            if showThinking {
-                for ref in contentOrder {
-                    if case .thinking(let i) = ref,
-                       thinkingSet.contains(i),
-                       i < thinkingSegments.count,
-                       !thinkingSegments[i].isEmpty {
-                        items.append(.thinking(
-                            content: thinkingSegments[i],
-                            expansionKey: "\(messageId.uuidString)-th\(i)",
-                            isStreaming: false
-                        ))
-                    }
-                }
-            }
-            bursts.append(WorkBurst(
-                toolIndices: [],
-                thinkingIndices: orphanThinkingIndices,
-                stableId: orphanThinkingStableId ?? "burst-\(bursts.count)",
-                expandedItems: items
-            ))
-        }
-
-        // Set isStreaming on the last thinking item in the last burst, but
-        // only when it's also the last item overall — if a tool call follows
-        // the thinking, the model has moved past thinking to execution.
-        if isStreaming, var lastBurst = bursts.last {
-            if let lastThinkingIdx = lastBurst.expandedItems.lastIndex(where: {
-                if case .thinking = $0 { return true }
-                return false
-            }), lastThinkingIdx == lastBurst.expandedItems.count - 1 {
-                if case .thinking(let content, let key, _) = lastBurst.expandedItems[lastThinkingIdx] {
-                    lastBurst.expandedItems[lastThinkingIdx] = .thinking(
-                        content: content, expansionKey: key, isStreaming: true
-                    )
-                }
-                bursts[bursts.count - 1] = lastBurst
-            }
-        }
 
         return bursts
     }

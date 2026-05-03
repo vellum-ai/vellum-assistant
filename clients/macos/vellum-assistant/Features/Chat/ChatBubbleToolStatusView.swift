@@ -37,10 +37,6 @@ extension ChatBubble {
 
         if hasStructuredThinking {
             var items: [ProgressExpandedItem] = []
-            let lastThinkingIndex = message.contentOrder.lastIndex { ref in
-                if case .thinking = ref { return true }
-                return false
-            }
             for (orderIdx, ref) in message.contentOrder.enumerated() {
                 switch ref {
                 case .thinking(let i):
@@ -48,11 +44,8 @@ extension ChatBubble {
                     let content = message.thinkingSegments[i]
                     guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                     let key = "\(message.id.uuidString)-th\(i)"
-                    let isLast = orderIdx == lastThinkingIndex
-                    let hasToolAfter = isLast && message.contentOrder.suffix(from: orderIdx + 1).contains {
-                        if case .toolCall = $0 { return true }; return false
-                    }
-                    let streaming = message.isStreaming && isLast && !hasToolAfter
+                    let isLastOverall = orderIdx == message.contentOrder.index(before: message.contentOrder.endIndex)
+                    let streaming = message.isStreaming && isLastOverall
                     items.append(.thinking(content: content, expansionKey: key, isStreaming: streaming))
                 case .toolCall(let i):
                     guard i < message.toolCalls.count else { continue }
