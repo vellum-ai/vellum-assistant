@@ -730,7 +730,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 
 1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
 2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
-3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
+3. Events are deduplicated by a compound key in the SQLite-backed `slack_seen_events` table: every event records its Slack `event_id`, and message-shaped events additionally record `msg:${channel}:${ts}` so the live and reconnect-replay paths dedup symmetrically. Entries TTL out after 24h; a periodic cleanup sweep evicts expired rows.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
 6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` pointing to `/deliver/slack`.
@@ -757,13 +757,24 @@ Both tokens are stored in secure storage (`credential/slack_channel/app_token`, 
 
 The Socket Mode client auto-reconnects on any WebSocket close or error. The backoff schedule is: `min(1000 * 2^attempt, 30000)` + random jitter. After a successful connection, the attempt counter resets. Slack-initiated disconnects (envelope `type: "disconnect"`) trigger an immediate reconnect with no backoff.
 
+**Reconnect catch-up:**
+
+Slack [does not buffer Socket Mode events](https://api.slack.com/apis/socket-mode#events) for disconnected clients, so any @mention or DM that arrives during a reconnect window is lost on the wire. The client recovers these by maintaining a persistent high-watermark (`slack_last_seen_ts`) of the latest accepted event timestamp and, on every WebSocket `open`, fetching a bounded slice of [`conversations.history`](https://api.slack.com/methods/conversations.history) and [`conversations.replies`](https://api.slack.com/methods/conversations.replies) since that watermark. Recovered messages are wrapped in synthetic Socket Mode envelopes and dispatched through the same `processEventPayload` path as live events, so filter, dedup, normalize, and routing logic stay in one place.
+
+Catch-up is scoped to channels the gateway can reasonably reach: routing entries with a Slack-shaped conversation ID (`C…` / `D…` / `G…`), tracked active threads (`slack_active_threads`), and previously-seen DM channels (`contact_channels` rows of type `slack`). It is bounded by max-lookback (1h), per-channel limit (50), and concurrency (4); on a 429 the cycle aborts immediately and resumes on the next reconnect. Brand-new mentions in unrouted, never-engaged channels remain unrecoverable here — the daemon's existing inbound-triggered Slack backfill (`triggerSlackThreadBackfillIfNeeded` and `tryBackfillSlackDmIfCold`) hydrates context once the next live event arrives.
+
+**General principle — stateful-stream transports require catch-up-on-reconnect:**
+
+Any persistent-stream transport that does not buffer events for disconnected clients (Slack Socket Mode, similar WebSocket gateways) must combine the WebSocket with a HTTP catch-up path on reconnect. A persisted high-watermark + bounded replay through the shared event pipeline is the standard pattern; without it, every transient disconnect silently drops events.
+
 **Key modules:**
 
-| Module                                     | Purpose                                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------------------- |
-| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect    |
-| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping |
-| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`          |
+| Module                                     | Purpose                                                                                       |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up |
+| `gateway/src/slack/slack-web.ts`           | `conversations.history` / `conversations.replies` helpers for reconnect catch-up              |
+| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping                  |
+| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`                           |
 
 **Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
 

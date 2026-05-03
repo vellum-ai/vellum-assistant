@@ -5,6 +5,7 @@ import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
 import {
+  CatchupAbortSignal,
   fetchChannelHistorySince,
   fetchThreadRepliesSince,
   runWithConcurrency,
@@ -992,17 +993,16 @@ export class SlackSocketModeClient {
    * dedup (`msg:${channel}:${ts}`) prevents double-emit if the same
    * message also arrives via the live socket.
    *
-   * Scope (v1):
+   * Scope:
    *   - Routed channels (gateway routing entries)
    *   - Active threads (`slack_active_threads`)
    *   - Known DM channels (`contact_channels` rows of type `slack` with
    *     a `D…` external chat id)
    *
-   * Brand-new mentions in unrouted, never-engaged channels remain
-   * unrecoverable for v1 — the daemon's existing inbound-triggered
-   * backfill (`triggerSlackThreadBackfillIfNeeded`,
-   * `tryBackfillSlackDmIfCold`) will hydrate context once the next
-   * live event arrives.
+   * Brand-new mentions in unrouted, never-engaged channels are not
+   * recoverable here — the daemon's existing inbound-triggered backfill
+   * (`triggerSlackThreadBackfillIfNeeded`, `tryBackfillSlackDmIfCold`)
+   * will hydrate context once the next live event arrives.
    */
   private async replayMissedEvents(ownerWs: WebSocket): Promise<void> {
     // Bail if a fresh forceReconnect has replaced the active socket
@@ -1037,7 +1037,17 @@ export class SlackSocketModeClient {
 
     const routedChannels = new Set<string>();
     for (const entry of this.config.gatewayConfig.routingEntries) {
-      if (entry.type === "conversation_id") routedChannels.add(entry.key);
+      // routingEntries is shared across channels (Slack, Telegram, WhatsApp,
+      // …), so filter to keys that look like Slack conversation IDs. Slack
+      // IDs always begin with C (public channel), D (DM/IM), or G (private
+      // channel / multi-person IM) — see
+      // https://api.slack.com/types/conversation.
+      if (
+        entry.type === "conversation_id" &&
+        isSlackConversationId(entry.key)
+      ) {
+        routedChannels.add(entry.key);
+      }
     }
     const dmChannels = this.store.listKnownSlackDmChannels();
     for (const channel of dmChannels) routedChannels.add(channel);
@@ -1054,6 +1064,7 @@ export class SlackSocketModeClient {
     );
 
     let recovered = 0;
+    const abort = new CatchupAbortSignal();
 
     // Channel/DM history fan-out. We use conversations.history rather than
     // conversations.replies for top-level channels because we want
@@ -1061,12 +1072,13 @@ export class SlackSocketModeClient {
     // covered separately below.
     const channelTasks = Array.from(routedChannels).map((channel) => {
       return async () => {
-        if (this.ws !== ownerWs) return;
+        if (this.ws !== ownerWs || abort.aborted) return;
         const result = await fetchChannelHistorySince({
           botToken,
           channel,
           oldest,
           limit: CATCHUP_HISTORY_LIMIT,
+          abort,
         });
         if (this.ws !== ownerWs) return;
         for (const msg of result.messages) {
@@ -1077,13 +1089,14 @@ export class SlackSocketModeClient {
 
     const threadTasks = activeThreads.map(({ channelId, threadTs }) => {
       return async () => {
-        if (this.ws !== ownerWs) return;
+        if (this.ws !== ownerWs || abort.aborted) return;
         const result = await fetchThreadRepliesSince({
           botToken,
           channel: channelId,
           threadTs,
           oldest,
           limit: CATCHUP_HISTORY_LIMIT,
+          abort,
         });
         if (this.ws !== ownerWs) return;
         for (const msg of result.messages) {
@@ -1285,6 +1298,16 @@ function toSlackTs(ms: number): string {
   const secs = Math.floor(ms / 1_000);
   const micros = Math.floor((ms % 1_000) * 1_000);
   return `${secs}.${String(micros).padStart(6, "0")}`;
+}
+
+/**
+ * True if `id` looks like a Slack conversation ID. Slack IDs are 9–11
+ * uppercase-alphanumeric characters prefixed with `C` (public channel),
+ * `D` (direct message / IM), or `G` (private channel / multi-person IM).
+ * See https://api.slack.com/types/conversation.
+ */
+function isSlackConversationId(id: string): boolean {
+  return /^[CDG][A-Z0-9]+$/.test(id);
 }
 
 /**

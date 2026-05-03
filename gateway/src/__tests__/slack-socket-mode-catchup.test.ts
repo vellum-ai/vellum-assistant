@@ -53,7 +53,7 @@ function makeConfig(): GatewayConfig {
     routingEntries: [
       {
         type: "conversation_id",
-        key: "C-routed",
+        key: "CROUTED01",
         assistantId: "ast-slack",
       },
     ],
@@ -171,7 +171,7 @@ describe("compound dedup across live and replay paths", () => {
               user: "U-author",
               text: "<@UBOT> hi",
               ts: "1700000000.000100",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -188,13 +188,13 @@ describe("compound dedup across live and replay paths", () => {
           envelope_id: "env-replay",
           type: "events_api",
           payload: {
-            event_id: "replay:C-routed:1700000000.000100",
+            event_id: "replay:CROUTED01:1700000000.000100",
             event: {
               type: "app_mention",
               user: "U-author",
               text: "<@UBOT> hi",
               ts: "1700000000.000100",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -220,13 +220,13 @@ describe("compound dedup across live and replay paths", () => {
           envelope_id: "env-replay",
           type: "events_api",
           payload: {
-            event_id: "replay:C-routed:1700000000.000200",
+            event_id: "replay:CROUTED01:1700000000.000200",
             event: {
               type: "app_mention",
               user: "U-author",
               text: "<@UBOT> hi",
               ts: "1700000000.000200",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -247,7 +247,7 @@ describe("compound dedup across live and replay paths", () => {
               user: "U-author",
               text: "<@UBOT> hi",
               ts: "1700000000.000200",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -280,7 +280,7 @@ describe("catch-up watermark", () => {
               user: "U-author",
               text: "<@UBOT> first",
               ts: "1700000010.000000",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -299,7 +299,7 @@ describe("catch-up watermark", () => {
               user: "U-author",
               text: "<@UBOT> second",
               ts: "1700000020.000000",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -321,7 +321,7 @@ describe("catch-up watermark", () => {
               user: "U-author",
               text: "<@UBOT> earlier",
               ts: "1700000005.000000",
-              channel: "C-routed",
+              channel: "CROUTED01",
             },
           },
         }),
@@ -413,7 +413,7 @@ describe("replayMissedEvents", () => {
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe(
-        "replay:C-routed:1700000050.000000",
+        "replay:CROUTED01:1700000050.000000",
       );
       expect(emitted[0].event.message.content).toContain("recovered");
       expect(store.getLastSeenTs()).toBe("1700000050.000000");
@@ -446,6 +446,83 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("aborts remaining catch-up workers after a single 429", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+    // Many active threads so the worker pool would otherwise issue many
+    // requests in parallel; once one 429s we expect the others to bail.
+    for (let i = 0; i < 20; i++) {
+      store.trackThread(
+        `170000000${i}.000000`,
+        `CTHREAD${i}`,
+        24 * 60 * 60 * 1_000,
+      );
+    }
+
+    let calls = 0;
+    fetchMock = mock(async () => {
+      calls++;
+      return new Response("", {
+        status: 429,
+        headers: { "retry-after": "1" },
+      });
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      // The first 429 trips the abort flag; later workers see `aborted`
+      // and skip without firing additional requests. The exact number of
+      // pre-flight calls is bounded by the concurrency limit.
+      expect(calls).toBeLessThanOrEqual(4);
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("ignores routing entries whose key is not a Slack conversation ID", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    // Replace the default Slack-shaped routing key with a non-Slack one
+    // (Telegram chat IDs are numeric strings, e.g. "123456789").
+    client.config = {
+      ...client.config,
+      gatewayConfig: {
+        ...client.config.gatewayConfig,
+        routingEntries: [
+          {
+            type: "conversation_id",
+            key: "123456789",
+            assistantId: "ast-telegram",
+          },
+        ],
+      },
+    };
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    const calls: string[] = [];
+    fetchMock = mock(async (input) => {
+      calls.push(String(input));
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      expect(calls.some((u) => u.includes("channel=123456789"))).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("recovers a missed reply from an active thread via conversations.replies", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
@@ -454,7 +531,7 @@ describe("replayMissedEvents", () => {
     client.ws = ws;
 
     store.setLastSeenTsIfGreater("1700000000.000000");
-    store.trackThread("1700000000.000000", "C-routed", 24 * 60 * 60 * 1_000);
+    store.trackThread("1700000000.000000", "CROUTED01", 24 * 60 * 60 * 1_000);
 
     const calls: string[] = [];
     fetchMock = mock(async (input) => {
@@ -480,7 +557,7 @@ describe("replayMissedEvents", () => {
       expect(calls.some((u) => u.includes("conversations.replies"))).toBe(true);
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe(
-        "replay:C-routed:1700000060.000000",
+        "replay:CROUTED01:1700000060.000000",
       );
     } finally {
       rawDb.close();

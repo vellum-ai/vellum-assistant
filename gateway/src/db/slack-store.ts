@@ -32,9 +32,8 @@ export class SlackStore {
 
   /**
    * Track a thread the bot is participating in so unmentioned replies are
-   * forwarded. `channelId` is required for new rows; pre-existing rows that
-   * predate the column carry a null channel and are skipped during reconnect
-   * catch-up enumeration.
+   * forwarded. `channelId` is required so reconnect catch-up can scope
+   * `conversations.replies` calls to the thread's channel.
    */
   trackThread(threadTs: string, channelId: string, ttlMs: number): void {
     const now = Date.now();
@@ -70,7 +69,8 @@ export class SlackStore {
 
   /**
    * Returns all unexpired active threads with a known channel for reconnect
-   * catch-up. Rows that predate the `channel_id` column are filtered out.
+   * catch-up. Rows with a NULL `channel_id` (legacy rows from before the
+   * column was introduced) are filtered out.
    */
   listActiveThreadsWithChannel(): ActiveThreadRow[] {
     const now = Date.now();

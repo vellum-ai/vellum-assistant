@@ -48,10 +48,29 @@ export type FetchSlackHistoryResult = {
 /** Slack rate-limit handling — wait this long after a 429 before retrying. */
 const RATE_LIMIT_FALLBACK_MS = 5_000;
 
+/**
+ * Coordinates per-cycle catch-up cancellation. When any worker hits a 429,
+ * it calls `abort()`; remaining workers check `aborted` before each call
+ * and bail out without issuing further requests, so the catch-up cycle
+ * stops cleanly instead of cascading into more rate-limit responses.
+ */
+export class CatchupAbortSignal {
+  private flag = false;
+  abort(): void {
+    this.flag = true;
+  }
+  get aborted(): boolean {
+    return this.flag;
+  }
+}
+
 async function callSlackApi(
   url: string,
   botToken: string,
+  abort: CatchupAbortSignal | undefined,
 ): Promise<SlackHistoryResponse | undefined> {
+  if (abort?.aborted) return undefined;
+
   let resp: Response;
   try {
     resp = await fetchImpl(url, {
@@ -68,9 +87,10 @@ async function callSlackApi(
     const waitMs = retryHeader
       ? Number.parseInt(retryHeader, 10) * 1_000
       : RATE_LIMIT_FALLBACK_MS;
+    abort?.abort();
     log.warn(
       { url: redact(url), waitMs },
-      "Slack catch-up rate limited; abandoning this cycle",
+      "Slack catch-up rate limited; aborting cycle",
     );
     return undefined;
   }
@@ -119,15 +139,16 @@ export async function fetchChannelHistorySince(params: {
   channel: string;
   oldest: string;
   limit: number;
+  abort?: CatchupAbortSignal;
 }): Promise<FetchSlackHistoryResult> {
-  const { botToken, channel, oldest, limit } = params;
+  const { botToken, channel, oldest, limit, abort } = params;
   const url =
     "https://slack.com/api/conversations.history" +
     `?channel=${encodeURIComponent(channel)}` +
     `&oldest=${encodeURIComponent(oldest)}` +
     `&limit=${limit}` +
     `&inclusive=false`;
-  const data = await callSlackApi(url, botToken);
+  const data = await callSlackApi(url, botToken, abort);
   if (!data) return { messages: [], hasMore: false, ok: false };
   return {
     messages: data.messages ?? [],
@@ -148,8 +169,9 @@ export async function fetchThreadRepliesSince(params: {
   threadTs: string;
   oldest: string;
   limit: number;
+  abort?: CatchupAbortSignal;
 }): Promise<FetchSlackHistoryResult> {
-  const { botToken, channel, threadTs, oldest, limit } = params;
+  const { botToken, channel, threadTs, oldest, limit, abort } = params;
   const url =
     "https://slack.com/api/conversations.replies" +
     `?channel=${encodeURIComponent(channel)}` +
@@ -157,7 +179,7 @@ export async function fetchThreadRepliesSince(params: {
     `&oldest=${encodeURIComponent(oldest)}` +
     `&limit=${limit}` +
     `&inclusive=false`;
-  const data = await callSlackApi(url, botToken);
+  const data = await callSlackApi(url, botToken, abort);
   if (!data) return { messages: [], hasMore: false, ok: false };
   return {
     messages: data.messages ?? [],
