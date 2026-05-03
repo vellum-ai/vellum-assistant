@@ -5191,6 +5191,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  cronExpression:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  timezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -5206,6 +5214,8 @@ paths:
                   - intervalMs
                   - activeHoursStart
                   - activeHoursEnd
+                  - cronExpression
+                  - timezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -5236,6 +5246,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  cronExpression:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  timezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -5251,6 +5269,8 @@ paths:
                   - intervalMs
                   - activeHoursStart
                   - activeHoursEnd
+                  - cronExpression
+                  - timezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -5263,22 +5283,31 @@ paths:
               type: object
               properties:
                 enabled:
-                  type: boolean
                   description: Enable or disable heartbeat
+                  type: boolean
                 intervalMs:
-                  type: number
                   description: Heartbeat interval in ms
+                  type: number
                 activeHoursStart:
-                  type: number
                   description: Active hours start (0–23)
+                  anyOf:
+                    - type: number
+                    - type: "null"
                 activeHoursEnd:
-                  type: number
                   description: Active hours end (0–23)
-              required:
-                - enabled
-                - intervalMs
-                - activeHoursStart
-                - activeHoursEnd
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                cronExpression:
+                  description: Cron expression for heartbeat timing, or null for fixed interval
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                timezone:
+                  description: Timezone for cron evaluation
+                  anyOf:
+                    - type: string
+                    - type: "null"
               additionalProperties: false
   /v1/heartbeat/run-now:
     post:

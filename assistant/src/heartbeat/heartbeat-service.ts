@@ -224,17 +224,27 @@ export class HeartbeatService {
         clearInterval(this.timer as ReturnType<typeof setInterval>);
         this.timer = null;
       }
+      const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
       const delayMs = Math.max(0, nextRunAt - Date.now());
       const epoch = this.configEpoch;
-      this.timer = setTimeout(() => {
-        this.runOnce()
-          .catch((err) => log.error({ err }, "Cron heartbeat failed"))
-          .finally(() => {
-            if (this.configEpoch === epoch) {
-              this.scheduleNextCronRun(getConfig().heartbeat);
-            }
-          });
-      }, delayMs);
+      if (delayMs > MAX_TIMEOUT_MS) {
+        // Re-evaluate after 24h — the actual cron time is still far away
+        this.timer = setTimeout(() => {
+          if (this.configEpoch === epoch) {
+            this.scheduleNextCronRun(getConfig().heartbeat);
+          }
+        }, MAX_TIMEOUT_MS);
+      } else {
+        this.timer = setTimeout(() => {
+          this.runOnce()
+            .catch((err) => log.error({ err }, "Cron heartbeat failed"))
+            .finally(() => {
+              if (this.configEpoch === epoch) {
+                this.scheduleNextCronRun(getConfig().heartbeat);
+              }
+            });
+        }, delayMs);
+      }
       (this.timer as ReturnType<typeof setTimeout>).unref();
       log.info(
         { nextRunAt: new Date(nextRunAt).toISOString(), delayMs },
