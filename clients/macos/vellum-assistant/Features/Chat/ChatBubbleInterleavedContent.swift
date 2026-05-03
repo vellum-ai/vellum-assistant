@@ -562,24 +562,14 @@ extension ChatBubble {
             return result
         }()
 
-        // Bursts immediately followed by a text group defer their images to
-        // render after the text, so "Here's the screenshot:" appears before
-        // the screenshot it introduces.
-        let deferredImageBurstIds: Set<String> = {
-            var ids = Set<String>()
-            for burst in bursts {
-                if burstTrailingText[burst.stableId] == true {
-                    ids.insert(burst.stableId)
-                }
-            }
-            return ids
-        }()
-
-        // Map text group stableIds to the burst whose images they should render
+        // Map text group stableIds to the burst whose images they should render.
+        // Only bursts whose immediately following group is a `.texts` group
+        // qualify — if a surface sits between the burst and the next text,
+        // the burst keeps its images to avoid them vanishing.
         let textGroupDeferredBurst: [String: WorkBurst] = {
             var map: [String: WorkBurst] = [:]
             for burst in bursts {
-                guard deferredImageBurstIds.contains(burst.stableId) else { continue }
+                guard burstTrailingText[burst.stableId] == true else { continue }
                 let burstToolSet = Set(burst.toolIndices)
                 let burstThinkingSet = Set(burst.thinkingIndices)
                 var lastBurstGroupIdx: Int?
@@ -599,6 +589,12 @@ extension ChatBubble {
             }
             return map
         }()
+
+        // Derive deferred image burst IDs from the text-group mapping so that
+        // images are only suppressed at the burst site when a text group is
+        // actually mapped to render them. This prevents image loss when a
+        // surface separates a burst from a later text group.
+        let deferredImageBurstIds: Set<String> = Set(textGroupDeferredBurst.values.map(\.stableId))
 
         // Identify the last text group so attachments render right after it
         let lastTextGroupId: String? = groups.last(where: {
