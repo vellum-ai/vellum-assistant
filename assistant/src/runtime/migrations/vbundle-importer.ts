@@ -340,7 +340,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       // user-authored content, skip rather than clobber — mirrors the
       // protection in the regular-file branch below.
       if (
-        fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+        policy.isLegacyPersonaArchivePath(fileEntry.path) &&
         isGuardianPersonaCustomized(diskPath)
       ) {
         log.warn(

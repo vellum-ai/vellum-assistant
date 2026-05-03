@@ -478,7 +478,7 @@ export async function streamCommitImport(
         // the destination guardian persona is already user-customized,
         // skip rather than clobber.
         if (
-          archivePath === LEGACY_USER_MD_ARCHIVE_PATH &&
+          policy.isLegacyPersonaArchivePath(archivePath) &&
           isGuardianPersonaCustomized(diskPath)
         ) {
           log.warn(
