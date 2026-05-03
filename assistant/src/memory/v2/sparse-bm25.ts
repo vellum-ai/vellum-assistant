@@ -27,7 +27,11 @@
 import { readFile } from "node:fs/promises";
 
 import type { SparseEmbedding } from "../embedding-types.js";
-import { SPARSE_VOCAB_SIZE, tokenHash, tokenize } from "../sparse-tokenize.js";
+import {
+  SPARSE_VOCAB_SIZE,
+  tokenHash,
+  tokenizeStemmed,
+} from "../sparse-tokenize.js";
 import { listPages } from "./page-store.js";
 
 /**
@@ -95,7 +99,7 @@ export async function rebuildConceptPageCorpusStats(
   for (const slug of slugs) {
     const body = await readPageBodyForStats(workspaceDir, slug);
     if (body === null) continue;
-    const tokens = tokenize(body);
+    const tokens = tokenizeStemmed(body);
     if (tokens.length === 0) continue;
     totalTokens += tokens.length;
     docsCounted += 1;
@@ -169,7 +173,7 @@ export function generateBm25DocEmbedding(
   stats: CorpusStats,
   params: Bm25Params,
 ): SparseEmbedding {
-  const tokens = tokenize(text);
+  const tokens = tokenizeStemmed(text);
   if (tokens.length === 0 || stats.totalDocs === 0) {
     return { indices: [], values: [] };
   }
@@ -211,7 +215,7 @@ export function generateBm25DocEmbedding(
  * turn without coordinating with {@link rebuildConceptPageCorpusStats}.
  */
 export function generateBm25QueryEmbedding(text: string): SparseEmbedding {
-  const tokens = tokenize(text);
+  const tokens = tokenizeStemmed(text);
   if (tokens.length === 0) {
     return { indices: [], values: [] };
   }

@@ -11,12 +11,30 @@
 // `mock.module(...)`, and a missing export from the mock would break any
 // transitive importer of these helpers.
 
+import { stemmer } from "stemmer";
+
 /** Hashed-vocabulary size for sparse encoders. */
 export const SPARSE_VOCAB_SIZE = 30_000;
 
 /** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
 export function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * Tokenize and apply Porter stemming so morphological variants collapse to a
+ * shared bucket (e.g. `running`/`runs`/`ran` → `run`, `supplements` →
+ * `supplement`). Used only by the BM25 sparse channel in
+ * `v2/sparse-bm25.ts`; both the document-side and query-side encoders call
+ * this so doc and query tokens land in the same hash buckets.
+ *
+ * Other callers (workspace context-search, the legacy TF-only
+ * `generateSparseEmbedding`) intentionally keep the non-stemmed `tokenize()`
+ * because they predate this and rebuilding their on-disk indexes is out of
+ * scope here.
+ */
+export function tokenizeStemmed(text: string): string[] {
+  return tokenize(text).map((token) => stemmer(token));
 }
 
 /** Hash a token to a stable index in [0, vocabSize). */

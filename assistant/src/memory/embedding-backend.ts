@@ -794,10 +794,12 @@ async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
 
 /**
  * Bump this version whenever the sparse embedding algorithm changes
- * (e.g. hash function fix, tokenizer change) to trigger re-indexing
- * of existing sparse vectors via the sentinel mismatch mechanism.
+ * (e.g. hash function fix, tokenizer change). Now inert metadata — the v1
+ * Qdrant sentinel was decoupled from this constant, so a bump no longer
+ * forces an automatic rebuild. Operators must explicitly run
+ * `assistant memory v2 reembed` to rematerialize the v2 sparse index.
  */
-export const SPARSE_EMBEDDING_VERSION = 3;
+export const SPARSE_EMBEDDING_VERSION = 4;
 
 /**
  * Generate a TF-IDF-based sparse embedding for the given text.

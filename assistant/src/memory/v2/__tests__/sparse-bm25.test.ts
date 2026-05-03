@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   SPARSE_VOCAB_SIZE,
   tokenHash,
-  tokenize,
+  tokenizeStemmed,
 } from "../../sparse-tokenize.js";
 import {
   _resetCorpusStatsForTests,
@@ -20,6 +20,22 @@ import {
 } from "../sparse-bm25.js";
 
 const PARAMS: Bm25Params = { k1: 1.2, b: 0.75 };
+
+/**
+ * Resolve the hashed bucket where `word` lands after the production
+ * tokenize+stem pipeline. Mirrors what `generateBm25DocEmbedding` /
+ * `generateBm25QueryEmbedding` do internally so fixtures stay in lockstep
+ * with the encoder.
+ */
+function stemmedBucket(word: string): number {
+  const tokens = tokenizeStemmed(word);
+  if (tokens.length !== 1) {
+    throw new Error(
+      `stemmedBucket expects a single-token input; got ${tokens.length} for "${word}"`,
+    );
+  }
+  return tokenHash(tokens[0], SPARSE_VOCAB_SIZE);
+}
 
 /** Sum of v_q · v_d across two sparse vectors — BM25 score under the design. */
 function dotProduct(
@@ -85,14 +101,10 @@ describe("rebuildConceptPageCorpusStats", () => {
       // avgDl = (3 + 3 + 2) / 3
       expect(stats!.avgDl).toBeCloseTo(8 / 3, 6);
       // supplements appears in 2 docs, zinc in 2, magnesium in 2, iron in 2
-      const supplementsBucket = tokenHash("supplements", SPARSE_VOCAB_SIZE);
-      const zincBucket = tokenHash("zinc", SPARSE_VOCAB_SIZE);
-      const magBucket = tokenHash("magnesium", SPARSE_VOCAB_SIZE);
-      const ironBucket = tokenHash("iron", SPARSE_VOCAB_SIZE);
-      expect(stats!.df.get(supplementsBucket)).toBe(2);
-      expect(stats!.df.get(zincBucket)).toBe(2);
-      expect(stats!.df.get(magBucket)).toBe(2);
-      expect(stats!.df.get(ironBucket)).toBe(2);
+      expect(stats!.df.get(stemmedBucket("supplements"))).toBe(2);
+      expect(stats!.df.get(stemmedBucket("zinc"))).toBe(2);
+      expect(stats!.df.get(stemmedBucket("magnesium"))).toBe(2);
+      expect(stats!.df.get(stemmedBucket("iron"))).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -108,10 +120,8 @@ describe("rebuildConceptPageCorpusStats", () => {
       // "actual prose content" → 3 tokens, so avg_dl should be 3, not 8.
       expect(stats!.avgDl).toBe(3);
       // "title", "edges" should not be in DF (frontmatter stripped).
-      const titleBucket = tokenHash("title", SPARSE_VOCAB_SIZE);
-      const proseBucket = tokenHash("prose", SPARSE_VOCAB_SIZE);
-      expect(stats!.df.get(titleBucket)).toBeUndefined();
-      expect(stats!.df.get(proseBucket)).toBe(1);
+      expect(stats!.df.get(stemmedBucket("title"))).toBeUndefined();
+      expect(stats!.df.get(stemmedBucket("prose"))).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -121,7 +131,7 @@ describe("rebuildConceptPageCorpusStats", () => {
 describe("generateBm25DocEmbedding", () => {
   test("token in every document gets IDF=0 and is omitted from the vector", () => {
     // 4 docs, "the" appears in all 4
-    const theBucket = tokenHash("the", SPARSE_VOCAB_SIZE);
+    const theBucket = stemmedBucket("the");
     const stats: CorpusStats = {
       totalDocs: 4,
       df: new Map([[theBucket, 4]]),
@@ -140,8 +150,8 @@ describe("generateBm25DocEmbedding", () => {
 
   test("rare token gets high IDF weight", () => {
     // 100 docs, "supplements" in 1 doc, "the" in 100.
-    const supplementsBucket = tokenHash("supplements", SPARSE_VOCAB_SIZE);
-    const theBucket = tokenHash("the", SPARSE_VOCAB_SIZE);
+    const supplementsBucket = stemmedBucket("supplements");
+    const theBucket = stemmedBucket("the");
     const stats: CorpusStats = {
       totalDocs: 100,
       df: new Map([
@@ -163,7 +173,7 @@ describe("generateBm25DocEmbedding", () => {
   });
 
   test("TF saturation: tf=10 score is nowhere near 10x of tf=1", () => {
-    const supplementsBucket = tokenHash("supplements", SPARSE_VOCAB_SIZE);
+    const supplementsBucket = stemmedBucket("supplements");
     const stats: CorpusStats = {
       totalDocs: 100,
       df: new Map([[supplementsBucket, 1]]),
@@ -195,7 +205,7 @@ describe("generateBm25DocEmbedding", () => {
   });
 
   test("length normalization: short doc with one match scores higher than long doc with one match", () => {
-    const supplementsBucket = tokenHash("supplements", SPARSE_VOCAB_SIZE);
+    const supplementsBucket = stemmedBucket("supplements");
     const stats: CorpusStats = {
       totalDocs: 100,
       df: new Map([[supplementsBucket, 1]]),
@@ -246,8 +256,8 @@ describe("end-to-end ranking: BM25 fixes the supplements bug", () => {
     const query = "supplements am";
 
     // Build stats from these 2 docs.
-    const tokensA = tokenize(docA);
-    const tokensB = tokenize(docB);
+    const tokensA = tokenizeStemmed(docA);
+    const tokensB = tokenizeStemmed(docB);
     const df = new Map<number, number>();
     for (const tokens of [tokensA, tokensB]) {
       const seen = new Set<number>();
