@@ -73,19 +73,31 @@ export interface QdrantSearchResult {
   payload: QdrantPointPayload;
 }
 
+/**
+ * Strip a trailing `:sparse-v<digits>` segment from a sentinel string.
+ *
+ * Legacy v1 sentinels (pre-decouple) included the sparse encoder version in
+ * the embedding-model identity. The suffix is no longer written, but stored
+ * sentinels written by older daemons may still carry it — strip it before
+ * comparing identities so existing collections aren't unnecessarily rebuilt.
+ */
+export function stripLegacySparseSuffix(sentinel: string): string {
+  return sentinel.replace(/:sparse-v\d+$/, "");
+}
+
 let _instance: VellumQdrantClient | null = null;
 
 export function getQdrantClient(): VellumQdrantClient {
   if (!_instance) {
     throw new Error(
-      "Qdrant client not initialized. Call initQdrantClient() first."
+      "Qdrant client not initialized. Call initQdrantClient() first.",
     );
   }
   return _instance;
 }
 
 export function initQdrantClient(
-  config: QdrantClientConfig
+  config: QdrantClientConfig,
 ): VellumQdrantClient {
   _instance = new VellumQdrantClient(config);
   return _instance;
@@ -140,12 +152,28 @@ export class VellumQdrantClient {
           const dimMismatch =
             currentSize != null && currentSize !== this.vectorSize;
 
-          // Check model identity via a sentinel point that stores the embedding model
+          // Check model identity via a sentinel point that stores the embedding model.
+          //
+          // Legacy sentinels included a ":sparse-v<N>" suffix that conflated the
+          // sparse encoder version with the dense model identity. Sparse vectors
+          // are upserted in place and never require collection recreation, so a
+          // stored value matching the current dense identity after stripping any
+          // legacy sparse suffix is treated as compatible. Compatible-but-legacy
+          // sentinels are rewritten to the new format below to clean up gradually.
           let modelMismatch = false;
+          let needsSentinelRewrite = false;
           if (this.embeddingModel) {
             const sentinel = await this.readSentinel();
-            if (sentinel && sentinel !== this.embeddingModel) {
-              modelMismatch = true;
+            if (sentinel) {
+              const normalizedStored = stripLegacySparseSuffix(sentinel);
+              const normalizedCurrent = stripLegacySparseSuffix(
+                this.embeddingModel,
+              );
+              if (normalizedStored !== normalizedCurrent) {
+                modelMismatch = true;
+              } else if (sentinel !== this.embeddingModel) {
+                needsSentinelRewrite = true;
+              }
             }
           }
 
@@ -156,7 +184,7 @@ export class VellumQdrantClient {
                 currentSize,
                 expectedSize: this.vectorSize,
               },
-              "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed."
+              "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
@@ -169,7 +197,7 @@ export class VellumQdrantClient {
                 expectedSize: this.vectorSize,
                 modelMismatch,
               },
-              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand."
+              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
@@ -178,12 +206,15 @@ export class VellumQdrantClient {
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
+            if (needsSentinelRewrite && this.embeddingModel) {
+              await this.writeSentinel(this.embeddingModel);
+            }
             return { migrated: false };
           }
         } catch (err) {
           log.warn(
             { err },
-            "Failed to verify collection compatibility, assuming compatible"
+            "Failed to verify collection compatibility, assuming compatible",
           );
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
@@ -197,7 +228,7 @@ export class VellumQdrantClient {
 
     log.info(
       { collection: this.collection, vectorSize: this.vectorSize },
-      "Creating Qdrant collection with named vectors (dense + sparse)"
+      "Creating Qdrant collection with named vectors (dense + sparse)",
     );
 
     try {
@@ -253,7 +284,7 @@ export class VellumQdrantClient {
       this.collectionReady = true;
       log.info(
         { collection: this.collection },
-        "Qdrant collection created with payload indexes"
+        "Qdrant collection created with payload indexes",
       );
     }
 
@@ -265,7 +296,7 @@ export class VellumQdrantClient {
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
-    sparseVector?: QdrantSparseVector
+    sparseVector?: QdrantSparseVector,
   ): Promise<string> {
     await this.ensureCollection();
 
@@ -320,7 +351,7 @@ export class VellumQdrantClient {
   async search(
     vector: number[],
     limit: number,
-    filter?: Record<string, unknown>
+    filter?: Record<string, unknown>,
   ): Promise<QdrantSearchResult[]> {
     await this.ensureCollection();
 
@@ -348,7 +379,7 @@ export class VellumQdrantClient {
     return results.map((result) => ({
       id: typeof result.id === "string" ? result.id : String(result.id),
       score: result.score,
-      payload: (result.payload as unknown) as QdrantPointPayload,
+      payload: result.payload as unknown as QdrantPointPayload,
     }));
   }
 
@@ -357,7 +388,7 @@ export class VellumQdrantClient {
     limit: number,
     targetTypes: Array<"segment" | "item" | "summary" | "media">,
     excludeMessageIds?: string[],
-    scopeIds?: string[]
+    scopeIds?: string[],
   ): Promise<QdrantSearchResult[]> {
     const mustConditions: Array<Record<string, unknown>> = [
       {
@@ -434,7 +465,7 @@ export class VellumQdrantClient {
     const queryParams = {
       prefetch: [
         {
-          query: (denseVector as unknown) as number[],
+          query: denseVector as unknown as number[],
           using: "dense",
           limit: effectivePrefetchLimit,
         },
@@ -469,7 +500,7 @@ export class VellumQdrantClient {
     return (results.points ?? []).map((point) => ({
       id: typeof point.id === "string" ? point.id : String(point.id),
       score: point.score ?? 0,
-      payload: (point.payload as unknown) as QdrantPointPayload,
+      payload: point.payload as unknown as QdrantPointPayload,
     }));
   }
 
@@ -594,7 +625,7 @@ export class VellumQdrantClient {
     } catch (err) {
       log.warn(
         { err, collection: this.collection },
-        "Failed to delete Qdrant collection"
+        "Failed to delete Qdrant collection",
       );
       return false;
     }
@@ -762,8 +793,7 @@ export class VellumQdrantClient {
           ...(offset !== undefined ? { offset } : {}),
         });
         for (const point of result.points) {
-          const id =
-            typeof point.id === "string" ? point.id : String(point.id);
+          const id = typeof point.id === "string" ? point.id : String(point.id);
           const payload = (point.payload ?? {}) as Record<string, unknown>;
           out.push({ id, payload });
         }
@@ -788,7 +818,7 @@ export class VellumQdrantClient {
 
   private async findByTarget(
     targetType: string,
-    targetId: string
+    targetId: string,
   ): Promise<string | null> {
     try {
       const results = await this.client.scroll(this.collection, {

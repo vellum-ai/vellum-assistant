@@ -50,10 +50,7 @@ import {
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  selectEmbeddingBackend,
-  SPARSE_EMBEDDING_VERSION,
-} from "../memory/embedding-backend.js";
+import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
@@ -691,8 +688,11 @@ export async function runDaemon(): Promise<void> {
       if (qdrantStarted) {
         try {
           const embeddingSelection = await selectEmbeddingBackend(config);
+          // Sentinel only encodes the dense provider+model identity; sparse
+          // encoder changes never require collection recreation, so they
+          // intentionally do not contribute to the v1 collection identity.
           const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
             : undefined;
           const qdrantClient = initQdrantClient({
             url: qdrantUrl,
