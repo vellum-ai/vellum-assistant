@@ -6804,6 +6804,42 @@ paths:
               required:
                 - slug
               additionalProperties: false
+  /v1/memory/v2/explain-similarity:
+    post:
+      operationId: memory_v2_explainsimilarity_post
+      summary: Diagnose dense vs sparse similarity score distributions
+      description:
+        Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the
+        concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus
+        per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userText:
+                  type: string
+                  minLength: 1
+                assistantText:
+                  type: string
+                nowText:
+                  type: string
+                top:
+                  default: 25
+                  type: integer
+                  minimum: 1
+                  maximum: 9007199254740991
+              required:
+                - userText
+                - top
+              additionalProperties: false
   /v1/memory/v2/reembed-skills:
     post:
       operationId: memory_v2_reembedskills_post
