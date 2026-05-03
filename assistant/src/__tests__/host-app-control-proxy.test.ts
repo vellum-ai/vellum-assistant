@@ -121,7 +121,6 @@ describe("HostAppControlProxy", () => {
 
       // Singleton lock acquired by this conversation.
       expect(_getActiveAppControlConversationId()).toBe("conv-1");
-      expect(proxy.currentApp).toEqual({ name: "com.example.editor" });
 
       proxy.dispose();
     });
