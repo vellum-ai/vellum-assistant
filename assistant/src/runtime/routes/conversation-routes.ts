@@ -46,6 +46,7 @@ import {
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
+import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1396,12 +1397,6 @@ export async function handleSendMessage(
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
-    // Only preactivate CU when the conversation is idle — if the conversation is
-    // processing, this message will be queued and preactivation is deferred
-    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
-    if (!conversation.isProcessing()) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
   }
@@ -1417,11 +1412,14 @@ export async function handleSendMessage(
         new HostAppControlProxy(mapping.conversationId),
       );
     }
-    if (!conversation.isProcessing()) {
-      conversation.addPreactivatedSkillId("app-control");
-    }
   } else if (!conversation.isProcessing()) {
     conversation.setHostAppControlProxy(undefined);
+  }
+  // Only preactivate when the conversation is idle — if it's processing,
+  // this message will be queued and preactivation is deferred to dequeue
+  // time in drainQueueImpl to avoid mutating in-flight turn state.
+  if (!conversation.isProcessing()) {
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating

@@ -47,6 +47,7 @@ import {
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 
 const log = getLogger("process-message");
 
@@ -157,7 +158,6 @@ async function prepareConversationForMessage(
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
-    conversation.addPreactivatedSkillId("computer-use");
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
   }
@@ -171,10 +171,12 @@ async function prepareConversationForMessage(
         new HostAppControlProxy(conversationId),
       );
     }
-    conversation.addPreactivatedSkillId("app-control");
   } else if (!conversation.isProcessing()) {
     conversation.setHostAppControlProxy(undefined);
   }
+  // The early `isProcessing()` throw above guarantees the conversation is
+  // idle here, so preactivation is unconditional once the proxies are wired.
+  preactivateHostProxySkills(conversation, resolvedInterface);
   conversation.setCommandIntent(options?.commandIntent ?? null);
   conversation.setTurnChannelContext({
     userMessageChannel: resolvedChannel,
