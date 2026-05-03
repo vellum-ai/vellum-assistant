@@ -12,13 +12,13 @@ import {
   supportsHostProxy,
 } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
