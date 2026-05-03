@@ -1706,6 +1706,36 @@ public struct HostAppControlRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// A single step inside `.sequence`: one key press with optional modifiers,
+/// hold duration, and post-press gap. Mirrors the TypeScript
+/// `HostAppControlSequenceStep` shape — snake_case wire keys mapped to Swift
+/// camelCase via explicit raw values.
+public struct HostAppControlSequenceStep: Codable, Equatable, Sendable {
+    public let key: String
+    public let modifiers: [String]?
+    public let durationMs: Int?
+    public let gapMs: Int?
+
+    public init(
+        key: String,
+        modifiers: [String]? = nil,
+        durationMs: Int? = nil,
+        gapMs: Int? = nil
+    ) {
+        self.key = key
+        self.modifiers = modifiers
+        self.durationMs = durationMs
+        self.gapMs = gapMs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case modifiers
+        case durationMs = "duration_ms"
+        case gapMs = "gap_ms"
+    }
+}
+
 /// Discriminated-union payload for `HostAppControlRequest.input`. The wire
 /// shape is `{ "tool": "<variant>", ...fields }` for each variant — Swift
 /// hides the discriminator inside the enum case.
@@ -1714,6 +1744,7 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
     case observe(app: String)
     case press(app: String, key: String, modifiers: [String]?, durationMs: Int?)
     case combo(app: String, keys: [String], durationMs: Int?)
+    case sequence(app: String, steps: [HostAppControlSequenceStep])
     case type(app: String, text: String)
     case click(app: String, x: Double, y: Double, button: String?, double: Bool?)
     case drag(app: String, fromX: Double, fromY: Double, toX: Double, toY: Double, button: String?)
@@ -1727,6 +1758,7 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
         case keys
         case modifiers
         case durationMs
+        case steps
         case text
         case x
         case y
@@ -1761,6 +1793,10 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
             let keys = try container.decode([String].self, forKey: .keys)
             let durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
             self = .combo(app: app, keys: keys, durationMs: durationMs)
+        case "sequence":
+            let app = try container.decode(String.self, forKey: .app)
+            let steps = try container.decode([HostAppControlSequenceStep].self, forKey: .steps)
+            self = .sequence(app: app, steps: steps)
         case "type":
             let app = try container.decode(String.self, forKey: .app)
             let text = try container.decode(String.self, forKey: .text)
@@ -1814,6 +1850,10 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
             try container.encode(app, forKey: .app)
             try container.encode(keys, forKey: .keys)
             try container.encodeIfPresent(durationMs, forKey: .durationMs)
+        case .sequence(let app, let steps):
+            try container.encode("sequence", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(steps, forKey: .steps)
         case .type(let app, let text):
             try container.encode("type", forKey: .tool)
             try container.encode(app, forKey: .app)

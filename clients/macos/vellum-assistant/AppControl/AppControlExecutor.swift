@@ -7,6 +7,29 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppControlExecutor")
 
+/// Hard cap on how long we'll wait for a target app to become frontmost
+/// after `NSRunningApplication.activate()`. macOS focus transitions are
+/// usually well under 50ms; capping at 100ms keeps cold-start cases from
+/// stalling the input pipeline indefinitely.
+private let ACTIVATE_WAIT_DEADLINE_MS = 100
+
+/// Poll interval used while waiting for the target app's `isActive` to flip
+/// to true after `activate()`.
+private let ACTIVATE_POLL_INTERVAL_MS = 5
+
+/// Settle delay applied at the start of `observe` so the window server has
+/// time to composite a fresh frame after recent synthetic input events.
+private let OBSERVE_SETTLE_DELAY_MS = 80
+
+/// Default per-step gap inside `app_control_sequence` when a step omits its
+/// own `gap_ms`. Keeps consecutive presses far enough apart that emulators
+/// and games register them as discrete inputs.
+private let SEQUENCE_DEFAULT_GAP_MS = 30
+
+/// Default per-step hold duration inside `app_control_sequence` when a step
+/// omits its own `duration_ms`.
+private let SEQUENCE_DEFAULT_DURATION_MS = 50
+
 /// Dispatches a `HostAppControlRequest` to the appropriate per-process input
 /// helper (`AppKeyboard`, `AppMouse`, `AppWindowCapture`) and returns a
 /// `HostAppControlResultPayload` for the daemon.
@@ -15,6 +38,31 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppCo
 /// `requestId` so the daemon can correlate failures with the request that
 /// produced them.
 enum AppControlExecutor {
+
+    // MARK: - Focus management
+
+    /// Bring the target process to the front of macOS's keyboard-focus stack
+    /// before posting synthetic input. `CGEvent.postToPid(_:)` queues events
+    /// at the target's port, but the WindowServer still routes keystrokes by
+    /// global keyboard focus — if another app holds focus, the events get
+    /// queued and never delivered. Activating the target app first
+    /// eliminates that drop window.
+    ///
+    /// Polls briefly until `isActive` flips to true (capped at
+    /// `ACTIVATE_WAIT_DEADLINE_MS`). Best-effort: returns even if the
+    /// deadline expires without focus transferring, so callers still attempt
+    /// the input.
+    private static func ensureActive(pid: pid_t) async {
+        guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
+        if runningApp.isActive { return }
+        runningApp.activate(options: [.activateIgnoringOtherApps])
+        let deadline = Date().addingTimeInterval(Double(ACTIVATE_WAIT_DEADLINE_MS) / 1000.0)
+        while !runningApp.isActive && Date() < deadline {
+            try? await Task.sleep(
+                nanoseconds: UInt64(ACTIVATE_POLL_INTERVAL_MS) * 1_000_000
+            )
+        }
+    }
 
     /// Execute `request` and produce a wire result. Never throws — every
     /// failure is reported as a result payload with `executionError` set.
@@ -38,6 +86,12 @@ enum AppControlExecutor {
                 app: app,
                 keys: keys,
                 durationMs: durationMs ?? 50
+            )
+        case .sequence(let app, let steps):
+            return await performSequence(
+                requestId: request.requestId,
+                app: app,
+                steps: steps
             )
         case .type(let app, let text):
             return await performType(requestId: request.requestId, app: app, text: text)
@@ -139,6 +193,12 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
+        // Brief settle delay before capture: lets the target app finish
+        // processing any pending synthetic input events and lets the window
+        // server composite a fresh frame for ScreenCaptureKit. Without this,
+        // back-to-back press → observe sequences can return a screenshot
+        // captured one input behind the latest state.
+        try? await Task.sleep(nanoseconds: UInt64(OBSERVE_SETTLE_DELAY_MS) * 1_000_000)
         let capture = await AppWindowCapture.capture(forPid: resolved.pid)
         return HostAppControlResultPayload(
             requestId: requestId,
@@ -166,6 +226,8 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
+
+        await ensureActive(pid: resolved.pid)
 
         do {
             try await AppKeyboard.press(
@@ -205,6 +267,8 @@ enum AppControlExecutor {
             )
         }
 
+        await ensureActive(pid: resolved.pid)
+
         do {
             try await AppKeyboard.combo(
                 pid: resolved.pid,
@@ -226,6 +290,71 @@ enum AppControlExecutor {
         }
     }
 
+    // MARK: - sequence
+
+    /// Run an ordered batch of single-key presses serially against the same
+    /// target app. Activates the app once at the start (rather than before
+    /// every step) so synthesis runs without any window for keyboard focus
+    /// to drift between presses. On any per-step failure, halts immediately
+    /// and surfaces the failing step's error in `executionError`; steps
+    /// already executed are not undone.
+    private static func performSequence(
+        requestId: String,
+        app: String,
+        steps: [HostAppControlSequenceStep]
+    ) async -> HostAppControlResultPayload {
+        guard let resolved = resolvePid(forApp: app) else {
+            return HostAppControlResultPayload(
+                requestId: requestId,
+                state: .missing,
+                executionError: "App not running: \(app)"
+            )
+        }
+
+        if steps.isEmpty {
+            return HostAppControlResultPayload(
+                requestId: requestId,
+                state: .running,
+                executionError: "sequence requires at least one step"
+            )
+        }
+
+        await ensureActive(pid: resolved.pid)
+
+        for (index, step) in steps.enumerated() {
+            do {
+                try await AppKeyboard.press(
+                    pid: resolved.pid,
+                    key: step.key,
+                    modifiers: step.modifiers ?? [],
+                    durationMs: step.durationMs ?? SEQUENCE_DEFAULT_DURATION_MS
+                )
+            } catch {
+                return HostAppControlResultPayload(
+                    requestId: requestId,
+                    state: .running,
+                    executionError: "step \(index) (key=\(step.key)) failed: \(error.localizedDescription)"
+                )
+            }
+
+            // Apply per-step gap (skip after the final step — no follow-up
+            // press to space it from).
+            if index < steps.count - 1 {
+                let gap = step.gapMs ?? SEQUENCE_DEFAULT_GAP_MS
+                if gap > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(gap) * 1_000_000)
+                }
+            }
+        }
+
+        return HostAppControlResultPayload(
+            requestId: requestId,
+            state: .running,
+            executionResult: "sequence: \(steps.count) step(s) (pid=\(resolved.pid))",
+            executionError: nil
+        )
+    }
+
     // MARK: - type
 
     private static func performType(
@@ -240,6 +369,8 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
+
+        await ensureActive(pid: resolved.pid)
 
         do {
             try await AppKeyboard.type(pid: resolved.pid, text: text)
@@ -275,6 +406,8 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
+
+        await ensureActive(pid: resolved.pid)
 
         let capture = await AppWindowCapture.capture(forPid: resolved.pid)
         guard capture.state == .running, let bounds = capture.bounds else {
@@ -333,6 +466,8 @@ enum AppControlExecutor {
                 executionError: "App not running: \(app)"
             )
         }
+
+        await ensureActive(pid: resolved.pid)
 
         let capture = await AppWindowCapture.capture(forPid: resolved.pid)
         guard capture.state == .running, let bounds = capture.bounds else {

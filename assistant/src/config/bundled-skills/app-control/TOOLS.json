@@ -129,6 +129,59 @@
       "execution_target": "host"
     },
     {
+      "name": "app_control_sequence",
+      "description": "Send an ordered batch of single-key presses to the target application. The target app is activated once at the start, then each step is pressed serially with optional inter-step gaps. PREFER this over multiple back-to-back app_control_press calls when sending an ordered batch (e.g. menu navigation, repeated movement) — sequence runs in a single round-trip with no window for keyboard focus to drift between presses.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Ordered list of single-key presses to execute serially.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "Key identifier, e.g. \"return\", \"a\", \"right\""
+                },
+                "modifiers": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Modifier list for this step, e.g. [\"cmd\", \"shift\"]. Omit for no modifiers."
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "description": "Hold duration for this key in milliseconds (default 50)"
+                },
+                "gap_ms": {
+                  "type": "integer",
+                  "description": "Pause after this step before starting the next, in milliseconds (default 30)"
+                }
+              },
+              "required": ["key"]
+            }
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of what this sequence does and why"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "steps", "reasoning"]
+      },
+      "executor": "tools/app-control-sequence.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "app_control_type",
       "description": "Type literal text into the target application at the current focus. Ensure the intended field is focused before calling.",
       "category": "app-control",

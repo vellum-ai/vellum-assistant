@@ -39,6 +39,12 @@ moved the window or changed visibility.
 
 ## Input choice
 
+- Prefer `app_control_sequence` over multiple back-to-back `app_control_press`
+  calls when sending an ordered batch of presses (e.g. menu navigation,
+  repeated movement). Sequence runs in a single round-trip — the target app is
+  activated once at the start and the keys are sent serially without any
+  window for keyboard focus to drift to another app between presses. Each step
+  may carry its own `duration_ms` (hold) and `gap_ms` (pause after).
 - Prefer `app_control_combo` over rapid sequential `app_control_press` for
   simultaneous inputs (e.g. cmd+shift+4). `combo` holds every key at once;
   sequential presses interleave key-down and key-up events.
