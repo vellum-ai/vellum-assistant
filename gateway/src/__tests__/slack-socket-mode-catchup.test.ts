@@ -564,6 +564,101 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("replays a DM @-mention as type='message' so default-assistant fallback applies", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    // Seed a known DM channel (D...) that is *not* in routingEntries —
+    // mirrors the live shape where DMs hit the default-assistant fallback.
+    const now = Date.now();
+    rawDb
+      .prepare(
+        `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_chat_id, status, created_at, updated_at) VALUES (?, ?, 'slack', ?, 0, ?, 'verified', ?, ?)`,
+      )
+      .run("cc-dm", "contact-1", "DABCDEFGHI", "DABCDEFGHI", now, now);
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    fetchMock = mock(async (input) => {
+      const url = String(input);
+      if (url.includes("conversations.history") && url.includes("DABCDEFGHI")) {
+        return makeHistoryResponse([
+          {
+            type: "message",
+            user: "U-friend",
+            text: "<@UBOT> hello in dm",
+            ts: "1700000060.000000",
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].routing.assistantId).toBe("ast-default");
+      expect(emitted[0].routing.routeSource).toBe("default");
+      // Synthetic event must use type:"message" so it routes through the
+      // DM normalize path (which has the default-assistant fallback) rather
+      // than the app_mention path (which doesn't).
+      const raw = emitted[0].event.raw as { type?: string };
+      expect(raw.type).toBe("message");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("skips the thread parent returned by conversations.replies", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+    store.trackThread("1700000000.000000", "CROUTED01", 24 * 60 * 60 * 1_000);
+
+    fetchMock = mock(async (input) => {
+      const url = String(input);
+      if (url.includes("conversations.replies")) {
+        // conversations.replies always returns the parent first regardless
+        // of `oldest` — see https://api.slack.com/methods/conversations.replies.
+        return makeHistoryResponse([
+          {
+            type: "message",
+            user: "U-author",
+            text: "<@UBOT> original parent",
+            ts: "1700000000.000000",
+            thread_ts: "1700000000.000000",
+          },
+          {
+            type: "message",
+            user: "U-reply",
+            text: "<@UBOT> a real missed reply",
+            ts: "1700000090.000000",
+            thread_ts: "1700000000.000000",
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe(
+        "replay:CROUTED01:1700000090.000000",
+      );
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("skips messages with no ts and the bot's own messages", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

@@ -1100,6 +1100,15 @@ export class SlackSocketModeClient {
         });
         if (this.ws !== ownerWs) return;
         for (const msg of result.messages) {
+          // conversations.replies always returns the thread parent as the
+          // first element regardless of `oldest` / `inclusive` — see
+          // https://api.slack.com/methods/conversations.replies. The parent
+          // was already processed when the thread was first tracked; replay
+          // is for catching up on missed *replies*. Compound dedup would
+          // catch a same-day re-emission, but for long-lived active threads
+          // (TTL refreshed past the dedup window) the dedup row could have
+          // expired, so filter explicitly.
+          if (msg.ts === threadTs) continue;
           if (this.injectReplayMessage(channelId, msg, botUserId)) recovered++;
         }
       };
@@ -1146,9 +1155,15 @@ export class SlackSocketModeClient {
 
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
     const isDm = channel.startsWith("D");
-    const eventType: "app_mention" | "message" = mentionsBot
-      ? "app_mention"
-      : "message";
+    // DMs are always delivered as `type: "message"` with `channel_type: "im"`
+    // by live Slack, even when the bot is `<@U…>`-mentioned in the body —
+    // Slack only emits `app_mention` for non-DM channels. Synthesizing a DM
+    // as `app_mention` would route through `normalizeSlackAppMention`, which
+    // (intentionally) lacks the DM default-assistant fallback that
+    // `normalizeSlackDirectMessage` provides, so an unrouted DM @-mention
+    // would silently drop in `unmappedPolicy: "reject"` deployments.
+    const eventType: "app_mention" | "message" =
+      mentionsBot && !isDm ? "app_mention" : "message";
 
     const syntheticEvent = {
       type: eventType,
