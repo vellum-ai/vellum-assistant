@@ -27,7 +27,7 @@ final class AppControlConnectionTests: XCTestCase {
             "app": "com.apple.Safari",
             "key": "Return",
             "modifiers": ["cmd"],
-            "durationMs": 50
+            "duration_ms": 50
           }
         }
         """#
