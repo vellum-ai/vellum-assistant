@@ -113,6 +113,17 @@ enum AppWindowCapture {
     /// silently return an empty `SCShareableContent.windows` list on some
     /// macOS versions — we surface a permission hint in both branches so the
     /// daemon and the LLM can suggest the right fix.
+    ///
+    /// Capture uses a warmup-then-real two-shot pattern. `SCScreenshotManager
+    /// .captureImage` empirically returns a stale buffered frame (sometimes
+    /// seconds old) on its first call against a window that hasn't been
+    /// recently captured — observed against an emulator window where the
+    /// screenshot lagged behind the live framebuffer by several seconds even
+    /// after a 200ms settle delay. The first call flushes whatever the
+    /// WindowServer / SCK had cached; we then sleep ~2 frames at 60fps for
+    /// the SCK pipeline to advance, and the second call returns the current
+    /// frame. The cost is one extra capture + ~33ms; the benefit is that
+    /// `observe` reflects reality.
     private static func captureWindowPNG(windowID: CGWindowID) async -> PNGCaptureResult {
         do {
             let shareable = try await SCShareableContent.current
@@ -129,6 +140,15 @@ enum AppWindowCapture {
             config.pixelFormat = kCVPixelFormatType_32BGRA
             config.showsCursor = false
 
+            // Warmup capture — discarded. Forces SCK to invalidate any stale
+            // buffered frame for this window. Errors here are non-fatal: if
+            // the warmup fails, the real capture below will surface the error.
+            _ = try? await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: config
+            )
+            try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
+
             let cgImage = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config
@@ -143,6 +163,12 @@ enum AppWindowCapture {
             return PNGCaptureResult(pngBase64: nil, error: message)
         }
     }
+
+    /// Gap between the warmup capture and the real capture. ~2 frames at
+    /// 60fps — long enough for the SCK pipeline to advance past whatever
+    /// stale frame was cached, short enough that the added observe latency
+    /// is unnoticeable.
+    private static let CAPTURE_INTER_SHOT_GAP_MS: Int = 33
 
     private static func encodePNGBase64(cgImage: CGImage) -> String? {
         let data = NSMutableData()

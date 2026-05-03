@@ -17,6 +17,14 @@ private let ACTIVATE_WAIT_DEADLINE_MS = 100
 /// to true after `activate()`.
 private let ACTIVATE_POLL_INTERVAL_MS = 5
 
+/// Extra settle applied AFTER `isActive` flips to true (or after the activate
+/// deadline expires). The WindowServer's keyboard-focus routing lags AppKit's
+/// `isActive` flag by 1-2 frames — without this settle, the very first
+/// synthesized key in a sequence can land mid-focus-transition and get
+/// dropped by the WindowServer (observed: a 3-key "delete name" prefix only
+/// landed twice). 30ms ≈ 2 frames at 60fps.
+private let ACTIVATE_POSTFLIP_SETTLE_MS = 30
+
 /// Default settle delay applied at the start of `observe` so the target
 /// app and the WindowServer have time to composite a fresh frame after
 /// recent synthetic input events. ~12 frames at 60fps — sized for
@@ -59,7 +67,16 @@ enum AppControlExecutor {
     /// the input.
     private static func ensureActive(pid: pid_t) async {
         guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
-        if runningApp.isActive { return }
+        if runningApp.isActive {
+            // Already active. Skip the activate call but still apply a tiny
+            // post-flip settle: even when the AppKit-level `isActive` is true,
+            // a recent focus transition (e.g., the user clicked into another
+            // app, then we got called immediately) can leave the WindowServer
+            // routing keys to the previous owner for 1-2 frames. Cheap
+            // insurance against the first key getting dropped.
+            try? await Task.sleep(nanoseconds: UInt64(ACTIVATE_POSTFLIP_SETTLE_MS) * 1_000_000)
+            return
+        }
         runningApp.activate(options: [.activateIgnoringOtherApps])
         let deadline = Date().addingTimeInterval(Double(ACTIVATE_WAIT_DEADLINE_MS) / 1000.0)
         while !runningApp.isActive && Date() < deadline {
@@ -67,6 +84,10 @@ enum AppControlExecutor {
                 nanoseconds: UInt64(ACTIVATE_POLL_INTERVAL_MS) * 1_000_000
             )
         }
+        // Even after `isActive` flips, the WindowServer's keyboard-focus
+        // route can lag by 1-2 frames. Settle here so the very first
+        // synthesized key isn't lost to an in-flight focus transition.
+        try? await Task.sleep(nanoseconds: UInt64(ACTIVATE_POSTFLIP_SETTLE_MS) * 1_000_000)
     }
 
     /// Execute `request` and produce a wire result. Never throws — every
