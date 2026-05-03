@@ -1,0 +1,505 @@
+import { describe, expect, test } from "bun:test";
+
+import { RiskLevel } from "../permissions/types.js";
+import {
+  appControlClickTool,
+  appControlComboTool,
+  appControlDragTool,
+  appControlObserveTool,
+  appControlPressTool,
+  appControlStartTool,
+  appControlStopTool,
+  appControlTools,
+  appControlTypeTool,
+} from "../tools/app-control/definitions.js";
+import { forwardAppControlProxyTool } from "../tools/app-control/skill-proxy-bridge.js";
+import type { Tool, ToolContext } from "../tools/types.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface JsonSchemaProp {
+  type?: string;
+  enum?: string[];
+  items?: { type?: string };
+}
+
+interface JsonSchema {
+  type?: string;
+  required?: string[];
+  properties?: Record<string, JsonSchemaProp>;
+}
+
+function schema(tool: Tool): JsonSchema {
+  return tool.getDefinition().input_schema as JsonSchema;
+}
+
+/**
+ * Lightweight, schema-driven validator covering the cases this PR exercises:
+ *   - all `required` keys must be present
+ *   - typed properties (`string` / `integer` / `number` / `boolean`) must match
+ *   - `enum`-constrained string properties must be in the allowed set
+ *   - `array`-typed properties must be arrays (and items must satisfy
+ *     declared item types when present)
+ *
+ * This mirrors what a JSON-Schema validator like ajv would do for these
+ * simple shapes, without pulling ajv in as a direct dependency.
+ */
+function validate(
+  s: JsonSchema,
+  input: Record<string, unknown>,
+): { ok: boolean; error?: string } {
+  for (const key of s.required ?? []) {
+    if (!(key in input)) {
+      return { ok: false, error: `missing required property: ${key}` };
+    }
+  }
+  for (const [key, propSchema] of Object.entries(s.properties ?? {})) {
+    if (!(key in input)) continue;
+    const value = input[key];
+    if (!propSchema.type) continue;
+    switch (propSchema.type) {
+      case "string":
+        if (typeof value !== "string") {
+          return { ok: false, error: `${key} must be string` };
+        }
+        if (propSchema.enum && !propSchema.enum.includes(value)) {
+          return {
+            ok: false,
+            error: `${key} must be one of ${propSchema.enum.join(", ")}`,
+          };
+        }
+        break;
+      case "integer":
+        if (typeof value !== "number" || !Number.isInteger(value)) {
+          return { ok: false, error: `${key} must be integer` };
+        }
+        break;
+      case "number":
+        if (typeof value !== "number") {
+          return { ok: false, error: `${key} must be number` };
+        }
+        break;
+      case "boolean":
+        if (typeof value !== "boolean") {
+          return { ok: false, error: `${key} must be boolean` };
+        }
+        break;
+      case "array":
+        if (!Array.isArray(value)) {
+          return { ok: false, error: `${key} must be array` };
+        }
+        if (propSchema.items?.type) {
+          for (const item of value) {
+            if (
+              propSchema.items.type === "string" &&
+              typeof item !== "string"
+            ) {
+              return { ok: false, error: `${key} items must be string` };
+            }
+          }
+        }
+        break;
+    }
+  }
+  return { ok: true };
+}
+
+const ctx: ToolContext = {
+  workingDir: "/tmp",
+  conversationId: "test-conversation",
+  trustClass: "guardian",
+};
+
+// ---------------------------------------------------------------------------
+// Aggregate invariants
+// ---------------------------------------------------------------------------
+
+describe("app-control tool definitions (aggregate)", () => {
+  test("appControlTools contains exactly 8 tools", () => {
+    expect(appControlTools.length).toBe(8);
+  });
+
+  test("all tools have proxy execution mode", () => {
+    for (const tool of appControlTools) {
+      expect(tool.executionMode).toBe("proxy");
+    }
+  });
+
+  test("all tools belong to the app-control category", () => {
+    for (const tool of appControlTools) {
+      expect(tool.category).toBe("app-control");
+    }
+  });
+
+  test("all tools have unique names", () => {
+    const names = appControlTools.map((t) => t.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  test("all tool names use the app_control_ prefix", () => {
+    for (const tool of appControlTools) {
+      expect(tool.name.startsWith("app_control_")).toBe(true);
+    }
+  });
+
+  test("all tools have non-empty descriptions", () => {
+    for (const tool of appControlTools) {
+      expect(tool.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("stub execute() throws for every tool", () => {
+    for (const tool of appControlTools) {
+      expect(() => tool.execute({}, ctx)).toThrow(
+        "app-control tool must be forwarded to the connected client",
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-tool schema cases
+// ---------------------------------------------------------------------------
+
+describe("app_control_start", () => {
+  const s = schema(appControlStartTool);
+
+  test("well-formed input passes (with args)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        args: ["--new-window"],
+        reasoning: "open Safari fresh",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("well-formed input passes (without optional args)", () => {
+    expect(
+      validate(s, { app: "com.apple.Safari", reasoning: "focus" }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, { reasoning: "focus" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("default risk level is Medium", () => {
+    expect(appControlStartTool.defaultRiskLevel).toBe(RiskLevel.Medium);
+  });
+});
+
+describe("app_control_observe", () => {
+  const s = schema(appControlObserveTool);
+
+  test("well-formed input passes", () => {
+    expect(
+      validate(s, { app: "com.apple.Safari", activity: "check state" }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, { activity: "check state" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("default risk level is Low", () => {
+    expect(appControlObserveTool.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+});
+
+describe("app_control_press", () => {
+  const s = schema(appControlPressTool);
+
+  test("well-formed input passes (with optional fields)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        key: "return",
+        modifiers: ["cmd"],
+        duration_ms: 50,
+        reasoning: "submit form",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("well-formed input passes (minimal)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        key: "a",
+        reasoning: "type a",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, { key: "a", reasoning: "type a" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("missing required key rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      reasoning: "press something",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("key");
+  });
+});
+
+describe("app_control_combo", () => {
+  const s = schema(appControlComboTool);
+
+  test("well-formed input passes", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        keys: ["cmd", "shift", "4"],
+        reasoning: "screenshot region",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, {
+      keys: ["cmd", "a"],
+      reasoning: "select all",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("non-array keys rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      keys: "cmd+a",
+      reasoning: "select all",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("keys");
+  });
+});
+
+describe("app_control_type", () => {
+  const s = schema(appControlTypeTool);
+
+  test("well-formed input passes", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        text: "hello",
+        reasoning: "search",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, { text: "hello", reasoning: "search" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("missing required text rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      reasoning: "search",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("text");
+  });
+});
+
+describe("app_control_click", () => {
+  const s = schema(appControlClickTool);
+
+  test("well-formed input passes (defaults)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        x: 100,
+        y: 200,
+        reasoning: "tap link",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("well-formed input passes (right button + double)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        x: 100,
+        y: 200,
+        button: "right",
+        double: true,
+        reasoning: "context menu",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, { x: 100, y: 200, reasoning: "click" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("missing required coordinate rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      x: 100,
+      reasoning: "click",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("y");
+  });
+
+  test("invalid button enum value rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      x: 100,
+      y: 200,
+      button: "scroll",
+      reasoning: "click",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("button");
+  });
+
+  test("button enum is left/right/middle", () => {
+    const props = s.properties as Record<string, JsonSchemaProp>;
+    expect(props.button.enum).toEqual(["left", "right", "middle"]);
+  });
+});
+
+describe("app_control_drag", () => {
+  const s = schema(appControlDragTool);
+
+  test("well-formed input passes", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        from_x: 10,
+        from_y: 20,
+        to_x: 100,
+        to_y: 200,
+        reasoning: "drag handle",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, {
+      from_x: 10,
+      from_y: 20,
+      to_x: 100,
+      to_y: 200,
+      reasoning: "drag",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("missing required destination rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      from_x: 10,
+      from_y: 20,
+      reasoning: "drag",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("to_");
+  });
+
+  test("invalid button enum value rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      from_x: 10,
+      from_y: 20,
+      to_x: 100,
+      to_y: 200,
+      button: "scroll",
+      reasoning: "drag",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("button");
+  });
+});
+
+describe("app_control_stop", () => {
+  const s = schema(appControlStopTool);
+
+  test("well-formed input passes (no app — terminal)", () => {
+    expect(validate(s, { activity: "wrap up" }).ok).toBe(true);
+  });
+
+  test("well-formed input passes (with app + reason)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        reason: "task complete",
+        activity: "wrap up",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing activity rejects", () => {
+    const result = validate(s, { reason: "task complete" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("activity");
+  });
+
+  test("app is optional (terminal tool may omit it)", () => {
+    expect(s.required ?? []).not.toContain("app");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// skill-proxy-bridge
+// ---------------------------------------------------------------------------
+
+describe("forwardAppControlProxyTool", () => {
+  test("returns error when no proxy resolver available", async () => {
+    const result = await forwardAppControlProxyTool(
+      "app_control_click",
+      { app: "com.apple.Safari", x: 1, y: 2 },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("no proxy resolver available");
+    expect(result.content).toContain("app_control_click");
+  });
+
+  test("delegates to proxy resolver when available", async () => {
+    let capturedName = "";
+    let capturedInput: Record<string, unknown> = {};
+    const ctxWithProxy: ToolContext = {
+      ...ctx,
+      proxyToolResolver: async (name, input) => {
+        capturedName = name;
+        capturedInput = input;
+        return { content: `Forwarded ${name}`, isError: false };
+      },
+    };
+
+    const result = await forwardAppControlProxyTool(
+      "app_control_press",
+      { app: "com.apple.Safari", key: "return", reasoning: "submit" },
+      ctxWithProxy,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("Forwarded app_control_press");
+    expect(capturedName).toBe("app_control_press");
+    expect(capturedInput).toEqual({
+      app: "com.apple.Safari",
+      key: "return",
+      reasoning: "submit",
+    });
+  });
+});
