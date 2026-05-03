@@ -398,13 +398,60 @@ describe("capabilityForMessageType — host-prefix routing", () => {
 });
 
 // ── broadcastMessage — pending interaction registration ─────────────────────
+//
+// Host proxy interactions (host_bash, host_cu, host_file, host_browser,
+// host_app_control, host_transfer) are registered in pendingInteractions by
+// the proxy itself (in its request() method), not by the event hub. This
+// avoids overwriting the RPC lifecycle state (rpcResolve/rpcReject/timer)
+// that the proxy stores alongside conversationId/kind.
+//
+// Only confirmation_request and secret_request are registered here, because
+// they have no equivalent proxy — registration happens as a side effect of
+// broadcastMessage so the /v1/confirm and /v1/secret endpoints can route
+// the response to the right conversation.
 
 describe("broadcastMessage — pending interaction registration", () => {
   beforeEach(() => {
     pendingInteractions.clear();
   });
 
-  test("registers host_bash_request as kind: host_bash", () => {
+  test("registers confirmation_request in pendingInteractions", () => {
+    broadcastMessage({
+      type: "confirmation_request",
+      requestId: "req-confirm-1",
+      conversationId: "conv-1",
+      toolName: "bash",
+      input: { command: "rm -rf /" },
+      riskLevel: "high",
+      executionTarget: "sandbox",
+      allowlistOptions: [],
+      scopeOptions: [],
+    } as never);
+
+    const entry = pendingInteractions.get("req-confirm-1");
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe("confirmation");
+    expect(entry?.conversationId).toBe("conv-1");
+  });
+
+  test("registers secret_request in pendingInteractions", () => {
+    broadcastMessage({
+      type: "secret_request",
+      requestId: "req-secret-1",
+      conversationId: "conv-1",
+      service: "github",
+      field: "token",
+    } as never);
+
+    const entry = pendingInteractions.get("req-secret-1");
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe("secret");
+    expect(entry?.conversationId).toBe("conv-1");
+  });
+
+  test("does NOT register host proxy requests — proxies self-register", () => {
+    // host_bash, host_cu, host_file, host_browser, host_app_control, and
+    // host_transfer are registered by the proxy in request(), not here.
     broadcastMessage({
       type: "host_bash_request",
       requestId: "req-bash-1",
@@ -413,39 +460,6 @@ describe("broadcastMessage — pending interaction registration", () => {
       timeout_ms: 1000,
     } as never);
 
-    const entry = pendingInteractions.get("req-bash-1");
-    expect(entry).toBeDefined();
-    expect(entry?.kind).toBe("host_bash");
-    expect(entry?.conversationId).toBe("conv-1");
-  });
-
-  test("registers host_cu_request as kind: host_cu", () => {
-    broadcastMessage({
-      type: "host_cu_request",
-      requestId: "req-cu-1",
-      conversationId: "conv-1",
-      toolName: "computer",
-      input: { action: "screenshot" },
-    } as never);
-
-    const entry = pendingInteractions.get("req-cu-1");
-    expect(entry).toBeDefined();
-    expect(entry?.kind).toBe("host_cu");
-    expect(entry?.conversationId).toBe("conv-1");
-  });
-
-  test("registers host_app_control_request as kind: host_app_control", () => {
-    broadcastMessage({
-      type: "host_app_control_request",
-      requestId: "req-app-1",
-      conversationId: "conv-1",
-      toolName: "app_control_observe",
-      input: { tool: "observe", app: "com.example.editor" },
-    } as never);
-
-    const entry = pendingInteractions.get("req-app-1");
-    expect(entry).toBeDefined();
-    expect(entry?.kind).toBe("host_app_control");
-    expect(entry?.conversationId).toBe("conv-1");
+    expect(pendingInteractions.get("req-bash-1")).toBeUndefined();
   });
 });

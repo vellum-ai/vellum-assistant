@@ -25,6 +25,7 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
   host_transfer: "host_file", // transfers piggyback on host_file capability
   host_cu: "host_cu",
   host_browser: "host_browser",
+  host_app_control: "host_app_control",
 };
 
 /**
@@ -35,11 +36,8 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
 export function capabilityForMessageType(
   type: string,
 ): HostProxyCapability | undefined {
-  const first = type.indexOf("_");
-  if (first === -1) return undefined;
-  const second = type.indexOf("_", first + 1);
-  const prefix = second === -1 ? type : type.slice(0, second);
-  return HOST_PREFIX_TO_CAPABILITY[prefix];
+  const stem = type.replace(/_(request|cancel)$/, "");
+  return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
