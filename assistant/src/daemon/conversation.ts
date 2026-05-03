@@ -117,6 +117,7 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
+import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   ServerMessage,
@@ -204,6 +205,13 @@ export class Conversation {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostCuProxy?: HostCuProxy;
+  /**
+   * Per-conversation host app-control proxy (full lifecycle wiring lands
+   * in PR 10). Declared here so the `/v1/host-app-control-result` route
+   * can forward result payloads to the awaiting promise.
+   * @internal
+   */
+  hostAppControlProxy?: HostAppControlProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
