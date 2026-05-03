@@ -159,11 +159,20 @@ export function createChannelVerificationSessionProxyHandler(
       const expectedSecrets = parseBootstrapSecrets();
       const provided = req.headers.get("x-bootstrap-secret");
 
+      // Platform-managed mode: the gateway runs as an authenticated sidecar;
+      // the platform handles auth upstream (via vembda's /gateway-query proxy)
+      // before the request ever reaches the gateway. Skip the bare-metal
+      // loopback guard entirely — it would always reject because the request
+      // arrives from a pod IP, not from 127.0.0.1.
+      const isManaged =
+        process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+        process.env.IS_PLATFORM?.trim() === "1";
+
       // Bare-metal mode: restrict to loopback callers only. Without a
       // bootstrap secret the lockfile is the sole guard, so a remote
       // client that can reach the gateway (e.g. via ngrok) must not be
       // able to race the legitimate local user.
-      if (expectedSecrets.length === 0) {
+      if (!isManaged && expectedSecrets.length === 0) {
         if (clientIp && !isLoopbackAddress(clientIp)) {
           log.warn(
             { clientIp },

@@ -583,6 +583,7 @@ describe("guardian/reset-bootstrap", () => {
 describe("guardian/init bare-metal loopback gating", () => {
   test("rejects non-loopback clients in bare-metal mode", async () => {
     delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    delete process.env.IS_PLATFORM;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -600,6 +601,7 @@ describe("guardian/init bare-metal loopback gating", () => {
 
   test("allows loopback clients in bare-metal mode", async () => {
     delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    delete process.env.IS_PLATFORM;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -633,6 +635,28 @@ describe("guardian/init bare-metal loopback gating", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.accessToken).toBeTruthy();
+  });
+
+  test("skips loopback check in platform-managed mode (IS_PLATFORM=true)", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    process.env.IS_PLATFORM = "true";
+    try {
+      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const res = await handler.handleGuardianInit(
+        new Request("http://localhost:7830/v1/guardian/init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "web", deviceId: "platform-abc123" }),
+        }),
+        "::ffff:10.112.1.68",
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.accessToken).toBeTruthy();
+    } finally {
+      delete process.env.IS_PLATFORM;
+    }
   });
 });
 
