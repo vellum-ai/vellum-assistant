@@ -44,6 +44,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
       return [];
     },
   },
+  broadcastMessage: mock.fn(),
 }));
 
 // Dynamic imports after mock.module calls so the stubs take effect
