@@ -2331,7 +2331,7 @@ jobs:
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
         always() && !cancelled()
@@ -2341,7 +2341,6 @@ jobs:
         && needs.push-assistant-manifest.result == 'success'
         && needs.push-gateway-manifest.result == 'success'
         && needs.push-credential-executor-manifest.result == 'success'
-        && needs.ci-playwright.result == 'success'
         && needs.build-chrome-extension.result == 'success'
         && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
         && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
