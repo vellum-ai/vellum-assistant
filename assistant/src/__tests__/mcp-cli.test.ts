@@ -523,6 +523,10 @@ describe("assistant mcp auth — IPC path", () => {
   });
 
   beforeEach(() => {
+    // runMcp() sets VELLUM_WORKSPACE_DIR = testDataDir; align the module-level
+    // variable with the IPC-specific directory so the config loader sees the
+    // SSE server config created in beforeAll.
+    testDataDir = ipcTestDataDir;
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({ ok: false, error: "not connected" }),
     );
@@ -530,7 +534,6 @@ describe("assistant mcp auth — IPC path", () => {
     stdoutLines = [];
     stderrLines = [];
     process.exitCode = 0;
-    process.env.VELLUM_WORKSPACE_DIR = ipcTestDataDir;
   });
 
   test("mcp auth calls IPC internal_mcp_auth_start first", async () => {
@@ -618,11 +621,26 @@ describe("assistant mcp auth — IPC path", () => {
     expect(stderr).toMatch(/access_denied|OAuth failed/);
   });
 
-  // TODO: test suite has a pre-existing bug where runMcp() re-sets
-  // VELLUM_WORKSPACE_DIR to testDataDir, overriding the ipcTestDataDir set in
-  // beforeEach. All IPC path tests are currently failing for this reason.
-  // This test documents Gap 3 behavior (NotFoundError on daemon restart gives
-  // an immediate helpful error instead of a 2.5-minute timeout); convert from
-  // test.todo to test once the VELLUM_WORKSPACE_DIR bug is fixed.
-  test.todo("polling gets NotFoundError (daemon restarted) → exits 1 with helpful message immediately");
+  test("polling gets NotFoundError (daemon restarted) → exits 1 with helpful message immediately", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // Daemon restarted — state lost
+      return Promise.resolve({
+        ok: false,
+        error: "No active OAuth flow for server \"srv\"",
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/daemon may have restarted|OAuth flow was lost/);
+  });
 });
