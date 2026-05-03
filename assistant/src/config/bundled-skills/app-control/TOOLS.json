@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "app_control_start",
+      "description": "Start (launch or focus) the target application. Optionally pass command-line arguments. Begins an app-control session targeting this app.",
+      "category": "app-control",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional command-line arguments to launch the app with"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of why you are starting this app"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "reasoning"]
+      },
+      "executor": "tools/app-control-start.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_observe",
+      "description": "Capture the current window state of the target application — returns lifecycle state (running/missing/minimized/occluded), an optional screenshot, and window bounds. Use this before issuing input actions, or to check progress without acting.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "activity"]
+      },
+      "executor": "tools/app-control-observe.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_press",
+      "description": "Press a single key in the target application, with optional modifiers (cmd/shift/option/ctrl) and a hold duration in milliseconds.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "key": {
+            "type": "string",
+            "description": "Key identifier, e.g. \"return\", \"a\", \"f12\""
+          },
+          "modifiers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Modifier list, e.g. [\"cmd\", \"shift\"]. Omit for no modifiers."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "description": "Hold duration in milliseconds"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of why you are pressing this key"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "key", "reasoning"]
+      },
+      "executor": "tools/app-control-press.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_combo",
+      "description": "Press multiple keys simultaneously in the target application (e.g. cmd+shift+4). Use for keyboard shortcuts where every key is held at once.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "keys": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Sequence of keys pressed simultaneously, e.g. [\"cmd\", \"shift\", \"4\"]"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "description": "Hold duration in milliseconds"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of why you are pressing this combo"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "keys", "reasoning"]
+      },
+      "executor": "tools/app-control-combo.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_type",
+      "description": "Type literal text into the target application at the current focus. Ensure the intended field is focused before calling.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "text": {
+            "type": "string",
+            "description": "The text to type"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of what you are typing and why"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "text", "reasoning"]
+      },
+      "executor": "tools/app-control-type.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_click",
+      "description": "Click at the given (x, y) coordinates inside the target application's window. Defaults to a single left-click; pass `button` and/or `double` to vary.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "x": {
+            "type": "integer",
+            "description": "X coordinate (window-relative)"
+          },
+          "y": {
+            "type": "integer",
+            "description": "Y coordinate (window-relative)"
+          },
+          "button": {
+            "type": "string",
+            "enum": ["left", "right", "middle"],
+            "description": "Mouse button (default: \"left\")"
+          },
+          "double": {
+            "type": "boolean",
+            "description": "When true, performs a double-click"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of what you see and why you are clicking here"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "x", "y", "reasoning"]
+      },
+      "executor": "tools/app-control-click.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_drag",
+      "description": "Drag from (from_x, from_y) to (to_x, to_y) inside the target application's window. Defaults to left button.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+          },
+          "from_x": {
+            "type": "integer",
+            "description": "Source X coordinate (window-relative)"
+          },
+          "from_y": {
+            "type": "integer",
+            "description": "Source Y coordinate (window-relative)"
+          },
+          "to_x": {
+            "type": "integer",
+            "description": "Destination X coordinate (window-relative)"
+          },
+          "to_y": {
+            "type": "integer",
+            "description": "Destination Y coordinate (window-relative)"
+          },
+          "button": {
+            "type": "string",
+            "enum": ["left", "right", "middle"],
+            "description": "Mouse button (default: \"left\")"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Explanation of what you are dragging and why"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app", "from_x", "from_y", "to_x", "to_y", "reasoning"]
+      },
+      "executor": "tools/app-control-drag.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_control_stop",
+      "description": "Stop the current app-control session. When `app` is omitted, stops whichever app currently holds the session. This is the terminal action for an app-control flow.",
+      "category": "app-control",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Optional bundle ID or process name. When omitted, stops whichever app currently holds the session."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Free-form reason, surfaced for logging"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["activity"]
+      },
+      "executor": "tools/app-control-stop.ts",
+      "execution_target": "host"
+    }
+  ]
+}
