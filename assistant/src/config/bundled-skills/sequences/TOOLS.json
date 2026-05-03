@@ -54,10 +54,6 @@
           "exit_on_reply": {
             "type": "boolean",
             "description": "Whether to stop the sequence when the contact replies (default true)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name", "channel", "steps"]
@@ -77,10 +73,6 @@
             "type": "string",
             "enum": ["active", "paused", "archived"],
             "description": "Filter by sequence status"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -98,10 +90,6 @@
           "id": {
             "type": "string",
             "description": "Sequence ID"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["id"]
@@ -176,10 +164,6 @@
               "required": ["body_prompt"]
             },
             "description": "Replacement steps (replaces all existing steps)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "oneOf": [
@@ -201,10 +185,6 @@
           "id": {
             "type": "string",
             "description": "Sequence ID to delete"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["id"]
@@ -241,10 +221,6 @@
           "context": {
             "type": "object",
             "description": "Optional context object with personalization variables for the enrolled contacts"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["sequence_id", "emails"]
@@ -275,10 +251,6 @@
               "failed"
             ],
             "description": "Filter by enrollment status"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -304,10 +276,6 @@
           "auto_enroll": {
             "type": "boolean",
             "description": "Set to true to enroll contacts (default false = preview mode)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["file_path", "sequence_id"]
@@ -326,10 +294,6 @@
           "sequence_id": {
             "type": "string",
             "description": "Optional sequence ID for detailed step funnel view"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },

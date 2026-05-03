@@ -33,10 +33,6 @@
           "priority": {
             "type": "number",
             "description": "Relative priority \u2014 higher numbers take precedence. Defaults to 0."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["trigger", "action"]
@@ -59,10 +55,6 @@
           "category": {
             "type": "string",
             "description": "Filter by category (e.g. \"scheduling\", \"triage\"). Omit to show all."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -105,10 +97,6 @@
           "priority": {
             "type": "number",
             "description": "Updated priority"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["playbook_id"]
@@ -127,10 +115,6 @@
           "playbook_id": {
             "type": "string",
             "description": "ID of the playbook to delete (from playbook_list results)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["playbook_id"]

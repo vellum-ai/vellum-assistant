@@ -20,10 +20,6 @@
           "cwd": {
             "type": "string",
             "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current conversation's working directory."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief explanation of why this tool is being called"
           }
         },
         "required": ["task"]
@@ -42,10 +38,6 @@
           "acp_session_id": {
             "type": "string",
             "description": "Optional ACP session ID to query. If omitted, returns all ACP sessions."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief explanation of why this tool is being called"
           }
         },
         "required": []
@@ -64,10 +56,6 @@
           "acp_session_id": {
             "type": "string",
             "description": "The ID of the ACP session to abort."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief explanation of why this tool is being called"
           }
         },
         "required": ["acp_session_id"]
@@ -90,10 +78,6 @@
           "instruction": {
             "type": "string",
             "description": "The new instruction that replaces the in-flight prompt."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief explanation of why this tool is being called"
           }
         },
         "required": ["acp_session_id", "instruction"]
@@ -108,12 +92,7 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "activity": {
-            "type": "string",
-            "description": "Brief explanation of why this tool is being called"
-          }
-        },
+        "properties": {},
         "required": []
       },
       "executor": "tools/acp-list-agents.ts",

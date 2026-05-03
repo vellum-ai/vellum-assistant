@@ -63,10 +63,6 @@
           "reuse_conversation": {
             "type": "boolean",
             "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules. Defaults to false."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name"]
@@ -89,10 +85,6 @@
           "job_id": {
             "type": "string",
             "description": "If provided, show detailed info and recent runs for this specific job."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -162,10 +154,6 @@
           "reuse_conversation": {
             "type": "boolean",
             "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]
@@ -184,10 +172,6 @@
           "job_id": {
             "type": "string",
             "description": "The ID of the schedule to delete"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]

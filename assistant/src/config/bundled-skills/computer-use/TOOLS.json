@@ -8,13 +8,8 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["activity"]
+        "properties": {},
+        "required": []
       },
       "executor": "tools/computer-use-observe.ts",
       "execution_target": "host"
@@ -47,10 +42,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -73,10 +64,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are typing and why"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["text", "reasoning"]
@@ -99,10 +86,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this key"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["key", "reasoning"]
@@ -142,10 +125,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are scrolling"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["direction", "amount", "reasoning"]
@@ -188,10 +167,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are dragging and why"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -214,10 +189,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are waiting for"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["duration_ms", "reasoning"]
@@ -240,10 +211,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you need to open or switch to this app"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_name", "reasoning"]
@@ -266,10 +233,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["script", "reasoning"]
@@ -288,10 +251,6 @@
           "summary": {
             "type": "string",
             "description": "Human-readable summary of what was accomplished"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["summary"]
@@ -314,10 +273,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of how you determined the answer"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["answer", "reasoning"]

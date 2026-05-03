@@ -21,10 +21,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are starting this app"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "reasoning"]
@@ -47,13 +43,9 @@
           "settle_ms": {
             "type": "integer",
             "description": "Milliseconds to wait before capturing so the target app and the WindowServer can flush pending input + composite a fresh frame. Default ~200ms (sized for emulator-class apps at 60fps). Pass 0 for static UIs; raise for slow-feedback apps."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["app", "activity"]
+        "required": ["app"]
       },
       "executor": "tools/app-control-observe.ts",
       "execution_target": "host"
@@ -86,10 +78,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this key"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "key", "reasoning"]
@@ -121,10 +109,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this combo"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "keys", "reasoning"]
@@ -174,10 +158,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what this sequence does and why"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "steps", "reasoning"]
@@ -204,10 +184,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are typing and why"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "text", "reasoning"]
@@ -247,10 +223,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "x", "y", "reasoning"]
@@ -294,10 +266,6 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are dragging and why"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app", "from_x", "from_y", "to_x", "to_y", "reasoning"]
@@ -320,13 +288,9 @@
           "reason": {
             "type": "string",
             "description": "Free-form reason, surfaced for logging"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["activity"]
+        "required": []
       },
       "executor": "tools/app-control-stop.ts",
       "execution_target": "host"
