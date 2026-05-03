@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
@@ -129,9 +130,7 @@ async function handleBtw({
   try {
     conversation = await getOrCreateConversation(conversationId);
   } catch {
-    throw new ServiceUnavailableError(
-      "Message processing is not available",
-    );
+    throw new ServiceUnavailableError("Message processing is not available");
   }
 
   return new ReadableStream({
@@ -145,6 +144,7 @@ async function handleBtw({
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
+            tools: buildToolDefinitions(),
             signal: abortSignal,
             userPersona,
             channelPersona,
