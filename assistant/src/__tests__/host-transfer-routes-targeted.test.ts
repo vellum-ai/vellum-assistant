@@ -240,7 +240,7 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
   describe("targeted + missing x-vellum-client-id header", () => {
     test("throws BadRequestError when header is absent", async () => {
       stubTargetClientId = "client-A";
-      expect(
+      await expect(
         handleTransferContentPut({
           pathParams: { transferId: TEST_TRANSFER_ID },
           headers: { "x-transfer-sha256": "abc" },
@@ -269,7 +269,7 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
   describe("targeted + wrong x-vellum-client-id header", () => {
     test("throws ForbiddenError when client ID does not match", async () => {
       stubTargetClientId = "client-A";
-      expect(
+      await expect(
         handleTransferContentPut({
           pathParams: { transferId: TEST_TRANSFER_ID },
           headers: { "x-vellum-client-id": "client-B", "x-transfer-sha256": "abc" },

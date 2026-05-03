@@ -172,6 +172,13 @@ class HostFileTransferTool implements Tool {
       );
     }
 
+    if (targetClientId != null) {
+      return {
+        content: `Error: target_client_id '${targetClientId}' was specified but no host client is available. Ensure the client is connected.`,
+        isError: true,
+      };
+    }
+
     // Local mode: direct filesystem copy.
     return this.executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
   }
