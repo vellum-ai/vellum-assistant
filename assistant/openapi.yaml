@@ -6840,6 +6840,28 @@ paths:
                 - userText
                 - top
               additionalProperties: false
+  /v1/memory/v2/rebuild-corpus-stats:
+    post:
+      operationId: memory_v2_rebuildcorpusstats_post
+      summary: Rebuild the BM25 corpus statistics for memory v2
+      description:
+        Walks every concept page on disk, recomputes the document-frequency table and average document length used
+        by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to
+        recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with
+        `assistant memory v2 reembed` when document-side weights need refreshing.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/memory/v2/reembed-skills:
     post:
       operationId: memory_v2_reembedskills_post
