@@ -136,6 +136,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
             let response = try await GatewayHTTPClient.post(
                 path: "host-transfer-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: timeout
             )
             guard response.isSuccess else {
@@ -153,7 +154,8 @@ public struct HostProxyClient: HostProxyClientProtocol {
         // Use a generous timeout — large files may take a while to download.
         let response = try await GatewayHTTPClient.get(
             path: "transfers/\(transferId)/content",
-            timeout: 300
+            timeout: 300,
+            extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()]
         )
         guard response.isSuccess else {
             throw TransferError.pullFailed(statusCode: response.statusCode)
@@ -169,7 +171,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
             body: data,
             params: ["sourcePath": sourcePath],
             contentType: "application/octet-stream",
-            extraHeaders: ["X-Transfer-SHA256": sha256],
+            extraHeaders: ["X-Transfer-SHA256": sha256, "X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
             timeout: timeout
         )
         guard response.isSuccess else {

@@ -446,6 +446,12 @@ extension AppDelegate {
                     self.hostBrowserExecutor.cancel(msg.requestId)
 
                 case .hostTransferRequest(let msg):
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else { break }
                     HostToolExecutor.executeHostTransferRequest(msg)
                 case .hostTransferCancel(let msg):
                     HostToolExecutor.cancelHostTransferRequest(msg.requestId)
