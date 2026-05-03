@@ -545,15 +545,59 @@ extension ChatBubble {
                 var found = false
                 if lastIdx + 1 < groups.count {
                     for followingGroup in groups[(lastIdx + 1)...] {
-                        if case .texts = followingGroup {
-                            found = true
-                            break
+                        if case .texts(let textIndices) = followingGroup {
+                            let hasNonEmpty = textIndices.contains { i in
+                                i < message.textSegments.count
+                                    && !message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            }
+                            if hasNonEmpty {
+                                found = true
+                                break
+                            }
                         }
                     }
                 }
                 result[burst.stableId] = found
             }
             return result
+        }()
+
+        // Bursts immediately followed by a text group defer their images to
+        // render after the text, so "Here's the screenshot:" appears before
+        // the screenshot it introduces.
+        let deferredImageBurstIds: Set<String> = {
+            var ids = Set<String>()
+            for burst in bursts {
+                if burstTrailingText[burst.stableId] == true {
+                    ids.insert(burst.stableId)
+                }
+            }
+            return ids
+        }()
+
+        // Map text group stableIds to the burst whose images they should render
+        let textGroupDeferredBurst: [String: WorkBurst] = {
+            var map: [String: WorkBurst] = [:]
+            for burst in bursts {
+                guard deferredImageBurstIds.contains(burst.stableId) else { continue }
+                let burstToolSet = Set(burst.toolIndices)
+                let burstThinkingSet = Set(burst.thinkingIndices)
+                var lastBurstGroupIdx: Int?
+                for (idx, group) in groups.enumerated() {
+                    switch group {
+                    case .toolCalls(let indices):
+                        if !Set(indices).isDisjoint(with: burstToolSet) { lastBurstGroupIdx = idx }
+                    case .thinking(let indices):
+                        if !Set(indices).isDisjoint(with: burstThinkingSet) { lastBurstGroupIdx = idx }
+                    default: break
+                    }
+                }
+                guard let lastIdx = lastBurstGroupIdx, lastIdx + 1 < groups.count else { continue }
+                if case .texts = groups[lastIdx + 1] {
+                    map[groups[lastIdx + 1].stableId] = burst
+                }
+            }
+            return map
         }()
 
         // Identify the last text group so attachments render right after it
@@ -577,6 +621,16 @@ extension ChatBubble {
                 if !joined.isEmpty {
                     textBubble(for: joined, textGroupIndex: indices.first ?? 0)
                 }
+                // Render deferred burst images after the text so descriptive
+                // text appears before the screenshot it introduces.
+                if shouldRenderToolProgressInline,
+                   let deferredBurst = textGroupDeferredBurst[group.stableId] {
+                    let deferredCalls: [ToolCallData] = deferredBurst.toolIndices.compactMap { tcIdx in
+                        guard tcIdx < message.toolCalls.count else { return nil }
+                        return message.toolCalls[tcIdx]
+                    }
+                    inlineToolCallImages(from: deferredCalls)
+                }
                 // Render attachments right after the last text group
                 if group.stableId == lastTextGroupId {
                     inlineAttachments
@@ -592,12 +646,14 @@ extension ChatBubble {
                             hasTrailingText: burstTrailingText[burst.stableId] ?? false,
                             expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
                         )
-                        // Render tool call images after the burst card
-                        let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
-                            guard tcIdx < message.toolCalls.count else { return nil }
-                            return message.toolCalls[tcIdx]
+                        // Render tool call images unless deferred to the following text group
+                        if !deferredImageBurstIds.contains(burst.stableId) {
+                            let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
+                                guard tcIdx < message.toolCalls.count else { return nil }
+                                return message.toolCalls[tcIdx]
+                            }
+                            inlineToolCallImages(from: burstToolCalls)
                         }
-                        inlineToolCallImages(from: burstToolCalls)
                     } else if burstForGroup[group.stableId] != nil {
                         // Part of a burst but not the anchor — skip rendering
                         EmptyView()
@@ -630,11 +686,13 @@ extension ChatBubble {
                                 hasTrailingText: burstTrailingText[burst.stableId] ?? false,
                                 expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
                             )
-                            let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
-                                guard tcIdx < message.toolCalls.count else { return nil }
-                                return message.toolCalls[tcIdx]
+                            if !deferredImageBurstIds.contains(burst.stableId) {
+                                let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
+                                    guard tcIdx < message.toolCalls.count else { return nil }
+                                    return message.toolCalls[tcIdx]
+                                }
+                                inlineToolCallImages(from: burstToolCalls)
                             }
-                            inlineToolCallImages(from: burstToolCalls)
                         }
                     } else {
                         EmptyView()
