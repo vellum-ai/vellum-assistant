@@ -186,7 +186,7 @@ git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO
 
 ## Permission Reference
 
-The default permission set mirrors the permissions used by the reference `credence-the-bot` installation:
+The default permission set covers the full range of actions the assistant may need to perform on a repository:
 
 | Permission      | Level | Purpose                                                   |
 | --------------- | ----- | --------------------------------------------------------- |
@@ -196,8 +196,6 @@ The default permission set mirrors the permissions used by the reference `creden
 | `workflows`     | write | Commit `.github/workflows/` files                         |
 | `checks`        | read  | Read CI check-run status (e.g. `gh pr checks`)            |
 | `metadata`      | read  | Required by GitHub for all App installations (auto-added) |
-
-> **Note on `checks:read`:** This is required to poll CI status via the Checks API (`GET /repos/.../commits/{sha}/check-runs`). Without it, `gh pr checks` returns empty or 403. Adding this permission after initial install requires org admin approval of the updated installation at `https://github.com/organizations/{org}/settings/installations`.
 
 ## Credential Reference
 
