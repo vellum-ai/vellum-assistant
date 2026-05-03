@@ -324,9 +324,6 @@ public final class GatewayConnectionManager {
 
     private func performHealthCheck() async throws {
         let healthPath = "health"
-        let useUnprefixedHealthPath = HealthCheckClient.usesUnprefixedGatewayHealth(
-            forManagedConnection: isManagedConnectionForHealthCheck()
-        )
 
         // Run the HTTP GET + JSON decode off the main actor. `GatewayHTTPClient`
         // is nonisolated but, when called from a `@MainActor` context, its
@@ -349,8 +346,7 @@ public final class GatewayConnectionManager {
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
                 timeout: 10,
-                quiet: true,
-                unprefixed: useUnprefixedHealthPath
+                quiet: true
             )
             let version: String? = response.isSuccess
                 ? (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version
@@ -414,10 +410,6 @@ public final class GatewayConnectionManager {
             log.info("Health check passed")
         }
         setConnected(true)
-    }
-
-    private func isManagedConnectionForHealthCheck() -> Bool {
-        return cachedAssistant?.isManaged ?? false
     }
 
     /// Reconciles `isAuthFailed` against the tracker's current state and logs

@@ -233,17 +233,4 @@ final class HealthCheckClientTests: XCTestCase {
         XCTAssertTrue(assistant.isRemote)
     }
 
-    func testManagedAssistantGatewayHealthUsesAssistantScopedPath() {
-        XCTAssertFalse(
-            HealthCheckClient.usesUnprefixedGatewayHealth(forManagedConnection: true),
-            "Managed assistants route through the platform proxy and must keep the assistants/{id} health scope"
-        )
-    }
-
-    func testNonManagedAssistantGatewayHealthUsesFlatPath() {
-        XCTAssertTrue(
-            HealthCheckClient.usesUnprefixedGatewayHealth(forManagedConnection: false),
-            "Local and non-managed remote assistants expose health at the flat gateway path"
-        )
-    }
 }
