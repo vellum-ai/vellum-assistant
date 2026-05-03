@@ -8,7 +8,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { CREDENTIAL_KEYS, registerPlatformConnectCommand } from "./connect.js";
+import { registerPlatformConnectCommand } from "./connect.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
 
 export function registerPlatformCommand(program: Command): void {
@@ -68,9 +68,6 @@ Fields:
   hasWebhookSecret    Whether a stored webhook secret is available (needed
                       for email and other inbound webhook channels)
   available           Whether callback registration prerequisites are satisfied
-  connected           Whether platform credentials are stored (boolean)
-  organizationId      The platform organization ID (from stored credentials)
-  userId              The platform user ID (from stored credentials)
 
 Examples:
   $ assistant platform status
@@ -80,43 +77,9 @@ Examples:
       try {
         const context = await resolvePlatformCallbackRegistrationContext();
 
-        const storedBaseUrl =
-          (await getSecureKeyAsync(
-            credentialKey(
-              CREDENTIAL_KEYS.baseUrl.service,
-              CREDENTIAL_KEYS.baseUrl.field,
-            ),
-          )) ?? "";
-        const hasStoredApiKey = !!(await getSecureKeyAsync(
-          credentialKey(
-            CREDENTIAL_KEYS.apiKey.service,
-            CREDENTIAL_KEYS.apiKey.field,
-          ),
-        ));
-        const organizationId =
-          (
-            await getSecureKeyAsync(
-              credentialKey(
-                CREDENTIAL_KEYS.organizationId.service,
-                CREDENTIAL_KEYS.organizationId.field,
-              ),
-            )
-          )?.trim() ?? "";
-        const userId =
-          (
-            await getSecureKeyAsync(
-              credentialKey(
-                CREDENTIAL_KEYS.userId.service,
-                CREDENTIAL_KEYS.userId.field,
-              ),
-            )
-          )?.trim() ?? "";
-
         const hasWebhookSecret = !!(await getSecureKeyAsync(
           credentialKey("vellum", "webhook_secret"),
         ));
-
-        const connected = !!storedBaseUrl && hasStoredApiKey;
 
         const result = {
           isPlatform: context.isPlatform,
@@ -126,9 +89,6 @@ Examples:
           hasAssistantApiKey: context.hasAssistantApiKey,
           hasWebhookSecret,
           available: context.enabled,
-          connected,
-          organizationId: organizationId || null,
-          userId: userId || null,
         };
 
         if (shouldOutputJson(cmd)) {
@@ -149,9 +109,6 @@ Examples:
           log.info(
             `Callback registration available: ${result.available ? "yes" : "no"}`,
           );
-          log.info(`Connected: ${connected}`);
-          log.info(`Organization ID: ${organizationId || "(not set)"}`);
-          log.info(`User ID: ${userId || "(not set)"}`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
