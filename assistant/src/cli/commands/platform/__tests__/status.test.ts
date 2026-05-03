@@ -166,14 +166,15 @@ describe("assistant platform status", () => {
     process.exitCode = 0;
   });
 
-  test("connected platform returns full status with stored credentials", async () => {
+  test("platform pod returns full status from context", async () => {
     /**
-     * When the assistant has stored platform credentials and a valid
-     * registration context, the status command should report connected
-     * with all context fields populated.
+     * When the assistant is running as a platform-managed pod, the status
+     * command should report all fields from the registration context.
+     * connected/organizationId/userId are no longer part of the output —
+     * those were keychain-only fields that were always false on managed pods.
      */
 
-    // GIVEN a containerized environment with platform configuration
+    // GIVEN a containerized platform environment
     mockResolvePlatformCallbackRegistrationContext = async () => ({
       isPlatform: true,
       platformBaseUrl: "https://platform.vellum.ai",
@@ -184,15 +185,9 @@ describe("assistant platform status", () => {
       enabled: true,
     });
 
-    // AND stored platform credentials exist
+    // AND a webhook secret is stored in the keychain
     mockGetSecureKeyAsync = async (account: string) => {
-      if (account === "credential/vellum/platform_base_url")
-        return "https://platform.vellum.ai";
-      if (account === "credential/vellum/assistant_api_key")
-        return "sk-test-key";
-      if (account === "credential/vellum/platform_organization_id")
-        return "org-456";
-      if (account === "credential/vellum/platform_user_id") return "user-789";
+      if (account === "credential/vellum/webhook_secret") return "wh-secret";
       return undefined;
     };
 
@@ -213,10 +208,14 @@ describe("assistant platform status", () => {
     expect(parsed.assistantId).toBe("asst-abc-123");
     expect(parsed.hasInternalApiKey).toBe(true);
     expect(parsed.hasAssistantApiKey).toBe(true);
+    expect(parsed.hasWebhookSecret).toBe(true);
     expect(parsed.available).toBe(true);
-    expect(parsed.connected).toBe(true);
-    expect(parsed.organizationId).toBe("org-456");
-    expect(parsed.userId).toBe("user-789");
+
+    // connected/organizationId/userId removed — those were keychain-only
+    // fields that were always false/null on managed pods
+    expect(parsed.connected).toBeUndefined();
+    expect(parsed.organizationId).toBeUndefined();
+    expect(parsed.userId).toBeUndefined();
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {
