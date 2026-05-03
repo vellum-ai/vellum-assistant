@@ -90,6 +90,7 @@ export interface ClientEntry extends BaseSubscriberEntry {
   clientId: string;
   interfaceId: InterfaceId;
   capabilities: HostProxyCapability[];
+  machineName?: string;
 }
 
 export interface ProcessEntry extends BaseSubscriberEntry {

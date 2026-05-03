@@ -488,6 +488,7 @@ public enum GatewayHTTPClient {
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
+        request.setValue(ProcessInfo.processInfo.hostName, forHTTPHeaderField: "X-Vellum-Machine-Name")
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {
