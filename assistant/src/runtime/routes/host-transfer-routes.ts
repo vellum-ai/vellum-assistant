@@ -59,8 +59,11 @@ function handleTransferContentGet({
 
 /**
  * Resolve Content-Length and X-Transfer-SHA256 response headers for the
- * GET transfer content endpoint. Called by the HTTP adapter before
- * sending the response.
+ * GET transfer content endpoint. Called by the HTTP adapter AFTER the handler
+ * runs (`http-adapter.ts:107-125`), so the entry has already been consumed by
+ * `getTransferContent`. We read the size/sha256 from
+ * `takeJustConsumedTransferMetadata`, which the proxy populates synchronously
+ * during the handler's `getTransferContent` call.
  */
 function resolveTransferContentGetHeaders({
   pathParams = {},
@@ -70,16 +73,14 @@ function resolveTransferContentGetHeaders({
   const transferId = pathParams?.transferId;
   if (!transferId) return { "Content-Type": "application/octet-stream" };
 
-  const match = findProxyByTransferId(transferId);
-  if (!match) return { "Content-Type": "application/octet-stream" };
-
-  const content = match.proxy.getTransferContent(transferId);
-  if (!content) return { "Content-Type": "application/octet-stream" };
+  const meta =
+    HostTransferProxy.instance.takeJustConsumedTransferMetadata(transferId);
+  if (!meta) return { "Content-Type": "application/octet-stream" };
 
   return {
     "Content-Type": "application/octet-stream",
-    "Content-Length": content.sizeBytes.toString(),
-    "X-Transfer-SHA256": content.sha256,
+    "Content-Length": meta.sizeBytes.toString(),
+    "X-Transfer-SHA256": meta.sha256,
   };
 }
 

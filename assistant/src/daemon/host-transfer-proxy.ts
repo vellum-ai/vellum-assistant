@@ -83,6 +83,20 @@ export class HostTransferProxy {
 
   /** Pending transfers keyed by transferId (for content endpoint lookups). */
   private transfers = new Map<string, TransferEntry>();
+  /**
+   * Briefly retains size/sha256 of a just-consumed transfer so the GET-content
+   * route's `resolveResponseHeaders` callback (which the HTTP adapter invokes
+   * AFTER the request handler) can still set `Content-Length` and
+   * `X-Transfer-SHA256` headers. Without this, the handler's `getTransferContent`
+   * call deletes the entry before the header resolver runs, and the resolver
+   * silently falls back to default headers — meaning the documented response
+   * headers were never actually sent. Entries here self-clear on read; a 30s
+   * fallback timer prevents long-term retention if the resolver never runs.
+   */
+  private justConsumedMetadata = new Map<
+    string,
+    { sizeBytes: number; sha256: string }
+  >();
 
   /**
    * Whether a client with `host_file` capability is connected.
@@ -451,12 +465,44 @@ export class HostTransferProxy {
     ) {
       return null;
     }
+    // Stash size/sha256 so the GET-content route's `resolveResponseHeaders`
+    // callback can still set `Content-Length` and `X-Transfer-SHA256` on the
+    // response. The HTTP adapter invokes the handler (this method) BEFORE the
+    // response-header resolver, so without this stash the resolver sees a
+    // deleted entry and silently falls back to default headers.
+    this.justConsumedMetadata.set(transferId, {
+      sizeBytes: entry.sizeBytes,
+      sha256: entry.sha256,
+    });
+    // Fallback cleanup: if the resolver never reads (e.g., handler error after
+    // consume, request abort), drop the metadata after a short grace window.
+    // `unref()` so the timer never holds the process open.
+    setTimeout(() => {
+      this.justConsumedMetadata.delete(transferId);
+    }, 30_000).unref?.();
     this.transfers.delete(transferId);
     return {
       buffer: entry.fileBuffer,
       sizeBytes: entry.sizeBytes,
       sha256: entry.sha256,
     };
+  }
+
+  /**
+   * Returns and clears the size/sha256 metadata for a transfer that was just
+   * consumed by `getTransferContent`. Intended for use by the GET-content
+   * route's `resolveResponseHeaders` callback to populate `Content-Length` and
+   * `X-Transfer-SHA256` response headers. Returns null if no metadata is
+   * cached (e.g., transfer was never consumed, or already read by a previous
+   * resolver call).
+   */
+  takeJustConsumedTransferMetadata(
+    transferId: string,
+  ): { sizeBytes: number; sha256: string } | null {
+    const meta = this.justConsumedMetadata.get(transferId);
+    if (!meta) return null;
+    this.justConsumedMetadata.delete(transferId);
+    return meta;
   }
 
   /**

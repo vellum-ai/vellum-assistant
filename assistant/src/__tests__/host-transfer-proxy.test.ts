@@ -341,6 +341,110 @@ describe("HostTransferProxy", () => {
     });
   });
 
+  describe("takeJustConsumedTransferMetadata", () => {
+    test("returns size+sha256 immediately after getTransferContent", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      const fileContent = "header metadata test";
+      await globalThis.Bun.write(srcPath, fileContent);
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-1",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      const expectedSize = Buffer.from(fileContent).length;
+      const expectedSha = createHash("sha256")
+        .update(Buffer.from(fileContent))
+        .digest("hex");
+
+      // Handler consumes content; metadata should now be available for the
+      // GET-content route's responseHeaders resolver.
+      const content = proxy.getTransferContent(transferId);
+      expect(content).not.toBeNull();
+
+      const meta = proxy.takeJustConsumedTransferMetadata(transferId);
+      expect(meta).toEqual({ sizeBytes: expectedSize, sha256: expectedSha });
+
+      // Resolve the transfer to avoid hanging
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, {
+        isError: false,
+        bytesWritten: expectedSize,
+      });
+      await resultPromise;
+    });
+
+    test("single-use: second take returns null", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      await globalThis.Bun.write(srcPath, "x");
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-2",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      proxy.getTransferContent(transferId);
+      expect(proxy.takeJustConsumedTransferMetadata(transferId)).not.toBeNull();
+      expect(proxy.takeJustConsumedTransferMetadata(transferId)).toBeNull();
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+
+    test("returns null when getTransferContent was never called", () => {
+      setup();
+      expect(
+        proxy.takeJustConsumedTransferMetadata("never-consumed-id"),
+      ).toBeNull();
+    });
+
+    test("returns null for unknown transfer ID even after a different transfer was consumed", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      await globalThis.Bun.write(srcPath, "x");
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-3",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      proxy.getTransferContent(transferId);
+
+      // Different transferId should still return null
+      expect(
+        proxy.takeJustConsumedTransferMetadata("other-id"),
+      ).toBeNull();
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+  });
+
   describe("timeout behavior", () => {
     /** Use a very short real timeout instead of fake timers to avoid deadlocks in Bun. */
     const SHORT_TIMEOUT_MS = 150;
