@@ -193,14 +193,14 @@ extension ChatBubble {
             ))
         }
 
-        // Set isStreaming on the LAST thinking item in the last burst only.
-        // Earlier thinking blocks in the same burst are already complete
-        // (there's a tool call after them).
+        // Set isStreaming on the last thinking item in the last burst, but
+        // only when it's also the last item overall — if a tool call follows
+        // the thinking, the model has moved past thinking to execution.
         if isStreaming, var lastBurst = bursts.last {
             if let lastThinkingIdx = lastBurst.expandedItems.lastIndex(where: {
                 if case .thinking = $0 { return true }
                 return false
-            }) {
+            }), lastThinkingIdx == lastBurst.expandedItems.count - 1 {
                 if case .thinking(let content, let key, _) = lastBurst.expandedItems[lastThinkingIdx] {
                     lastBurst.expandedItems[lastThinkingIdx] = .thinking(
                         content: content, expansionKey: key, isStreaming: true

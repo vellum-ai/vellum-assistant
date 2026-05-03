@@ -49,7 +49,10 @@ extension ChatBubble {
                     guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                     let key = "\(message.id.uuidString)-th\(i)"
                     let isLast = orderIdx == lastThinkingIndex
-                    let streaming = message.isStreaming && isLast
+                    let hasToolAfter = isLast && message.contentOrder.suffix(from: orderIdx + 1).contains {
+                        if case .toolCall = $0 { return true }; return false
+                    }
+                    let streaming = message.isStreaming && isLast && !hasToolAfter
                     items.append(.thinking(content: content, expansionKey: key, isStreaming: streaming))
                 case .toolCall(let i):
                     guard i < message.toolCalls.count else { continue }
