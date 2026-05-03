@@ -788,22 +788,22 @@ async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
 // with term indices (hashed to a fixed vocabulary) and TF-IDF weights.
 // Can be upgraded to a learned sparse encoder (e.g. SPLADE) later.
 
-const SPARSE_VOCAB_SIZE = 30_000;
+export const SPARSE_VOCAB_SIZE = 30_000;
 
 /**
  * Bump this version whenever the sparse embedding algorithm changes
  * (e.g. hash function fix, tokenizer change) to trigger re-indexing
  * of existing sparse vectors via the sentinel mismatch mechanism.
  */
-export const SPARSE_EMBEDDING_VERSION = 2;
+export const SPARSE_EMBEDDING_VERSION = 3;
 
 /** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /** Hash a token to a stable index in [0, vocabSize). */
-function tokenHash(token: string, vocabSize: number): number {
+export function tokenHash(token: string, vocabSize: number): number {
   // FNV-1a 32-bit hash for speed
   let hash = 0x811c9dc5;
   for (let i = 0; i < token.length; i++) {

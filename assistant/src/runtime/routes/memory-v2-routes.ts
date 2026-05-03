@@ -8,10 +8,7 @@ import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../../memory/embedding-backend.js";
+import { embedWithBackend } from "../../memory/embedding-backend.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
@@ -28,6 +25,11 @@ import {
 } from "../../memory/v2/page-store.js";
 import { hybridQueryConceptPages } from "../../memory/v2/qdrant.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
+import {
+  generateBm25QueryEmbedding,
+  getConceptPageCorpusStats,
+  rebuildConceptPageCorpusStats,
+} from "../../memory/v2/sparse-bm25.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -161,6 +163,40 @@ async function handleGetConceptPage({
   return { slug, rendered: renderPageContent(page) };
 }
 
+// ── Rebuild BM25 corpus stats ───────────────────────────────────────────
+
+const MemoryV2RebuildCorpusStatsParams = z.object({}).strict();
+
+export interface MemoryV2RebuildCorpusStatsResult {
+  totalDocs: number;
+  avgDl: number;
+  /** Number of distinct hashed-token buckets that received any DF count. */
+  vocabularyBuckets: number;
+}
+
+async function handleRebuildCorpusStats({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2RebuildCorpusStatsResult> {
+  MemoryV2RebuildCorpusStatsParams.parse(body);
+  const workspaceDir = getWorkspaceDir();
+  await rebuildConceptPageCorpusStats(workspaceDir);
+  const stats = getConceptPageCorpusStats();
+  if (!stats) {
+    // The rebuild always swaps in a non-null table on success, so a missing
+    // value here means an unexpected reset between rebuild and read.
+    throw new RouteError(
+      "Corpus stats rebuild completed but no table is loaded",
+      "MEMORY_V2_CORPUS_STATS_MISSING",
+      500,
+    );
+  }
+  return {
+    totalDocs: stats.totalDocs,
+    avgDl: stats.avgDl,
+    vocabularyBuckets: stats.df.size,
+  };
+}
+
 // ── Reembed skills ──────────────────────────────────────────────────────
 
 const MemoryV2ReembedSkillsParams = z.object({}).strict();
@@ -278,7 +314,7 @@ async function scoreChannel(
 ): Promise<MemoryV2ExplainSimilarityChannel> {
   const denseResult = await embedWithBackend(config, [text]);
   const denseVec = denseResult.vectors[0];
-  const sparseVec = generateSparseEmbedding(text);
+  const sparseVec = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQueryConceptPages(denseVec, sparseVec, top);
 
@@ -440,5 +476,16 @@ export const ROUTES: RouteDefinition[] = [
       "Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.",
     tags: ["memory"],
     requestBody: MemoryV2ExplainSimilarityParams,
+  },
+  {
+    operationId: "memory_v2_rebuild_corpus_stats",
+    method: "POST",
+    endpoint: "memory/v2/rebuild-corpus-stats",
+    handler: handleRebuildCorpusStats,
+    summary: "Rebuild the BM25 corpus statistics for memory v2",
+    description:
+      "Walks every concept page on disk, recomputes the document-frequency table and average document length used by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with `assistant memory v2 reembed` when document-side weights need refreshing.",
+    tags: ["memory"],
+    requestBody: MemoryV2RebuildCorpusStatsParams,
   },
 ];

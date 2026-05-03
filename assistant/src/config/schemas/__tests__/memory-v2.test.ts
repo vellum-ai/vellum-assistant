@@ -21,6 +21,8 @@ describe("MemoryV2ConfigSchema", () => {
       epsilon: 0.01,
       dense_weight: 0.7,
       sparse_weight: 0.3,
+      bm25_k1: 1.2,
+      bm25_b: 0.75,
       consolidation_interval_hours: 4,
       max_page_chars: 5000,
       consolidation_prompt_path: null,

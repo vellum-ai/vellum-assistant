@@ -744,6 +744,27 @@ export async function runDaemon(): Promise<void> {
             );
           }
         })();
+
+        // Build the BM25 corpus stats (per-token document frequencies and
+        // average document length) used by the v2 sparse channel. Without
+        // this, document-side sparse embeddings fall back to legacy TF-only
+        // weighting via the chicken-and-egg guard in
+        // `embed-concept-page.ts`. Fire-and-forget for the same reason as
+        // PKB reconcile — the stats are an optional optimization, never a
+        // boot-blocking dependency.
+        void (async () => {
+          try {
+            const { rebuildConceptPageCorpusStats } =
+              await import("../memory/v2/sparse-bm25.js");
+            await rebuildConceptPageCorpusStats(getWorkspaceDir());
+            log.info("Memory v2 BM25 corpus stats built");
+          } catch (err) {
+            log.warn(
+              { err },
+              "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
+            );
+          }
+        })();
       }
 
       log.info("Daemon startup: starting memory worker");

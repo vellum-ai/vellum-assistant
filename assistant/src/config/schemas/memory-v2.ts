@@ -128,6 +128,21 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Weight on sparse (BM25-style) similarity in the hybrid retrieval score",
       ),
+    bm25_k1: z
+      .number({ error: "memory.v2.bm25_k1 must be a number" })
+      .min(0, "memory.v2.bm25_k1 must be >= 0")
+      .default(1.2)
+      .describe(
+        "BM25 term-frequency saturation parameter. Standard Lucene default — increase to make repeated mentions of a term matter more, decrease to flatten the curve.",
+      ),
+    bm25_b: z
+      .number({ error: "memory.v2.bm25_b must be a number" })
+      .min(0, "memory.v2.bm25_b must be >= 0")
+      .max(1, "memory.v2.bm25_b must be <= 1")
+      .default(0.75)
+      .describe(
+        "BM25 document-length normalization. 0 disables length normalization, 1 fully normalizes — standard Lucene default is 0.75.",
+      ),
     consolidation_interval_hours: z
       .number({
         error: "memory.v2.consolidation_interval_hours must be a number",
