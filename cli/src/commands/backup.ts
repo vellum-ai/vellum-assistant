@@ -9,13 +9,13 @@ import { pollJobUntilDone } from "../lib/job-polling.js";
 import {
   MigrationInProgressError,
   localRuntimeExportToGcs,
+  localRuntimeIdentity,
   localRuntimePollJobStatus,
 } from "../lib/local-runtime-client.js";
 import {
   platformRequestSignedUrl,
   readPlatformToken,
 } from "../lib/platform-client.js";
-import cliPkg from "../../package.json";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -233,11 +233,28 @@ async function backupPlatform(
   // signed-download request.
   let exportPlatformToken = platformToken;
 
+  // Step 0 — Ask the source runtime which version it's running. The bundle
+  // is produced by the daemon (not the CLI), and the CLI version can drift
+  // from the daemon version, so the daemon's version is the authoritative
+  // value to record as the bundle's `min_runtime_version`. Stamping with
+  // `cliPkg.version` here would record an inaccurate compatibility band on
+  // the signed-URL request.
+  let runtimeIdentity: { version: string };
+  try {
+    runtimeIdentity = await localRuntimeIdentity(entry, exportPlatformToken);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `Error: Could not fetch runtime identity from '${name}': ${msg}`,
+    );
+    process.exit(1);
+  }
+
   // Step 1 — Request a signed upload URL.
   const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
     {
       operation: "upload",
-      minRuntimeVersion: cliPkg.version,
+      minRuntimeVersion: runtimeIdentity.version,
       maxRuntimeVersion: null,
     },
     exportPlatformToken,

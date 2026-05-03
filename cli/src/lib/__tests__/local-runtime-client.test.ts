@@ -4,6 +4,7 @@ import type { AssistantEntry } from "../assistant-config.js";
 import {
   MigrationInProgressError,
   localRuntimeExportToGcs,
+  localRuntimeIdentity,
   localRuntimeImportFromGcs,
   localRuntimePollJobStatus,
 } from "../local-runtime-client.js";
@@ -476,5 +477,89 @@ describe("vellum-cloud routing through wildcard proxy", () => {
     if (status.status === "complete") {
       expect(status.bundleKey).toBe("exports/org-1/x.vbundle");
     }
+  });
+});
+
+describe("localRuntimeIdentity", () => {
+  test("local entry: GETs /v1/identity with Bearer auth and returns the version", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: "0.6.5" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await localRuntimeIdentity(ENTRY, TOKEN);
+
+    expect(result.version).toBe("0.6.5");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${RUNTIME_URL}/v1/identity`);
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test("vellum entry: GETs /v1/assistants/<id>/identity through the wildcard proxy", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: "0.7.2" }), {
+        status: 200,
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await localRuntimeIdentity(VELLUM_ENTRY, VAK_TOKEN);
+
+    expect(result.version).toBe("0.7.2");
+    expect(calls[0]!.url).toBe(
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/identity`,
+    );
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
+  });
+
+  test("non-2xx status throws with status + statusText", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response("nope", {
+        status: 503,
+        statusText: "Service Unavailable",
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Failed to fetch runtime identity: 503/,
+    );
+  });
+
+  test("missing version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
+  });
+
+  test("non-string version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: 123 }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
+  });
+
+  test("empty-string version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: "" }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
   });
 });

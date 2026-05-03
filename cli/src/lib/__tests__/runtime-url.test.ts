@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantEntry } from "../assistant-config.js";
-import { resolveRuntimeMigrationUrl } from "../runtime-url.js";
+import {
+  resolveRuntimeMigrationUrl,
+  resolveRuntimeUrl,
+} from "../runtime-url.js";
 
 function makeEntry(
   overrides: Partial<AssistantEntry> & {
@@ -82,6 +85,41 @@ describe("resolveRuntimeMigrationUrl", () => {
     });
     expect(resolveRuntimeMigrationUrl(entry, "export-to-gcs")).toBe(
       "http://10.0.0.5:7821/v1/migrations/export-to-gcs",
+    );
+  });
+});
+
+describe("resolveRuntimeUrl", () => {
+  test("local cloud uses gateway-loopback /v1/<subpath>", () => {
+    const entry = makeEntry({
+      cloud: "local",
+      runtimeUrl: "http://localhost:7821",
+      assistantId: "ast-local-1",
+    });
+    expect(resolveRuntimeUrl(entry, "identity")).toBe(
+      "http://localhost:7821/v1/identity",
+    );
+  });
+
+  test("docker cloud uses gateway-loopback /v1/<subpath>", () => {
+    const entry = makeEntry({
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7831",
+      assistantId: "ast-docker-1",
+    });
+    expect(resolveRuntimeUrl(entry, "identity")).toBe(
+      "http://localhost:7831/v1/identity",
+    );
+  });
+
+  test("vellum cloud uses wildcard-proxy /v1/assistants/<id>/<subpath>", () => {
+    const entry = makeEntry({
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+      assistantId: "11111111-2222-3333-4444-555555555555",
+    });
+    expect(resolveRuntimeUrl(entry, "identity")).toBe(
+      "https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/identity",
     );
   });
 });

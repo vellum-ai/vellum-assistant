@@ -4,7 +4,10 @@ import {
   parseUnifiedJobStatus,
   type UnifiedJobStatus,
 } from "./platform-client.js";
-import { resolveRuntimeMigrationUrl } from "./runtime-url.js";
+import {
+  resolveRuntimeMigrationUrl,
+  resolveRuntimeUrl,
+} from "./runtime-url.js";
 
 /**
  * Thrown when the local runtime returns 409 for an export/import request
@@ -228,4 +231,42 @@ export async function localRuntimePollJobStatus(
     typeof parseUnifiedJobStatus
   >[0];
   return parseUnifiedJobStatus(raw);
+}
+
+export interface RuntimeIdentity {
+  version: string;
+}
+
+/**
+ * Fetch the assistant runtime's identity (currently just its version).
+ *
+ * For local/docker assistants this GETs `{runtimeUrl}/v1/identity` with
+ * guardian-token bearer auth. For platform-managed (cloud="vellum")
+ * assistants the URL is rewritten to the wildcard runtime proxy at
+ * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated
+ * via the platform token.
+ *
+ * Used by export flows (teleport, backup) to stamp the bundle's
+ * `min_runtime_version` with the version of the runtime that actually
+ * produced it — not the CLI version, which can drift independently.
+ */
+export async function localRuntimeIdentity(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
+  token: string,
+): Promise<RuntimeIdentity> {
+  const url = resolveRuntimeUrl(entry, "identity");
+  const response = await fetch(url, {
+    method: "GET",
+    headers: await migrationRequestHeaders(entry, token),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch runtime identity: ${response.status} ${response.statusText}`,
+    );
+  }
+  const body = (await response.json()) as { version?: unknown };
+  if (typeof body.version !== "string" || !body.version) {
+    throw new Error("Runtime identity response missing version");
+  }
+  return { version: body.version };
 }

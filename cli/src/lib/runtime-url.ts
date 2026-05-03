@@ -28,3 +28,25 @@ export function resolveRuntimeMigrationUrl(
   }
   return `${entry.runtimeUrl}/v1/migrations/${subpath}`;
 }
+
+/**
+ * Resolve the URL for a generic runtime endpoint under `/v1/<subpath>`,
+ * taking the assistant's topology into account.
+ *
+ * - For local/docker assistants, `runtimeUrl` is the loopback gateway and
+ *   the runtime serves `/v1/<subpath>` directly.
+ * - For platform-managed (cloud="vellum") assistants the path is rewritten
+ *   to the wildcard runtime proxy:
+ *   `{platformUrl}/v1/assistants/<assistantId>/<subpath>`.
+ *
+ * The `subpath` is appended verbatim (e.g. `"identity"`).
+ */
+export function resolveRuntimeUrl(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
+  subpath: string,
+): string {
+  if (entry.cloud === "vellum") {
+    return `${entry.runtimeUrl}/v1/assistants/${entry.assistantId}/${subpath}`;
+  }
+  return `${entry.runtimeUrl}/v1/${subpath}`;
+}
