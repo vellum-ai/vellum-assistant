@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Heart
 /// management.
 public protocol HeartbeatClientProtocol {
     func fetchConfig() async -> HeartbeatConfigResponse?
-    func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?) async -> HeartbeatConfigResponse?
+    func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?, cronExpression: String?, timezone: String?) async -> HeartbeatConfigResponse?
     func fetchRunsList(limit: Int?) async -> HeartbeatRunsListResponse?
     func runNow() async -> HeartbeatRunNowResponse?
     func fetchChecklist() async -> HeartbeatChecklistResponse?
@@ -37,13 +37,15 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
         }
     }
 
-    public func updateConfig(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) async -> HeartbeatConfigResponse? {
+    public func updateConfig(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil, cronExpression: String? = nil, timezone: String? = nil) async -> HeartbeatConfigResponse? {
         do {
             var body: [String: Any] = [:]
             if let enabled { body["enabled"] = enabled }
             if let intervalMs { body["intervalMs"] = intervalMs }
             if let activeHoursStart { body["activeHoursStart"] = activeHoursStart }
             if let activeHoursEnd { body["activeHoursEnd"] = activeHoursEnd }
+            if let cronExpression { body["cronExpression"] = cronExpression }
+            if let timezone { body["timezone"] = timezone }
 
             let response = try await GatewayHTTPClient.put(
                 path: "heartbeat/config", json: body, timeout: 10
