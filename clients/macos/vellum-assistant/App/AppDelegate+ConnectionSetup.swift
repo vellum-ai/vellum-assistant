@@ -365,6 +365,19 @@ extension AppDelegate {
                     self.featureFlagStore.reloadFromGateway()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
+                    // Accept if the request is explicitly targeted at this client, OR if
+                    // the request is untargeted and the conversation is locally owned.
+                    // Do NOT accept if targetClientId is set to a different client, even
+                    // if this conversation is in the local list (all clients sync the same
+                    // conversation list, so isLocalConversation alone is not sufficient).
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
                     HostToolExecutor.executeHostBashRequest(msg)
                 case .hostFileRequest(let msg):
                     HostToolExecutor.executeHostFileRequest(msg)

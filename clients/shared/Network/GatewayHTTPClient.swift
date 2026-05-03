@@ -106,14 +106,21 @@ public enum GatewayHTTPClient {
     ///   - body: Optional HTTP body data.
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
+    ///   - contentType: Optional Content-Type override. Defaults to `application/json`.
+    ///   - extraHeaders: Optional additional headers to include in the request.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func post(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
+    public static func post(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, unprefixed: Bool = false) async throws -> Response {
         return try await executeWithRetry(path: path, params: params, method: "POST", timeout: timeout, unprefixed: unprefixed) { request in
             request.httpBody = body
             if let contentType {
                 request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            }
+            if let extraHeaders {
+                for (k, v) in extraHeaders {
+                    request.setValue(v, forHTTPHeaderField: k)
+                }
             }
         }
     }
@@ -488,6 +495,7 @@ public enum GatewayHTTPClient {
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
+        request.setValue(ProcessInfo.processInfo.hostName, forHTTPHeaderField: "X-Vellum-Machine-Name")
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {

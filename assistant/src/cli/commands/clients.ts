@@ -9,6 +9,7 @@ interface ClientEntryJSON {
   clientId: string;
   interfaceId: string;
   capabilities: string[];
+  machineName?: string;
   connectedAt: string;
   lastActiveAt: string;
 }
@@ -104,6 +105,7 @@ Examples:
           "CLIENT ID",
           "INTERFACE",
           "CAPABILITIES",
+          "LABEL",
           "CONNECTED",
           "LAST ACTIVE",
         ];
@@ -111,6 +113,7 @@ Examples:
           e.clientId,
           e.interfaceId,
           e.capabilities.length > 0 ? e.capabilities.join(", ") : "—",
+          e.machineName ?? "—",
           formatRelativeTime(e.connectedAt),
           formatRelativeTime(e.lastActiveAt),
         ]);

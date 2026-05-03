@@ -18,6 +18,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -394,6 +395,19 @@ export function isToolActiveForContext(
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
+      // Cross-client exception: allow host_bash for non-host-proxy interfaces when
+      // at least one capable client is connected via the event hub.
+      // Only applies to host_bash (not host_file, host_cu, host_browser — Phase 2).
+      // Excludes chrome-extension (security boundary: extension only gets host_browser)
+      // and hasNoClient turns (no interactive approval UI available).
+      if (
+        capability === "host_bash" &&
+        transport !== "chrome-extension" &&
+        !ctx.hasNoClient &&
+        assistantEventHub.listClientsByCapability("host_bash").length > 0
+      ) {
+        return true;
+      }
       return false;
     }
 

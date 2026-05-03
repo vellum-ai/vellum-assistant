@@ -24,6 +24,7 @@ public struct HostProxyClient: HostProxyClientProtocol {
             let response = try await GatewayHTTPClient.post(
                 path: "host-bash-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: 30
             )
             guard response.isSuccess else {
