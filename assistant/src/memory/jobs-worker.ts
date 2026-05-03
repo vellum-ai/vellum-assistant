@@ -50,6 +50,7 @@ import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
+  EMBED_JOB_TYPES,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
   enqueuePruneOldLlmRequestLogsJob,
@@ -58,6 +59,7 @@ import {
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
+  SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
@@ -156,7 +158,9 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   };
 }
 
-async function runMemoryJobsOnce(
+type ProcessGroup = (group: MemoryJob[]) => Promise<number>;
+
+export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
@@ -169,10 +173,20 @@ async function runMemoryJobsOnce(
     log.warn({ timedOut }, "Timed out stalled memory jobs");
   }
 
-  const batchSize = Math.max(1, config.memory.jobs.batchSize);
-  const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
-  const jobs = claimMemoryJobs(batchSize);
-  if (jobs.length === 0) {
+  const cfgSlow = Math.max(1, config.memory.jobs.slowLlmConcurrency);
+  const cfgFast = Math.max(1, config.memory.jobs.fastConcurrency);
+  const cfgEmbed = Math.max(1, config.memory.jobs.embedConcurrency);
+
+  // Claim per-lane budgets so a backlog of slow LLM jobs cannot starve fast
+  // jobs (and vice versa). The Qdrant circuit breaker still gates only the
+  // embed lane inside `claimMemoryJobs`.
+  const claimed = claimMemoryJobs({
+    slowLlm: cfgSlow,
+    fast: cfgFast,
+    embed: cfgEmbed,
+  });
+
+  if (claimed.length === 0) {
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
     }
@@ -181,34 +195,22 @@ async function runMemoryJobsOnce(
     return 0;
   }
 
-  // Group jobs so they can run concurrently across independent work units.
-  // Jobs targeting different conversations (via payload.conversationId) are
-  // placed in separate groups and can run in parallel. Jobs targeting the
-  // same conversation, or global jobs without a conversationId (backfill,
-  // cleanup, rebuild_index), are grouped together and run sequentially to
-  // prevent checkpoint races.
-  const jobGroups = new Map<string, MemoryJob[]>();
-  for (const job of jobs) {
-    const convId =
-      typeof job.payload.conversationId === "string"
-        ? job.payload.conversationId
-        : null;
-    const groupKey = convId ? `${job.type}:${convId}` : job.type;
-    let group = jobGroups.get(groupKey);
-    if (!group) {
-      group = [];
-      jobGroups.set(groupKey, group);
+  const slowSet = new Set<MemoryJobType>(SLOW_LLM_JOB_TYPES);
+  const embedSet = new Set<MemoryJobType>(EMBED_JOB_TYPES);
+  const slowJobs: MemoryJob[] = [];
+  const fastJobs: MemoryJob[] = [];
+  const embedJobs: MemoryJob[] = [];
+  for (const job of claimed) {
+    if (slowSet.has(job.type)) {
+      slowJobs.push(job);
+    } else if (embedSet.has(job.type)) {
+      embedJobs.push(job);
+    } else {
+      fastJobs.push(job);
     }
-    group.push(job);
   }
 
-  let processed = 0;
-  const typeGroups = [...jobGroups.values()];
-
-  // Run type groups concurrently using a task pool (up to workerConcurrency
-  // active at a time). Unlike the old wave approach, a new group starts as
-  // soon as any slot frees up — no waiting for an entire wave to finish.
-  const processGroup = async (group: MemoryJob[]): Promise<number> => {
+  const processGroup: ProcessGroup = async (group) => {
     let groupProcessed = 0;
     for (const job of group) {
       try {
@@ -229,8 +231,59 @@ async function runMemoryJobsOnce(
     return groupProcessed;
   };
 
+  // Run all three lanes in parallel. Each lane runs its own bounded task pool
+  // so a slow `graph_consolidate` cannot block embed or fast jobs from making
+  // progress, and per-`(type, conversationId)` grouping inside each lane keeps
+  // same-conversation jobs serialized.
+  const [slowProcessed, fastProcessed, embedProcessed] = await Promise.all([
+    runLanePool(slowJobs, cfgSlow, processGroup),
+    runLanePool(fastJobs, cfgFast, processGroup),
+    runLanePool(embedJobs, cfgEmbed, processGroup),
+  ]);
+
+  if (enableScheduledCleanup) {
+    maybeEnqueueScheduledCleanupJobs(config);
+  }
+  maybeEnqueueGraphMaintenanceJobs(config);
+  maybeRunDbMaintenance();
+  return slowProcessed + fastProcessed + embedProcessed;
+}
+
+/**
+ * Run a single lane's jobs through a bounded task pool of size `concurrency`.
+ *
+ * Jobs targeting different conversations (via payload.conversationId) are
+ * placed in separate groups and run in parallel up to the lane's concurrency
+ * cap. Jobs targeting the same conversation — or global jobs without a
+ * conversationId — share a group and run sequentially to avoid checkpoint
+ * races.
+ */
+async function runLanePool(
+  jobs: MemoryJob[],
+  concurrency: number,
+  processGroup: ProcessGroup,
+): Promise<number> {
+  if (jobs.length === 0) return 0;
+
+  const groups = new Map<string, MemoryJob[]>();
+  for (const job of jobs) {
+    const convId =
+      typeof job.payload.conversationId === "string"
+        ? job.payload.conversationId
+        : null;
+    const groupKey = convId ? `${job.type}:${convId}` : job.type;
+    let group = groups.get(groupKey);
+    if (!group) {
+      group = [];
+      groups.set(groupKey, group);
+    }
+    group.push(job);
+  }
+
+  let processed = 0;
+  const typeGroups = [...groups.values()];
+
   if (typeGroups.length <= concurrency) {
-    // Fast path: all groups fit within the concurrency limit
     const results = await Promise.allSettled(typeGroups.map(processGroup));
     for (const result of results) {
       if (result.status === "fulfilled") {
@@ -242,39 +295,35 @@ async function runMemoryJobsOnce(
         );
       }
     }
-  } else {
-    // Task pool: maintain `concurrency` in-flight groups at all times
-    let nextIdx = 0;
-
-    const startNext = (): Promise<void> | undefined => {
-      if (nextIdx >= typeGroups.length) return undefined;
-      const group = typeGroups[nextIdx++]!;
-      return processGroup(group)
-        .then(
-          (count) => {
-            processed += count;
-          },
-          (err) => {
-            log.error(
-              { err },
-              "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
-            );
-          },
-        )
-        .then(() => startNext());
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, typeGroups.length) },
-      () => startNext()!,
-    );
-    await Promise.all(workers);
+    return processed;
   }
-  if (enableScheduledCleanup) {
-    maybeEnqueueScheduledCleanupJobs(config);
-  }
-  maybeEnqueueGraphMaintenanceJobs(config);
-  maybeRunDbMaintenance();
+
+  // Task pool: keep `concurrency` groups in flight at all times so a new group
+  // starts the instant any slot frees up.
+  let nextIdx = 0;
+  const startNext = (): Promise<void> | undefined => {
+    if (nextIdx >= typeGroups.length) return undefined;
+    const group = typeGroups[nextIdx++]!;
+    return processGroup(group)
+      .then(
+        (count) => {
+          processed += count;
+        },
+        (err) => {
+          log.error(
+            { err },
+            "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
+          );
+        },
+      )
+      .then(() => startNext());
+  };
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, typeGroups.length) },
+    () => startNext()!,
+  );
+  await Promise.all(workers);
   return processed;
 }
 
