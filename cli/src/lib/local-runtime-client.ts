@@ -1,31 +1,14 @@
 import type { AssistantEntry } from "./assistant-config.js";
 import {
   authHeaders,
+  invalidateOrgIdCache,
   parseUnifiedJobStatus,
   type UnifiedJobStatus,
 } from "./platform-client.js";
-import { resolveRuntimeMigrationUrl } from "./runtime-url.js";
-
-/**
- * Build the URL for a non-migration runtime endpoint, taking topology into
- * account. Mirrors {@link resolveRuntimeMigrationUrl} but for
- * `/v1/<subpath>` endpoints (e.g. `/v1/identity`).
- *
- * - Local/docker assistants: `{runtimeUrl}/v1/<subpath>` (the gateway forwards
- *   to the runtime; auth is guardian-token bearer).
- * - Platform-managed (cloud="vellum"): the wildcard runtime proxy at
- *   `{platformUrl}/v1/assistants/<id>/<subpath>` forwards arbitrary runtime
- *   paths to the managed runtime, authenticated by the platform token.
- */
-function resolveRuntimeUrl(
-  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
-  subpath: string,
-): string {
-  if (entry.cloud === "vellum") {
-    return `${entry.runtimeUrl}/v1/assistants/${entry.assistantId}/${subpath}`;
-  }
-  return `${entry.runtimeUrl}/v1/${subpath}`;
-}
+import {
+  resolveRuntimeMigrationUrl,
+  resolveRuntimeUrl,
+} from "./runtime-url.js";
 
 /**
  * Thrown when the local runtime returns 409 for an export/import request
@@ -262,39 +245,57 @@ export interface RuntimeIdentity {
 
 /**
  * Fetch the target runtime's `/v1/identity` so callers can read its
- * APP_VERSION. Used by `vellum teleport` to gate bundle imports on the
- * version of the **target** assistant runtime — which can diverge from the
- * orchestrating CLI's version when the target was upgraded independently.
+ * APP_VERSION. Used by `vellum teleport` and `vellum backup` to stamp the
+ * exported bundle's `min_runtime_version` with the version of the runtime
+ * that actually produced it — which can diverge from the orchestrating CLI's
+ * version when the target was upgraded independently.
  *
  * For local/docker assistants this GETs `{runtimeUrl}/v1/identity` with
  * guardian-token bearer auth. For platform-managed (cloud="vellum")
  * assistants the URL is rewritten to the wildcard runtime proxy shape
  * `{platformUrl}/v1/assistants/<assistantId>/identity` and authenticated via
- * the platform token. Throws on non-2xx so callers can surface the failure
- * (we never silently fall back — see teleport.ts call site).
+ * the platform token.
+ *
+ * For the vellum target this is the FIRST network call in the
+ * teleport/backup export flow, so a stale `Vellum-Organization-Id` cache
+ * entry would surface as a hard abort before any retry-friendly call (like
+ * `platformRequestSignedUrl`) gets a chance to recover. Mirror that helper's
+ * one-shot 401-retry: invalidate the org-ID cache and retry once. Local /
+ * docker entries do not use the org-ID cache and are wrapped in
+ * `callRuntimeWithAuthRetry` by callers for guardian-token refresh, so the
+ * retry is intentionally vellum-only.
+ *
+ * Throws on non-2xx so callers can surface the failure (we never silently
+ * fall back — see teleport.ts call site).
  */
 export async function localRuntimeIdentity(
   entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
   token: string,
 ): Promise<RuntimeIdentity> {
-  const response = await fetch(resolveRuntimeUrl(entry, "identity"), {
-    headers: await migrationRequestHeaders(entry, token),
-  });
+  const url = resolveRuntimeUrl(entry, "identity");
+  const doRequest = async (): Promise<Response> =>
+    fetch(url, {
+      method: "GET",
+      headers: await migrationRequestHeaders(entry, token),
+    });
+
+  let response = await doRequest();
+  if (response.status === 401 && entry.cloud === "vellum") {
+    // `entry.runtimeUrl` is the platform host for vellum-cloud entries
+    // (the wildcard runtime proxy lives there). Pass it as the cache key
+    // platformUrl so we invalidate the same entry that authHeaders cached.
+    invalidateOrgIdCache(token, entry.runtimeUrl);
+    response = await doRequest();
+  }
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => "");
     throw new Error(
-      `Local runtime identity failed (${response.status}): ${
-        errText || response.statusText
-      }`,
+      `Failed to fetch runtime identity: ${response.status} ${response.statusText}`,
     );
   }
-
-  const json = (await response.json()) as { version?: unknown };
-  if (typeof json.version !== "string" || json.version.length === 0) {
-    throw new Error(
-      `Local runtime identity returned no version field (got ${JSON.stringify(json.version)})`,
-    );
+  const body = (await response.json()) as { version?: unknown };
+  if (typeof body.version !== "string" || !body.version) {
+    throw new Error("Runtime identity response missing version");
   }
-  return { version: json.version };
+  return { version: body.version };
 }

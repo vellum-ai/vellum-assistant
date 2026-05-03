@@ -179,7 +179,13 @@ async function restorePlatform(
     process.exit(1);
   }
 
-  // Step 1.5 — Upload to GCS via signed URL
+  // Step 1.5 — Upload to GCS via signed URL.
+  // We deliberately omit min/max runtime version here: restore uploads an
+  // arbitrary .vbundle from disk (often produced by a different runtime
+  // than the one we'd query right now), and the bundle's own manifest is
+  // the authority on its compatibility band. The platform skips the
+  // version gate when these fields are absent and re-derives compat from
+  // the manifest when it processes the import.
   const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
     { operation: "upload" },
     token,

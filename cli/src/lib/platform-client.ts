@@ -100,6 +100,23 @@ const orgIdCache = new Map<string, { orgId: string; expiresAt: number }>();
 const ORG_ID_CACHE_TTL_MS = 60_000; // 60 seconds
 
 /**
+ * Drop the cached org ID for a given (token, platformUrl) pair. Used by the
+ * one-shot 401-retry path: a 401 on a session-token request frequently means
+ * the cached `Vellum-Organization-Id` header is stale (e.g. user switched
+ * orgs in another tab). Clearing the entry forces the next `authHeaders`
+ * call to refetch the org ID from the platform.
+ *
+ * Exported so other modules (e.g. local-runtime-client) can implement the
+ * same retry pattern without needing direct access to the cache map.
+ */
+export function invalidateOrgIdCache(
+  token: string,
+  platformUrl?: string,
+): void {
+  orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
+}
+
+/**
  * Returns the full set of headers needed for an authenticated platform
  * API request:
  *
@@ -913,7 +930,7 @@ export async function platformRequestSignedUrl(
     // lookup. For session-token callers, a 401 frequently means the
     // cached org ID is stale — calling doRequest() again without clearing
     // the cache would just send the same stale header and fail again.
-    orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
+    invalidateOrgIdCache(token, platformUrl);
     response = await doRequest();
   }
 
