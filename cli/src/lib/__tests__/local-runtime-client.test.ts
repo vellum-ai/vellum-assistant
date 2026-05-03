@@ -481,77 +481,162 @@ describe("vellum-cloud routing through wildcard proxy", () => {
 });
 
 describe("localRuntimeIdentity", () => {
-  test("local: GETs /v1/identity with Bearer auth and returns version", async () => {
+  test("local entry: GETs /v1/identity with Bearer auth and returns the version", async () => {
     const { calls, fetchMock } = captureFetch(() => {
-      return new Response(
-        JSON.stringify({
-          name: "Test",
-          role: "",
-          personality: "",
-          emoji: "",
-          home: "",
-          version: "0.6.5",
-          createdAt: "2025-01-01T00:00:00Z",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ version: "0.6.5" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     });
     globalThis.fetch = fetchMock;
 
     const result = await localRuntimeIdentity(ENTRY, TOKEN);
 
-    expect(result).toEqual({ version: "0.6.5" });
+    expect(result.version).toBe("0.6.5");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(`${RUNTIME_URL}/v1/identity`);
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.headers.Authorization).toBe(`Bearer ${TOKEN}`);
   });
 
-  test("vellum: routes through wildcard proxy /v1/assistants/<id>/identity", async () => {
+  test("vellum entry: GETs /v1/assistants/<id>/identity through the wildcard proxy", async () => {
     const { calls, fetchMock } = captureFetch(() => {
-      return new Response(
-        JSON.stringify({
-          name: "Test",
-          role: "",
-          personality: "",
-          emoji: "",
-          home: "",
-          version: "0.7.2",
-          createdAt: "2025-01-01T00:00:00Z",
-        }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ version: "0.7.2" }), {
+        status: 200,
+      });
     });
     globalThis.fetch = fetchMock;
 
     const result = await localRuntimeIdentity(VELLUM_ENTRY, VAK_TOKEN);
 
-    expect(result).toEqual({ version: "0.7.2" });
+    expect(result.version).toBe("0.7.2");
     expect(calls[0]!.url).toBe(
       `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/identity`,
     );
     expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
   });
 
-  test("non-2xx throws with status + body so callers can surface", async () => {
+  test("non-2xx status throws with status + statusText", async () => {
     const { fetchMock } = captureFetch(() => {
-      return new Response("unreachable", { status: 502 });
-    });
-    globalThis.fetch = fetchMock;
-
-    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(/502/);
-  });
-
-  test("missing version field throws (we never silently degrade)", async () => {
-    const { fetchMock } = captureFetch(() => {
-      return new Response(JSON.stringify({ name: "Test", role: "" }), {
-        status: 200,
+      return new Response("nope", {
+        status: 503,
+        statusText: "Service Unavailable",
       });
     });
     globalThis.fetch = fetchMock;
 
     await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
-      /no version field/,
+      /Failed to fetch runtime identity: 503/,
     );
+  });
+
+  test("missing version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
+  });
+
+  test("non-string version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: 123 }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
+  });
+
+  test("empty-string version in body throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ version: "" }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Runtime identity response missing version/,
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // 401-retry parity with platformRequestSignedUrl (Codex P2 regression
+  // guard). localRuntimeIdentity is the first network call in the
+  // backup/teleport export flow for vellum-cloud assistants, so a stale
+  // Vellum-Organization-Id cache entry would surface as a hard abort
+  // before any other helper got a chance to clear the cache and retry.
+  // ---------------------------------------------------------------------
+
+  test("vellum entry: retries once after 401 with a fresh org-ID lookup", async () => {
+    // Use a non-vak session token so authHeaders fetches + caches an org ID.
+    const SESSION_TOKEN = "session-abcdef";
+    const PLATFORM_URL = "https://platform.vellum.ai";
+    const ASSISTANT_ID = "11111111-2222-3333-4444-555555555555";
+
+    let identityCalls = 0;
+    const orgIdFetchedAs: string[] = [];
+
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.endsWith("/v1/organizations/")) {
+        // Each org-ID fetch returns a different ID to prove that the
+        // second identity request DID re-resolve the org rather than
+        // reuse a stale cache entry.
+        orgIdFetchedAs.push(`org-${orgIdFetchedAs.length + 1}`);
+        return new Response(
+          JSON.stringify({
+            results: [{ id: orgIdFetchedAs[orgIdFetchedAs.length - 1]! }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (urlStr.endsWith(`/v1/assistants/${ASSISTANT_ID}/identity`)) {
+        identityCalls += 1;
+        if (identityCalls === 1) {
+          return new Response("unauthorized", { status: 401 });
+        }
+        return new Response(JSON.stringify({ version: "0.7.4" }), {
+          status: 200,
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const result = await localRuntimeIdentity(
+      {
+        cloud: "vellum",
+        runtimeUrl: PLATFORM_URL,
+        assistantId: ASSISTANT_ID,
+      },
+      SESSION_TOKEN,
+    );
+
+    expect(result.version).toBe("0.7.4");
+    expect(identityCalls).toBe(2);
+    // Two org-ID fetches: the first to satisfy the initial authHeaders
+    // call, the second after the 401-driven cache invalidation.
+    expect(orgIdFetchedAs).toEqual(["org-1", "org-2"]);
+  });
+
+  test("local entry: does NOT retry after 401 (guardian-token refresh is the caller's job via callRuntimeWithAuthRetry)", async () => {
+    let identityCalls = 0;
+    const fetchMock = mock(async () => {
+      identityCalls += 1;
+      return new Response("unauthorized", {
+        status: 401,
+        statusText: "Unauthorized",
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /Failed to fetch runtime identity: 401/,
+    );
+    expect(identityCalls).toBe(1);
   });
 });

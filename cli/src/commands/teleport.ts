@@ -256,13 +256,17 @@ async function getAccessToken(
 
 /**
  * Detect a 401 Unauthorized raised by `localRuntimeExportToGcs` /
- * `localRuntimeImportFromGcs`. Both throw Error with a message of the form
- * `"Local runtime <op> failed (401): ..."` when the gateway rejects the
- * cached guardian token.
+ * `localRuntimeImportFromGcs` / `localRuntimeIdentity`. They throw Error
+ * with a message of the form `"Local runtime <op> failed (401): ..."` or
+ * `"Failed to fetch runtime identity: 401 ..."` when the gateway rejects
+ * the cached guardian token.
  */
 function isRuntime401(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /Local runtime [^(]*failed \(401\)/.test(msg);
+  return (
+    /Local runtime [^(]*failed \(401\)/.test(msg) ||
+    /Failed to fetch runtime identity: 401\b/.test(msg)
+  );
 }
 
 /**
@@ -369,13 +373,40 @@ async function exportFromAssistant(
   }
 
   if (cloud === "local" || cloud === "docker") {
+    // Ask the source runtime which version it's running before requesting
+    // the signed upload URL. The bundle is produced by the daemon (not the
+    // CLI), so the daemon's version is what defines the bundle's
+    // `min_runtime_version`. Stamping with `cliPkg.version` instead would
+    // record an inaccurate compatibility band whenever the CLI/daemon have
+    // drifted (a normal case in real usage — `vellum upgrade` swaps the
+    // daemon, the CLI is updated separately).
+    let sourceRuntimeVersion: string;
+    try {
+      const identity = await callRuntimeWithAuthRetry(
+        entry.runtimeUrl,
+        entry.assistantId,
+        async (token) => localRuntimeIdentity(entry, token),
+      );
+      sourceRuntimeVersion = identity.version;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not fetch runtime identity from '${entry.assistantId}': ${msg}`,
+      );
+      process.exit(1);
+    }
+
     // Request a signed upload URL from the platform instance that will
     // eventually own the bundle (i.e. the one the importer will read from).
     // Passing the target's runtime URL here keeps upload and download on
     // the same platform — otherwise a non-default/stale platform URL would
     // cause the import to look at an empty object.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-      { operation: "upload" },
+      {
+        operation: "upload",
+        minRuntimeVersion: sourceRuntimeVersion,
+        maxRuntimeVersion: null,
+      },
       platformToken,
       bundlePlatformUrl,
     );
@@ -442,6 +473,24 @@ async function exportFromAssistant(
   }
 
   if (cloud === "vellum") {
+    // Ask the managed runtime which version it's running so the signed-URL
+    // request records the bundle's actual `min_runtime_version`. The
+    // platform-managed runtime is the exporter; the CLI version is
+    // unrelated. Routed via the wildcard proxy with platform-token auth
+    // (resolveRuntimeUrl + migrationRequestHeaders inside
+    // localRuntimeIdentity).
+    let sourceRuntimeVersion: string;
+    try {
+      const identity = await localRuntimeIdentity(entry, platformToken);
+      sourceRuntimeVersion = identity.version;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not fetch runtime identity from '${entry.assistantId}': ${msg}`,
+      );
+      process.exit(1);
+    }
+
     // Platform source — request a signed upload URL on the same platform
     // instance the bundle will eventually be imported from, then ask the
     // managed runtime to export directly to GCS. The runtime endpoint is
@@ -451,7 +500,11 @@ async function exportFromAssistant(
     // pick that shape for `cloud === "vellum"` and `migrationRequestHeaders`
     // to send platform-token auth (no guardian-token bootstrap).
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-      { operation: "upload" },
+      {
+        operation: "upload",
+        minRuntimeVersion: sourceRuntimeVersion,
+        maxRuntimeVersion: null,
+      },
       platformToken,
       bundlePlatformUrl,
     );
