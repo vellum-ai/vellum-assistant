@@ -201,8 +201,6 @@ function mintRefreshTokenInFamily(params: {
  */
 export function rotateCredentials(params: {
   refreshToken: string;
-  platform?: string;
-  deviceId?: string;
 }):
   | { ok: true; result: RotateResult }
   | { ok: false; error: RefreshErrorCode } {
@@ -240,12 +238,6 @@ export function rotateCredentials(params: {
   if (now > record.inactivityExpiresAt) {
     return { ok: false, error: "refresh_expired" };
   }
-
-  // Device binding and platform checks removed — the refresh token family
-  // mechanism (reuse detection + family revocation) already covers the
-  // stolen-token threat model. The JWT sub claim carries the real identity
-  // binding. Device ID and platform are retained as metadata on newly
-  // minted tokens for diagnostics but are no longer gates.
 
   return getGatewayDb().transaction((tx) => {
     void tx; // transaction scoped via the underlying bun:sqlite connection
