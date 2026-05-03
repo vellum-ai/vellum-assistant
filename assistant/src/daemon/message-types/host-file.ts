@@ -8,6 +8,7 @@ export interface HostFileReadRequest {
   type: "host_file_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   operation: "read";
   path: string;
   offset?: number;
@@ -18,6 +19,7 @@ export interface HostFileWriteRequest {
   type: "host_file_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   operation: "write";
   path: string;
   content: string;
@@ -27,6 +29,7 @@ export interface HostFileEditRequest {
   type: "host_file_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   operation: "edit";
   path: string;
   old_string: string;
@@ -43,6 +46,7 @@ export interface HostFileCancelRequest {
   type: "host_file_cancel";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

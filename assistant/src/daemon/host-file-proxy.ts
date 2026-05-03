@@ -31,6 +31,7 @@ interface PendingRequest {
   operation: HostFileInput["operation"];
   path: string;
   conversationId: string;
+  targetClientId?: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -85,6 +86,21 @@ export class HostFileProxy {
       return Promise.resolve({ content: "Aborted", isError: true });
     }
 
+    const capableClients = assistantEventHub.listClientsByCapability("host_file");
+    let resolvedTargetClientId: string | undefined;
+    if (input.targetClientId) {
+      const target = assistantEventHub.getClientById(input.targetClientId);
+      if (!target || !target.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Error: client "${input.targetClientId}" is not connected or does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      resolvedTargetClientId = input.targetClientId;
+    } else if (capableClients.length === 1) {
+      resolvedTargetClientId = capableClients[0].clientId;
+    }
+
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
@@ -101,8 +117,11 @@ export class HostFileProxy {
           { requestId, operation: input.operation },
           "Host file proxy request timed out",
         );
+        const timeoutMessage = resolvedTargetClientId
+          ? `Host file proxy timed out waiting for response from client ${resolvedTargetClientId}`
+          : "Host file proxy timed out waiting for client response";
         resolve({
-          content: "Host file proxy timed out waiting for client response",
+          content: timeoutMessage,
           isError: true,
         });
       }, timeoutSec * 1000);
@@ -115,11 +134,16 @@ export class HostFileProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_file_cancel",
-                requestId,
+              broadcastMessage(
+                {
+                  type: "host_file_cancel",
+                  requestId,
+                  conversationId,
+                  targetClientId: resolvedTargetClientId,
+                },
                 conversationId,
-              });
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -137,16 +161,22 @@ export class HostFileProxy {
         operation: input.operation,
         path: input.path,
         conversationId,
+        targetClientId: resolvedTargetClientId,
         detachAbort,
       });
 
       try {
-        broadcastMessage({
-          ...input,
-          type: "host_file_request",
-          requestId,
+        broadcastMessage(
+          {
+            ...input,
+            type: "host_file_request",
+            requestId,
+            conversationId,
+            targetClientId: resolvedTargetClientId,
+          },
           conversationId,
-        });
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -195,11 +225,16 @@ export class HostFileProxy {
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-        broadcastMessage({
-          type: "host_file_cancel",
-          requestId,
-          conversationId: entry.conversationId,
-        });
+        broadcastMessage(
+          {
+            type: "host_file_cancel",
+            requestId,
+            conversationId: entry.conversationId,
+            targetClientId: entry.targetClientId,
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId },
+        );
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }
