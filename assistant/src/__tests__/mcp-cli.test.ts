@@ -617,4 +617,12 @@ describe("assistant mcp auth — IPC path", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toMatch(/access_denied|OAuth failed/);
   });
+
+  // TODO: test suite has a pre-existing bug where runMcp() re-sets
+  // VELLUM_WORKSPACE_DIR to testDataDir, overriding the ipcTestDataDir set in
+  // beforeEach. All IPC path tests are currently failing for this reason.
+  // This test documents Gap 3 behavior (NotFoundError on daemon restart gives
+  // an immediate helpful error instead of a 2.5-minute timeout); convert from
+  // test.todo to test once the VELLUM_WORKSPACE_DIR bug is fixed.
+  test.todo("polling gets NotFoundError (daemon restarted) → exits 1 with helpful message immediately");
 });

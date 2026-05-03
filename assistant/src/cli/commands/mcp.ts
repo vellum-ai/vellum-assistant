@@ -38,6 +38,16 @@ async function pollMcpAuthStatus(
     if (result.ok && result.result?.status === "error") {
       return { status: "error", error: result.result.error };
     }
+    // The daemon returned an IPC-level error (ok: false) indicating the flow
+    // was not found — most likely because the daemon restarted mid-poll and
+    // lost the in-memory state.  Surface this immediately instead of looping
+    // for the full 2.5 minutes and then reporting a generic timeout.
+    if (!result.ok && result.error && result.error.includes("No active OAuth flow")) {
+      return {
+        status: "error",
+        error: `OAuth flow was lost (daemon may have restarted). Run 'assistant mcp auth ${serverId}' to retry.`,
+      };
+    }
   }
   return { status: "error", error: "OAuth authorization timed out after 2.5 minutes" };
 }

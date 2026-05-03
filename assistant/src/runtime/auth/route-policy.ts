@@ -574,6 +574,8 @@ const INTERNAL_ENDPOINTS = [
   "internal/twilio/status",
   "internal/twilio/connect-action",
   "internal/oauth/callback",
+  "internal/mcp/auth/start",
+  "internal/mcp/auth/status/:serverId",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {

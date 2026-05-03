@@ -86,15 +86,12 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
   Client: class {
     async connect() {
       mockConnectCallCount++;
-      if (mockConnectCallCount % 2 === 1) {
-        // Odd-numbered connects (first connect per flow): fire onAuthorizationUrl
-        // and throw UnauthorizedError
-        if (capturedOnAuthorizationUrl) {
-          capturedOnAuthorizationUrl("https://auth.example.com/oauth");
-        }
-        throw new FakeUnauthorizedError("unauthorized");
+      // Every connect fires onAuthorizationUrl and throws UnauthorizedError —
+      // the orchestrator never calls connect() a second time after finishAuth.
+      if (capturedOnAuthorizationUrl) {
+        capturedOnAuthorizationUrl("https://auth.example.com/oauth");
       }
-      // Even-numbered connects (reconnect after finishAuth): succeed
+      throw new FakeUnauthorizedError("unauthorized");
     }
     async close() {}
   },
@@ -175,7 +172,10 @@ describe("orchestrateMcpOAuthConnect", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
 
     expect(mockFinishAuth).toHaveBeenCalledWith("auth-code-123");
-    expect(mockConnectCallCount).toBe(2);
+    // The orchestrator calls connect() exactly once (the initial attempt that triggers
+    // UnauthorizedError). It does NOT reconnect after finishAuth to avoid the
+    // "already started" error thrown by SSE/StreamableHTTP transports.
+    expect(mockConnectCallCount).toBe(1);
     expect(mockSetMcpAuthComplete).toHaveBeenCalledWith("test-server");
   });
 

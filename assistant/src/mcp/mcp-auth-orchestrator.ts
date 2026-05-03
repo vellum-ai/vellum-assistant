@@ -105,12 +105,15 @@ export async function orchestrateMcpOAuthConnect(args: {
   setMcpAuthPending(serverId, capturedAuthUrl);
 
   // Fire-and-forget background tail — completes the token exchange once
-  // the user approves in the browser
+  // the user approves in the browser.
+  // Note: we do NOT call client.connect() again here — both SSEClientTransport
+  // and StreamableHTTPClientTransport throw "already started" on a second
+  // connect() call.  The tokens are persisted by saveTokens inside finishAuth,
+  // so the daemon can reconnect on the next MCP reload without re-connecting here.
   void (async () => {
     try {
       const code = await codePromise;
       await mcpTransport.finishAuth(code);
-      await client.connect(mcpTransport);
       setMcpAuthComplete(serverId);
       log.info({ serverId }, "MCP OAuth flow completed");
     } catch (err) {
