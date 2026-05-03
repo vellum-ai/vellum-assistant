@@ -78,9 +78,20 @@ extension ChatBubble {
         var pendingStableId: String?
         var pendingGroupStableIds: [String] = []
 
+        // Orphan thinking: thinking flushed without adjacent tool calls.
+        // Gets prepended to the next burst that has tools.
+        var orphanThinkingIndices: [Int] = []
+        var orphanThinkingStableId: String?
+
         func flushBurst() {
             guard !pendingToolIndices.isEmpty else {
-                // Thinking-only — not a burst, reset and skip
+                // Thinking-only — save as orphan to forward to the next burst
+                if !pendingThinkingIndices.isEmpty {
+                    orphanThinkingIndices.append(contentsOf: pendingThinkingIndices)
+                    if orphanThinkingStableId == nil {
+                        orphanThinkingStableId = pendingStableId
+                    }
+                }
                 pendingToolIndices = []
                 pendingThinkingIndices = []
                 pendingStableId = nil
@@ -88,8 +99,12 @@ extension ChatBubble {
                 return
             }
 
+            // Absorb any orphan thinking from before this burst
+            let allThinkingIndices = orphanThinkingIndices + pendingThinkingIndices
+            let burstStableId = orphanThinkingStableId ?? pendingStableId ?? "burst-\(bursts.count)"
+
             let toolSet = Set(pendingToolIndices)
-            let thinkingSet = Set(pendingThinkingIndices)
+            let thinkingSet = Set(allThinkingIndices)
 
             // Build expandedItems by walking contentOrder for chronological ordering
             var items: [ProgressExpandedItem] = []
@@ -103,7 +118,6 @@ extension ChatBubble {
                     guard showThinking, thinkingSet.contains(i) else { continue }
                     guard i < thinkingSegments.count, !thinkingSegments[i].isEmpty else { continue }
                     let expansionKey = "\(messageId.uuidString)-th\(i)"
-                    // isStreaming is set later for the last burst only
                     items.append(.thinking(
                         content: thinkingSegments[i],
                         expansionKey: expansionKey,
@@ -116,10 +130,13 @@ extension ChatBubble {
 
             bursts.append(WorkBurst(
                 toolIndices: pendingToolIndices,
-                thinkingIndices: pendingThinkingIndices,
-                stableId: pendingStableId ?? "burst-\(bursts.count)",
+                thinkingIndices: allThinkingIndices,
+                stableId: burstStableId,
                 expandedItems: items
             ))
+
+            orphanThinkingIndices = []
+            orphanThinkingStableId = nil
 
             pendingToolIndices = []
             pendingThinkingIndices = []
@@ -147,6 +164,34 @@ extension ChatBubble {
         }
         // Flush any trailing burst
         flushBurst()
+
+        // If orphan thinking remains with no following tool burst, create
+        // a thinking-only burst so it renders as a "Worked" row instead
+        // of a standalone ThinkingBlockView.
+        if !orphanThinkingIndices.isEmpty {
+            let thinkingSet = Set(orphanThinkingIndices)
+            var items: [ProgressExpandedItem] = []
+            if showThinking {
+                for ref in contentOrder {
+                    if case .thinking(let i) = ref,
+                       thinkingSet.contains(i),
+                       i < thinkingSegments.count,
+                       !thinkingSegments[i].isEmpty {
+                        items.append(.thinking(
+                            content: thinkingSegments[i],
+                            expansionKey: "\(messageId.uuidString)-th\(i)",
+                            isStreaming: false
+                        ))
+                    }
+                }
+            }
+            bursts.append(WorkBurst(
+                toolIndices: [],
+                thinkingIndices: orphanThinkingIndices,
+                stableId: orphanThinkingStableId ?? "burst-\(bursts.count)",
+                expandedItems: items
+            ))
+        }
 
         // Set isStreaming on the LAST thinking item in the last burst only.
         // Earlier thinking blocks in the same burst are already complete
@@ -404,7 +449,8 @@ extension ChatBubble {
             guard idx < message.toolCalls.count else { return nil }
             return message.toolCalls[idx]
         }
-        if !groupedToolCalls.isEmpty {
+        let hasExpandedContent = expandedItems?.isEmpty == false
+        if !groupedToolCalls.isEmpty || hasExpandedContent {
             // Derive confirmations from this group's own tool call stamps.
             // We intentionally do NOT use the message-level decidedConfirmation
             // here because it comes from the confirmation message at index+1,
@@ -685,26 +731,9 @@ extension ChatBubble {
                         EmptyView()
                     }
                 } else {
-                    // Standalone thinking (not adjacent to any tool calls) —
-                    // render as ThinkingBlockView (gated by feature flag)
-                    if showThinking {
-                        let joined = indices
-                            .compactMap { i in
-                                i < message.thinkingSegments.count
-                                    ? message.thinkingSegments[i]
-                                    : nil
-                            }
-                            .filter { !$0.isEmpty }
-                            .joined(separator: "\n")
-                        if !joined.isEmpty {
-                            ThinkingBlockView(
-                                content: joined,
-                                isStreaming: message.isStreaming,
-                                expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
-                                typographyGeneration: typographyGeneration
-                            )
-                        }
-                    }
+                    // All thinking is now absorbed into bursts (either
+                    // forwarded to the next burst or wrapped in its own).
+                    EmptyView()
                 }
             }
         }

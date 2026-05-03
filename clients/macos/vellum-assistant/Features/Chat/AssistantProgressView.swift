@@ -228,11 +228,14 @@ struct AssistantProgressView: View {
     }
 
     private func completedHeadline(model: ProgressCardPresentationModel) -> String {
-        guard let start = model.earliestStartedAt else { return "Worked" }
-        let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
-        guard let end = effectiveEnd else { return "Worked" }
-        let seconds = end.timeIntervalSince(start)
-        return "Worked for \(VCollapsibleStepRowDurationFormatter.format(seconds))"
+        var total: TimeInterval = 0
+        for tc in toolCalls {
+            if let s = tc.startedAt, let e = tc.completedAt {
+                total += e.timeIntervalSince(s)
+            }
+        }
+        if total < 0.05 { return "Worked" }
+        return "Worked for \(VCollapsibleStepRowDurationFormatter.format(total))"
     }
 
     private func headlineText(for model: ProgressCardPresentationModel) -> String {
@@ -567,7 +570,7 @@ struct AssistantProgressView: View {
                 suppressNextExpand = false
                 return
             }
-            guard model.hasTools else { return }
+            guard model.hasTools || expandedItems != nil else { return }
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
             if isExpanded && model.hasPendingConfirmation { return }
@@ -615,8 +618,8 @@ struct AssistantProgressView: View {
                 ElapsedTimeLabel(startDate: startDate)
             }
 
-            // Chevron (only if tools exist)
-            if model.hasTools {
+            // Chevron (tools or expanded items)
+            if model.hasTools || expandedItems != nil {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -1075,7 +1078,8 @@ struct ToolCallStepDetailRow: View {
                     .truncationMode(.tail)
                 Spacer()
                 if let started = toolCall.startedAt,
-                   let completed = toolCall.completedAt {
+                   let completed = toolCall.completedAt,
+                   completed.timeIntervalSince(started) >= 0.05 {
                     Text(VCollapsibleStepRowDurationFormatter.format(completed.timeIntervalSince(started)))
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)

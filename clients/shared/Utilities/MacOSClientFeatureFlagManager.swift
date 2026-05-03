@@ -74,7 +74,14 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         if let def = flagDefinitions.first(where: { Self.normalize($0.key) == Self.normalize(key) }) {
             return def.defaultEnabled
         }
+        // Flags not in the registry default to true in dev builds so
+        // server-gated flags are testable locally before the registry
+        // is updated. In production the flag will resolve via the registry.
+        #if DEBUG
+        return true
+        #else
         return false
+        #endif
     }
 
     /// Return the resolved state of all client-scope flag definitions for UI display.
