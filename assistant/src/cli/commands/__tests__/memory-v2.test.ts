@@ -146,6 +146,7 @@ describe("subcommand registration", () => {
     const subcommandNames = v2!.commands.map((c) => c.name()).sort();
     expect(subcommandNames).toEqual([
       "activation",
+      "explain",
       "migrate",
       "reembed",
       "reembed-skills",
@@ -171,6 +172,7 @@ describe("subcommand registration", () => {
     expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
+    expect(help).toContain("explain");
     // rebuild-edges was retired alongside the directed-edges work.
     expect(help).not.toContain("rebuild-edges");
   });
