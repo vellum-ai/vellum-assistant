@@ -111,6 +111,7 @@ export class HeartbeatService {
   private _nextRunAt: number | null = null;
   private cronMode = false;
   private stopped = false;
+  private configEpoch = 0;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -179,10 +180,15 @@ export class HeartbeatService {
         this.timer = null;
       }
       const delayMs = Math.max(0, nextRunAt - Date.now());
+      const epoch = this.configEpoch;
       this.timer = setTimeout(() => {
         this.runOnce()
           .catch((err) => log.error({ err }, "Cron heartbeat failed"))
-          .finally(() => this.scheduleNextCronRun(getConfig().heartbeat));
+          .finally(() => {
+            if (this.configEpoch === epoch) {
+              this.scheduleNextCronRun(getConfig().heartbeat);
+            }
+          });
       }, delayMs);
       (this.timer as ReturnType<typeof setTimeout>).unref();
       log.info(
@@ -200,6 +206,7 @@ export class HeartbeatService {
 
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
+    this.configEpoch++;
     if (this.timer) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
       clearInterval(this.timer as ReturnType<typeof setInterval>);
