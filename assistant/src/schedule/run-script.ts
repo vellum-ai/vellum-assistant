@@ -38,21 +38,44 @@ export async function runScript(
     env: buildSanitizedEnv(),
   });
 
-  // Race process completion against a timeout
+  // Start consuming streams immediately so buffered output is available even on timeout.
+  // When the process is killed the pipe fds close and these promises resolve on their own.
+  const stdoutPromise = new Response(proc.stdout).text();
+  const stderrPromise = new Response(proc.stderr).text();
+
+  let timedOut = false;
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
+      timedOut = true;
       proc.kill("SIGKILL");
       reject(new Error(`Script timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
-    // Clean up timer if process finishes first
     proc.exited.then(() => clearTimeout(timer));
   });
 
-  const exitCode = await Promise.race([proc.exited, timeoutPromise]);
+  let exitCode: number;
+  try {
+    exitCode = await Promise.race([proc.exited, timeoutPromise]);
+  } catch (err) {
+    if (!timedOut) throw err;
+    // Collect whatever the process wrote before it was killed
+    const [stdoutResult, stderrResult] = await Promise.allSettled([stdoutPromise, stderrPromise]);
+    const stdout = truncate(stdoutResult.status === "fulfilled" ? stdoutResult.value : "");
+    const procStderr = stderrResult.status === "fulfilled" ? stderrResult.value : "";
+    const stderr = truncate(
+      procStderr ? `Script timed out after ${timeoutMs}ms\n${procStderr}` : `Script timed out after ${timeoutMs}ms`,
+    );
+    log.info(
+      { command, timedOut: true, stdoutLen: stdout.length },
+      "Script timed out",
+    );
+    return { exitCode: 124, stdout, stderr };
+  }
 
-  const stdout = truncate(await new Response(proc.stdout).text());
-  const stderr = truncate(await new Response(proc.stderr).text());
+  const stdout = truncate(await stdoutPromise);
+  const stderr = truncate(await stderrPromise);
 
   log.info(
     { command, exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },
