@@ -143,8 +143,8 @@ const ctx: ToolContext = {
 // ---------------------------------------------------------------------------
 
 describe("app-control TOOLS.json (aggregate)", () => {
-  test("contains exactly 8 tools", () => {
-    expect(toolsJson.tools.length).toBe(8);
+  test("contains exactly 9 tools", () => {
+    expect(toolsJson.tools.length).toBe(9);
   });
 
   test("all tools target host execution", () => {
@@ -323,6 +323,65 @@ describe("app_control_combo", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("keys");
+  });
+});
+
+describe("app_control_sequence", () => {
+  const s = toolByName("app_control_sequence").input_schema;
+
+  test("well-formed input passes (minimal step)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        steps: [{ key: "right" }],
+        reasoning: "advance one step",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("well-formed input passes (full step fields)", () => {
+    expect(
+      validate(s, {
+        app: "com.apple.Safari",
+        steps: [
+          { key: "right", duration_ms: 50, gap_ms: 30 },
+          { key: "a", modifiers: ["cmd"], duration_ms: 50, gap_ms: 30 },
+        ],
+        reasoning: "navigate menu",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("missing required app rejects", () => {
+    const result = validate(s, {
+      steps: [{ key: "right" }],
+      reasoning: "navigate",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("app");
+  });
+
+  test("missing required steps rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      reasoning: "navigate",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("steps");
+  });
+
+  test("non-array steps rejects", () => {
+    const result = validate(s, {
+      app: "com.apple.Safari",
+      steps: "right,right",
+      reasoning: "navigate",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("steps");
+  });
+
+  test("declares low risk", () => {
+    expect(toolByName("app_control_sequence").risk).toBe("low");
   });
 });
 

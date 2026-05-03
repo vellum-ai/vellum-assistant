@@ -6,12 +6,13 @@
 
 // === Tool input discriminated union ===
 
-/** Inputs accepted by the eight app-control tool variants. */
+/** Inputs accepted by the nine app-control tool variants. */
 export type HostAppControlInput =
   | HostAppControlStartInput
   | HostAppControlObserveInput
   | HostAppControlPressInput
   | HostAppControlComboInput
+  | HostAppControlSequenceInput
   | HostAppControlTypeInput
   | HostAppControlClickInput
   | HostAppControlDragInput
@@ -48,6 +49,25 @@ export interface HostAppControlComboInput {
   keys: string[];
   /** Hold duration in milliseconds. */
   duration_ms?: number;
+}
+
+/** A single step inside a sequence: one key press with optional modifiers, hold duration, and post-press gap. */
+export interface HostAppControlSequenceStep {
+  /** Single key identifier, e.g. "right", "a", "return". */
+  key: string;
+  /** Modifier list, e.g. ["cmd", "shift"]. Omit for no modifiers. */
+  modifiers?: string[];
+  /** Hold duration for this key in milliseconds. */
+  duration_ms?: number;
+  /** Pause after this step before starting the next, in milliseconds. */
+  gap_ms?: number;
+}
+
+export interface HostAppControlSequenceInput {
+  tool: "sequence";
+  app: string;
+  /** Ordered list of single-key presses to execute serially. */
+  steps: HostAppControlSequenceStep[];
 }
 
 export interface HostAppControlTypeInput {
