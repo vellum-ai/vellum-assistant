@@ -26,13 +26,11 @@
 //   only as a per-turn ordering signal, not compared across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../embedding-backend.js";
+import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { hybridQuerySkills } from "./skill-qdrant.js";
+import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 
 /**
  * Clamp a value into the closed unit interval [0, 1]. Re-exported under the
@@ -83,11 +81,12 @@ export async function simBatch(
     return new Map();
   }
 
-  // Sparse uses the shared TF-IDF encoder so the query and stored vectors
-  // share a vocabulary with PKB indexing.
+  // Sparse uses BM25: the query side encodes binary occurrences per token,
+  // and the stored doc vectors carry the IDF · TF-saturated weights — Qdrant
+  // dot product then yields the BM25 score directly.
   const denseResult = await embedWithBackend(config, [text]);
   const denseVector = denseResult.vectors[0];
-  const sparseVector = generateSparseEmbedding(text);
+  const sparseVector = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQueryConceptPages(
     denseVector,
@@ -151,7 +150,7 @@ export async function simSkillBatch(
 
   const denseResult = await embedWithBackend(config, [text]);
   const denseVector = denseResult.vectors[0];
-  const sparseVector = generateSparseEmbedding(text);
+  const sparseVector = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQuerySkills(
     denseVector,

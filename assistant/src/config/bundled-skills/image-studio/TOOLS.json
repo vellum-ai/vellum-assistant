@@ -37,10 +37,6 @@
           "variants": {
             "type": "number",
             "description": "Number of image variants to generate (1-4, default: 1)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["prompt"]

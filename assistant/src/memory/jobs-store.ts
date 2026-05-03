@@ -43,7 +43,7 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute";
 
-const EMBED_JOB_TYPES: MemoryJobType[] = [
+export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
   "embed_summary",
   "embed_media",
@@ -51,6 +51,21 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_graph_node",
   "embed_pkb_file",
   "graph_trigger_embed",
+];
+
+export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
+  "graph_consolidate",
+  "graph_pattern_scan",
+  "graph_narrative_refine",
+  "graph_extract",
+  "conversation_analyze",
+  "build_conversation_summary",
+  "generate_conversation_starters",
+  "memory_v2_sweep",
+  "memory_v2_consolidate",
+  "memory_v2_migrate",
+  "backfill",
+  "graph_bootstrap",
 ];
 
 export interface MemoryJob<T = Record<string, unknown>> {
@@ -351,8 +366,15 @@ export function enqueuePruneOldConversationsJob(
   return enqueueMemoryJob("prune_old_conversations", payload);
 }
 
-export function claimMemoryJobs(limit: number): MemoryJob[] {
-  if (limit <= 0) return [];
+export interface LaneBudgets {
+  slowLlm: number;
+  fast: number;
+  embed: number;
+}
+
+export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
+  if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
+
   const db = getDb();
   const now = Date.now();
   const pendingFilter = and(
@@ -360,38 +382,60 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
     lte(memoryJobs.runAfter, now),
   );
 
-  // Claim non-embed jobs first, then fill remaining slots with embed jobs.
-  // This prevents embed retries from starving other job types during a backend outage.
-  const nonEmbedCandidates = db
-    .select()
-    .from(memoryJobs)
-    .where(and(pendingFilter, notInArray(memoryJobs.type, EMBED_JOB_TYPES)))
-    .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
-    .limit(limit)
-    .all();
+  // Slow lane: long-running LLM jobs (graph extract/consolidate, analysis, etc.).
+  const slowCandidates =
+    limits.slowLlm > 0
+      ? db
+          .select()
+          .from(memoryJobs)
+          .where(
+            and(pendingFilter, inArray(memoryJobs.type, SLOW_LLM_JOB_TYPES)),
+          )
+          .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
+          .limit(limits.slowLlm)
+          .all()
+      : [];
 
-  const remainingSlots = limit - nonEmbedCandidates.length;
+  // Fast lane: everything that is neither slow-LLM nor embed.
+  const fastCandidates =
+    limits.fast > 0
+      ? db
+          .select()
+          .from(memoryJobs)
+          .where(
+            and(
+              pendingFilter,
+              notInArray(memoryJobs.type, SLOW_LLM_JOB_TYPES),
+              notInArray(memoryJobs.type, EMBED_JOB_TYPES),
+            ),
+          )
+          .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
+          .limit(limits.fast)
+          .all()
+      : [];
 
-  // When the Qdrant circuit breaker is open, skip embed jobs entirely —
-  // they would just be claimed → fail → deferred, wasting CPU cycles.
-  // Exception: if the cooldown has elapsed (breaker ready for half-open probe),
-  // allow exactly 1 embed job through so the breaker can self-heal.
+  // Embed lane: gated by the Qdrant circuit breaker. When the breaker is open,
+  // skip embed jobs entirely — they would just be claimed → fail → deferred,
+  // wasting CPU cycles. Exception: if the cooldown has elapsed (breaker ready
+  // for half-open probe), allow exactly 1 embed job through so the breaker
+  // can self-heal. Note: this gate applies ONLY to the embed lane; slow and
+  // fast lanes run unimpeded.
   const breakerOpen = isQdrantBreakerOpen();
   const probeAllowed = breakerOpen && shouldAllowQdrantProbe();
   const skipEmbedJobs = breakerOpen && !probeAllowed;
-  const embedLimit = probeAllowed ? 1 : remainingSlots;
+  const embedLimit = probeAllowed ? Math.min(1, limits.embed) : limits.embed;
 
-  if (skipEmbedJobs && remainingSlots > 0) {
+  if (skipEmbedJobs && limits.embed > 0) {
     log.debug("Skipping embed job claims — Qdrant circuit breaker is open");
   }
-  if (probeAllowed && remainingSlots > 0) {
+  if (probeAllowed && limits.embed > 0) {
     log.debug(
       "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed",
     );
   }
 
   const embedCandidates =
-    remainingSlots > 0 && !skipEmbedJobs
+    embedLimit > 0 && !skipEmbedJobs
       ? db
           .select()
           .from(memoryJobs)
@@ -401,7 +445,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
           .all()
       : [];
 
-  const candidates = [...nonEmbedCandidates, ...embedCandidates];
+  const candidates = [...slowCandidates, ...fastCandidates, ...embedCandidates];
 
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {

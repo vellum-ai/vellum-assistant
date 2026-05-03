@@ -11,6 +11,7 @@ import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -19,7 +20,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-bash-result
 // ---------------------------------------------------------------------------
 
-function handleHostBashResult({ body }: RouteHandlerArgs) {
+function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -36,6 +37,8 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
     throw new BadRequestError("requestId is required");
   }
 
+  const submittingClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
     throw new NotFoundError(
@@ -47,6 +50,20 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
     throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_bash"`,
     );
+  }
+
+  const { targetClientId } = peeked;
+  if (targetClientId) {
+    if (!submittingClientId) {
+      throw new BadRequestError(
+        "x-vellum-client-id header is required for targeted host bash requests",
+      );
+    }
+    if (submittingClientId !== targetClientId) {
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
   }
 
   pendingInteractions.resolve(requestId);
@@ -84,6 +101,16 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host bash request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this request.",
+      },
+    },
     handler: handleHostBashResult,
   },
 ];

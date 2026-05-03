@@ -172,13 +172,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: () => false,
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "05BECB approve",
@@ -188,17 +193,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     const body = (await res.json()) as {
@@ -250,13 +256,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: () => false,
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "hello there",
@@ -266,17 +277,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -324,13 +336,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
         requestId === "tool-approval-live",
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "approve",
@@ -340,17 +357,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -402,13 +420,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: (id: string) => id === "tool-req-code-1",
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "A1B2C3 approve",
@@ -418,17 +441,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -476,13 +500,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: (id: string) => id === "pending-reject-1",
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "reject",
@@ -492,17 +521,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -544,13 +574,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: (id: string) => id === "pending-1",
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "tell me more about this request",
@@ -560,17 +595,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const res = await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
       req,
       undefined,
       202,
-      );
+    );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -614,13 +650,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: () => false,
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
@@ -630,14 +671,15 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-        approvalConversationGenerator: mockGenerator as any,
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+          approvalConversationGenerator: mockGenerator as any,
+        }),
       req,
       undefined,
       202,
@@ -685,13 +727,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       hasPendingConfirmation: () => false,
       setHostBrowserProxy: () => {},
       setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
       restoreBrowserProxyAvailability: () => {},
       addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
@@ -701,14 +748,15 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     await callHandler(
-      (args) => handleSendMessage(args, {
-        sendMessageDeps: {
-          getOrCreateConversation: async () => session,
-          assistantEventHub: { publish: async () => {} } as any,
-          resolveAttachments: () => [],
-        },
-        approvalConversationGenerator: mockGenerator as any,
-      }),
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+          approvalConversationGenerator: mockGenerator as any,
+        }),
       req,
       undefined,
       202,

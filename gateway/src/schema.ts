@@ -1493,6 +1493,32 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/contacts/prompt/submit": {
+        post: {
+          summary: "Submit a contact address in response to a prompt",
+          description:
+            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Writes the contact, notifies the daemon to unblock the waiting CLI call.",
+          operationId: "contactsPromptSubmitPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact created and prompt resolved" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "409": { description: "Channel already exists for this contact" },
+            "503": { description: "Bearer token not configured" },
+          },
+        },
+      },
       "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",

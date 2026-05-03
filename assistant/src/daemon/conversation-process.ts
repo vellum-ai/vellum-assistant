@@ -14,7 +14,6 @@ import {
 import {
   parseChannelId,
   parseInterfaceId,
-  supportsHostProxy,
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
@@ -46,6 +45,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -425,14 +425,19 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
   }
 
-  // Preactivate computer-use skill for interactive desktop turns.
+  // Re-preactivate host-proxy skills for interactive desktop turns. The
+  // dequeue path reset `preactivatedSkillIds` above, so without these
+  // re-adds the relevant skill tools wouldn't be projected to the LLM
+  // for queued messages 2+ even though the underlying proxies (HostCuProxy,
+  // HostAppControlProxy) are still attached. Mirrors the per-message
+  // instantiation block in `conversation-routes.ts` / `process-message.ts`.
   if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -862,15 +867,15 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
   }
 
-  // Preactivate computer-use skill for interactive desktop turns.
+  // Re-preactivate host-proxy skills for interactive desktop turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up

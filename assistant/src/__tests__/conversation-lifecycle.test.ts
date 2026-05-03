@@ -308,6 +308,42 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([{ type: "text", text: "Second" }]);
   });
 
+  test("historical wrapped memoryInjectedBlock rehydrates singly-wrapped", async () => {
+    // Historical v2 rows persisted `injectedBlockText` already wrapped in
+    // `<memory>...</memory>`. After unifying v2's storage with v1's
+    // unwrapped contract, the rehydrate path must defensively strip any
+    // pre-existing wrapper so old rows don't render double-wrapped.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "<memory>\nremember: alice\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(2);
+    const firstBlock = messages[0].content[0];
+    expect(firstBlock).toEqual({
+      type: "text",
+      text: "<memory>\nremember: alice\n</memory>",
+    });
+    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+  });
+
   test("malformed metadata is tolerated: load does not throw, content unchanged", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [

@@ -10,7 +10,12 @@ import { dirname } from "node:path";
 
 import { z } from "zod";
 
-import { getConfig, saveConfig } from "../../config/loader.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { readTextFileSync } from "../../util/fs.js";
@@ -228,36 +233,48 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
     }),
     handler: async ({ body = {} }: RouteHandlerArgs) => {
-      const config = getConfig();
-      const heartbeat = { ...config.heartbeat };
-
+      // Build a patch containing only the fields the caller actually set.
+      // Writing back the full Zod-defaulted heartbeat object would bake
+      // defaults onto disk, masking later schema changes from the user.
+      // Use "key in body" checks for nullable fields so explicit null clears them.
+      const heartbeatPatch: Record<string, unknown> = {};
       if ("enabled" in body && typeof body.enabled === "boolean")
-        heartbeat.enabled = body.enabled;
+        heartbeatPatch.enabled = body.enabled;
       if ("intervalMs" in body && typeof body.intervalMs === "number")
-        heartbeat.intervalMs = body.intervalMs;
+        heartbeatPatch.intervalMs = body.intervalMs;
       if ("activeHoursStart" in body)
-        heartbeat.activeHoursStart =
+        heartbeatPatch.activeHoursStart =
           typeof body.activeHoursStart === "number"
             ? body.activeHoursStart
             : null;
       if ("activeHoursEnd" in body)
-        heartbeat.activeHoursEnd =
+        heartbeatPatch.activeHoursEnd =
           typeof body.activeHoursEnd === "number" ? body.activeHoursEnd : null;
       if ("cronExpression" in body)
-        heartbeat.cronExpression =
+        heartbeatPatch.cronExpression =
           typeof body.cronExpression === "string" ? body.cronExpression : null;
       if ("timezone" in body)
-        heartbeat.timezone =
+        heartbeatPatch.timezone =
           typeof body.timezone === "string" ? body.timezone : null;
 
       try {
-        saveConfig({ ...config, heartbeat });
-        log.info({ heartbeat }, "Heartbeat config updated");
+        const raw = loadRawConfig();
+        raw.heartbeat = {
+          ...((raw.heartbeat as Record<string, unknown>) ?? {}),
+          ...heartbeatPatch,
+        };
+        saveRawConfig(raw);
+        invalidateConfigCache();
+        log.info({ heartbeat: heartbeatPatch }, "Heartbeat config updated");
       } catch (err) {
         log.error({ err }, "Failed to save heartbeat config");
         throw new InternalError("Failed to save config");
       }
 
+      // Read effective values back through the schema-defaulting loader so
+      // callers that only set a subset of fields still see the resolved
+      // (post-default) shape in the response.
+      const heartbeat = getConfig().heartbeat;
       const svc = HeartbeatService.getInstance();
       svc?.reconfigure();
 

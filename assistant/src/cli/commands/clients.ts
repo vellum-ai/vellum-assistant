@@ -9,6 +9,7 @@ interface ClientEntryJSON {
   clientId: string;
   interfaceId: string;
   capabilities: string[];
+  machineName?: string;
   connectedAt: string;
   lastActiveAt: string;
 }
@@ -47,7 +48,7 @@ Examples:
     .option("--json", "Machine-readable compact JSON output")
     .option(
       "--capability <name>",
-      "Filter to clients supporting this capability (e.g. host_bash, host_file, host_cu, host_browser)",
+      "Filter to clients supporting this capability (e.g. host_bash, host_file, host_cu, host_browser, host_app_control)",
     )
     .addHelpText(
       "after",
@@ -55,7 +56,7 @@ Examples:
 Options:
   --json                Output as compact JSON instead of a table.
   --capability <name>   Only show clients that support the named capability.
-                        Valid values: host_bash, host_file, host_cu, host_browser.
+                        Valid values: host_bash, host_file, host_cu, host_browser, host_app_control.
 
 The table shows each client's ID, interface type, capabilities,
 connection timestamps, and host environment (when available).
@@ -104,6 +105,7 @@ Examples:
           "CLIENT ID",
           "INTERFACE",
           "CAPABILITIES",
+          "LABEL",
           "CONNECTED",
           "LAST ACTIVE",
         ];
@@ -111,6 +113,7 @@ Examples:
           e.clientId,
           e.interfaceId,
           e.capabilities.length > 0 ? e.capabilities.join(", ") : "—",
+          e.machineName ?? "—",
           formatRelativeTime(e.connectedAt),
           formatRelativeTime(e.lastActiveAt),
         ]);
@@ -134,13 +137,13 @@ Examples:
       },
     );
 
-clients
-  .command("disconnect <clientId>")
-  .description("Force-disconnect a client by its ID")
-  .option("--json", "Machine-readable compact JSON output")
-  .addHelpText(
-    "after",
-    `
+  clients
+    .command("disconnect <clientId>")
+    .description("Force-disconnect a client by its ID")
+    .option("--json", "Machine-readable compact JSON output")
+    .addHelpText(
+      "after",
+      `
 Arguments:
 clientId   The UUID of the client to disconnect (from \`clients list\`).
 
@@ -151,34 +154,30 @@ reconnect automatically depending on its implementation.
 Examples:
 $ assistant clients disconnect a1a30bde-6679-406c-bc32-d5a0d2a7a99e
 $ assistant clients disconnect a1a30bde-6679-406c-bc32-d5a0d2a7a99e --json`,
-  )
-  .action(
-    async (
-      clientId: string,
-      opts: { json?: boolean },
-      cmd: Command,
-    ) => {
-      const result = await cliIpcCall<DisconnectClientResponse>(
-        "disconnect_client",
-        { body: { clientId } },
-      );
+    )
+    .action(
+      async (clientId: string, opts: { json?: boolean }, cmd: Command) => {
+        const result = await cliIpcCall<DisconnectClientResponse>(
+          "disconnect_client",
+          { body: { clientId } },
+        );
 
-      if (!result.ok) {
-        log.error(result.error ?? "Failed to disconnect client");
-        process.exitCode = 1;
-        return;
-      }
+        if (!result.ok) {
+          log.error(result.error ?? "Failed to disconnect client");
+          process.exitCode = 1;
+          return;
+        }
 
-      if (opts.json) {
-        writeOutput(cmd, result.result!);
-        return;
-      }
+        if (opts.json) {
+          writeOutput(cmd, result.result!);
+          return;
+        }
 
-      log.info(
-        `Disconnected client ${clientId} (${result.result!.disconnected} subscriber${result.result!.disconnected === 1 ? "" : "s"} disposed)`,
-      );
-    },
-  );
+        log.info(
+          `Disconnected client ${clientId} (${result.result!.disconnected} subscriber${result.result!.disconnected === 1 ? "" : "s"} disposed)`,
+        );
+      },
+    );
 }
 
 function formatRelativeTime(iso: string): string {

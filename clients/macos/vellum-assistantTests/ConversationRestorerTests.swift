@@ -165,7 +165,7 @@ struct ConversationRestorerTests {
     // MARK: - History Response Routing
 
     @Test @MainActor
-    func historyResponseRoutesToCorrectConversation() {
+    func historyResponseRoutesToCorrectConversation() async {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -192,6 +192,7 @@ struct ConversationRestorerTests {
             (role: "assistant", text: "Hi there"),
         ])
         restorer.handleHistoryResponse(response)
+        await restorer.awaitPendingHistoryReconstructions()
 
         // session-B's view model should have history loaded
         #expect(vmB.isHistoryLoaded)
@@ -230,7 +231,7 @@ struct ConversationRestorerTests {
     }
 
     @Test @MainActor
-    func rapidTabSwitchDoesNotCrossContaminate() {
+    func rapidTabSwitchDoesNotCrossContaminate() async {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -258,6 +259,7 @@ struct ConversationRestorerTests {
             (role: "user", text: "Request A"),
             (role: "assistant", text: "Response A"),
         ]))
+        await restorer.awaitPendingHistoryReconstructions()
 
         // Each VM should have its own history only
         #expect(vmA.messages.count == 2)
@@ -682,7 +684,7 @@ struct ConversationRestorerTests {
     /// Verifies that a conversation list refresh (triggered by invalidation refetch)
     /// preserves the selected conversation's local ID, loaded history, and view model.
     @Test @MainActor
-    func refreshPreservesSelectedConversationThroughInvalidationRefetch() {
+    func refreshPreservesSelectedConversationThroughInvalidationRefetch() async {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -704,6 +706,7 @@ struct ConversationRestorerTests {
             conversationId: "sa",
             messages: [(role: "user", text: "Hello")]
         ))
+        await restorer.awaitPendingHistoryReconstructions()
 
         let vmB = delegate.makeViewModel()
         vmB.conversationId = "sb"

@@ -108,10 +108,6 @@ interface LockfileData {
   [key: string]: unknown;
 }
 
-export function getBaseDir(): string {
-  return process.env.BASE_DATA_DIR?.trim() || homedir();
-}
-
 /**
  * Derive the daemon PID file path from a resources object. The PID file
  * lives inside the instance's workspace directory. When no resources are
@@ -512,25 +508,4 @@ export function getLockfilePlatformBaseUrl(): string | undefined {
   return undefined;
 }
 
-/**
- * Read the assistant config file and sync client-relevant values to the
- * lockfile. This lets external tools (e.g. vel) discover the platform URL
- * without importing the assistant config schema.
- */
-export function syncConfigToLockfile(): void {
-  const configPath = join(getBaseDir(), ".vellum", "workspace", "config.json");
-  if (!existsSync(configPath)) return;
 
-  try {
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const platform = raw.platform as Record<string, unknown> | undefined;
-    const data = readLockfile();
-    data.platformBaseUrl = (platform?.baseUrl as string) || undefined;
-    writeLockfile(data);
-  } catch {
-    // Config file unreadable — skip sync
-  }
-}

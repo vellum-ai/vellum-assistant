@@ -19,6 +19,7 @@ import type {
   ContactType,
   ContactWithChannels,
 } from "../../contacts/types.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   createIngressInvite,
@@ -27,6 +28,7 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../../runtime/invite-service.js";
+import type { ContactPromptResult } from "../../runtime/routes/contact-prompt-routes.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
@@ -398,6 +400,77 @@ Examples:
             writeOutput(cmd, { ok: true, contact: result });
           } else {
             process.stdout.write(formatContactDetail(result) + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeError(cmd, message);
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  contacts
+    .command("prompt")
+    .description("Prompt user to register a contact channel via the app UI")
+    .option("--channel <channel>", "Suggested channel type hint (e.g. phone, email, telegram)")
+    .option("--placeholder <placeholder>", "Placeholder text for the address input field")
+    .option("--role <role>", "Intended role: guardian, trusted-contact, or unknown (default: unknown)")
+    .option("--label <label>", "Display label shown in the prompt UI")
+    .option("--description <description>", "Longer description shown in the prompt UI")
+    .option("--timeout <ms>", "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.", String(310_000))
+    .addHelpText(
+      "after",
+      `
+Opens a contact address prompt in the user's app. The user enters a channel
+address (phone number, email, Telegram ID, etc.). The address is saved with
+status "unverified". Verification is a separate step.
+
+Run \`assistant contacts prompt --help\` for full option details.`,
+    )
+    .action(
+      async (
+        opts: {
+          channel?: string;
+          placeholder?: string;
+          role?: string;
+          label?: string;
+          description?: string;
+          timeout?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : 310_000;
+          const ipc = await cliIpcCall<ContactPromptResult>(
+            "contacts_prompt",
+            {
+              body: {
+                channel: opts.channel,
+                placeholder: opts.placeholder,
+                role: opts.role ?? "unknown",
+                label: opts.label,
+                description: opts.description,
+              },
+            },
+            { timeoutMs },
+          );
+
+          if (!ipc.ok || !ipc.result?.ok) {
+            writeError(cmd, ipc.error ?? ipc.result?.error ?? "Contact prompt failed");
+            process.exitCode = 1;
+            return;
+          }
+
+          const result = ipc.result;
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, result);
+          } else {
+            process.stdout.write(
+              `Registered ${result.channelType} channel: ${result.address}\n` +
+                `  Channel ID: ${result.channelId}\n` +
+                `  Contact ID: ${result.contactId}\n` +
+                `  Status:     unverified\n`,
+            );
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

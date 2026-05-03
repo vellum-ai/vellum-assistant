@@ -21,6 +21,7 @@ import {
   type SparseEmbedding,
   type TextEmbeddingInput,
 } from "./embedding-types.js";
+import { SPARSE_VOCAB_SIZE, tokenHash, tokenize } from "./sparse-tokenize.js";
 
 export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 
@@ -787,31 +788,18 @@ async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
 // Simple tokenizer + TF-IDF sparse encoder. Produces a SparseEmbedding
 // with term indices (hashed to a fixed vocabulary) and TF-IDF weights.
 // Can be upgraded to a learned sparse encoder (e.g. SPLADE) later.
-
-const SPARSE_VOCAB_SIZE = 30_000;
+// Tokenization primitives (`tokenize`, `tokenHash`, `SPARSE_VOCAB_SIZE`) live
+// in `./sparse-tokenize.ts` so the BM25 encoder can share them without
+// transitively depending on this module.
 
 /**
  * Bump this version whenever the sparse embedding algorithm changes
- * (e.g. hash function fix, tokenizer change) to trigger re-indexing
- * of existing sparse vectors via the sentinel mismatch mechanism.
+ * (e.g. hash function fix, tokenizer change). Now inert metadata — the v1
+ * Qdrant sentinel was decoupled from this constant, so a bump no longer
+ * forces an automatic rebuild. Operators must explicitly run
+ * `assistant memory v2 reembed` to rematerialize the v2 sparse index.
  */
-export const SPARSE_EMBEDDING_VERSION = 2;
-
-/** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
-function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-}
-
-/** Hash a token to a stable index in [0, vocabSize). */
-function tokenHash(token: string, vocabSize: number): number {
-  // FNV-1a 32-bit hash for speed
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < token.length; i++) {
-    hash ^= token.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash % vocabSize;
-}
+export const SPARSE_EMBEDDING_VERSION = 4;
 
 /**
  * Generate a TF-IDF-based sparse embedding for the given text.

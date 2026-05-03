@@ -48,6 +48,7 @@ export const ROUTES: RouteDefinition[] = [
             clientId: c.clientId,
             interfaceId: c.interfaceId,
             capabilities: c.capabilities,
+            machineName: c.machineName,
             connectedAt: c.connectedAt,
             lastActiveAt: c.lastActiveAt,
           }),

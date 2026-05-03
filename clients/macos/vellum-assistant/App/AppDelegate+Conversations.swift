@@ -101,35 +101,41 @@ extension AppDelegate {
     }
 
     /// Opens the main window and navigates to the given conversation.
-    /// Retries if the conversation isn't populated yet (e.g., ConversationManager hasn't loaded it).
     /// Used by Quick Chat and notification deep links.
     /// - Parameters:
     ///   - conversationId: The conversation to navigate to.
     ///   - anchorMessageId: Optional message ID to scroll to after the conversation is selected.
     func openConversation(conversationId: String?, anchorMessageId: String? = nil) {
-        showMainWindow()
         guard let conversationId else { return }
+        if isBootstrapping {
+            pendingConversationOpenRequest = (conversationId: conversationId, anchorMessageId: anchorMessageId)
+            log.info("Queued conversation open for \(conversationId, privacy: .public) until bootstrap completes")
+            return
+        }
 
-        func trySelect() -> Bool {
-            guard let conversationManager = mainWindow?.conversationManager,
-                  let conversation = conversationManager.conversations.first(where: { $0.conversationId == conversationId }) else {
-                return false
+        showMainWindow()
+
+        Task { @MainActor in
+            let conversationManager = self.ensureMainWindowExists().conversationManager
+            let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+            guard found, let conversation = conversationManager.activeConversation else {
+                log.warning("Could not find conversation \(conversationId, privacy: .public) after async fetch")
+                return
             }
-            conversationManager.activateConversation(conversation.id)
             // Switch the main content area to the chat — but if App Builder
             // is open, transition to .appEditing so the app stays visible
             // with the new conversation in the chat dock.
-            if let sel = mainWindow?.windowState.selection {
+            if let sel = self.mainWindow?.windowState.selection {
                 switch sel {
                 case .app(let appId):
-                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                    self.mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
                 case .appEditing(let appId, _):
-                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                    self.mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
                 default:
-                    mainWindow?.windowState.selection = nil
+                    self.mainWindow?.windowState.selection = nil
                 }
             } else {
-                mainWindow?.windowState.selection = nil
+                self.mainWindow?.windowState.selection = nil
             }
             // Clear unseen state and notify the assistant when deep-linking into a
             // conversation. selectConversation's unseen-clear is guarded by
@@ -142,19 +148,13 @@ extension AppDelegate {
             if let anchorMessageId, let anchorUUID = UUID(uuidString: anchorMessageId) {
                 conversationManager.setPendingAnchorMessage(conversationId: conversation.id, messageId: anchorUUID)
             }
-            return true
         }
+    }
 
-        if trySelect() { return }
-
-        // Conversation may not be loaded yet — retry up to 5 times with 500ms delay
-        Task { @MainActor in
-            for _ in 0..<5 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if trySelect() { return }
-            }
-            log.warning("Could not find conversation \(conversationId) after retries")
-        }
+    func drainPendingConversationOpenRequestIfNeeded() {
+        guard !isBootstrapping, let pending = pendingConversationOpenRequest else { return }
+        pendingConversationOpenRequest = nil
+        openConversation(conversationId: pending.conversationId, anchorMessageId: pending.anchorMessageId)
     }
 
     func showDaemonConnectionError() {

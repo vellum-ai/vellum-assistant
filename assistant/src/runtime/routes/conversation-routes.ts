@@ -44,7 +44,9 @@ import {
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
+import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1395,14 +1397,29 @@ export async function handleSendMessage(
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
-    // Only preactivate CU when the conversation is idle — if the conversation is
-    // processing, this message will be queued and preactivation is deferred
-    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
-    if (!conversation.isProcessing()) {
-      conversation.addPreactivatedSkillId("computer-use");
-    }
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
+  }
+  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
+  // singleton lock plus per-session loop tracking. Instantiation is
+  // unconditional when the client supports the capability — feature-flag
+  // gating lives in the skill-projection layer (which reads the
+  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
+  // an attached proxy is harmless when the flag resolves to off.
+  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(mapping.conversationId),
+      );
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
+  }
+  // Only preactivate when the conversation is idle — if it's processing,
+  // this message will be queued and preactivation is deferred to dequeue
+  // time in drainQueueImpl to avoid mutating in-flight turn state.
+  if (!conversation.isProcessing()) {
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating

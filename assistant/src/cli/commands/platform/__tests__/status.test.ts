@@ -89,13 +89,11 @@ mock.module("../../../../config/loader.js", () => ({
   }),
   loadConfig: () => ({}),
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   applyNestedDefaults: (config: unknown) => config,
-  deepMergeMissing: () => false,
   deepMergeOverwrite: () => {},
   mergeDefaultWorkspaceConfig: () => {},
 }));

@@ -346,58 +346,33 @@ export function createChannelVerificationSessionProxyHandler(
     async handleGuardianRefresh(req: Request): Promise<Response> {
       try {
         const body = (await req.json()) as Record<string, unknown>;
-        const platform =
-          typeof body.platform === "string" ? body.platform.trim() : "";
-        const deviceId =
-          typeof body.deviceId === "string" ? body.deviceId.trim() : "";
         const refreshToken =
           typeof body.refreshToken === "string" ? body.refreshToken : "";
 
-        if (!platform || !deviceId || !refreshToken) {
+        if (!refreshToken) {
           return Response.json(
             {
               error: {
                 code: "BAD_REQUEST",
-                message:
-                  "Missing required fields: platform, deviceId, refreshToken",
+                message: "Missing required field: refreshToken",
               },
             },
             { status: 400 },
           );
         }
 
-        if (
-          platform !== "ios" &&
-          platform !== "macos" &&
-          platform !== "cli" &&
-          platform !== "web"
-        ) {
-          return Response.json(
-            {
-              error: {
-                code: "BAD_REQUEST",
-                message:
-                  'Invalid platform. Must be "ios", "macos", "cli", or "web".',
-              },
-            },
-            { status: 400 },
-          );
-        }
-
-        const result = rotateCredentials({ refreshToken, platform, deviceId });
+        const result = rotateCredentials({ refreshToken });
 
         if (!result.ok) {
           const statusCode =
             result.error === "refresh_reuse_detected"
               ? 403
-              : result.error === "device_binding_mismatch"
+              : result.error === "revoked"
                 ? 403
-                : result.error === "revoked"
-                  ? 403
-                  : 401;
+                : 401;
 
           log.warn(
-            { error: result.error, platform },
+            { error: result.error },
             "Refresh token rotation failed",
           );
           return Response.json({ error: result.error }, { status: statusCode });
@@ -405,7 +380,6 @@ export function createChannelVerificationSessionProxyHandler(
 
         log.info(
           {
-            platform,
             guardianPrincipalId: result.result.guardianPrincipalId,
           },
           "Refresh token rotation succeeded",

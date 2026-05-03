@@ -8,7 +8,6 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
 import {
   findContactChannel,
@@ -16,8 +15,6 @@ import {
   getChannelById,
   getContact,
   getContactInternal,
-  updateChannelInteraction,
-  updateChannelLastSeenById,
   updateChannelStatus,
   upsertContact,
 } from "./contact-store.js";
@@ -28,7 +25,6 @@ import type {
   ContactWriteResult,
 } from "./types.js";
 
-const log = getLogger("contacts-write");
 
 // ── Guardian operations ──────────────────────────────────────────────
 
@@ -179,26 +175,3 @@ export function revokeMember(
   return { contact, channel: updatedChannel };
 }
 
-/**
- * Update the lastSeenAt timestamp on a contact channel by its ID.
- * Expects a plain channel UUID (ContactChannel.id), not the composite API ID.
- */
-export function touchChannelLastSeen(channelId: string): void {
-  try {
-    updateChannelLastSeenById(channelId);
-  } catch (err) {
-    log.warn({ err }, "Failed to update channel lastSeenAt");
-  }
-}
-
-/**
- * Track an interaction on the specific channel that received it.
- * Swallows errors to avoid disrupting the inbound message hot path.
- */
-export function touchContactInteraction(channelId: string): void {
-  try {
-    updateChannelInteraction(channelId);
-  } catch (err) {
-    log.warn({ err }, "Failed to update channel interaction stats");
-  }
-}

@@ -365,6 +365,19 @@ extension AppDelegate {
                     self.featureFlagStore.reloadFromGateway()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
+                    // Accept if the request is explicitly targeted at this client, OR if
+                    // the request is untargeted and the conversation is locally owned.
+                    // Do NOT accept if targetClientId is set to a different client, even
+                    // if this conversation is in the local list (all clients sync the same
+                    // conversation list, so isLocalConversation alone is not sufficient).
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
                     HostToolExecutor.executeHostBashRequest(msg)
                 case .hostFileRequest(let msg):
                     HostToolExecutor.executeHostFileRequest(msg)
@@ -394,6 +407,23 @@ extension AppDelegate {
                     }
                     self.inFlightCuTasks[msg.requestId] = task
 
+                case .hostAppControlRequest(let msg):
+                    let task = Task { @MainActor in
+                        defer { self.inFlightAppControlTasks.removeValue(forKey: msg.requestId) }
+
+                        guard !Task.isCancelled else { return }
+                        let result = await AppControlExecutor.perform(msg)
+                        guard !Task.isCancelled else { return }
+
+                        // Suppress stale POST if cancelled
+                        if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            log.debug("Host app-control result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
+                            return
+                        }
+                        _ = await HostProxyClient().postAppControlResult(result)
+                    }
+                    self.inFlightAppControlTasks[msg.requestId] = task
+
                 case .hostBrowserRequest(let msg):
                     self.hostBrowserExecutor.execute(msg)
                 case .hostBrowserCancel(let msg):
@@ -410,6 +440,8 @@ extension AppDelegate {
                     HostToolExecutor.cancelHostFileRequest(msg.requestId)
                 case .hostCuCancel(let msg):
                     self.cancelHostCuRequest(msg.requestId)
+                case .hostAppControlCancel(let msg):
+                    self.cancelHostAppControlRequest(msg.requestId)
 
                 // Signing identity
                 case .signBundlePayload(let msg):
@@ -484,6 +516,19 @@ extension AppDelegate {
         // itself from inFlightCuTasks, but the overlay can still be visible.
         dismissHostCuOverlay()
         log.info("Cancelling host CU — requestId=\(requestId, privacy: .public)")
+    }
+
+    // MARK: - Host App Control Cancel
+
+    /// Cancel an in-flight host app-control request: mark it cancelled and
+    /// cancel the Swift Task. App-control has no overlay to dismiss; the
+    /// daemon-side proxy resolves the awaiter on cancellation.
+    func cancelHostAppControlRequest(_ requestId: String) {
+        HostToolExecutor.markCancelled(requestId)
+        if let task = inFlightAppControlTasks.removeValue(forKey: requestId) {
+            task.cancel()
+        }
+        log.info("Cancelling host app-control — requestId=\(requestId, privacy: .public)")
     }
 
     // MARK: - Signing Identity

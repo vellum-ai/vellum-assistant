@@ -41,7 +41,6 @@ mock.module("../../../config/loader.js", () => ({
     memory: { v2: { enabled: configMemoryV2Enabled } },
   }),
   loadRawConfig: () => ({}),
-  saveConfig: () => {},
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,

@@ -18,6 +18,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
+import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
@@ -25,6 +26,7 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -131,6 +133,11 @@ class HostShellTool implements Tool {
             description:
               "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
           },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
+          },
         },
         required: ["command", "activity"],
       },
@@ -173,6 +180,11 @@ class HostShellTool implements Tool {
     }
     const background = input.background === true;
 
+    const targetClientId =
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
 
@@ -189,6 +201,50 @@ class HostShellTool implements Tool {
     const hostLockdownActive =
       isCesShellLockdownEnabled(config) &&
       isUntrustedTrustClass(context.trustClass);
+
+    // Guard: non-host-proxy interfaces need an explicit target when multiple
+    // capable clients are connected to avoid ambiguous untargeted broadcasts.
+    const transportInterface = context.transportInterface;
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      assistantEventHub.listClientsByCapability("host_bash").length > 1
+    ) {
+      return {
+        content: `Error: multiple clients support host_bash. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_bash\` to see client IDs and labels.`,
+        isError: true,
+      };
+    }
+
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      !HostBashProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_bash capability is connected. Connect a macOS client to use host_bash from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
+    // Guard: explicit targetClientId provided but proxy is unavailable (client
+    // disconnected between tool-definition and tool-execution). Without this
+    // guard both targetClientId != null guards above are bypassed, and the
+    // code falls through to local daemon execution — silently running commands
+    // inside the Docker container instead of on the intended host machine.
+    if (
+      targetClientId != null &&
+      !HostBashProxy.instance.isAvailable()
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_bash\` to see currently connected clients.`,
+        isError: true,
+      };
+    }
 
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
@@ -227,6 +283,7 @@ class HostShellTool implements Tool {
             working_dir: rawWorkingDir as string | undefined,
             timeout_seconds: normalizedTimeout,
             env: proxyEnv,
+            targetClientId,
           },
           context.conversationId,
           abortController.signal,
@@ -273,6 +330,7 @@ class HostShellTool implements Tool {
           working_dir: rawWorkingDir as string | undefined,
           timeout_seconds: normalizedTimeout,
           env: proxyEnv,
+          targetClientId,
         },
         context.conversationId,
         context.signal,
