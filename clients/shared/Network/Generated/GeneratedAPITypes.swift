@@ -1839,14 +1839,18 @@ public struct HeartbeatConfig: Codable, Sendable {
     public let intervalMs: Double?
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
+    public let cronExpression: String?
+    public let timezone: String?
 
-    public init(type: String, action: String, enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) {
+    public init(type: String, action: String, enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil, cronExpression: String? = nil, timezone: String? = nil) {
         self.type = type
         self.action = action
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
+        self.cronExpression = cronExpression
+        self.timezone = timezone
     }
 }
 
@@ -1856,17 +1860,21 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     public let intervalMs: Double
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
+    public let cronExpression: String?
+    public let timezone: String?
     public let nextRunAt: Int?
     public let lastRunAt: Int?
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, cronExpression: String? = nil, timezone: String? = nil, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
+        self.cronExpression = cronExpression
+        self.timezone = timezone
         self.nextRunAt = nextRunAt
         self.lastRunAt = lastRunAt
         self.success = success

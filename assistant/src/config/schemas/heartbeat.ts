@@ -1,3 +1,4 @@
+import { Cron } from "croner";
 import { z } from "zod";
 
 export const HeartbeatConfigSchema = z
@@ -12,6 +13,20 @@ export const HeartbeatConfigSchema = z
       .positive("heartbeat.intervalMs must be a positive integer")
       .default(6 * 3_600_000)
       .describe("Time between heartbeat checks in milliseconds"),
+    cronExpression: z
+      .string()
+      .nullable()
+      .default(null)
+      .describe(
+        "Cron expression for heartbeat timing. When set, heartbeats fire at the specified clock times instead of using intervalMs.",
+      ),
+    timezone: z
+      .string()
+      .nullable()
+      .default(null)
+      .describe(
+        "Timezone for cron expression evaluation, e.g. 'America/New_York'. Ignored when cronExpression is null.",
+      ),
     activeHoursStart: z
       .number({ error: "heartbeat.activeHoursStart must be a number" })
       .int("heartbeat.activeHoursStart must be an integer")
@@ -79,6 +94,54 @@ export const HeartbeatConfigSchema = z
         path: ["activeHoursEnd"],
         message,
       });
+    }
+
+    // Validate cronExpression and timezone when cronExpression is set.
+    // Separate the validations so timezone errors are attributed to the
+    // timezone path — if both paths point at cronExpression, the config
+    // loader's delete-and-retry would strip cronExpression but leave the
+    // invalid timezone, cascading to a full defaults reset.
+    if (config.cronExpression != null) {
+      try {
+        new Cron(config.cronExpression, { maxRuns: 0 });
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["cronExpression"],
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (config.timezone != null) {
+        try {
+          new Cron(config.cronExpression, {
+            maxRuns: 0,
+            timezone: config.timezone,
+          });
+        } catch {
+          // The cron expression itself is valid (or already flagged above),
+          // so a failure here is from the timezone.
+          try {
+            Intl.DateTimeFormat(undefined, { timeZone: config.timezone });
+          } catch (tzErr) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["timezone"],
+              message: tzErr instanceof Error ? tzErr.message : String(tzErr),
+            });
+          }
+        }
+      }
+    } else if (config.timezone != null) {
+      // cronExpression is null but timezone is set — validate timezone independently
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: config.timezone });
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["timezone"],
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   });
 

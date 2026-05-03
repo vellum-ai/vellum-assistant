@@ -620,6 +620,13 @@ struct SettingsSchedulesTab: View {
     }
 
     private func heartbeatSubtitle(_ config: HeartbeatConfigResponse) -> String {
+        if let cron = config.cronExpression {
+            var subtitle = "Cron: \(cron)"
+            if let tz = config.timezone {
+                subtitle += " (\(tz))"
+            }
+            return subtitle
+        }
         let interval = Int(config.intervalMs / 60_000)
         var subtitle = "Every \(interval) min"
         if let start = config.activeHoursStart, let end = config.activeHoursEnd {

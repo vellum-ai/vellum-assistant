@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
+import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
@@ -13,6 +14,7 @@ import {
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
+import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
@@ -109,10 +111,16 @@ export class HeartbeatService {
   }
 
   private readonly deps: HeartbeatDeps;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer:
+    | ReturnType<typeof setInterval>
+    | ReturnType<typeof setTimeout>
+    | null = null;
   private activeRun: Promise<void> | null = null;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
+  private cronMode = false;
+  private stopped = false;
+  private configEpoch = 0;
   private _pendingRunId: string | null = null;
   private _startupMissedCount = 0;
   private _startupCrashedCount = 0;
@@ -134,6 +142,7 @@ export class HeartbeatService {
   }
 
   start(): void {
+    this.stopped = false;
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
@@ -174,7 +183,25 @@ export class HeartbeatService {
       }
     }
 
-    log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
+    if (config.cronExpression != null) {
+      this.cronMode = true;
+      this.scheduleNextCronRun(config);
+    } else {
+      this.startIntervalMode(config);
+    }
+  }
+
+  private startIntervalMode(config: HeartbeatConfig): void {
+    this.cronMode = false;
+    if (this.timer) {
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
+      this.timer = null;
+    }
+    log.info(
+      { intervalMs: config.intervalMs },
+      "Heartbeat service started (interval mode)",
+    );
     this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
@@ -183,17 +210,69 @@ export class HeartbeatService {
     }, config.intervalMs);
   }
 
+  private scheduleNextCronRun(config: HeartbeatConfig): void {
+    if (this.stopped) return;
+    try {
+      const nextRunAt = computeNextRunAt({
+        syntax: "cron",
+        expression: config.cronExpression!,
+        timezone: config.timezone,
+      });
+      this._nextRunAt = nextRunAt;
+      if (this.timer) {
+        clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+        clearInterval(this.timer as ReturnType<typeof setInterval>);
+        this.timer = null;
+      }
+      const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const delayMs = Math.max(0, nextRunAt - Date.now());
+      const epoch = this.configEpoch;
+      if (delayMs > MAX_TIMEOUT_MS) {
+        // Re-evaluate after 24h — the actual cron time is still far away
+        this.timer = setTimeout(() => {
+          if (this.configEpoch === epoch) {
+            this.scheduleNextCronRun(getConfig().heartbeat);
+          }
+        }, MAX_TIMEOUT_MS);
+      } else {
+        this.timer = setTimeout(() => {
+          this.runOnce()
+            .catch((err) => log.error({ err }, "Cron heartbeat failed"))
+            .finally(() => {
+              if (this.configEpoch === epoch) {
+                this.scheduleNextCronRun(getConfig().heartbeat);
+              }
+            });
+        }, delayMs);
+      }
+      (this.timer as ReturnType<typeof setTimeout>).unref();
+      log.info(
+        { nextRunAt: new Date(nextRunAt).toISOString(), delayMs },
+        "Heartbeat cron run scheduled",
+      );
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to compute next cron run, falling back to interval mode",
+      );
+      this.startIntervalMode(config);
+    }
+  }
+
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
+    this.configEpoch++;
     if (this._pendingRunId) {
       supersedePendingRun(this._pendingRunId);
       this._pendingRunId = null;
     }
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
       this.timer = null;
     }
     this._nextRunAt = null;
+    this.cronMode = false;
     this.start();
   }
 
@@ -204,8 +283,15 @@ export class HeartbeatService {
    */
   resetTimer(): void {
     if (!this.timer) return;
+    if (this.cronMode) {
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
+      this.timer = null;
+      this.scheduleNextCronRun(getConfig().heartbeat);
+      return;
+    }
     const config = getConfig().heartbeat;
-    clearInterval(this.timer);
+    clearInterval(this.timer as ReturnType<typeof setInterval>);
     this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
@@ -215,8 +301,10 @@ export class HeartbeatService {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
       this.timer = null;
     }
     if (this._pendingRunId) {
@@ -263,7 +351,17 @@ export class HeartbeatService {
       config.activeHoursStart != null &&
       config.activeHoursEnd != null
     ) {
-      const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
+      let hour: number;
+      if (this.cronMode && config.timezone) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: config.timezone,
+          hourCycle: "h23",
+          hour: "numeric",
+        }).formatToParts(new Date());
+        hour = Number(parts.find((p) => p.type === "hour")!.value);
+      } else {
+        hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
+      }
       if (
         !isWithinActiveHours(
           hour,
@@ -280,7 +378,9 @@ export class HeartbeatService {
           "Outside active hours, skipping",
         );
         if (runId) skipHeartbeatRun(runId, "outside_active_hours");
-        this.scheduleNextRun(config.intervalMs);
+        if (!this.cronMode) {
+          this.scheduleNextRun(config.intervalMs);
+        }
         return false;
       }
     }
@@ -345,7 +445,9 @@ export class HeartbeatService {
     } finally {
       clearTimeout(timerId);
       this._lastRunAt = Date.now();
-      this.scheduleNextRun(getConfig().heartbeat.intervalMs);
+      if (!this.cronMode) {
+        this.scheduleNextRun(getConfig().heartbeat.intervalMs);
+      }
     }
     return true;
   }

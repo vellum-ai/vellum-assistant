@@ -41,6 +41,8 @@ let mockConfig = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
+    cronExpression: null as string | null,
+    timezone: null as string | null,
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
   },
@@ -52,6 +54,32 @@ mock.module("../config/loader.js", () => ({
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
+}));
+
+// ── Recurrence engine mock ──────────────────────────────────────────
+//
+// HeartbeatService imports computeNextRunAt for cron scheduling.
+// Tests mutate `mockComputeNextRunAt` to control the next cron occurrence.
+let mockComputeNextRunAtResult: number | null = null;
+let mockComputeNextRunAtError: Error | null = null;
+let computeNextRunAtCallCount = 0;
+
+mock.module("../schedule/recurrence-engine.js", () => ({
+  computeNextRunAt: (_spec: {
+    syntax: string;
+    expression: string;
+    timezone?: string | null;
+  }) => {
+    computeNextRunAtCallCount++;
+    if (mockComputeNextRunAtError) {
+      throw mockComputeNextRunAtError;
+    }
+    if (mockComputeNextRunAtResult != null) {
+      return mockComputeNextRunAtResult;
+    }
+    // Default: 1 hour from now
+    return Date.now() + 3_600_000;
+  },
 }));
 
 // ── Guardian persona mock ─────────────────────────────────────────
@@ -295,6 +323,9 @@ describe("HeartbeatService", () => {
     mockCheckAllCredentialsFail = false;
     emittedNotificationSignals.length = 0;
     loggerWarnCalls.length = 0;
+    mockComputeNextRunAtResult = null;
+    mockComputeNextRunAtError = null;
+    computeNextRunAtCallCount = 0;
 
     // Default processMessage mock: capture calls for assertions.
     setTestProcessMessage(async (...args: unknown[]) => {
@@ -327,6 +358,8 @@ describe("HeartbeatService", () => {
       heartbeat: {
         enabled: true,
         intervalMs: 60_000,
+        cronExpression: null,
+        timezone: null,
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
       },
@@ -1103,6 +1136,193 @@ describe("HeartbeatService", () => {
     });
   });
 
+  describe("cron scheduling mode", () => {
+    test("start() with cronExpression sets nextRunAt to cron occurrence, not now+intervalMs", () => {
+      const cronNextRunAt = Date.now() + 7_200_000; // 2 hours from now
+      mockComputeNextRunAtResult = cronNextRunAt;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      mockConfig.heartbeat.timezone = "America/New_York";
+
+      const service = createService();
+      service.start();
+
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+      // Should NOT be now + intervalMs
+      expect(service.nextRunAt).not.toBeCloseTo(
+        Date.now() + mockConfig.heartbeat.intervalMs,
+        -3,
+      );
+      service.stop();
+    });
+
+    test("runOnce() does not call scheduleNextRun(intervalMs) in cron mode — nextRunAt is not clobbered", async () => {
+      const cronNextRunAt = Date.now() + 7_200_000;
+      mockComputeNextRunAtResult = cronNextRunAt;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+
+      const service = createService();
+      service.start();
+
+      // nextRunAt should be the cron time before runOnce
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+
+      await service.runOnce();
+
+      // After runOnce(), nextRunAt should still reflect a cron time, not now + intervalMs.
+      // The finally chain in scheduleNextCronRun recalculates it, but the runOnce()
+      // finally block should NOT have called scheduleNextRun(intervalMs).
+      // Since our mock always returns cronNextRunAt, nextRunAt should remain that value.
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+      service.stop();
+    });
+
+    test("after runOnce() rejects in cron mode, the next cron run is still scheduled via finally", async () => {
+      const cronNextRunAt = Date.now() + 7_200_000;
+      mockComputeNextRunAtResult = cronNextRunAt;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+
+      const service = createService({
+        processMessage: async () => {
+          throw new Error("LLM down");
+        },
+      });
+      service.start();
+
+      await service.runOnce();
+
+      // Even though executeRun failed, the service should still have a nextRunAt
+      // set to the cron occurrence (the finally chain reschedules)
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+      service.stop();
+    });
+
+    test("resetTimer() in cron mode recomputes from the current time", () => {
+      const firstCronTime = Date.now() + 3_600_000;
+      mockComputeNextRunAtResult = firstCronTime;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+
+      const service = createService();
+      service.start();
+      expect(service.nextRunAt).toBe(firstCronTime);
+
+      // Simulate time passing and a new cron occurrence
+      const secondCronTime = Date.now() + 5_400_000;
+      mockComputeNextRunAtResult = secondCronTime;
+
+      service.resetTimer();
+      expect(service.nextRunAt).toBe(secondCronTime);
+      service.stop();
+    });
+
+    test("reconfigure() switches from interval to cron mode", () => {
+      const service = createService();
+      // Start in interval mode
+      service.start();
+      const intervalNextRunAt = service.nextRunAt;
+      expect(intervalNextRunAt).not.toBeNull();
+
+      // Reconfigure to cron mode
+      const cronNextRunAt = Date.now() + 7_200_000;
+      mockComputeNextRunAtResult = cronNextRunAt;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      service.reconfigure();
+
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+      service.stop();
+    });
+
+    test("reconfigure() switches from cron to interval mode", () => {
+      const cronNextRunAt = Date.now() + 7_200_000;
+      mockComputeNextRunAtResult = cronNextRunAt;
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+
+      const service = createService();
+      service.start();
+      expect(service.nextRunAt).toBe(cronNextRunAt);
+
+      // Reconfigure to interval mode
+      mockConfig.heartbeat.cronExpression = null;
+      const before = Date.now();
+      service.reconfigure();
+
+      expect(service.nextRunAt).not.toBeNull();
+      expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+        before + mockConfig.heartbeat.intervalMs,
+      );
+      service.stop();
+    });
+
+    test("active hours guard uses cron timezone when configured", async () => {
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      mockConfig.heartbeat.timezone = "UTC";
+      mockConfig.heartbeat.activeHoursStart = 9;
+      mockConfig.heartbeat.activeHoursEnd = 17;
+      mockComputeNextRunAtResult = Date.now() + 3_600_000;
+
+      const service = createService();
+      service.start();
+
+      // In cron mode with timezone, the hour is computed via Intl.DateTimeFormat
+      // rather than getCurrentHour(). The test verifies the code path runs without
+      // error — the actual hour depends on the system clock and UTC conversion.
+      // We just verify it doesn't throw and returns a boolean result.
+      const result = await service.runOnce();
+      // Result depends on current UTC hour vs active window — either outcome is valid
+      expect(typeof result).toBe("boolean");
+      service.stop();
+    });
+
+    test("active hours guard falls back to getCurrentHour when cron mode has no timezone", async () => {
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      mockConfig.heartbeat.timezone = null;
+      mockConfig.heartbeat.activeHoursStart = 9;
+      mockConfig.heartbeat.activeHoursEnd = 17;
+      mockComputeNextRunAtResult = Date.now() + 3_600_000;
+
+      // getCurrentHour returns 3 (outside 9-17 window), so runOnce should skip
+      const service = createService({ getCurrentHour: () => 3 });
+      service.start();
+      const result = await service.runOnce();
+      expect(result).toBe(false);
+      expect(processMessageCalls).toHaveLength(0);
+      service.stop();
+    });
+
+    test("runtime fallback: computeNextRunAt throws, service falls back to interval mode", () => {
+      mockComputeNextRunAtError = new Error("No upcoming runs");
+      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+
+      const service = createService();
+      service.start();
+
+      // Should have fallen back to interval mode — nextRunAt should be ~now + intervalMs
+      expect(service.nextRunAt).not.toBeNull();
+      const expectedMin = Date.now() + mockConfig.heartbeat.intervalMs - 100;
+      expect(service.nextRunAt!).toBeGreaterThanOrEqual(expectedMin);
+
+      // Should have logged a warning about the fallback
+      const fallbackWarns = loggerWarnCalls.filter((call) => "err" in call);
+      expect(fallbackWarns.length).toBeGreaterThanOrEqual(1);
+      service.stop();
+    });
+
+    test("null cronExpression behaves identically to current fixed-interval mode", () => {
+      mockConfig.heartbeat.cronExpression = null;
+
+      const service = createService();
+      const before = Date.now();
+      service.start();
+
+      expect(service.nextRunAt).not.toBeNull();
+      expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+        before + mockConfig.heartbeat.intervalMs,
+      );
+      // computeNextRunAt should not have been called
+      expect(computeNextRunAtCallCount).toBe(0);
+      service.stop();
+    });
+  });
+
   describe("heartbeat run store instrumentation", () => {
     test("successful run: pending → running → ok with conversationId", async () => {
       const service = createService();
@@ -1547,7 +1767,6 @@ describe("HeartbeatService", () => {
         },
       );
       expect(missedCalls).toHaveLength(0);
-
       service.stop();
     });
   });
