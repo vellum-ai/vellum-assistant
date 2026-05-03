@@ -17,9 +17,9 @@ enum ProgressExpandedItem: Identifiable {
     var id: String {
         switch self {
         case .toolCall(let tc):
-            return tc.id.uuidString
+            return "tool:\(tc.id.uuidString)"
         case .thinking(_, let key, _):
-            return key
+            return "thinking:\(key)"
         }
     }
 }
