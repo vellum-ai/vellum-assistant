@@ -627,11 +627,13 @@ function registerPendingInteraction(
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "host_file",
+      targetClientId,
     });
   } else if (msg.type === "host_cu_request") {
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "host_cu",
+      targetClientId,
     });
   } else if (msg.type === "host_app_control_request") {
     pendingInteractions.register(msg.requestId, {

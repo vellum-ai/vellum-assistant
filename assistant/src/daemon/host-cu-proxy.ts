@@ -120,6 +120,7 @@ export class HostCuProxy extends HostProxyBase<
     stepNumber: number,
     reasoning?: string,
     signal?: AbortSignal,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -139,7 +140,7 @@ export class HostCuProxy extends HostProxyBase<
     return this.dispatchRequest(toolName, input, conversationId, signal, {
       stepNumber,
       reasoning,
-    })
+    }, targetClientId)
       .then((observation) => {
         // Capture pre-update state so formatObservation sees the correct
         // previous AX tree.
