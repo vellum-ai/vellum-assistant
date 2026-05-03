@@ -135,8 +135,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       success: z.boolean(),
     }),
-    handler: ({ body }: RouteHandlerArgs) =>
-      handleWriteChecklist(body ?? {}),
+    handler: ({ body }: RouteHandlerArgs) => handleWriteChecklist(body ?? {}),
   },
   {
     operationId: "getHeartbeatConfig",
@@ -152,6 +151,8 @@ export const ROUTES: RouteDefinition[] = [
       intervalMs: z.number(),
       activeHoursStart: z.number().nullable(),
       activeHoursEnd: z.number().nullable(),
+      cronExpression: z.string().nullable(),
+      timezone: z.string().nullable(),
       nextRunAt: z.number().nullable(),
       lastRunAt: z.number().nullable(),
       success: z.boolean(),
@@ -164,6 +165,8 @@ export const ROUTES: RouteDefinition[] = [
         intervalMs: config.intervalMs,
         activeHoursStart: config.activeHoursStart ?? null,
         activeHoursEnd: config.activeHoursEnd ?? null,
+        cronExpression: config.cronExpression ?? null,
+        timezone: config.timezone ?? null,
         nextRunAt: svc?.nextRunAt ?? null,
         lastRunAt: svc?.lastRunAt ?? null,
         success: true,
@@ -180,16 +183,38 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update the heartbeat schedule configuration.",
     tags: ["heartbeat"],
     requestBody: z.object({
-      enabled: z.boolean().describe("Enable or disable heartbeat"),
-      intervalMs: z.number().describe("Heartbeat interval in ms"),
-      activeHoursStart: z.number().describe("Active hours start (0–23)"),
-      activeHoursEnd: z.number().describe("Active hours end (0–23)"),
+      enabled: z.boolean().optional().describe("Enable or disable heartbeat"),
+      intervalMs: z.number().optional().describe("Heartbeat interval in ms"),
+      activeHoursStart: z
+        .number()
+        .nullable()
+        .optional()
+        .describe("Active hours start (0–23)"),
+      activeHoursEnd: z
+        .number()
+        .nullable()
+        .optional()
+        .describe("Active hours end (0–23)"),
+      cronExpression: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Cron expression for heartbeat timing, or null for fixed interval",
+        ),
+      timezone: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Timezone for cron evaluation"),
     }),
     responseBody: z.object({
       enabled: z.boolean(),
       intervalMs: z.number(),
       activeHoursStart: z.number().nullable(),
       activeHoursEnd: z.number().nullable(),
+      cronExpression: z.string().nullable(),
+      timezone: z.string().nullable(),
       nextRunAt: z.number().nullable(),
       lastRunAt: z.number().nullable(),
       success: z.boolean(),
@@ -198,13 +223,24 @@ export const ROUTES: RouteDefinition[] = [
       const config = getConfig();
       const heartbeat = { ...config.heartbeat };
 
-      if (typeof body.enabled === "boolean") heartbeat.enabled = body.enabled;
-      if (typeof body.intervalMs === "number")
+      if ("enabled" in body && typeof body.enabled === "boolean")
+        heartbeat.enabled = body.enabled;
+      if ("intervalMs" in body && typeof body.intervalMs === "number")
         heartbeat.intervalMs = body.intervalMs;
-      if (typeof body.activeHoursStart === "number")
-        heartbeat.activeHoursStart = body.activeHoursStart;
-      if (typeof body.activeHoursEnd === "number")
-        heartbeat.activeHoursEnd = body.activeHoursEnd;
+      if ("activeHoursStart" in body)
+        heartbeat.activeHoursStart =
+          typeof body.activeHoursStart === "number"
+            ? body.activeHoursStart
+            : null;
+      if ("activeHoursEnd" in body)
+        heartbeat.activeHoursEnd =
+          typeof body.activeHoursEnd === "number" ? body.activeHoursEnd : null;
+      if ("cronExpression" in body)
+        heartbeat.cronExpression =
+          typeof body.cronExpression === "string" ? body.cronExpression : null;
+      if ("timezone" in body)
+        heartbeat.timezone =
+          typeof body.timezone === "string" ? body.timezone : null;
 
       try {
         saveConfig({ ...config, heartbeat });
@@ -215,11 +251,15 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const svc = HeartbeatService.getInstance();
+      svc?.reconfigure();
+
       return {
         enabled: heartbeat.enabled,
         intervalMs: heartbeat.intervalMs,
         activeHoursStart: heartbeat.activeHoursStart ?? null,
         activeHoursEnd: heartbeat.activeHoursEnd ?? null,
+        cronExpression: heartbeat.cronExpression ?? null,
+        timezone: heartbeat.timezone ?? null,
         nextRunAt: svc?.nextRunAt ?? null,
         lastRunAt: svc?.lastRunAt ?? null,
         success: true,
