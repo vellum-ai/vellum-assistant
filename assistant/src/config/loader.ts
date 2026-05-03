@@ -59,10 +59,7 @@ function cloneDefaultConfig(): AssistantConfig {
  * unaffected.
  */
 function getDeploymentContextDefaults(): Record<string, unknown> {
-  if (
-    process.env.IS_PLATFORM !== "true" &&
-    process.env.IS_PLATFORM !== "1"
-  ) {
+  if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
   const managed = { mode: "managed" as const };
@@ -321,42 +318,6 @@ function deleteNestedKeyByDotPath(
 }
 
 /**
- * Deep-merge missing keys from `defaults` into `target`.
- * Only adds keys that do not already exist in `target`; never overwrites.
- * Returns true if any key was added.
- */
-export function deepMergeMissing(
-  target: Record<string, unknown>,
-  defaults: Record<string, unknown>,
-): boolean {
-  let changed = false;
-  for (const key of Object.keys(defaults)) {
-    if (!(key in target)) {
-      target[key] = defaults[key];
-      changed = true;
-    } else if (
-      defaults[key] != null &&
-      typeof defaults[key] === "object" &&
-      !Array.isArray(defaults[key]) &&
-      target[key] != null &&
-      typeof target[key] === "object" &&
-      !Array.isArray(target[key])
-    ) {
-      // Recurse into nested objects
-      if (
-        deepMergeMissing(
-          target[key] as Record<string, unknown>,
-          defaults[key] as Record<string, unknown>,
-        )
-      ) {
-        changed = true;
-      }
-    }
-  }
-  return changed;
-}
-
-/**
  * Recursively strip `null` leaves from a plain-object value, returning a
  * deep clone with all `null`-valued keys removed at every nesting level.
  * Non-object inputs (scalars, arrays, `null` itself) are returned as-is.
@@ -441,46 +402,13 @@ export function deepMergeOverwrite(
 }
 
 /**
- * Read the existing config.json from disk, merge any missing schema-default
- * keys, and rewrite only when there is an effective change.
- */
-function backfillConfigDefaults(
-  configPath: string,
-  fullDefaults: Record<string, unknown>,
-): void {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(configPath, "utf-8"));
-  } catch {
-    return; // Unreadable file — skip backfill
-  }
-
-  // Only backfill into plain objects (not arrays, strings, etc.)
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
-    return;
-  }
-
-  deepMergeMissing(raw as Record<string, unknown>, fullDefaults);
-  // Compare serialized JSON to decide whether a write is needed.
-  // deepMergeMissing can report false-positive mutations (e.g. setting a key
-  // to a value identical to what was already there), so comparing the final
-  // JSON avoids a hot-loop where writing triggers the config-watcher which
-  // reloads and backfills again endlessly.
-  const newJson = JSON.stringify(raw, null, 2) + "\n";
-  const existingJson = readFileSync(configPath, "utf-8");
-  if (newJson !== existingJson) {
-    writeFileSync(configPath, newJson);
-    log.info("Backfilled missing config defaults in %s", configPath);
-  }
-}
-
-/**
  * Merge default workspace config from the file referenced by
  * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH into the workspace config on disk.
  *
- * Called once at daemon startup (before the first loadConfig()) so the
- * defaults are persisted to the workspace config file alongside any
- * schema-level defaults that loadConfig() backfills.
+ * Called once at daemon startup (before the first loadConfig()) so platform
+ * overrides are persisted to disk before the daemon's first config read.
+ * Schema defaults are no longer materialized into the file on load — the
+ * in-memory `loadConfig()` cache applies them at access time instead.
  */
 export function mergeDefaultWorkspaceConfig(): void {
   const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
@@ -618,19 +546,29 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
-    // If the config file didn't exist, write the full defaults to disk so
-    // users can discover and edit all available options.
-    // If it existed, backfill any missing schema keys from defaults without
-    // overwriting existing user values.
-    try {
-      const dir = dirname(configPath);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
-      // Strip dataDir (runtime-derived) from the persisted config
-      const { dataDir: _, ...persistable } = config;
+    // First-launch seed only: when config.json does not exist, write the full
+    // schema defaults to disk so users can discover and edit all available
+    // options. When the file already exists, leave it alone — disk represents
+    // user intent, while the in-memory `cached: AssistantConfig` (above) has
+    // all schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
+    // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
+    // the schema default whenever the field is absent on disk.
+    //
+    // The previous behavior — eagerly merging missing keys back into the file
+    // on every load — silently baked stale defaults into existing users'
+    // config.json. Once a default landed in the file, future schema-default
+    // changes were inert because the merge only filled absent keys and never
+    // reconciled existing values. Contract: disk = user intent, in-memory
+    // cache = effective values.
+    if (!configFileExisted) {
+      try {
+        const dir = dirname(configPath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+        // Strip dataDir (runtime-derived) from the persisted config
+        const { dataDir: _, ...persistable } = config;
 
-      if (!configFileExisted) {
         // Layer deployment context defaults on top of schema defaults.
         // These are overrides the daemon derives from its environment (e.g.
         // IS_PLATFORM → all service modes = "managed"). Schema defaults
@@ -644,11 +582,9 @@ export function loadConfig(): AssistantConfig {
         }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
-      } else {
-        backfillConfigDefaults(configPath, persistable);
+      } catch (err) {
+        log.warn({ err }, "Failed to write default config file");
       }
-    } catch (err) {
-      log.warn({ err }, "Failed to write/backfill config file");
     }
 
     cached = config;
