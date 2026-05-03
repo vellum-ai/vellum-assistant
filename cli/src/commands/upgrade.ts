@@ -40,6 +40,7 @@ import {
   buildStartingEvent,
   buildUpgradeCommitMessage,
   captureContainerEnv,
+  captureUpgradeFailureLogs,
   commitWorkspaceViaGateway,
   CONTAINER_ENV_EXCLUDE_KEYS,
   rollbackMigrations,
@@ -510,6 +511,11 @@ async function upgradeDocker(
     );
   } else {
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
+
+    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-upgrade-failure`);
+    if (logDir) {
+      console.log(`📋 Container logs saved to: ${logDir}`);
+    }
 
     if (previousImageRefs) {
       await broadcastUpgradeEvent(
