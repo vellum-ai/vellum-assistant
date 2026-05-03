@@ -614,15 +614,6 @@ function isManagedGeminiFFEnabled(config: AssistantConfig): boolean {
   }
 }
 
-export function saveConfig(config: AssistantConfig): void {
-  ensureMigratedDataDir();
-  const configPath = getConfigPath();
-
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-
-  cached = config;
-}
-
 export function getConfig(): AssistantConfig {
   return loadConfig();
 }
