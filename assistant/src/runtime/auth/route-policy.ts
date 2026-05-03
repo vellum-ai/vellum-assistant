@@ -204,6 +204,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts/invites:POST", scopes: ["settings.write"] },
   { endpoint: "contacts/invites/redeem", scopes: ["settings.write"] },
   { endpoint: "contacts/invites:DELETE", scopes: ["settings.write"] },
+  { endpoint: "contacts/prompt:POST", scopes: ["settings.write"] },
+  { endpoint: "resolve_contact_prompt:POST", scopes: ["settings.write"] },
   { endpoint: "integrations/telegram/config", scopes: ["settings.read"] },
   { endpoint: "integrations/telegram/config:POST", scopes: ["settings.write"] },
   {

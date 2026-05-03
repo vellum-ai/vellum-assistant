@@ -3206,6 +3206,68 @@ paths:
                 - keepId
                 - mergeId
               additionalProperties: false
+  /v1/contacts/prompt:
+    post:
+      operationId: contacts_prompt_post
+      summary: Prompt user to register a contact channel
+      description:
+        Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway.
+        The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  contactId:
+                    type: string
+                  channelId:
+                    type: string
+                  channelType:
+                    type: string
+                  address:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  description: Suggested channel type hint (e.g. phone, email, telegram). Free text — not enforced.
+                  type: string
+                placeholder:
+                  description: Placeholder text for the address input field.
+                  type: string
+                label:
+                  description: Display label shown in the prompt UI.
+                  type: string
+                description:
+                  description: Longer description for the prompt UI.
+                  type: string
+                role:
+                  default: unknown
+                  description: Intended role of the contact being registered.
+                  type: string
+                  enum:
+                    - guardian
+                    - trusted-contact
+                    - unknown
+              required:
+                - role
+              additionalProperties: false
   /v1/contacts/search:
     post:
       operationId: contacts_search_post
@@ -8292,6 +8354,16 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/resolve_contact_prompt:
+    post:
+      operationId: resolve_contact_prompt_post
+      summary: "Gateway callback: resolve a pending contact prompt"
+      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
   /v1/schedules:
     get:
       operationId: schedules_get

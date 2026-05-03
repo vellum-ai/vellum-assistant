@@ -88,6 +88,7 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
+import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
@@ -603,6 +604,12 @@ async function main() {
     },
 
     // ── Contacts control plane ──
+    {
+      path: "/v1/contacts/prompt/submit",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactPromptSubmit(req),
+    },
     {
       path: "/v1/contacts",
       method: "GET",
