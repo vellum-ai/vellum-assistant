@@ -1510,6 +1510,10 @@ public typealias SecretRequestMessage = SecretRequest
 /// Backed by generated `ConfirmationRequest`.
 public typealias ConfirmationRequestMessage = ConfirmationRequest
 
+/// Contact channel address request from daemon.
+/// Backed by generated `ContactRequest`.
+public typealias ContactRequestMessage = ContactRequest
+
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
 extension ConfirmationRequestAllowlistOption: Equatable {
@@ -2816,6 +2820,7 @@ public enum ServerMessage: Decodable, Sendable {
     case confirmationRequest(ConfirmationRequestMessage)
     case confirmationStateChanged(ConfirmationStateChangedMessage)
     case secretRequest(SecretRequestMessage)
+    case contactRequest(ContactRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -3081,6 +3086,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "secret_request":
             let message = try SecretRequestMessage(from: decoder)
             self = .secretRequest(message)
+        case "contact_request":
+            let message = try ContactRequestMessage(from: decoder)
+            self = .contactRequest(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)

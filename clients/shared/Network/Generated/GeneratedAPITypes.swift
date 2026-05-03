@@ -5880,3 +5880,38 @@ public struct WorkspaceFilesListResponseFile: Codable, Sendable {
         self.exists = exists
     }
 }
+
+/// Server → Client prompt requesting the user to enter a contact channel address.
+/// Emitted by the contacts/prompt IPC route when the assistant needs a new contact.
+public struct ContactRequest: Codable, Sendable {
+    public let type: String
+    public let requestId: String
+    /// Suggested channel type (e.g. "phone", "email") — hint only, not enforced.
+    public let channel: String?
+    /// Placeholder text for the address input field.
+    public let placeholder: String?
+    /// Display label shown above the input field.
+    public let label: String?
+    /// Longer description shown below the label.
+    public let description: String?
+    /// Suggested role for the new contact (guardian / trusted-contact / unknown).
+    public let role: String?
+
+    public init(
+        type: String,
+        requestId: String,
+        channel: String? = nil,
+        placeholder: String? = nil,
+        label: String? = nil,
+        description: String? = nil,
+        role: String? = nil
+    ) {
+        self.type = type
+        self.requestId = requestId
+        self.channel = channel
+        self.placeholder = placeholder
+        self.label = label
+        self.description = description
+        self.role = role
+    }
+}

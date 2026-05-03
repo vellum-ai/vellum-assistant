@@ -15,11 +15,12 @@ public enum ConfirmationSendResult {
     case failed
 }
 
-/// Focused client for user interaction responses (confirmations, secrets)
+/// Focused client for user interaction responses (confirmations, secrets, contact prompts)
 /// routed through the gateway.
 public protocol InteractionClientProtocol {
     func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> ConfirmationSendResult
     func sendSecretResponse(requestId: String, value: String?, delivery: String?) async -> Bool
+    func sendContactPromptResponse(requestId: String, address: String?, channelType: String, role: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``InteractionClientProtocol``.
@@ -79,6 +80,44 @@ public struct InteractionClient: InteractionClientProtocol {
             return true
         } catch {
             log.error("sendSecretResponse error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    public func sendContactPromptResponse(
+        requestId: String,
+        address: String?,
+        channelType: String,
+        role: String? = nil
+    ) async -> Bool {
+        // Cancel path — user dismissed without entering an address.
+        guard let address, !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log.info("sendContactPromptResponse: cancelled — no address provided (requestId=\(requestId, privacy: .public))")
+            return true
+        }
+        do {
+            var body: [String: Any] = [
+                "requestId": requestId,
+                "address": address.trimmingCharacters(in: .whitespacesAndNewlines),
+                "channelType": channelType,
+            ]
+            if let role { body["role"] = role }
+
+            // Route is /v1/contacts/prompt/submit — not scoped under assistants/{id}.
+            let response = try await GatewayHTTPClient.post(
+                path: "contacts/prompt/submit",
+                unprefixed: true,
+                json: body,
+                timeout: 10
+            )
+            if !response.isSuccess {
+                log.error("sendContactPromptResponse failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("sendContactPromptResponse error: \(error.localizedDescription)")
             return false
         }
     }

@@ -11,6 +11,7 @@ public final class AppServices {
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
     let secretPromptManager = SecretPromptManager()
+    let contactPromptManager = ContactPromptManager()
     let zoomManager = ZoomManager()
 
     /// Shared observable store for ACP (Agent Client Protocol) sessions.

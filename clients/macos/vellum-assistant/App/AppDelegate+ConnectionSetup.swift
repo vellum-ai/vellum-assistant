@@ -485,6 +485,11 @@ extension AppDelegate {
                     self.secretPromptManager.showPrompt(msg)
                     SoundManager.shared.play(.needsInput)
 
+                // Contact address prompt
+                case .contactRequest(let msg):
+                    self.contactPromptManager.showPrompt(msg)
+                    SoundManager.shared.play(.needsInput)
+
                 case .conversationError(let msg):
                     if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")

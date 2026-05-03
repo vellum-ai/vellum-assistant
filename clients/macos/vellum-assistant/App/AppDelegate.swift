@@ -98,6 +98,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
+    var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
@@ -656,6 +657,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSurfaceManager()
         setupToolConfirmationNotifications()
         setupSecretPromptManager()
+        setupContactPromptManager()
         setupWindowObserver()
         setupSleepWakeHandlers()
         setupNotifications()
@@ -856,6 +858,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        contactPromptManager.dismissAll()
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
