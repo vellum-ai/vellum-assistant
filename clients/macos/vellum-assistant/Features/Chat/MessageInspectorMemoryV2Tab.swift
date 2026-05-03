@@ -182,7 +182,7 @@ struct MessageInspectorMemoryV2Tab: View {
                 countsRow(model: model)
                 configCard(config: model.config)
                 conceptsCard(rows: model.conceptRows)
-                skillsCard(rows: model.skillRows, topKSkills: model.config.topKSkills)
+                skillsCard(rows: model.skillRows)
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -293,14 +293,13 @@ struct MessageInspectorMemoryV2Tab: View {
     // MARK: - Skills
 
     private func skillsCard(
-        rows: [MessageInspectorMemoryV2TabModel.SkillRowVM],
-        topKSkills: String
+        rows: [MessageInspectorMemoryV2TabModel.SkillRowVM]
     ) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 cardHeader(
-                    title: "Skills (top \(topKSkills))",
-                    subtitle: "Skills ranked by activation. Injected entries become available this turn."
+                    title: "Skills (\(rows.count))",
+                    subtitle: "Sorted by activation. Green-dotted rows are injected this turn; the rest are scored but not picked."
                 )
 
                 if rows.isEmpty {

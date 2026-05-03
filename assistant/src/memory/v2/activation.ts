@@ -40,7 +40,6 @@ import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { simBatch, simSkillBatch } from "./sim.js";
-import { hybridQuerySkills } from "./skill-qdrant.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
@@ -424,55 +423,6 @@ export function selectInjections(
 // The activation coefficients are reused from `config.memory.v2.{c_user,
 // c_assistant, c_now}` — the design doc (§9) deliberately shares them with
 // concept-page activation rather than introducing parallel knobs.
-
-interface SelectSkillCandidatesParams {
-  userText: string;
-  assistantText: string;
-  nowText: string;
-  config: AssistantConfig;
-  /** Top-K size for the ANN query against `memory_v2_skills`. */
-  topK: number;
-}
-
-/**
- * ANN top-K against the skills collection using the concatenated turn text.
- * Runs a single embedding pass over `concat(user, assistant, now)` and a
- * single hybrid Qdrant query — there is no prior-state carry-forward (skills
- * are stateless).
- *
- * Returns a `Set<string>` of skill ids that hit either channel. Empty when
- * the joined text is empty or `topK <= 0`.
- */
-export async function selectSkillCandidates(
-  params: SelectSkillCandidatesParams,
-): Promise<Set<string>> {
-  const { userText, assistantText, nowText, config, topK } = params;
-
-  const candidates = new Set<string>();
-  if (topK <= 0) return candidates;
-
-  const annQueryText = [userText, assistantText, nowText]
-    .filter((s) => s.length > 0)
-    .join("\n");
-  if (annQueryText.length === 0) return candidates;
-
-  const denseResult = await embedWithBackend(config, [annQueryText]);
-  const dense = denseResult.vectors[0];
-  const sparse = generateSparseEmbedding(annQueryText);
-  // Candidate pool size is intentionally decoupled from `topK` (the
-  // post-scoring injection cap). Driving the Qdrant limit by `topK`
-  // would cap the scored set at ~10 skills per turn, dropping literal
-  // name matches that rank outside the top-5 per channel — see the
-  // concept-page pipeline (`selectCandidates`) for the equivalent
-  // separation.
-  const limit =
-    config.memory.v2.ann_candidate_limit_skills ??
-    UNLIMITED_ANN_CANDIDATE_LIMIT;
-  const hits = await hybridQuerySkills(dense, sparse, limit);
-  for (const hit of hits) candidates.add(hit.id);
-
-  return candidates;
-}
 
 interface ComputeSkillActivationParams {
   candidates: ReadonlySet<string>;

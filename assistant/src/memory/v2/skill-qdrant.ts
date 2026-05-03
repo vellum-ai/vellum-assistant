@@ -278,8 +278,7 @@ export async function pruneSkillsExcept(
  * candidate set is already known so the activation scorer gets scores for
  * exactly those ids rather than Qdrant's global top-`limit`. An empty list
  * short-circuits to no results — the caller is asking for "nothing", not
- * "everything". Undefined queries the full collection (used by
- * `selectSkillCandidates` to discover candidates from the global top-K).
+ * "everything". Undefined queries the full collection.
  */
 export async function hybridQuerySkills(
   dense: number[],

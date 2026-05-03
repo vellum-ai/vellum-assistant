@@ -170,6 +170,15 @@ export function getSkillCapability(id: string): SkillEntry | null {
   return entries?.get(id) ?? null;
 }
 
+/**
+ * Every skill id in the cache — both installed-and-enabled skills and
+ * uninstalled-catalog skills. Empty before the first `seedV2SkillEntries`
+ * run completes.
+ */
+export function getAllSkillIds(): string[] {
+  return entries ? [...entries.keys()] : [];
+}
+
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;

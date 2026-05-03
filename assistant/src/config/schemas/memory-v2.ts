@@ -104,19 +104,6 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Cap on the per-turn skill-autoinjection slate rendered in `### Skills You Can Use`. 0 disables skill autoinjection without code changes.",
       ),
-    ann_candidate_limit_skills: z
-      .number({
-        error: "memory.v2.ann_candidate_limit_skills must be a number",
-      })
-      .int("memory.v2.ann_candidate_limit_skills must be an integer")
-      .positive(
-        "memory.v2.ann_candidate_limit_skills must be a positive integer",
-      )
-      .nullable()
-      .default(null)
-      .describe(
-        "Per-channel cap on the unrestricted skill ANN query (dense and sparse each return up to this many hits before they are unioned and fed into the activation scorer). `null` = unlimited (every skill in the v2 collection is eligible). Separate from `top_k_skills`, which caps the post-scoring injected slate. Mirrors `ann_candidate_limit` for concept pages.",
-      ),
     epsilon: z
       .number({ error: "memory.v2.epsilon must be a number" })
       .min(0, "memory.v2.epsilon must be >= 0")

@@ -148,7 +148,6 @@ const {
   computeSkillActivation,
   selectCandidates,
   selectInjections,
-  selectSkillCandidates,
   selectSkillInjections,
   spreadActivation,
 } = await import("../activation.js");
@@ -194,7 +193,6 @@ function makeConfig(
     dense_weight: number;
     sparse_weight: number;
     ann_candidate_limit: number | null;
-    ann_candidate_limit_skills: number | null;
   }> = {},
 ): AssistantConfig {
   return {
@@ -208,7 +206,6 @@ function makeConfig(
         dense_weight: 1.0,
         sparse_weight: 0.0,
         ann_candidate_limit: null,
-        ann_candidate_limit_skills: null,
         ...overrides,
       },
     },
@@ -898,7 +895,7 @@ describe("selectInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectSkillCandidates
+// computeSkillActivation
 // ---------------------------------------------------------------------------
 
 /** Stage a single hybrid response on the skills queues (payload key = `id`). */
@@ -916,111 +913,6 @@ function stageSkillHybridResponse(
       .map((h) => ({ score: h.sparseScore, payload: { id: h.id } })),
   });
 }
-
-describe("selectSkillCandidates", () => {
-  test("returns hit ids from the skills collection", async () => {
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
-      { id: "example-skill-b", denseScore: 0.3, sparseScore: 1 },
-    ]);
-    const out = await selectSkillCandidates({
-      userText: "user said hello",
-      assistantText: "",
-      nowText: "",
-      config: makeConfig(),
-      topK: 10,
-    });
-    expect(out).toEqual(new Set(["example-skill-a", "example-skill-b"]));
-  });
-
-  test("empty turn text short-circuits without backend calls", async () => {
-    const out = await selectSkillCandidates({
-      userText: "",
-      assistantText: "",
-      nowText: "",
-      config: makeConfig(),
-      topK: 10,
-    });
-    expect(out.size).toBe(0);
-    expect(state.embedCalls).toHaveLength(0);
-    expect(state.queryCalls).toHaveLength(0);
-  });
-
-  test("topK=0 short-circuits without backend calls", async () => {
-    const out = await selectSkillCandidates({
-      userText: "anything",
-      assistantText: "anything",
-      nowText: "anything",
-      config: makeConfig(),
-      topK: 0,
-    });
-    expect(out.size).toBe(0);
-    expect(state.embedCalls).toHaveLength(0);
-    expect(state.queryCalls).toHaveLength(0);
-  });
-
-  test("default config queries the skills collection with the unlimited limit (decoupled from topK)", async () => {
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
-    ]);
-    await selectSkillCandidates({
-      userText: "hello",
-      assistantText: "",
-      nowText: "",
-      config: makeConfig(),
-      topK: 7,
-    });
-    // Both channels (dense + sparse) ran with the unlimited sentinel and no
-    // id filter, against the dedicated skills collection. The pre-scoring
-    // candidate pool is intentionally decoupled from `topK` (the post-
-    // scoring injection cap) so literal-name matches that rank outside the
-    // top-K-per-channel still get scored.
-    expect(state.queryCalls).toHaveLength(2);
-    for (const call of state.queryCalls) {
-      expect(call.collection).toBe("memory_v2_skills");
-      expect(call.limit).toBe(1_000_000);
-      expect(call.filter).toBeUndefined();
-    }
-  });
-
-  test("honors `config.memory.v2.ann_candidate_limit_skills`", async () => {
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
-    ]);
-    await selectSkillCandidates({
-      userText: "hello",
-      assistantText: "",
-      nowText: "",
-      config: makeConfig({ ann_candidate_limit_skills: 25 }),
-      topK: 7,
-    });
-    expect(state.queryCalls).toHaveLength(2);
-    for (const call of state.queryCalls) {
-      expect(call.collection).toBe("memory_v2_skills");
-      expect(call.limit).toBe(25);
-    }
-  });
-
-  test("embeds concatenated turn text exactly once", async () => {
-    stageSkillHybridResponse([]);
-    await selectSkillCandidates({
-      userText: "user line",
-      assistantText: "assistant line",
-      nowText: "now line",
-      config: makeConfig(),
-      topK: 5,
-    });
-    expect(state.embedCalls).toHaveLength(1);
-    expect(state.embedCalls[0].inputs).toEqual([
-      "user line\nassistant line\nnow line",
-    ]);
-    expect(state.sparseCalls).toEqual(["user line\nassistant line\nnow line"]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeSkillActivation
-// ---------------------------------------------------------------------------
 
 describe("computeSkillActivation", () => {
   test("empty candidates short-circuits without backend calls", async () => {

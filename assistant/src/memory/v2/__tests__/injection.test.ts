@@ -14,12 +14,12 @@
  *
  * Hermetic by design: the embedding backend, qdrant client, and `getConfig`
  * are mocked at the module level so the suite never reaches a real backend.
- * The skill activation pipeline (`selectSkillCandidates`,
- * `computeSkillActivation`, `selectSkillInjections`) and the skill-store
- * lookup (`getSkillCapability`) are also mocked at the module level so each
- * test can stage its skill slate without touching the dedicated skills
- * Qdrant collection. The activation-store uses an in-memory SQLite database
- * so writes are real but contained.
+ * The skill activation pipeline (`computeSkillActivation`,
+ * `selectSkillInjections`) and the skill-store helpers (`getAllSkillIds`,
+ * `getSkillCapability`) are also mocked at the module level so each test can
+ * stage its skill slate without touching the dedicated skills Qdrant
+ * collection. The activation-store uses an in-memory SQLite database so
+ * writes are real but contained.
  *
  * Tests use a temp workspace (mkdtemp) and never touch `~/.vellum/`. Sample
  * page content uses generic placeholders (Alice, Bob, etc.) per the cross-
@@ -127,18 +127,19 @@ mock.module("@qdrant/js-client-rest", () => ({
 // Skill pipeline mocks
 // ---------------------------------------------------------------------------
 //
-// The skill side of the per-turn pipeline (`selectSkillCandidates`,
-// `computeSkillActivation`, `selectSkillInjections`) has its own dedicated
-// Qdrant collection and embedding round-trips. Rather than threading staged
-// hits through that whole pipeline for every test, we mock the three skill
-// helpers and the synchronous `getSkillCapability` lookup at the module level
-// and let each test stage a `topNow` ordering and the matching `SkillEntry`
-// content directly.
+// The skill side of the per-turn pipeline (`computeSkillActivation`,
+// `selectSkillInjections`) has its own dedicated Qdrant collection and
+// embedding round-trips. Rather than threading staged hits through that whole
+// pipeline for every test, we mock the two activation helpers and the two
+// skill-store helpers (`getAllSkillIds` for the candidate pool,
+// `getSkillCapability` for content lookup) at the module level and let each
+// test stage a `topNow` ordering and the matching `SkillEntry` content
+// directly.
 
 const skillState = {
   /** Ordered ids `selectSkillInjections.topNow` returns this turn. */
   topSkillIds: [] as string[],
-  /** id → SkillEntry used by `getSkillCapability`. */
+  /** id → SkillEntry used by `getSkillCapability` and `getAllSkillIds`. */
   entries: new Map<string, SkillEntry>(),
 };
 
@@ -149,7 +150,6 @@ mock.module("../activation.js", () => ({
   // activation map are inputs to `selectSkillInjections`, not anything the
   // injection logic introspects. Stub them to empty so the test stays focused
   // on the wiring, not the pipeline internals (covered in activation.test.ts).
-  selectSkillCandidates: async () => new Set<string>(),
   computeSkillActivation: async () => ({
     activation: new Map<string, number>(),
     breakdown: new Map(),
@@ -160,6 +160,7 @@ mock.module("../activation.js", () => ({
 }));
 
 mock.module("../skill-store.js", () => ({
+  getAllSkillIds: () => [...skillState.entries.keys()],
   getSkillCapability: (id: string) => skillState.entries.get(id) ?? null,
 }));
 

@@ -37,14 +37,13 @@ import {
   computeSkillActivation,
   selectCandidates,
   selectInjections,
-  selectSkillCandidates,
   selectSkillInjections,
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import { getEdgeIndex } from "./edge-index.js";
 import { readPage, renderPageContent } from "./page-store.js";
-import { getSkillCapability } from "./skill-store.js";
+import { getAllSkillIds, getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
@@ -183,16 +182,11 @@ export async function injectMemoryV2Block(
   const slugsToRender = mode === "context-load" ? topNow : toInject;
 
   // (6b) Skill pipeline — a sibling pipeline to the concept-page one above.
-  // Skills are stateless: no decay carry-over, no spread, no `everInjected`
-  // dedup. The top-K relevant skills are re-presented every turn so the
-  // agent can drop and pick them up freely.
-  const skillCandidates = await selectSkillCandidates({
-    userText: userMessage,
-    assistantText: assistantMessage,
-    nowText,
-    config,
-    topK: config.memory.v2.top_k_skills,
-  });
+  // Skills are stateless (no decay, no spread, no `everInjected` dedup) and
+  // the catalog is small, so every known skill is scored every turn. The
+  // top-K injection slate is re-presented every turn so the agent can drop
+  // and pick skills up freely; the inspector renders the full ranked list.
+  const skillCandidates = new Set(getAllSkillIds());
   const { activation: skillActivation, breakdown: skillBreakdown } =
     await computeSkillActivation({
       candidates: skillCandidates,
