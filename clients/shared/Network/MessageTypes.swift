@@ -1757,17 +1757,21 @@ public enum HostAppControlInput: Codable, Equatable, Sendable {
         case key
         case keys
         case modifiers
-        case durationMs
+        // Wire format uses snake_case for multi-word fields (driven by
+        // TOOLS.json schema property names). Map explicitly — without these
+        // raw values, decode silently misses `duration_ms` / `from_x` / etc.
+        // and hold-durations and drag coordinates fall through to defaults.
+        case durationMs = "duration_ms"
         case steps
         case text
         case x
         case y
         case button
         case double
-        case fromX
-        case fromY
-        case toX
-        case toY
+        case fromX = "from_x"
+        case fromY = "from_y"
+        case toX = "to_x"
+        case toY = "to_y"
         case reason
     }
 

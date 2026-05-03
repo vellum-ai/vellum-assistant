@@ -99,13 +99,16 @@ final class HostAppControlTypesTests: XCTestCase {
     // MARK: - HostAppControlInput wire shape
 
     func test_input_decodes_from_tool_discriminator() throws {
+        // Wire format uses snake_case (matches TOOLS.json input schema and the
+        // TypeScript HostAppControlPressInput shape). Swift maps to camelCase
+        // via explicit CodingKey raw values.
         let json = #"""
         {
           "tool": "press",
           "app": "com.apple.Safari",
           "key": "Return",
           "modifiers": ["cmd"],
-          "durationMs": 100
+          "duration_ms": 100
         }
         """#
         let decoded = try JSONDecoder().decode(HostAppControlInput.self, from: Data(json.utf8))
@@ -116,6 +119,34 @@ final class HostAppControlTypesTests: XCTestCase {
         XCTAssertEqual(key, "Return")
         XCTAssertEqual(modifiers, ["cmd"])
         XCTAssertEqual(durationMs, 100)
+    }
+
+    func test_input_drag_decodes_snake_case_coordinates() throws {
+        // Regression guard for the pre-existing CodingKey bug where the
+        // snake_case `from_x`/`from_y`/`to_x`/`to_y` wire keys silently
+        // failed to decode and drag coordinates fell through to undefined
+        // behavior.
+        let json = #"""
+        {
+          "tool": "drag",
+          "app": "com.apple.Safari",
+          "from_x": 10,
+          "from_y": 20,
+          "to_x": 100,
+          "to_y": 200,
+          "button": "left"
+        }
+        """#
+        let decoded = try JSONDecoder().decode(HostAppControlInput.self, from: Data(json.utf8))
+        guard case .drag(let app, let fromX, let fromY, let toX, let toY, let button) = decoded else {
+            return XCTFail("Expected .drag variant, got \(decoded)")
+        }
+        XCTAssertEqual(app, "com.apple.Safari")
+        XCTAssertEqual(fromX, 10)
+        XCTAssertEqual(fromY, 20)
+        XCTAssertEqual(toX, 100)
+        XCTAssertEqual(toY, 200)
+        XCTAssertEqual(button, "left")
     }
 
     func test_input_unknown_tool_throws() {
