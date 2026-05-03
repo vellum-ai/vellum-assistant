@@ -11,7 +11,7 @@ import { randomUUID } from "crypto";
 import { homedir } from "os";
 import { join } from "path";
 
-const CLI_INTERFACE_ID = "cli";
+export const CLI_INTERFACE_ID = "cli";
 
 let cached: string | null = null;
 
@@ -56,12 +56,16 @@ export function getClientId(): string {
 
 /**
  * Headers that identify this CLI client to the assistant daemon.
- * Attach to SSE streaming connections so the ClientRegistry can
- * track connected clients and their capabilities.
+ * Attach to all requests so the ClientRegistry can track connected
+ * clients and their capabilities.
+ *
+ * @param interfaceId - Override the interface ID (default: "cli").
  */
-export function getClientRegistrationHeaders(): Record<string, string> {
+export function getClientRegistrationHeaders(
+  interfaceId: string = CLI_INTERFACE_ID,
+): Record<string, string> {
   return {
     "X-Vellum-Client-Id": getClientId(),
-    "X-Vellum-Interface-Id": CLI_INTERFACE_ID,
+    "X-Vellum-Interface-Id": interfaceId,
   };
 }

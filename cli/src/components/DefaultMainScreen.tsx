@@ -12,7 +12,7 @@ import {
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 
 import { removeAssistantEntry } from "../lib/assistant-config";
-import { getClientRegistrationHeaders } from "../lib/client-identity";
+
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
@@ -352,13 +352,11 @@ async function* streamEvents(
 ): AsyncGenerator<SseEvent> {
   const params = new URLSearchParams({ conversationKey });
   const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
-  const clientHeaders = getClientRegistrationHeaders();
-  tuiLog.info("sse connect", { url, clientHeaders });
+  tuiLog.info("sse connect", { url, authHeaders: Object.keys(auth ?? {}) });
   const response = await fetch(url, {
     headers: {
       Accept: "text/event-stream",
       ...auth,
-      ...clientHeaders,
     },
     signal,
   });

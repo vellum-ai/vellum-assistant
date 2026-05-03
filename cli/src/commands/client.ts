@@ -13,10 +13,17 @@ import {
 import { loadGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4 } from "../lib/local";
 import {
+  CLI_INTERFACE_ID,
+  getClientRegistrationHeaders,
+} from "../lib/client-identity";
+import {
   fetchOrganizationId,
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
+
+const SUPPORTED_INTERFACES = ["cli"] as const;
+type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -36,6 +43,8 @@ interface ParsedArgs {
   platformToken?: string;
   /** Guardian JWT (Authorization: Bearer), set for local assistants. */
   bearerToken?: string;
+  /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
+  interfaceId: SupportedInterface;
   project?: string;
   zone?: string;
 }
@@ -54,7 +63,9 @@ function parseArgs(): ParsedArgs {
       (arg === "--url" ||
         arg === "-u" ||
         arg === "--assistant-id" ||
-        arg === "-a") &&
+        arg === "-a" ||
+        arg === "--interface" ||
+        arg === "-i") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -109,6 +120,8 @@ function parseArgs(): ParsedArgs {
       ? undefined
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
+  let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
+
   for (let i = 0; i < flagArgs.length; i++) {
     const flag = flagArgs[i];
     if ((flag === "--url" || flag === "-u") && flagArgs[i + 1]) {
@@ -118,6 +131,21 @@ function parseArgs(): ParsedArgs {
       flagArgs[i + 1]
     ) {
       assistantId = flagArgs[++i];
+    } else if ((flag === "--interface" || flag === "-i") && flagArgs[i + 1]) {
+      const value = flagArgs[++i];
+      if (value === "web") {
+        console.error(
+          `--interface web is not yet supported. Coming soon.`,
+        );
+        process.exit(1);
+      }
+      if (!(SUPPORTED_INTERFACES as readonly string[]).includes(value)) {
+        console.error(
+          `Unknown interface '${value}'. Supported: ${SUPPORTED_INTERFACES.join(", ")}.`,
+        );
+        process.exit(1);
+      }
+      interfaceId = value as SupportedInterface;
     }
   }
 
@@ -128,6 +156,7 @@ function parseArgs(): ParsedArgs {
     cloud,
     platformToken,
     bearerToken,
+    interfaceId,
     project: entry?.project,
     zone: entry?.zone,
   };
@@ -184,6 +213,7 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
     -a, --assistant-id <id>    Assistant ID
+    -i, --interface <id>       Interface identifier (default: cli)
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -206,14 +236,22 @@ export async function client(): Promise<void> {
     cloud,
     platformToken,
     bearerToken,
+    interfaceId,
     project,
     zone,
   } = parseArgs();
 
   tuiLog.init();
-  tuiLog.info("session start", { runtimeUrl, assistantId, species, cloud });
+  tuiLog.info("session start", {
+    runtimeUrl,
+    assistantId,
+    species,
+    cloud,
+    interfaceId,
+  });
 
-  // Build pre-constructed auth headers so all fetch sites share a single object.
+  // Build pre-constructed request headers merged from auth + client registration.
+  // Spreading into every fetch site ensures consistency across REST and SSE endpoints.
   let auth: Record<string, string> | undefined;
   if (cloud === "vellum" && platformToken) {
     const orgId = await fetchOrganizationId(platformToken).catch((err) => {
@@ -223,9 +261,13 @@ export async function client(): Promise<void> {
     auth = {
       "X-Session-Token": platformToken,
       ...(orgId ? { "Vellum-Organization-Id": orgId } : {}),
+      ...getClientRegistrationHeaders(interfaceId),
     };
-  } else if (bearerToken) {
-    auth = { Authorization: `Bearer ${bearerToken}` };
+  } else {
+    auth = {
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...getClientRegistrationHeaders(interfaceId),
+    };
   }
 
   const { renderChatApp } = await import("../components/DefaultMainScreen");
