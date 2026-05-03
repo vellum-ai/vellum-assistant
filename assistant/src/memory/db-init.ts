@@ -154,6 +154,7 @@ import {
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
+  migrateScheduleRetryPolicy,
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
   migrateScheduleWakeConversationId,
@@ -406,6 +407,7 @@ export function initializeDb(): void {
     function migrateBackfillAppConversationIds() {
       backfillAppConversationIds();
     },
+    migrateScheduleRetryPolicy,
   ];
 
   // Run each migration step, catching and logging individual failures so one

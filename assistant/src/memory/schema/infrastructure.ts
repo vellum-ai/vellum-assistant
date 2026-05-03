@@ -19,6 +19,8 @@ export const cronJobs = sqliteTable("cron_jobs", {
   lastRunAt: integer("last_run_at"),
   lastStatus: text("last_status"), // 'ok' | 'error'
   retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(3),
+  retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
   routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
