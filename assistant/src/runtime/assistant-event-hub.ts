@@ -25,23 +25,23 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
   host_transfer: "host_file", // transfers piggyback on host_file capability
   host_cu: "host_cu",
   host_browser: "host_browser",
+  host_app_control: "host_app_control",
 };
 
 /**
  * Infer the {@link HostProxyCapability} a message should be targeted at based
  * on its `type` field.  Returns `undefined` for message types that are not
  * host-proxy messages (i.e. they should broadcast to all subscribers).
+ *
+ * Host-proxy message types are shaped `host_<domain>[_<sub>]_<verb>` where
+ * `<verb>` is `request` or `cancel`. We strip the trailing verb and look up
+ * the remaining stem directly in {@link HOST_PREFIX_TO_CAPABILITY}.
  */
-function capabilityForMessageType(
+export function capabilityForMessageType(
   type: string,
 ): HostProxyCapability | undefined {
-  // All host-proxy message types are prefixed with `host_<domain>_<verb>`.
-  // We match on the first two underscore-delimited segments.
-  const first = type.indexOf("_");
-  if (first === -1) return undefined;
-  const second = type.indexOf("_", first + 1);
-  const prefix = second === -1 ? type : type.slice(0, second);
-  return HOST_PREFIX_TO_CAPABILITY[prefix];
+  const stem = type.replace(/_(request|cancel)$/, "");
+  return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
@@ -401,10 +401,7 @@ export class AssistantEventHub {
   disposeClient(clientId: string): number {
     const targets: SubscriberEntry[] = [];
     for (const entry of this.subscribers) {
-      if (
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
+      if (entry.type === "client" && entry.clientId === clientId) {
         targets.push(entry);
       }
     }
@@ -600,6 +597,11 @@ function registerPendingInteraction(
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "host_cu",
+    });
+  } else if (msg.type === "host_app_control_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_app_control",
     });
   } else if (msg.type === "host_transfer_request") {
     pendingInteractions.register(msg.requestId, {

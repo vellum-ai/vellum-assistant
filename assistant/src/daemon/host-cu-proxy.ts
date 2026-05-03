@@ -9,21 +9,18 @@
  * Unlike HostBashProxy/HostFileProxy/HostTransferProxy, this is NOT a
  * singleton — each conversation gets its own instance because CU state
  * (step count, AX tree history, loop detection) is per-conversation.
+ *
+ * Lifecycle (pending map, timeout, abort SSE, dispose, isAvailable) lives
+ * in {@link HostProxyBase}; this class layers CU-specific state and the
+ * observation → ToolExecutionResult translation on top.
  */
-
-import { v4 as uuid } from "uuid";
 
 import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
-import {
-  assistantEventHub,
-  broadcastMessage,
-} from "../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
-import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { HostProxyBase, HostProxyRequestError } from "./host-proxy-base.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -31,7 +28,7 @@ const log = getLogger("host-cu-proxy");
 // Constants
 // ---------------------------------------------------------------------------
 
-const REQUEST_TIMEOUT_SEC = 60;
+const REQUEST_TIMEOUT_MS = 60 * 1000;
 const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
@@ -61,22 +58,14 @@ export interface ActionRecord {
   reasoning?: string;
 }
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  conversationId: string;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 // ---------------------------------------------------------------------------
 // HostCuProxy
 // ---------------------------------------------------------------------------
 
-export class HostCuProxy {
-  private pending = new Map<string, PendingRequest>();
-
+export class HostCuProxy extends HostProxyBase<
+  Record<string, unknown>,
+  CuObservationResult
+> {
   // CU state tracking (per-conversation)
   private _stepCount = 0;
   private _maxSteps: number;
@@ -85,6 +74,14 @@ export class HostCuProxy {
   private _actionHistory: ActionRecord[] = [];
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
+    super({
+      capabilityName: "host_cu",
+      requestEventName: "host_cu_request",
+      cancelEventName: "host_cu_cancel",
+      resultPendingKind: "host_cu",
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      disposedMessage: "Host CU proxy disposed",
+    });
     this._maxSteps = maxSteps;
   }
 
@@ -113,20 +110,7 @@ export class HostCuProxy {
   }
 
   // ---------------------------------------------------------------------------
-  // Availability
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Whether a client with `host_cu` capability is connected.
-   */
-  isAvailable(): boolean {
-    return (
-      assistantEventHub.getMostRecentClientByCapability("host_cu") != null
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Request / resolve lifecycle
+  // Request lifecycle (CU-specific overlay on top of HostProxyBase.dispatchRequest)
   // ---------------------------------------------------------------------------
 
   request(
@@ -152,90 +136,36 @@ export class HostCuProxy {
       });
     }
 
-    const requestId = uuid();
-
-    return new Promise<ToolExecutionResult>((resolve, reject) => {
-      let detachAbort: () => void = () => {};
-
-      const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
-        pendingInteractions.resolve(requestId);
-        log.warn({ requestId, toolName }, "Host CU proxy request timed out");
-        resolve({
-          content: "Host CU proxy timed out waiting for client response",
-          isError: true,
-        });
-      }, REQUEST_TIMEOUT_SEC * 1000);
-
-      if (signal) {
-        const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            detachAbort();
-            pendingInteractions.resolve(requestId);
-            try {
-              broadcastMessage({
-                type: "host_cu_cancel",
-                requestId,
-                conversationId,
-              });
-            } catch {
-              // Best-effort cancel notification — connection may already be closed.
-            }
-            resolve({ content: "Aborted", isError: true });
+    return this.dispatchRequest(toolName, input, conversationId, signal, {
+      stepNumber,
+      reasoning,
+    })
+      .then((observation) => {
+        // Capture pre-update state so formatObservation sees the correct
+        // previous AX tree.
+        const prevAXTree = this._previousAXTree;
+        this.updateStateFromObservation(observation);
+        return this.formatObservation(observation, prevAXTree);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof HostProxyRequestError) {
+          if (err.reason === "timeout") {
+            log.warn({ toolName }, "Host CU proxy request timed out");
+            return {
+              content: "Host CU proxy timed out waiting for client response",
+              isError: true,
+            } satisfies ToolExecutionResult;
           }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
-
-      this.pending.set(requestId, { resolve, reject, timer, conversationId, detachAbort });
-
-      try {
-        broadcastMessage({
-          type: "host_cu_request",
-          requestId,
-          conversationId,
-          toolName,
-          input,
-          stepNumber,
-          reasoning,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
-        pendingInteractions.resolve(requestId);
-        log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  }
-
-  resolve(requestId: string, observation: CuObservationResult): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
-      log.warn({ requestId }, "No pending host CU request for response");
-      return;
-    }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-
-    // Capture pre-update state so formatObservation sees the correct previous AX tree
-    const prevAXTree = this._previousAXTree;
-
-    // Update CU state from observation
-    this.updateStateFromObservation(observation);
-
-    const result = this.formatObservation(observation, prevAXTree);
-    entry.resolve(result);
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+          if (err.reason === "aborted") {
+            return {
+              content: "Aborted",
+              isError: true,
+            } satisfies ToolExecutionResult;
+          }
+        }
+        // Disposed or other unexpected errors propagate to the caller.
+        throw err;
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -394,31 +324,6 @@ export class HostCuProxy {
       isError,
       ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
     };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Dispose
-  // ---------------------------------------------------------------------------
-
-  dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      pendingInteractions.resolve(requestId);
-      try {
-        broadcastMessage({
-          type: "host_cu_cancel",
-          requestId,
-          conversationId: entry.conversationId,
-        });
-      } catch {
-        // Best-effort cancel notification — connection may already be closed.
-      }
-      entry.reject(
-        new AssistantError("Host CU proxy disposed", ErrorCode.INTERNAL_ERROR),
-      );
-    }
-    this.pending.clear();
   }
 
   // ---------------------------------------------------------------------------

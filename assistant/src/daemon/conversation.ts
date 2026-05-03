@@ -117,6 +117,7 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
+import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   ServerMessage,
@@ -204,6 +205,14 @@ export class Conversation {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostCuProxy?: HostCuProxy;
+  /**
+   * Per-conversation host app-control proxy. Set via
+   * `setHostAppControlProxy` and disposed in `dispose()`. The
+   * `/v1/host-app-control-result` route forwards result payloads to the
+   * awaiting promise via this reference.
+   * @internal
+   */
+  hostAppControlProxy?: HostAppControlProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -755,9 +764,12 @@ export class Conversation {
       clearTimeout(timer);
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
-    // Only dispose the per-conversation CU proxy. Bash/File/Transfer are
-    // singletons — their lifecycle is managed by static disposeInstance().
+    // Only dispose the per-conversation CU and app-control proxies.
+    // Bash/File/Transfer are singletons — their lifecycle is managed by
+    // static disposeInstance().
     this.hostCuProxy?.dispose();
+    this.hostAppControlProxy?.dispose();
+    this.hostAppControlProxy = undefined;
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
@@ -934,6 +946,13 @@ export class Conversation {
       this.hostCuProxy.dispose();
     }
     this.hostCuProxy = proxy;
+  }
+
+  setHostAppControlProxy(proxy: HostAppControlProxy | undefined): void {
+    if (this.hostAppControlProxy && this.hostAppControlProxy !== proxy) {
+      this.hostAppControlProxy.dispose();
+    }
+    this.hostAppControlProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────

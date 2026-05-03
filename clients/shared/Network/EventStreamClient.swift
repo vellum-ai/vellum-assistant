@@ -618,6 +618,10 @@ public final class EventStreamClient {
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_cu_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
+        case .hostAppControlRequest(let msg):
+            if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
+            log.warning("Ignoring host_app_control_request for non-local conversation \(msg.conversationId, privacy: .public)")
+            return true
         case .hostBrowserRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_browser_request for non-local conversation \(msg.conversationId, privacy: .public)")

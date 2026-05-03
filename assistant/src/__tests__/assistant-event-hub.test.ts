@@ -1,7 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../runtime/assistant-event.js";
-import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  AssistantEventHub,
+  broadcastMessage,
+  capabilityForMessageType,
+} from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
   return {
@@ -348,5 +353,99 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
 
     await hub.publish(makeEvent());
     expect(received).toHaveLength(1);
+  });
+});
+
+// ── capabilityForMessageType — host-prefix routing ───────────────────────────
+
+describe("capabilityForMessageType — host-prefix routing", () => {
+  test("two-segment domains map to their capability", () => {
+    expect(capabilityForMessageType("host_bash_request")).toBe("host_bash");
+    expect(capabilityForMessageType("host_bash_cancel")).toBe("host_bash");
+    expect(capabilityForMessageType("host_file_request")).toBe("host_file");
+    expect(capabilityForMessageType("host_cu_request")).toBe("host_cu");
+    expect(capabilityForMessageType("host_cu_cancel")).toBe("host_cu");
+    expect(capabilityForMessageType("host_browser_request")).toBe(
+      "host_browser",
+    );
+  });
+
+  test("host_transfer_* piggybacks on host_file capability", () => {
+    expect(capabilityForMessageType("host_transfer_request")).toBe("host_file");
+    expect(capabilityForMessageType("host_transfer_cancel")).toBe("host_file");
+  });
+
+  test("three-segment host_app_control routes to its own capability (longest-prefix wins)", () => {
+    expect(capabilityForMessageType("host_app_control_request")).toBe(
+      "host_app_control",
+    );
+    expect(capabilityForMessageType("host_app_control_cancel")).toBe(
+      "host_app_control",
+    );
+  });
+
+  test("non-host messages return undefined (broadcast)", () => {
+    expect(capabilityForMessageType("assistant_text_delta")).toBeUndefined();
+    expect(capabilityForMessageType("confirmation_request")).toBeUndefined();
+    expect(
+      capabilityForMessageType("conversation_list_invalidated"),
+    ).toBeUndefined();
+  });
+
+  test("unknown host_<domain>_* prefixes return undefined", () => {
+    expect(capabilityForMessageType("host_unknown_request")).toBeUndefined();
+  });
+});
+
+// ── broadcastMessage — pending interaction registration ─────────────────────
+
+describe("broadcastMessage — pending interaction registration", () => {
+  beforeEach(() => {
+    pendingInteractions.clear();
+  });
+
+  test("registers host_bash_request as kind: host_bash", () => {
+    broadcastMessage({
+      type: "host_bash_request",
+      requestId: "req-bash-1",
+      conversationId: "conv-1",
+      command: "echo hi",
+      timeout_ms: 1000,
+    } as never);
+
+    const entry = pendingInteractions.get("req-bash-1");
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe("host_bash");
+    expect(entry?.conversationId).toBe("conv-1");
+  });
+
+  test("registers host_cu_request as kind: host_cu", () => {
+    broadcastMessage({
+      type: "host_cu_request",
+      requestId: "req-cu-1",
+      conversationId: "conv-1",
+      toolName: "computer",
+      input: { action: "screenshot" },
+    } as never);
+
+    const entry = pendingInteractions.get("req-cu-1");
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe("host_cu");
+    expect(entry?.conversationId).toBe("conv-1");
+  });
+
+  test("registers host_app_control_request as kind: host_app_control", () => {
+    broadcastMessage({
+      type: "host_app_control_request",
+      requestId: "req-app-1",
+      conversationId: "conv-1",
+      toolName: "app_control_observe",
+      input: { tool: "observe", app: "com.example.editor" },
+    } as never);
+
+    const entry = pendingInteractions.get("req-app-1");
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe("host_app_control");
+    expect(entry?.conversationId).toBe("conv-1");
   });
 });
