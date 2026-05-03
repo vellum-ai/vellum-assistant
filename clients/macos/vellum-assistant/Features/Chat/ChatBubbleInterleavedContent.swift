@@ -39,6 +39,129 @@ extension ChatBubble {
         }
     }
 
+    /// A contiguous burst of work activity (tool calls and optionally thinking)
+    /// that renders as a single progress card. Text and surface groups act as
+    /// burst boundaries — each burst gets its own "Worked for X.Ys" card.
+    struct WorkBurst {
+        /// All tool call indices in this burst.
+        let toolIndices: [Int]
+        /// All thinking segment indices in this burst.
+        let thinkingIndices: [Int]
+        /// Identity from the first group's stableId.
+        let stableId: String
+        /// Chronological sequence of tool calls and thinking for the progress
+        /// card's expanded view.
+        var expandedItems: [ProgressExpandedItem]
+    }
+
+    /// Computes work bursts from content groups by merging consecutive tool-call
+    /// and thinking groups into a single burst. Text and surface groups flush the
+    /// current burst and create boundaries.
+    ///
+    /// A burst MUST contain at least one tool call. Thinking-only groups (thinking
+    /// with no adjacent tool calls) are NOT included in any burst — they remain
+    /// standalone groups for separate rendering.
+    static func computeWorkBursts(
+        groups: [ContentGroup],
+        contentOrder: [ContentBlockRef],
+        toolCalls: [ToolCallData],
+        thinkingSegments: [String],
+        showThinking: Bool,
+        isStreaming: Bool,
+        messageId: UUID
+    ) -> [WorkBurst] {
+        var bursts: [WorkBurst] = []
+
+        // Accumulate consecutive tool/thinking groups into a pending burst
+        var pendingToolIndices: [Int] = []
+        var pendingThinkingIndices: [Int] = []
+        var pendingStableId: String?
+        var pendingGroupStableIds: [String] = []
+
+        func flushBurst() {
+            guard !pendingToolIndices.isEmpty else {
+                // Thinking-only — not a burst, reset and skip
+                pendingToolIndices = []
+                pendingThinkingIndices = []
+                pendingStableId = nil
+                pendingGroupStableIds = []
+                return
+            }
+
+            let toolSet = Set(pendingToolIndices)
+            let thinkingSet = Set(pendingThinkingIndices)
+
+            // Build expandedItems by walking contentOrder for chronological ordering
+            var items: [ProgressExpandedItem] = []
+            for ref in contentOrder {
+                switch ref {
+                case .toolCall(let i):
+                    if toolSet.contains(i), i < toolCalls.count {
+                        items.append(.toolCall(toolCalls[i]))
+                    }
+                case .thinking(let i):
+                    guard showThinking, thinkingSet.contains(i) else { continue }
+                    guard i < thinkingSegments.count, !thinkingSegments[i].isEmpty else { continue }
+                    let expansionKey = "\(messageId.uuidString)-th\(i)"
+                    // isStreaming is set later for the last burst only
+                    items.append(.thinking(
+                        content: thinkingSegments[i],
+                        expansionKey: expansionKey,
+                        isStreaming: false
+                    ))
+                default:
+                    continue
+                }
+            }
+
+            bursts.append(WorkBurst(
+                toolIndices: pendingToolIndices,
+                thinkingIndices: pendingThinkingIndices,
+                stableId: pendingStableId ?? "burst-\(bursts.count)",
+                expandedItems: items
+            ))
+
+            pendingToolIndices = []
+            pendingThinkingIndices = []
+            pendingStableId = nil
+            pendingGroupStableIds = []
+        }
+
+        for group in groups {
+            switch group {
+            case .toolCalls(let indices):
+                if pendingStableId == nil {
+                    pendingStableId = group.stableId
+                }
+                pendingToolIndices.append(contentsOf: indices)
+                pendingGroupStableIds.append(group.stableId)
+            case .thinking(let indices):
+                if pendingStableId == nil {
+                    pendingStableId = group.stableId
+                }
+                pendingThinkingIndices.append(contentsOf: indices)
+                pendingGroupStableIds.append(group.stableId)
+            case .texts, .surface:
+                flushBurst()
+            }
+        }
+        // Flush any trailing burst
+        flushBurst()
+
+        // Set isStreaming on thinking items in the last burst only
+        if isStreaming, var lastBurst = bursts.last {
+            lastBurst.expandedItems = lastBurst.expandedItems.map { item in
+                if case .thinking(let content, let key, _) = item {
+                    return .thinking(content: content, expansionKey: key, isStreaming: true)
+                }
+                return item
+            }
+            bursts[bursts.count - 1] = lastBurst
+        }
+
+        return bursts
+    }
+
     // MARK: - Static Interleaved Content Cache
 
     /// Cache key for memoized interleaved content computation results.
@@ -113,9 +236,6 @@ extension ChatBubble {
             if !cachedContentGroups.isEmpty {
                 cachedContentGroups = []
             }
-            if !cachedToolGroupsWithTrailingText.isEmpty {
-                cachedToolGroupsWithTrailingText = []
-            }
             // Update static cache with non-interleaved result
             Self.storeInterleavedResult(
                 InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
@@ -130,8 +250,7 @@ extension ChatBubble {
         )
 
         // Pre-compute which tool-call groups have trailing text so that
-        // `interleavedContent` can look up the set instead of scanning
-        // contentOrder per group during body evaluation.
+        // the static cache can store them for future init() calls.
         var trailingTextIds = Set<String>()
         for group in groups {
             guard case .toolCalls(let indices) = group else { continue }
@@ -149,9 +268,6 @@ extension ChatBubble {
         }
         if cachedContentGroups != groups {
             cachedContentGroups = groups
-        }
-        if cachedToolGroupsWithTrailingText != trailingTextIds {
-            cachedToolGroupsWithTrailingText = trailingTextIds
         }
 
         // Update static cache so the next init() for this message uses fresh values
@@ -292,7 +408,7 @@ extension ChatBubble {
     }
 
     @ViewBuilder
-    private func inlineToolProgress(toolIndices: [Int], isLatestGroup: Bool, hasTrailingText: Bool) -> some View {
+    private func inlineToolProgress(toolIndices: [Int], isLatestGroup: Bool, hasTrailingText: Bool, expandedItems: [ProgressExpandedItem]? = nil) -> some View {
         let groupedToolCalls: [ToolCallData] = toolIndices.compactMap { idx -> ToolCallData? in
             guard idx < message.toolCalls.count else { return nil }
             return message.toolCalls[idx]
@@ -337,6 +453,7 @@ extension ChatBubble {
                     streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
                     streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
                     decidedConfirmations: groupConfirmations,
+                    expandedItems: expandedItems,
                     onRehydrate: onRehydrate,
                     onConfirmationAllow: onConfirmationAllow,
                     onConfirmationDeny: onConfirmationDeny,
@@ -355,51 +472,97 @@ extension ChatBubble {
     @ViewBuilder
     var interleavedContent: some View {
         let groups = cachedContentGroups
-        let latestToolGroup: [Int]? = groups.reversed().compactMap { group in
-            guard case .toolCalls(let indices) = group else { return nil }
-            return indices
-        }.first
+        let showThinking = MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks")
 
-        // Pre-compute which tool groups defer images to the following text group.
-        // When a tool group is immediately followed by a text group, images render
-        // after the text so descriptive text like "Here's the screenshot:" appears
-        // before the screenshot it introduces.
-        let deferredImageGroupIds: Set<String> = {
-            var ids = Set<String>()
-            for i in 0..<groups.count {
-                guard case .toolCalls = groups[i] else { continue }
-                if i + 1 < groups.count, case .texts = groups[i + 1] {
-                    ids.insert(groups[i].stableId)
-                }
-            }
-            return ids
-        }()
+        // Compute work bursts — consecutive tool/thinking groups merged into cards
+        let bursts = Self.computeWorkBursts(
+            groups: groups,
+            contentOrder: message.contentOrder,
+            toolCalls: message.toolCalls,
+            thinkingSegments: message.thinkingSegments,
+            showThinking: showThinking,
+            isStreaming: message.isStreaming,
+            messageId: message.id
+        )
 
-        // Pre-compute which text groups should show deferred images from preceding tool group
-        let textGroupDeferredToolIndices: [String: [Int]] = {
-            var map: [String: [Int]] = [:]
-            for i in 0..<groups.count {
-                guard case .texts = groups[i] else { continue }
-                if i > 0, case .toolCalls(let tcIndices) = groups[i - 1],
-                   deferredImageGroupIds.contains(groups[i - 1].stableId) {
-                    map[groups[i].stableId] = tcIndices
+        // Map each participating group's stableId to its burst
+        let burstForGroup: [String: WorkBurst] = {
+            var map: [String: WorkBurst] = [:]
+            for burst in bursts {
+                let toolSet = Set(burst.toolIndices)
+                let thinkingSet = Set(burst.thinkingIndices)
+                for group in groups {
+                    switch group {
+                    case .toolCalls(let indices):
+                        if !Set(indices).isDisjoint(with: toolSet) {
+                            map[group.stableId] = burst
+                        }
+                    case .thinking(let indices):
+                        if !Set(indices).isDisjoint(with: thinkingSet) {
+                            map[group.stableId] = burst
+                        }
+                    default:
+                        continue
+                    }
                 }
             }
             return map
         }()
 
+        // The anchor group is the first group in each burst (renders the card)
+        let burstAnchorIds: Set<String> = Set(bursts.map(\.stableId))
+
+        // Identify the latest burst by stableId (last burst in the list)
+        let latestBurstId: String? = bursts.last?.stableId
+
+        // Compute hasTrailingText per-burst: true if any text group follows
+        // the burst's last tool call group in the groups array
+        let burstTrailingText: [String: Bool] = {
+            var result: [String: Bool] = [:]
+            for burst in bursts {
+                let burstToolSet = Set(burst.toolIndices)
+                // Find the last group index that belongs to this burst
+                var lastBurstGroupIdx: Int?
+                for (idx, group) in groups.enumerated() {
+                    switch group {
+                    case .toolCalls(let indices):
+                        if !Set(indices).isDisjoint(with: burstToolSet) {
+                            lastBurstGroupIdx = idx
+                        }
+                    case .thinking(let indices):
+                        let burstThinkingSet = Set(burst.thinkingIndices)
+                        if !Set(indices).isDisjoint(with: burstThinkingSet) {
+                            lastBurstGroupIdx = idx
+                        }
+                    default:
+                        break
+                    }
+                }
+                guard let lastIdx = lastBurstGroupIdx else {
+                    result[burst.stableId] = false
+                    continue
+                }
+                var found = false
+                if lastIdx + 1 < groups.count {
+                    for followingGroup in groups[(lastIdx + 1)...] {
+                        if case .texts = followingGroup {
+                            found = true
+                            break
+                        }
+                    }
+                }
+                result[burst.stableId] = found
+            }
+            return result
+        }()
+
         // Identify the last text group so attachments render right after it
-        // (inline with text) instead of at the very bottom after tool calls.
         let lastTextGroupId: String? = groups.last(where: {
             if case .texts = $0 { return true }
             return false
         })?.stableId
 
-
-        // Render all content groups in order: text, tool calls, and surfaces.
-        // Uses \.stableId (based on the first index in each group) so SwiftUI
-        // preserves @State (like isExpanded) when new items are appended to a
-        // group, and skips re-evaluating children whose identity hasn't changed.
+        // Render all content groups in order: text, burst cards, and surfaces.
         ForEach(groups, id: \.stableId) { group in
             switch group {
             case .texts(let indices):
@@ -414,40 +577,39 @@ extension ChatBubble {
                 if !joined.isEmpty {
                     textBubble(for: joined, textGroupIndex: indices.first ?? 0)
                 }
-                // Render deferred tool call images from the preceding tool group,
-                // so descriptive text appears before the screenshot it introduces.
-                if shouldRenderToolProgressInline,
-                   let deferredIndices = textGroupDeferredToolIndices[group.stableId] {
-                    let deferredCalls: [ToolCallData] = deferredIndices.compactMap { tcIdx in
-                        guard tcIdx < message.toolCalls.count else { return nil }
-                        return message.toolCalls[tcIdx]
-                    }
-                    inlineToolCallImages(from: deferredCalls)
-                }
-                // Render attachments right after the last text group so they
-                // appear inline with the text (like "Here's your SVG:" + image)
-                // instead of buried below tool call progress views.
+                // Render attachments right after the last text group
                 if group.stableId == lastTextGroupId {
                     inlineAttachments
                 }
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
-                    inlineToolProgress(
-                        toolIndices: indices,
-                        isLatestGroup: indices == latestToolGroup,
-                        hasTrailingText: cachedToolGroupsWithTrailingText.contains(group.stableId)
-                    )
-                    // Show images immediately when no text follows;
-                    // otherwise they are deferred to render after the next text group.
-                    if !deferredImageGroupIds.contains(group.stableId) {
-                        let toolCalls: [ToolCallData] = indices.compactMap { tcIdx in
+                    if burstAnchorIds.contains(group.stableId),
+                       let burst = burstForGroup[group.stableId] {
+                        // This group is the anchor for its burst — render the burst card
+                        inlineToolProgress(
+                            toolIndices: burst.toolIndices,
+                            isLatestGroup: burst.stableId == latestBurstId,
+                            hasTrailingText: burstTrailingText[burst.stableId] ?? false,
+                            expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
+                        )
+                        // Render tool call images after the burst card
+                        let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
                             guard tcIdx < message.toolCalls.count else { return nil }
                             return message.toolCalls[tcIdx]
                         }
-                        inlineToolCallImages(from: toolCalls)
+                        inlineToolCallImages(from: burstToolCalls)
+                    } else if burstForGroup[group.stableId] != nil {
+                        // Part of a burst but not the anchor — skip rendering
+                        EmptyView()
+                    } else {
+                        // Not part of any burst (shouldn't happen for toolCalls, but fallback)
+                        inlineToolProgress(
+                            toolIndices: indices,
+                            isLatestGroup: false,
+                            hasTrailingText: false
+                        )
                     }
                 } else {
-                    // Tool calls are rendered by trailingStatus below the message
                     EmptyView()
                 }
             case .surface(let i):
@@ -456,21 +618,48 @@ extension ChatBubble {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                 }
             case .thinking(let indices):
-                let joined = indices
-                    .compactMap { i in
-                        i < message.thinkingSegments.count
-                            ? message.thinkingSegments[i]
-                            : nil
+                if burstForGroup[group.stableId] != nil {
+                    // Thinking folded into a burst — rendered by the burst anchor
+                    if burstAnchorIds.contains(group.stableId),
+                       let burst = burstForGroup[group.stableId] {
+                        // This thinking group is the anchor for its burst
+                        if shouldRenderToolProgressInline {
+                            inlineToolProgress(
+                                toolIndices: burst.toolIndices,
+                                isLatestGroup: burst.stableId == latestBurstId,
+                                hasTrailingText: burstTrailingText[burst.stableId] ?? false,
+                                expandedItems: burst.expandedItems.isEmpty ? nil : burst.expandedItems
+                            )
+                            let burstToolCalls: [ToolCallData] = burst.toolIndices.compactMap { tcIdx in
+                                guard tcIdx < message.toolCalls.count else { return nil }
+                                return message.toolCalls[tcIdx]
+                            }
+                            inlineToolCallImages(from: burstToolCalls)
+                        }
+                    } else {
+                        EmptyView()
                     }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-                if !joined.isEmpty {
-                    ThinkingBlockView(
-                        content: joined,
-                        isStreaming: message.isStreaming,
-                        expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
-                        typographyGeneration: typographyGeneration
-                    )
+                } else {
+                    // Standalone thinking (not adjacent to any tool calls) —
+                    // render as ThinkingBlockView (gated by feature flag)
+                    if showThinking {
+                        let joined = indices
+                            .compactMap { i in
+                                i < message.thinkingSegments.count
+                                    ? message.thinkingSegments[i]
+                                    : nil
+                            }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        if !joined.isEmpty {
+                            ThinkingBlockView(
+                                content: joined,
+                                isStreaming: message.isStreaming,
+                                expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
+                                typographyGeneration: typographyGeneration
+                            )
+                        }
+                    }
                 }
             }
         }

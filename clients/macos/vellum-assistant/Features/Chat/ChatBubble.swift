@@ -112,8 +112,6 @@ struct ChatBubble: View, Equatable {
     // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
-    /// Set of stableIds for tool-call groups that have non-empty text after them.
-    @State var cachedToolGroupsWithTrailingText: Set<String>
 
     /// Interaction state for progress cards that must outlive lazy row churn.
     /// Consolidates step expansion, card expansion overrides, and rehydration
@@ -189,7 +187,6 @@ struct ChatBubble: View, Equatable {
         if let cached = Self.cachedInterleavedResult(for: message) {
             _cachedHasInterleavedContent = State(initialValue: cached.hasInterleaved)
             _cachedContentGroups = State(initialValue: cached.groups)
-            _cachedToolGroupsWithTrailingText = State(initialValue: cached.trailingTextIds)
         } else {
             let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
             _cachedHasInterleavedContent = State(initialValue: interleaved)
@@ -213,7 +210,6 @@ struct ChatBubble: View, Equatable {
                         trailingTextIds.insert(group.stableId)
                     }
                 }
-                _cachedToolGroupsWithTrailingText = State(initialValue: trailingTextIds)
 
                 // Store in static cache for future init() calls
                 Self.storeInterleavedResult(
@@ -222,7 +218,6 @@ struct ChatBubble: View, Equatable {
                 )
             } else {
                 _cachedContentGroups = State(initialValue: [])
-                _cachedToolGroupsWithTrailingText = State(initialValue: [])
 
                 // Store non-interleaved result in static cache
                 Self.storeInterleavedResult(
