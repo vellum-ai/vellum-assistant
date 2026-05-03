@@ -71,6 +71,30 @@ const BuildEventParams = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Event-type blocklist
+// ---------------------------------------------------------------------------
+
+/**
+ * Message types that skills are NOT allowed to publish. These are
+ * daemon→client control events that trigger host-side execution (bash,
+ * file I/O, browser automation, credential prompts) or register pending
+ * interactions. Allowing a skill to publish them would bypass the
+ * trust/approval gates and escape the skill isolation boundary.
+ *
+ * Prefix-based: any event whose `type` starts with `"host_"` is blocked,
+ * covering current types (`host_bash_request`, `host_file_request`,
+ * `host_browser_request`, `host_cu_request`, `host_transfer_request`,
+ * and their `_cancel` counterparts) plus any future `host_*` additions.
+ */
+function isBlockedEventType(type: unknown): boolean {
+  if (typeof type !== "string") return true;
+  if (type.startsWith("host_")) return true;
+  if (type === "confirmation_request") return true;
+  if (type === "secret_request") return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -78,9 +102,12 @@ async function handlePublish(
   params?: Record<string, unknown>,
 ): Promise<{ published: true }> {
   const { event } = PublishParams.parse(params);
-  // Contract types the hub as `AssistantEvent<ServerMessage>`; the wire-level
-  // message is an opaque record that satisfies the `ServerMessage` structural
-  // shape (`{ type: string; [key: string]: unknown }`). Cast at the boundary.
+  const msgType = (event.message as Record<string, unknown>)?.type;
+  if (isBlockedEventType(msgType)) {
+    throw new Error(
+      `Skills cannot publish events of type "${String(msgType)}"`,
+    );
+  }
   await assistantEventHub.publish(event as never);
   return { published: true };
 }
