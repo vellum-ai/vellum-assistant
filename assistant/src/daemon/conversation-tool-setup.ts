@@ -215,16 +215,6 @@ export function createToolExecutor(
       // Clone to avoid mutating shared input objects
       const toolInput = { ...rawToolInput };
 
-      // Propagate outer activity when inner input lacks a valid one
-      if (
-        typeof input.activity === "string" &&
-        input.activity &&
-        (typeof toolInput.activity !== "string" ||
-          toolInput.activity.length === 0)
-      ) {
-        toolInput.activity = input.activity;
-      }
-
       if (!toolName) {
         return {
           content:
