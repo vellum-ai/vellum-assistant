@@ -889,11 +889,18 @@
 
     /* ── Session actions ─────────────────────────────────────────── */
 
+    #screen-main {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(300px - 32px); /* body min-height minus 2×16px padding */
+    }
+
     .session-actions {
       display: flex;
       flex-direction: column;
       align-items: center;
       padding-top: 4px;
+      margin-top: auto;
     }
 
     .session-actions .divider {

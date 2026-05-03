@@ -136,6 +136,9 @@ import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import { logAuthBypassState } from "./http/middleware/auth.js";
 import {
+  resolveExtensionOrigin,
+  handleExtensionPreflight,
+  withExtensionCorsHeaders,
   resolveWebviewOrigin,
   handlePreflight,
   withCorsHeaders,
@@ -1371,6 +1374,11 @@ async function main() {
     // which is cross-origin to the gateway at http://127.0.0.1:{port}.
     // Reflect the origin back on matched requests so window.vellum.fetch
     // calls succeed.
+    const extensionOrigin = resolveExtensionOrigin(req);
+    if (extensionOrigin && req.method === "OPTIONS") {
+      return handleExtensionPreflight(extensionOrigin);
+    }
+
     const webviewOrigin = resolveWebviewOrigin(req);
     if (webviewOrigin && req.method === "OPTIONS") {
       return handlePreflight(webviewOrigin);
@@ -1454,6 +1462,8 @@ async function main() {
       resolveClientIp(),
     );
     if (rateLimitResponse) {
+      if (extensionOrigin)
+        return withExtensionCorsHeaders(rateLimitResponse, extensionOrigin);
       if (webviewOrigin)
         return withCorsHeaders(rateLimitResponse, webviewOrigin);
       return rateLimitResponse;
@@ -1499,6 +1509,10 @@ async function main() {
     try {
       const response = router(req, url, resolveClientIp, svr);
       if (response !== null) {
+        if (extensionOrigin) {
+          const resolved = await response;
+          return withExtensionCorsHeaders(resolved, extensionOrigin);
+        }
         if (webviewOrigin) {
           const resolved = await response;
           return withCorsHeaders(resolved, webviewOrigin);

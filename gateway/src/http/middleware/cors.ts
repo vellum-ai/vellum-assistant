@@ -13,6 +13,17 @@ const log = getLogger("cors");
 const WEBVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.vellum\.local$/;
 
 /**
+ * Pattern matching origins from Chrome extension service workers.
+ *
+ * Extension service workers use a `chrome-extension://<id>` origin when
+ * fetching local gateway endpoints. Chrome's Private Network Access policy
+ * requires an OPTIONS preflight with `Access-Control-Allow-Private-Network`
+ * before allowing cross-origin requests to localhost from secure contexts
+ * (extension service workers qualify as secure contexts).
+ */
+const CHROME_EXTENSION_ORIGIN_RE = /^chrome-extension:\/\/[a-z0-9]+$/;
+
+/**
  * Methods the webview bridge may use when calling custom route handlers.
  */
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
@@ -22,6 +33,70 @@ const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
  */
 const ALLOWED_HEADERS =
   "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id";
+
+/**
+ * Check whether the request `Origin` header matches a Chrome extension.
+ * Returns the validated origin string, or null if CORS headers should not be
+ * added.
+ */
+export function resolveExtensionOrigin(req: Request): string | null {
+  const origin = req.headers.get("origin");
+  if (!origin) return null;
+  if (!CHROME_EXTENSION_ORIGIN_RE.test(origin)) return null;
+  return origin;
+}
+
+/**
+ * Build CORS response headers for a Chrome extension origin, including the
+ * Private Network Access header required for localhost fetches.
+ */
+export function extensionCorsHeaders(origin: string): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "content-type, x-vellum-interface-id",
+    "Access-Control-Allow-Private-Network": "true",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+/**
+ * Handle a Private Network Access preflight from a Chrome extension.
+ * Returns 204 with all required CORS + PNA headers.
+ */
+export function handleExtensionPreflight(origin: string): Response {
+  log.debug({ origin }, "Chrome extension PNA preflight response");
+  return new Response(null, {
+    status: 204,
+    headers: extensionCorsHeaders(origin),
+  });
+}
+
+/**
+ * Append extension CORS headers to an existing response.
+ */
+export function withExtensionCorsHeaders(
+  response: Response,
+  origin: string,
+): Response {
+  const headers = extensionCorsHeaders(origin);
+  try {
+    for (const [key, value] of Object.entries(headers)) {
+      response.headers.set(key, value);
+    }
+    return response;
+  } catch {
+    const merged = new Headers(response.headers);
+    for (const [key, value] of Object.entries(headers)) {
+      merged.set(key, value);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: merged,
+    });
+  }
+}
 
 /**
  * Check whether the request `Origin` header matches a known webview origin.
