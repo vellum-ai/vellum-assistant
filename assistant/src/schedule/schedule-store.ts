@@ -861,6 +861,63 @@ export function resetRetryCount(id: string): void {
     .run();
 }
 
+/**
+ * Find schedules stuck in an in-flight state (one-shots in "firing",
+ * cron runs in "running"). Used at daemon startup to recover from
+ * a prior process crash.
+ *
+ * @param staleThresholdMs If >0, only consider rows whose lastRunAt
+ *   (for one-shots) or startedAt (for runs) is older than `now - staleThresholdMs`.
+ *   Pass 0 at startup (the previous process is definitely dead).
+ */
+export function findStaleInFlightJobs(staleThresholdMs: number = 0): Array<{
+  jobId: string;
+  staleRunId: string | null;
+}> {
+  const db = getDb();
+  const cutoff = Date.now() - staleThresholdMs;
+
+  // One-shots stuck in "firing" where lastRunAt is older than cutoff
+  const staleOneShots = db
+    .select({ id: scheduleJobs.id })
+    .from(scheduleJobs)
+    .where(
+      and(
+        isNull(scheduleJobs.cronExpression),
+        eq(scheduleJobs.status, "firing"),
+        eq(scheduleJobs.enabled, true),
+        staleThresholdMs > 0 ? lte(scheduleJobs.lastRunAt, cutoff) : undefined,
+      ),
+    )
+    .all();
+
+  // Cron runs stuck in "running" where startedAt is older than cutoff
+  const staleRuns = db
+    .select({ id: scheduleRuns.id, jobId: scheduleRuns.jobId })
+    .from(scheduleRuns)
+    .where(
+      and(
+        eq(scheduleRuns.status, "running"),
+        staleThresholdMs > 0 ? lte(scheduleRuns.startedAt, cutoff) : undefined,
+      ),
+    )
+    .all();
+
+  const result: Array<{ jobId: string; staleRunId: string | null }> = [];
+  const seenJobIds = new Set<string>();
+
+  for (const run of staleRuns) {
+    result.push({ jobId: run.jobId, staleRunId: run.id });
+    seenJobIds.add(run.jobId);
+  }
+  for (const job of staleOneShots) {
+    if (!seenJobIds.has(job.id)) {
+      result.push({ jobId: job.id, staleRunId: null });
+    }
+  }
+  return result;
+}
+
 function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,

@@ -77,6 +77,7 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
+import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -801,6 +802,12 @@ export async function runDaemon(): Promise<void> {
     // Register the broadcast function for the notification signal pipeline's
     // macOS adapter so it can deliver notification_intent messages to clients.
     registerBroadcastFn((msg) => broadcastMessage(msg));
+
+    try {
+      recoverStaleSchedules();
+    } catch (err) {
+      log.error({ err }, "Schedule recovery failed — continuing startup");
+    }
 
     const scheduler = startScheduler(
       async (conversationId, message, options) => {
