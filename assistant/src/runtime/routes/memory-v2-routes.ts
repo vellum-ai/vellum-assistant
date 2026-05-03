@@ -9,6 +9,10 @@ import { z } from "zod";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
 import {
+  embedWithBackend,
+  generateSparseEmbedding,
+} from "../../memory/embedding-backend.js";
+import {
   enqueueMemoryJob,
   type MemoryJobType,
 } from "../../memory/jobs-store.js";
@@ -22,6 +26,7 @@ import {
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
+import { hybridQueryConceptPages } from "../../memory/v2/qdrant.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
@@ -192,6 +197,192 @@ async function handleReembedSkills({
   return { success: true };
 }
 
+// ── Explain similarity ──────────────────────────────────────────────────
+
+const MemoryV2ExplainSimilarityParams = z
+  .object({
+    userText: z.string().min(1),
+    assistantText: z.string().optional(),
+    nowText: z.string().optional(),
+    top: z.number().int().min(1).default(25),
+  })
+  .strict();
+
+export interface MemoryV2ExplainSimilarityRow {
+  slug: string;
+  /** Raw dense cosine score, or null when the slug missed the dense channel. */
+  denseScore: number | null;
+  /** Raw sparse score (Qdrant scale), or null when the slug missed sparse. */
+  sparseRaw: number | null;
+  /** Sparse score divided by the per-batch max, in [0, 1]. */
+  sparseNorm: number | null;
+  /** `clamp01(dense_weight·dense + sparse_weight·sparseNorm)` — the simBatch fused value. */
+  fused: number;
+}
+
+export interface MemoryV2ExplainSimilarityStats {
+  count: number;
+  min: number;
+  max: number;
+  mean: number;
+  stddev: number;
+}
+
+export interface MemoryV2ExplainSimilarityChannel {
+  channel: "user" | "assistant" | "now";
+  textPreview: string;
+  maxSparse: number;
+  rows: MemoryV2ExplainSimilarityRow[];
+  stats: {
+    dense: MemoryV2ExplainSimilarityStats;
+    sparseRaw: MemoryV2ExplainSimilarityStats;
+    sparseNorm: MemoryV2ExplainSimilarityStats;
+    fused: MemoryV2ExplainSimilarityStats;
+  };
+}
+
+export interface MemoryV2ExplainSimilarityResult {
+  config: {
+    dense_weight: number;
+    sparse_weight: number;
+  };
+  channels: MemoryV2ExplainSimilarityChannel[];
+}
+
+function summarizeStats(values: number[]): MemoryV2ExplainSimilarityStats {
+  if (values.length === 0) {
+    return { count: 0, min: 0, max: 0, mean: 0, stddev: 0 };
+  }
+  let min = Infinity;
+  let max = -Infinity;
+  let sum = 0;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+    sum += v;
+  }
+  const mean = sum / values.length;
+  let sqDiff = 0;
+  for (const v of values) sqDiff += (v - mean) * (v - mean);
+  const stddev = Math.sqrt(sqDiff / values.length);
+  return { count: values.length, min, max, mean, stddev };
+}
+
+async function scoreChannel(
+  channel: "user" | "assistant" | "now",
+  text: string,
+  top: number,
+  denseWeight: number,
+  sparseWeight: number,
+  config: ReturnType<typeof loadConfig>,
+): Promise<MemoryV2ExplainSimilarityChannel> {
+  const denseResult = await embedWithBackend(config, [text]);
+  const denseVec = denseResult.vectors[0];
+  const sparseVec = generateSparseEmbedding(text);
+
+  const hits = await hybridQueryConceptPages(denseVec, sparseVec, top);
+
+  let maxSparse = 0;
+  for (const hit of hits) {
+    if (hit.sparseScore !== undefined && hit.sparseScore > maxSparse) {
+      maxSparse = hit.sparseScore;
+    }
+  }
+
+  const rows: MemoryV2ExplainSimilarityRow[] = hits.map((hit) => {
+    const dense = hit.denseScore ?? 0;
+    const sparseNorm =
+      hit.sparseScore !== undefined && maxSparse > 0
+        ? hit.sparseScore / maxSparse
+        : 0;
+    const fusedRaw = denseWeight * dense + sparseWeight * sparseNorm;
+    const fused = Math.max(0, Math.min(1, fusedRaw));
+    return {
+      slug: hit.slug,
+      denseScore: hit.denseScore ?? null,
+      sparseRaw: hit.sparseScore ?? null,
+      sparseNorm: hit.sparseScore !== undefined ? sparseNorm : null,
+      fused,
+    };
+  });
+
+  rows.sort((a, b) => b.fused - a.fused);
+
+  const denseValues: number[] = [];
+  const sparseRawValues: number[] = [];
+  const sparseNormValues: number[] = [];
+  const fusedValues: number[] = [];
+  for (const row of rows) {
+    if (row.denseScore !== null) denseValues.push(row.denseScore);
+    if (row.sparseRaw !== null) sparseRawValues.push(row.sparseRaw);
+    if (row.sparseNorm !== null) sparseNormValues.push(row.sparseNorm);
+    fusedValues.push(row.fused);
+  }
+
+  return {
+    channel,
+    textPreview: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+    maxSparse,
+    rows,
+    stats: {
+      dense: summarizeStats(denseValues),
+      sparseRaw: summarizeStats(sparseRawValues),
+      sparseNorm: summarizeStats(sparseNormValues),
+      fused: summarizeStats(fusedValues),
+    },
+  };
+}
+
+async function handleExplainSimilarity({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2ExplainSimilarityResult> {
+  const params = MemoryV2ExplainSimilarityParams.parse(body);
+  const config = loadConfig();
+  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
+    config.memory.v2;
+
+  const channels: MemoryV2ExplainSimilarityChannel[] = [];
+  channels.push(
+    await scoreChannel(
+      "user",
+      params.userText,
+      params.top,
+      denseWeight,
+      sparseWeight,
+      config,
+    ),
+  );
+  if (params.assistantText && params.assistantText.length > 0) {
+    channels.push(
+      await scoreChannel(
+        "assistant",
+        params.assistantText,
+        params.top,
+        denseWeight,
+        sparseWeight,
+        config,
+      ),
+    );
+  }
+  if (params.nowText && params.nowText.length > 0) {
+    channels.push(
+      await scoreChannel(
+        "now",
+        params.nowText,
+        params.top,
+        denseWeight,
+        sparseWeight,
+        config,
+      ),
+    );
+  }
+
+  return {
+    config: { dense_weight: denseWeight, sparse_weight: sparseWeight },
+    channels,
+  };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -238,5 +429,16 @@ export const ROUTES: RouteDefinition[] = [
       "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on memory-v2-enabled flag and config.memory.v2.enabled.",
     tags: ["memory"],
     requestBody: MemoryV2ReembedSkillsParams,
+  },
+  {
+    operationId: "memory_v2_explain_similarity",
+    method: "POST",
+    endpoint: "memory/v2/explain-similarity",
+    handler: handleExplainSimilarity,
+    summary: "Diagnose dense vs sparse similarity score distributions",
+    description:
+      "Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.",
+    tags: ["memory"],
+    requestBody: MemoryV2ExplainSimilarityParams,
   },
 ];

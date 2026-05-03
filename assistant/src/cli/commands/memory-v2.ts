@@ -36,6 +36,8 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
+  MemoryV2ExplainSimilarityResult,
+  MemoryV2ExplainSimilarityStats,
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
@@ -71,6 +73,71 @@ async function runBackfillOp(
   }
 
   log.info(`Queued ${op} job: ${result.result!.jobId}`);
+}
+
+/** Format a number for table output. */
+function fmt(n: number | null, decimals: number): string {
+  if (n === null) return "—";
+  return n.toFixed(decimals);
+}
+
+/** Render the per-channel breakdown table + stats for the explain command. */
+function printExplainResult(result: MemoryV2ExplainSimilarityResult): void {
+  log.info(
+    `dense_weight=${result.config.dense_weight}  sparse_weight=${result.config.sparse_weight}`,
+  );
+
+  for (const channel of result.channels) {
+    log.info("");
+    log.info(`── channel: ${channel.channel} ──`);
+    log.info(`text: ${channel.textPreview}`);
+    log.info(
+      `maxSparse (used for normalization): ${channel.maxSparse.toFixed(4)}`,
+    );
+    log.info("");
+    log.info(
+      "slug".padEnd(48) +
+        "dense".padStart(10) +
+        "sparseRaw".padStart(12) +
+        "sparseNorm".padStart(12) +
+        "fused".padStart(10),
+    );
+    log.info("─".repeat(92));
+    for (const row of channel.rows) {
+      const slugCol =
+        row.slug.length > 47 ? `${row.slug.slice(0, 46)}…` : row.slug;
+      log.info(
+        slugCol.padEnd(48) +
+          fmt(row.denseScore, 4).padStart(10) +
+          fmt(row.sparseRaw, 4).padStart(12) +
+          fmt(row.sparseNorm, 4).padStart(12) +
+          fmt(row.fused, 4).padStart(10),
+      );
+    }
+    log.info("");
+    log.info("Stats (per channel):");
+    log.info(`  ${formatStatLine("dense       ", channel.stats.dense)}`);
+    log.info(`  ${formatStatLine("sparseRaw   ", channel.stats.sparseRaw)}`);
+    log.info(`  ${formatStatLine("sparseNorm  ", channel.stats.sparseNorm)}`);
+    log.info(`  ${formatStatLine("fused       ", channel.stats.fused)}`);
+  }
+}
+
+function formatStatLine(
+  label: string,
+  stats: MemoryV2ExplainSimilarityStats,
+): string {
+  if (stats.count === 0) {
+    return `${label} n=0`;
+  }
+  const range = stats.max - stats.min;
+  return (
+    `${label} n=${String(stats.count).padStart(3)}` +
+    ` range=[${stats.min.toFixed(4)}, ${stats.max.toFixed(4)}]` +
+    ` (Δ=${range.toFixed(4)})` +
+    ` mean=${stats.mean.toFixed(4)}` +
+    ` std=${stats.stddev.toFixed(4)}`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +307,89 @@ Examples:
     .action(async () => {
       await runBackfillOp("activation-recompute");
     });
+
+  // ── explain ───────────────────────────────────────────────────────────
+
+  v2.command("explain")
+    .description(
+      "Diagnose dense vs sparse score distributions for a query (read-only)",
+    )
+    .requiredOption(
+      "--text <text>",
+      "Query text to embed and score against the concept-page collection (the user channel).",
+    )
+    .option(
+      "--assistant-text <text>",
+      "Optional second query text — scored independently as the assistant channel.",
+    )
+    .option(
+      "--now-text <text>",
+      "Optional third query text — scored independently as the now channel.",
+    )
+    .option(
+      "--top <n>",
+      "Number of top hits to fetch per channel (default 25)",
+      "25",
+    )
+    .addHelpText(
+      "after",
+      `
+Embeds the supplied text(s), runs the hybrid dense + sparse query against
+the v2 concept-page Qdrant collection, and prints per-slug raw dense, raw
+sparse, normalized sparse, and fused scores plus per-channel summary
+statistics (range, mean, stddev). Use this to identify whether dense
+embedding compression (anisotropy) or per-batch sparse normalization is
+the dominant cause of score compression at the head of the activation
+distribution.
+
+Read-only: does not mutate Qdrant, the workspace, or the activation log.
+
+Interpretation:
+  Dense range  < 0.1  AND sparseNorm range > 0.5 → embedding anisotropy
+  Dense range  > 0.2  AND sparseNorm range < 0.1 → sparse max-normalization
+  Both compressed                                → both contribute
+  Both wide                                      → channel mixing is the cause
+
+Examples:
+  $ assistant memory v2 explain --text "what's bothering me"
+  $ assistant memory v2 explain --text "..." --top 50
+  $ assistant memory v2 explain --text "..." --assistant-text "..." --now-text "..."`,
+    )
+    .action(
+      async (opts: {
+        text: string;
+        assistantText?: string;
+        nowText?: string;
+        top: string;
+      }) => {
+        const top = Number.parseInt(opts.top, 10);
+        if (!Number.isFinite(top) || top < 1) {
+          log.error("--top must be a positive integer");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = await cliIpcCall<MemoryV2ExplainSimilarityResult>(
+          "memory_v2_explain_similarity",
+          {
+            body: {
+              userText: opts.text,
+              assistantText: opts.assistantText,
+              nowText: opts.nowText,
+              top,
+            },
+          },
+        );
+
+        if (!result.ok) {
+          log.error(result.error ?? "Failed to run similarity diagnostic");
+          process.exitCode = 1;
+          return;
+        }
+
+        printExplainResult(result.result!);
+      },
+    );
 
   // ── validate ──────────────────────────────────────────────────────────
 
