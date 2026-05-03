@@ -30,6 +30,9 @@ extension AppDelegate {
         log.info("Bootstrap state: \(self.bootstrapState.rawValue, privacy: .public) → \(newState.rawValue, privacy: .public)")
         bootstrapState = newState
         persistBootstrapState()
+        if newState == .complete {
+            drainPendingConversationOpenRequestIfNeeded()
+        }
 
         // Emit stage timing when a start timestamp is available.
         if let start = bootstrapStartTime {

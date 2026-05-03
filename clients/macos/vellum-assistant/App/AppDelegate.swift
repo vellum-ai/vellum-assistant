@@ -200,6 +200,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var hasRequestedNotificationAuthorizationFromConversationSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
+    /// Pending conversation deep link captured while first-launch bootstrap is
+    /// active. Drained once bootstrap reaches `.complete`.
+    var pendingConversationOpenRequest: (conversationId: String, anchorMessageId: String?)?
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local assistant hatching is skipped.

@@ -531,18 +531,19 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 response.notification.request.content.userInfo["conversation_id"] as? String
             let messageId = self.messageId(from: response.notification.request.content.userInfo)
             await MainActor.run {
-                guard !self.isBootstrapping else { return }
                 if let conversationId {
                     self.openConversation(conversationId: conversationId, anchorMessageId: messageId)
-                    self.sendConversationSeenSignal(
-                        conversationId: conversationId,
-                        signalType: "macos_notification_view",
-                        source: "notification-action",
-                        evidenceText: "User clicked View on notification"
-                    )
-                    // Clear local unseen state so sidebar dot disappears immediately
-                    if let conversationIdx = self.mainWindow?.conversationManager.conversations.firstIndex(where: { $0.conversationId == conversationId }) {
-                        self.mainWindow?.conversationManager.conversations[conversationIdx].hasUnseenLatestAssistantMessage = false
+                    if !self.isBootstrapping {
+                        self.sendConversationSeenSignal(
+                            conversationId: conversationId,
+                            signalType: "macos_notification_view",
+                            source: "notification-action",
+                            evidenceText: "User clicked View on notification"
+                        )
+                        // Clear local unseen state so sidebar dot disappears immediately
+                        if let conversationIdx = self.mainWindow?.conversationManager.conversations.firstIndex(where: { $0.conversationId == conversationId }) {
+                            self.mainWindow?.conversationManager.conversations[conversationIdx].hasUnseenLatestAssistantMessage = false
+                        }
                     }
                 } else {
                     self.showMainWindow()
