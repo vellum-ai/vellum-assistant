@@ -304,4 +304,21 @@ describe("host_file_read image support", () => {
     expect(result.content).toContain("2  second line");
     expect((result as any).contentBlocks).toBeUndefined();
   });
+
+  test("passes target_client_id to HostFileProxy.instance.request", async () => {
+    const capturedInputs: HostFileInput[] = [];
+    mockFileProxyAvailable = true;
+    mockFileProxyRequestFn = async (input) => {
+      capturedInputs.push(input);
+      return { content: "proxied", isError: false };
+    };
+
+    await hostFileReadTool.execute(
+      { path: "/host/notes.txt", target_client_id: "client-x" },
+      makeContext(),
+    );
+
+    expect(capturedInputs).toHaveLength(1);
+    expect(capturedInputs[0].targetClientId).toBe("client-x");
+  });
 });
