@@ -144,6 +144,14 @@ export const ROUTES: RouteDefinition[] = [
         description:
           "Submitting client does not match the targeted client for this request.",
       },
+      "404": {
+        description:
+          "No pending interaction found for the given requestId, or the conversation/proxy no longer exists.",
+      },
+      "409": {
+        description:
+          "Pending interaction exists but is of a different kind (e.g. host_bash, host_file).",
+      },
     },
     handler: handleHostCuResult,
   },

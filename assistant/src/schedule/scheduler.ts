@@ -44,7 +44,7 @@ type ScheduleConversationCreatedNotifier = (info: {
   title: string;
 }) => void;
 
-interface SchedulerHandle {
+export interface SchedulerHandle {
   runOnce(): Promise<number>;
   stop(): void;
 }

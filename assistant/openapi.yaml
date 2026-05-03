@@ -6055,6 +6055,10 @@ paths:
           description: x-vellum-client-id header is missing for a targeted host bash request.
         "403":
           description: Submitting client does not match the targeted client for this request.
+        "404":
+          description: No pending interaction found for the given requestId.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_file, host_cu).
       requestBody:
         required: true
         content:
@@ -6209,6 +6213,10 @@ paths:
           description: x-vellum-client-id header is missing for a targeted host CU request.
         "403":
           description: Submitting client does not match the targeted client for this request.
+        "404":
+          description: No pending interaction found for the given requestId, or the conversation/proxy no longer exists.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_bash, host_file).
       requestBody:
         required: true
         content:
@@ -6271,6 +6279,10 @@ paths:
           description: x-vellum-client-id header is missing for a targeted host file request.
         "403":
           description: Submitting client does not match the targeted client for this request.
+        "404":
+          description: No pending interaction found for the given requestId.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_bash, host_cu).
       requestBody:
         required: true
         content:

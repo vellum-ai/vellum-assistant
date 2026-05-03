@@ -9,12 +9,19 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
 let mockHasClient = true; // Default to true for CU unified flow tests
+let mockCuClients: Array<{ clientId: string; capabilities: string[] }> = [
+  { clientId: "mock-client-1", capabilities: ["host_cu"] },
+];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+    listClientsByCapability: (cap: string) =>
+      cap === "host_cu" ? mockCuClients : [],
+    getClientById: (id: string) =>
+      mockCuClients.find((c) => c.clientId === id) ?? null,
   },
 }));
 
@@ -65,6 +72,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   function setupProxy(maxSteps?: number): SurfaceConversationContext {
     sentMessages.length = 0;
     mockHasClient = true;
+    mockCuClients = [{ clientId: "mock-client-1", capabilities: ["host_cu"] }];
     proxy = new HostCuProxy(maxSteps);
     return buildMockContext(proxy);
   }
@@ -361,6 +369,168 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // -------------------------------------------------------------------------
   // Step limit enforced through resolver
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Multi-client ambiguity guard
+  // -------------------------------------------------------------------------
+
+  describe("multi-client ambiguity guard", () => {
+    test("returns error when multiple CU clients connected and no target_client_id given", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "client-a", capabilities: ["host_cu"] },
+        { clientId: "client-b", capabilities: ["host_cu"] },
+      ];
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("multiple clients support host_cu");
+      expect(result.content).toContain("target_client_id");
+      // No message should have been dispatched
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("proceeds when multiple clients connected and target_client_id is given", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "client-a", capabilities: ["host_cu"] },
+        { clientId: "client-b", capabilities: ["host_cu"] },
+      ];
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "client-a",
+      });
+
+      // Should have dispatched the request
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBe("client-a");
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("proceeds normally when exactly one CU client is connected", async () => {
+      const ctx = setupProxy();
+      // mockCuClients already has 1 entry from setupProxy
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 2,
+        reasoning: "safe click",
+      });
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("multi-client guard does not apply to terminal tools (computer_use_done)", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "client-a", capabilities: ["host_cu"] },
+        { clientId: "client-b", capabilities: ["host_cu"] },
+      ];
+
+      // Terminal tools short-circuit before the ambiguity check
+      const result = await surfaceProxyResolver(ctx, "computer_use_done", {
+        summary: "all done",
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("all done");
+      expect(sentMessages).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // targetClientId validation (lives at resolver layer so step count and
+  // action history are not mutated when validation rejects the request).
+  // -------------------------------------------------------------------------
+
+  describe("targetClientId validation", () => {
+    test("returns fast error when targetClientId does not match any connected client", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [{ clientId: "real-client", capabilities: ["host_cu"] }];
+      const stepCountBefore = proxy.stepCount;
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "nonexistent-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("nonexistent-client");
+      expect(result.content).toContain("host_cu");
+      // Critical: validation must run BEFORE recordAction. stepCount and
+      // actionHistory must be unchanged when rejection fires — otherwise
+      // every invalid target_client_id burns a step and leaves a ghost
+      // entry the LLM can reason about.
+      expect(proxy.stepCount).toBe(stepCountBefore);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("returns fast error when targetClientId points to a client without host_cu capability", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "no-cu-client", capabilities: ["host_bash"] }, // bash, not cu
+      ];
+      const stepCountBefore = proxy.stepCount;
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "no-cu-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("no-cu-client");
+      expect(result.content).toContain("host_cu");
+      // No step burned, no ghost in history.
+      expect(proxy.stepCount).toBe(stepCountBefore);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("dispatches and records action when targetClientId is valid", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "cu-client", capabilities: ["host_cu"] },
+        { clientId: "client-b", capabilities: ["host_cu"] }, // would otherwise trip ambiguity guard
+      ];
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 5,
+        reasoning: "click",
+        target_client_id: "cu-client",
+      });
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBe("cu-client");
+      // recordAction did fire on the success path.
+      expect(proxy.stepCount).toBe(1);
+      expect(proxy.actionHistory).toHaveLength(1);
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+  });
 
   describe("step limit enforcement through resolver", () => {
     test("rejects action tools when step limit exceeded", async () => {

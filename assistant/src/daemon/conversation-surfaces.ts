@@ -14,7 +14,10 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -1784,6 +1787,52 @@ export async function surfaceProxyResolver(
       typeof input.target_client_id === "string" && input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
+
+    // Validate targetClientId before recordAction so an invalid ID does not
+    // burn a step or pollute action history. (HostBashProxy / HostFileProxy
+    // both validate at the tool-resolution layer before incrementing any
+    // state; this mirrors that behaviour for CU.)
+    if (targetClientId != null) {
+      const client = assistantEventHub.getClientById(targetClientId);
+      if (!client) {
+        return {
+          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        };
+      }
+      if (!client.capabilities.includes("host_cu")) {
+        return {
+          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        };
+      }
+    }
+
+    // Guard: require explicit targeting when multiple CU-capable clients are
+    // connected. The tool schemas document target_client_id as "required when
+    // multiple clients support host_cu" but nothing enforced it at runtime
+    // until now. Without this guard, the request would broadcast to all
+    // capable clients simultaneously, causing the same CU action to execute
+    // on multiple machines.
+    //
+    // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
+    // guard additionally checks `transportInterface != null &&
+    // !supportsHostProxy(transportInterface)` and so only fires for non-host-
+    // proxy transports (web, Slack). For CU that check would be a no-op:
+    // every host_cu-capable client is host-proxy-capable by definition
+    // (host_cu only ships on macOS and the Chrome extension), so there is no
+    // host_cu-capable transport for which auto-routing-to-self would be
+    // appropriate. We therefore fire whenever there is genuine ambiguity.
+    if (targetClientId == null) {
+      const cuClients = assistantEventHub.listClientsByCapability("host_cu");
+      if (cuClients.length > 1) {
+        return {
+          content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
+          isError: true,
+        };
+      }
+    }
+
     ctx.hostCuProxy.recordAction(toolName, input, reasoning);
     return ctx.hostCuProxy.request(
       toolName,
