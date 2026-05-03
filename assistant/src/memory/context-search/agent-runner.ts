@@ -42,7 +42,7 @@ import type {
   RecallSource,
 } from "./types.js";
 
-export type AgenticRecallFallbackReason =
+type AgenticRecallFallbackReason =
   | "no_provider"
   | "provider_error"
   | "timeout"
@@ -51,7 +51,7 @@ export type AgenticRecallFallbackReason =
   | "citation_validation_failed"
   | "finish_answer_validation_failed";
 
-export interface AgenticRecallSearchDebug {
+interface AgenticRecallSearchDebug {
   round: number;
   query: string;
   sources: RecallSource[];
@@ -61,7 +61,7 @@ export interface AgenticRecallSearchDebug {
   error?: string;
 }
 
-export interface AgenticRecallInspectDebug {
+interface AgenticRecallInspectDebug {
   round: number;
   paths: string[];
   reason: string;
@@ -69,7 +69,7 @@ export interface AgenticRecallInspectDebug {
   errors?: Array<{ path: string; reason: string }>;
 }
 
-export interface AgenticRecallDebug {
+interface AgenticRecallDebug {
   mode: "agentic" | "deterministic_fallback";
   normalizedInput: NormalizedRecallInput;
   roundLimit: number;
@@ -86,12 +86,12 @@ export interface AgenticRecallDebug {
   fallbackDetail?: string;
 }
 
-export interface AgenticRecallAnswer extends RecallAnswer {
+interface AgenticRecallAnswer extends RecallAnswer {
   content: string;
   debug: AgenticRecallDebug;
 }
 
-export interface RunAgenticRecallOptions {
+interface RunAgenticRecallOptions {
   searchOptions?: DeterministicRecallSearchOptions;
 }
 
