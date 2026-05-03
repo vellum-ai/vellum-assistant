@@ -21,7 +21,7 @@ This skill creates a **GitHub App** under a GitHub organization, giving the assi
 ## What Gets Created
 
 - A **GitHub App** owned by the org (not the user's personal account)
-- **Installation** on selected repositories with configurable permissions (default: `contents:write`, `pull_requests:write`, `actions:write`, `workflows:write`, `checks:read`, `metadata:read`)
+- **Installation** on selected repositories with configurable permissions (default: `contents:write`, `pull_requests:write`, `checks:read`, `metadata:read`)
 - **Credentials** stored in the assistant's encrypted vault (7 fields)
 - **Token helper script** at `bin/gh-app-token.mjs` (in the workspace root) for refreshing auth tokens
 
@@ -192,8 +192,6 @@ The default permission set covers the full range of actions the assistant may ne
 | --------------- | ----- | --------------------------------------------------------- |
 | `contents`      | write | Push commits, create/delete branches                      |
 | `pull_requests` | write | Open PRs, post PR comments and reviews                    |
-| `actions`       | write | Trigger and cancel workflow runs                          |
-| `workflows`     | write | Commit `.github/workflows/` files                         |
 | `checks`        | read  | Read CI check-run status (e.g. `gh pr checks`)            |
 | `metadata`      | read  | Required by GitHub for all App installations (auto-added) |
 
