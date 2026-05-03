@@ -198,22 +198,9 @@ struct ChatBubble: View, Equatable {
                 )
                 _cachedContentGroups = State(initialValue: groups)
 
-                var trailingTextIds = Set<String>()
-                for group in groups {
-                    guard case .toolCalls(let indices) = group else { continue }
-                    if Self.computeHasTextAfterToolGroupStatic(
-                        toolIndices: indices,
-                        contentOrder: message.contentOrder,
-                        textSegments: message.textSegments,
-                        hasText: !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) {
-                        trailingTextIds.insert(group.stableId)
-                    }
-                }
-
                 // Store in static cache for future init() calls
                 Self.storeInterleavedResult(
-                    InterleavedCacheValue(hasInterleaved: interleaved, groups: groups, trailingTextIds: trailingTextIds),
+                    InterleavedCacheValue(hasInterleaved: interleaved, groups: groups),
                     for: message
                 )
             } else {
@@ -221,7 +208,7 @@ struct ChatBubble: View, Equatable {
 
                 // Store non-interleaved result in static cache
                 Self.storeInterleavedResult(
-                    InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
+                    InterleavedCacheValue(hasInterleaved: false, groups: []),
                     for: message
                 )
             }

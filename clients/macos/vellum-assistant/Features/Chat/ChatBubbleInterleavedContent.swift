@@ -148,15 +148,21 @@ extension ChatBubble {
         // Flush any trailing burst
         flushBurst()
 
-        // Set isStreaming on thinking items in the last burst only
+        // Set isStreaming on the LAST thinking item in the last burst only.
+        // Earlier thinking blocks in the same burst are already complete
+        // (there's a tool call after them).
         if isStreaming, var lastBurst = bursts.last {
-            lastBurst.expandedItems = lastBurst.expandedItems.map { item in
-                if case .thinking(let content, let key, _) = item {
-                    return .thinking(content: content, expansionKey: key, isStreaming: true)
+            if let lastThinkingIdx = lastBurst.expandedItems.lastIndex(where: {
+                if case .thinking = $0 { return true }
+                return false
+            }) {
+                if case .thinking(let content, let key, _) = lastBurst.expandedItems[lastThinkingIdx] {
+                    lastBurst.expandedItems[lastThinkingIdx] = .thinking(
+                        content: content, expansionKey: key, isStreaming: true
+                    )
                 }
-                return item
+                bursts[bursts.count - 1] = lastBurst
             }
-            bursts[bursts.count - 1] = lastBurst
         }
 
         return bursts
@@ -175,7 +181,6 @@ extension ChatBubble {
     struct InterleavedCacheValue {
         let hasInterleaved: Bool
         let groups: [ContentGroup]
-        let trailingTextIds: Set<String>
     }
 
     /// Static cache of interleaved content computation results. For completed
@@ -238,7 +243,7 @@ extension ChatBubble {
             }
             // Update static cache with non-interleaved result
             Self.storeInterleavedResult(
-                InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
+                InterleavedCacheValue(hasInterleaved: false, groups: []),
                 for: message
             )
             return
@@ -249,20 +254,6 @@ extension ChatBubble {
             hasInterleavedContent: interleaved
         )
 
-        // Pre-compute which tool-call groups have trailing text so that
-        // the static cache can store them for future init() calls.
-        var trailingTextIds = Set<String>()
-        for group in groups {
-            guard case .toolCalls(let indices) = group else { continue }
-            if Self.computeHasTextAfterToolGroupStatic(
-                toolIndices: indices,
-                contentOrder: message.contentOrder,
-                textSegments: message.textSegments,
-                hasText: hasText
-            ) {
-                trailingTextIds.insert(group.stableId)
-            }
-        }
         if !cachedHasInterleavedContent {
             cachedHasInterleavedContent = true
         }
@@ -272,7 +263,7 @@ extension ChatBubble {
 
         // Update static cache so the next init() for this message uses fresh values
         Self.storeInterleavedResult(
-            InterleavedCacheValue(hasInterleaved: interleaved, groups: groups, trailingTextIds: trailingTextIds),
+            InterleavedCacheValue(hasInterleaved: interleaved, groups: groups),
             for: message
         )
     }
