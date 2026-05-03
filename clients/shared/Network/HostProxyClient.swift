@@ -8,6 +8,7 @@ public protocol HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
     func postCuResult(_ result: HostCuResultPayload) async -> Bool
+    func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool
     func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool
     func postTransferResult(_ result: HostTransferResultPayload) async -> Bool
     func pullTransferContent(transferId: String) async throws -> Data
@@ -76,6 +77,31 @@ public struct HostProxyClient: HostProxyClientProtocol {
             return true
         } catch {
             log.error("postCuResult error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(result)
+            // pngBase64 may be present (~1-2 MB for full-window screenshots);
+            // scale the timeout so large payloads don't trigger URLSession's
+            // cancellation race, mirroring postFileResult's behaviour.
+            let timeout: TimeInterval = result.pngBase64 != nil
+                ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
+                : 30
+            let response = try await GatewayHTTPClient.post(
+                path: "host-app-control-result",
+                body: body,
+                timeout: timeout
+            )
+            guard response.isSuccess else {
+                log.error("postAppControlResult failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("postAppControlResult error: \(error.localizedDescription)")
             return false
         }
     }
