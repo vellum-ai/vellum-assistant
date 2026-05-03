@@ -662,8 +662,32 @@ export class SlackSocketModeClient {
       this.store.markEventSeen(messageKey, DEDUP_TTL_MS);
     }
 
-    // Advance the catch-up watermark before dispatch so a normalize/emit
-    // failure does not stall progress past this event on the next reconnect.
+    // Advance the catch-up watermark before dispatch.
+    //
+    // Trade-off: emit happens off the per-channel `emitQueues` chain, which
+    // is in-memory and not persisted. The cases worth thinking about are:
+    //
+    //   - daemon wedged, gateway alive: the queue stalls but does not drop;
+    //     it drains when the daemon recovers. No loss.
+    //   - gateway crash with daemon healthy: messages on the wire that have
+    //     not yet been dedup-written are lost in memory, but the next
+    //     reconnect refetches them via the watermark + 60s overlap. No loss.
+    //   - gateway crash AND daemon outage simultaneously: the in-memory
+    //     queue evaporates AND this watermark write has already advanced
+    //     past the unsent messages, so the next reconnect will not refetch
+    //     them. Genuinely lost.
+    //
+    // We accept the third case because the alternatives all regress
+    // something else: advancing after successful emit makes a slow emit
+    // stall the watermark and trigger wasteful refetch loops on every
+    // reconnect during transient slowness, and a later message in the same
+    // queue can still leapfrog the failed earlier one, so it does not
+    // actually fix the silent-skip. A persistent emit outbox would cover
+    // it, but that is a larger feature. The compensating daemon-side
+    // reactive backfill (`triggerSlackThreadBackfillIfNeeded`) hydrates
+    // thread context as soon as any follow-up message arrives, narrowing
+    // the user-visible blast radius to "fully missed mention with no
+    // follow-up, during a simultaneous gateway crash + daemon outage".
     const watermarkTs = extractEventWatermarkTs(event, eventPayload.event_time);
     if (watermarkTs) {
       this.store.setLastSeenTsIfGreater(watermarkTs);
@@ -1329,10 +1353,20 @@ function isSlackConversationId(id: string): boolean {
 }
 
 /**
- * Warn on bot-token scopes whose absence makes the gateway silently degrade
- * rather than fail loudly. Without this startup check the user sees a
- * successful boot followed by quiet "recovered: 0" log lines on every
- * reconnect, with no signal that catch-up is no-op'ing on `missing_scope`.
+ * Result of inspecting a bot-token scope header. Exposed so callers can
+ * decide how to surface missing scopes (logging, telemetry, both) without
+ * coupling the inspection logic to a specific logger.
+ */
+export interface SlackScopeCheckResult {
+  filesReadMissing: boolean;
+  missingHistoryScopes: string[];
+}
+
+/**
+ * Inspect a bot-token scope header and return which optional scopes are
+ * absent. Pure / no side effects — exists alongside
+ * `warnOnMissingSlackScopes` so it can be unit-tested without observing
+ * logger output.
  *
  *   - `files:read` — required for downloading file/image attachments.
  *   - `*:history` (channels/im/groups/mpim) — required for
@@ -1341,30 +1375,44 @@ function isSlackConversationId(id: string): boolean {
  *     the corresponding scope (see
  *     https://api.slack.com/methods/conversations.history), and the
  *     catch-up error handler treats that as zero messages.
- *
- * Exported for direct unit testing without driving the full WebSocket
- * bootstrap.
  */
-export function warnOnMissingSlackScopes(scopesHeader: string): void {
+export function inspectSlackScopes(
+  scopesHeader: string,
+): SlackScopeCheckResult {
   const scopes = new Set(
     scopesHeader
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
   );
-  if (!scopes.has("files:read")) {
+  return {
+    filesReadMissing: !scopes.has("files:read"),
+    missingHistoryScopes: [
+      "channels:history",
+      "im:history",
+      "groups:history",
+      "mpim:history",
+    ].filter((scope) => !scopes.has(scope)),
+  };
+}
+
+/**
+ * Emit warnings for any bot-token scopes whose absence makes the gateway
+ * silently degrade rather than fail loudly. Without this startup check the
+ * user sees a successful boot followed by quiet "recovered: 0" log lines on
+ * every reconnect, with no signal that catch-up is no-op'ing on
+ * `missing_scope`.
+ */
+export function warnOnMissingSlackScopes(scopesHeader: string): void {
+  const { filesReadMissing, missingHistoryScopes } =
+    inspectSlackScopes(scopesHeader);
+  if (filesReadMissing) {
     log.warn(
       "Slack bot token is missing the 'files:read' scope — file/image " +
         "attachments will not be downloaded. Add 'files:read' to your " +
         "Slack app's Bot Token Scopes and reinstall the app.",
     );
   }
-  const missingHistoryScopes = [
-    "channels:history",
-    "im:history",
-    "groups:history",
-    "mpim:history",
-  ].filter((scope) => !scopes.has(scope));
   if (missingHistoryScopes.length > 0) {
     log.warn(
       { missingHistoryScopes },
