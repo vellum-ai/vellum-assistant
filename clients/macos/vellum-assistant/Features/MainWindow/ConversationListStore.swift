@@ -119,10 +119,6 @@ final class ConversationListStore {
 
     // MARK: - Archived State (UserDefaults)
 
-    // Legacy UserDefaults key preserved from the session-to-conversation rename.
-    private static let archivedConversationsKey = "archivedSessionIds"
-    // Intermediate builds may have written under this key before the compat fix.
-    private static let archivedConversationsNewKey = "archivedConversationIds"
     // [String: TimeInterval] mapping conversationId -> archive time (seconds since 1970).
     // Used to sort the Settings → Archived Conversations tab by most-recently-archived.
     private static let archivedConversationsSortKey = "archivedConversationTimestamps"
@@ -190,30 +186,16 @@ final class ConversationListStore {
     }
 
     init() {
-        self.archivedConversationTimestamps = Self.loadAndMigrateArchivedTimestamps()
+        self.archivedConversationTimestamps = Self.loadArchivedTimestamps()
     }
 
-    /// One-shot loader: if the new timestamp dict is present, return it. Otherwise,
-    /// migrate from the legacy `Set<String>` format by assigning `Date.distantPast` to
-    /// each legacy id so they sort to the bottom of the archive list (below any
-    /// newly-archived items). Runs once from `init()` to avoid mutating-getter hazards
-    /// under `@Observable`.
-    private static func loadAndMigrateArchivedTimestamps() -> [String: Date] {
+    /// Load persisted archive timestamps from UserDefaults.
+    private static func loadArchivedTimestamps() -> [String: Date] {
         let defaults = UserDefaults.standard
-
-        if let raw = defaults.dictionary(forKey: archivedConversationsSortKey) as? [String: TimeInterval] {
-            return raw.mapValues { Date(timeIntervalSince1970: $0) }
+        guard let raw = defaults.dictionary(forKey: archivedConversationsSortKey) as? [String: TimeInterval] else {
+            return [:]
         }
-
-        let legacy = Set(defaults.stringArray(forKey: archivedConversationsKey) ?? [])
-        let newer = Set(defaults.stringArray(forKey: archivedConversationsNewKey) ?? [])
-        let merged = legacy.union(newer)
-        guard !merged.isEmpty else { return [:] }
-
-        let migrated = Dictionary(uniqueKeysWithValues: merged.map { ($0, Date.distantPast) })
-        let encoded = migrated.mapValues { $0.timeIntervalSince1970 }
-        defaults.set(encoded, forKey: archivedConversationsSortKey)
-        return migrated
+        return raw.mapValues { Date(timeIntervalSince1970: $0) }
     }
 
     // MARK: - Cached Derived Properties

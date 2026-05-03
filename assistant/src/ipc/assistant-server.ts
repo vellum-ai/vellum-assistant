@@ -136,6 +136,7 @@ export class AssistantIpcServer {
     }
 
     // ⚠️  TEMPORARY — gateway→assistant DB proxy (see ipc/routes/db-proxy.ts).
+    // This is the ONLY route defined directly here; all other routes go in ROUTES.
     // Remove once contacts/guardian-binding logic is fully migrated to the
     // gateway's own database.
     this.methods.set("db_proxy", (params) =>

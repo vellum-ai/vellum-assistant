@@ -21,6 +21,7 @@ interface PendingRequest {
   conversationId: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
+  targetClientId?: string;
 }
 
 export class HostBashProxy {
@@ -69,6 +70,7 @@ export class HostBashProxy {
       working_dir?: string;
       timeout_seconds?: number;
       env?: Record<string, string>;
+      targetClientId?: string;
     },
     conversationId: string,
     signal?: AbortSignal,
@@ -77,6 +79,28 @@ export class HostBashProxy {
       const result = formatShellOutput("", "Aborted", null, false, 0);
       return Promise.resolve(result);
     }
+
+    const capableClients = assistantEventHub.listClientsByCapability("host_bash");
+
+    let resolvedTargetClientId: string | undefined;
+
+    if (input.targetClientId) {
+      const target = assistantEventHub.getClientById(input.targetClientId);
+      if (!target || !target.capabilities.includes("host_bash")) {
+        return Promise.resolve({
+          content: `Error: client "${input.targetClientId}" is not connected or does not support host_bash. Run \`assistant clients list --capability host_bash\` to see available clients.`,
+          isError: true,
+        });
+      }
+      resolvedTargetClientId = input.targetClientId;
+    } else if (capableClients.length === 1) {
+      // Auto-resolve when exactly one capable client is connected.
+      resolvedTargetClientId = capableClients[0].clientId;
+    }
+    // capableClients.length === 0 or > 1 without explicit target: resolvedTargetClientId
+    // stays undefined and falls through to untargeted broadcast — the existing timeout/error
+    // path handles the zero-client case, and multi-client ambiguity is enforced at the tool
+    // executor layer (not here) once target_client_id is exposed in the tool schema.
 
     const requestId = uuid();
 
@@ -98,10 +122,13 @@ export class HostBashProxy {
           { requestId, command: input.command },
           "Host bash proxy request timed out",
         );
+        const timeoutMessage = resolvedTargetClientId
+          ? `Host bash proxy timed out waiting for response from client ${resolvedTargetClientId}`
+          : "Host bash proxy timed out waiting for client response";
         resolve(
           formatShellOutput(
             "",
-            "Host bash proxy timed out waiting for client response",
+            timeoutMessage,
             null,
             true,
             timeoutSec,
@@ -117,11 +144,16 @@ export class HostBashProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_bash_cancel",
-                requestId,
+              broadcastMessage(
+                {
+                  type: "host_bash_cancel",
+                  requestId,
+                  conversationId,
+                  targetClientId: resolvedTargetClientId,
+                },
                 conversationId,
-              });
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -139,20 +171,26 @@ export class HostBashProxy {
         timeoutSec,
         conversationId,
         detachAbort,
+        targetClientId: resolvedTargetClientId,
       });
 
       try {
-        broadcastMessage({
-          type: "host_bash_request",
-          requestId,
+        broadcastMessage(
+          {
+            type: "host_bash_request",
+            requestId,
+            conversationId,
+            command: input.command,
+            working_dir: input.working_dir,
+            timeout_seconds: input.timeout_seconds,
+            targetClientId: resolvedTargetClientId,
+            ...(input.env && Object.keys(input.env).length > 0
+                ? { env: input.env }
+                : {}),
+          },
           conversationId,
-          command: input.command,
-          working_dir: input.working_dir,
-          timeout_seconds: input.timeout_seconds,
-          ...(input.env && Object.keys(input.env).length > 0
-              ? { env: input.env }
-              : {}),
-          });
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -204,11 +242,16 @@ export class HostBashProxy {
         entry.detachAbort();
         pendingInteractions.resolve(requestId);
         try {
-          broadcastMessage({
-            type: "host_bash_cancel",
-            requestId,
-            conversationId: entry.conversationId,
-          });
+          broadcastMessage(
+            {
+              type: "host_bash_cancel",
+              requestId,
+              conversationId: entry.conversationId,
+              targetClientId: entry.targetClientId,
+            },
+            entry.conversationId,
+            { targetClientId: entry.targetClientId },
+          );
         } catch {
           // Best-effort cancel notification — connection may already be closed.
         }

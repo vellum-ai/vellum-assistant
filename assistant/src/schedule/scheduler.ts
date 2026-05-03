@@ -164,6 +164,8 @@ async function runScheduleOnce(
           routingHints: job.routingHints,
         });
         if (isOneShot) {
+          const successRunId = createScheduleRun(job.id, `notify-ok:${job.id}`);
+          completeScheduleRun(successRunId, { status: "ok" });
           completeOneShot(job.id);
           emitScheduleFeedEvent({
             title: job.name,
@@ -316,7 +318,11 @@ async function runScheduleOnce(
           continue;
         }
 
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) {
+          const successRunId = createScheduleRun(job.id, `wake-ok:${job.id}`);
+          completeScheduleRun(successRunId, { status: "ok" });
+          completeOneShot(job.id);
+        }
         if (!job.quiet) {
           emitScheduleFeedEvent({
             title: job.name,

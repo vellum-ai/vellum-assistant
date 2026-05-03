@@ -28,10 +28,6 @@
           "reminder_schedule_id": {
             "type": "string",
             "description": "Optional recurrence schedule ID to fire a reminder when overdue"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "conversation_id"]
@@ -63,10 +59,6 @@
           "overdue_only": {
             "type": "boolean",
             "description": "When true, return only pending follow-ups past their expected response deadline"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -93,10 +85,6 @@
           "conversation_id": {
             "type": "string",
             "description": "Conversation ID to match (used with channel for auto-resolution)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []

@@ -36,6 +36,25 @@ export interface ContactsChanged {
   type: "contacts_changed";
 }
 
+/**
+ * Server → Client prompt requesting the user to enter a contact channel address.
+ * Emitted by the `contacts/prompt` IPC route.
+ */
+export interface ContactRequest {
+  type: "contact_request";
+  requestId: string;
+  /** Suggested channel type (e.g. "phone", "email") — used as a hint, not enforced. */
+  channel?: string;
+  /** Placeholder text for the address input field. */
+  placeholder?: string;
+  /** Display label shown above the input field. */
+  label?: string;
+  /** Longer description shown below the label. */
+  description?: string;
+  /** Suggested role for the new contact (guardian / trusted-contact / unknown). */
+  role?: string;
+}
+
 export interface ContactPayload {
   id: string;
   displayName: string;
@@ -68,4 +87,7 @@ export interface ContactChannelPayload {
 
 export type _ContactsClientMessages = ContactsRequest;
 
-export type _ContactsServerMessages = ContactsResponse | ContactsChanged;
+export type _ContactsServerMessages =
+  | ContactsResponse
+  | ContactsChanged
+  | ContactRequest;

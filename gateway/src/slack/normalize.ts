@@ -942,8 +942,16 @@ export function normalizeSlackMessageDelete(
   event: SlackMessageDeletedEvent,
   eventId: string,
   config: GatewayConfig,
+  botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.deleted_ts) return null;
+
+  // Drop deletions of the bot's own messages. Slack echoes self-deletes back
+  // via Socket Mode; without this filter the bot's user ID flows into the
+  // assistant's ACL as the actor, fails member lookup (the bot is never its
+  // own trusted contact), and triggers a spurious access-request notification
+  // to the guardian. Mirrors the bot-self filter on the edit path above.
+  if (botUserId && event.previous_message?.user === botUserId) return null;
 
   // Use the previous author for actor identity when available; otherwise fall
   // back to a synthetic identifier so routing/trust still has something to key on.

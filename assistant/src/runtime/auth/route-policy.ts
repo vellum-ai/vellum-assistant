@@ -151,6 +151,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "host-app-control-result", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "host-browser-result", scopes: ["approval.write"] },
   { endpoint: "host-cu-result", scopes: ["approval.write"] },
@@ -204,6 +205,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts/invites:POST", scopes: ["settings.write"] },
   { endpoint: "contacts/invites/redeem", scopes: ["settings.write"] },
   { endpoint: "contacts/invites:DELETE", scopes: ["settings.write"] },
+  { endpoint: "contacts/prompt:POST", scopes: ["settings.write"] },
+  { endpoint: "resolve_contact_prompt:POST", scopes: ["settings.write"] },
   { endpoint: "integrations/telegram/config", scopes: ["settings.read"] },
   { endpoint: "integrations/telegram/config:POST", scopes: ["settings.write"] },
   {
@@ -424,6 +427,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/validate:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/concept-page:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
+  { endpoint: "memory/v2/explain-similarity:POST", scopes: ["settings.read"] },
+  {
+    endpoint: "memory/v2/rebuild-corpus-stats:POST",
+    scopes: ["settings.write"],
+  },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },

@@ -81,6 +81,10 @@ struct MainWindowView: View {
     @State var showConversationSwitcher = false
     @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
+    /// Selected conversation currently being activated from a user navigation
+    /// action. While non-nil, the chat surface renders a switch-loading
+    /// skeleton until this conversation becomes active and history is loaded.
+    @State var pendingConversationSwitchId: UUID? = nil
 
     /// Cached assistant display name, seeded from the static identity cache on init
     /// and refreshed when the daemon emits an identity change event.
@@ -329,6 +333,12 @@ struct MainWindowView: View {
                     voiceModeManager.deactivate()
                 }
             }
+            .onChange(of: conversationManager.activeViewModel?.isHistoryLoaded) { _, isLoaded in
+                guard isLoaded == true,
+                      let pendingId = pendingConversationSwitchId,
+                      pendingId == conversationManager.activeConversationId else { return }
+                pendingConversationSwitchId = nil
+            }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
                 // Validate the new selection synchronously so that if the target
                 // is stale (archived / abandoned draft) we can correct the
@@ -337,9 +347,21 @@ struct MainWindowView: View {
                 // deferred below so SwiftUI can paint the selection change
                 // before we block on VM creation.
                 var conversationIdToActivate: UUID?
+                let selectionTargetConversationId: UUID? = {
+                    switch newSelection {
+                    case .conversation(let id):
+                        return id
+                    case .appEditing(_, let id):
+                        return id
+                    default:
+                        return nil
+                    }
+                }()
                 if case .conversation(let id) = newSelection {
                     if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
-                        conversationIdToActivate = id
+                        if conversationManager.activeConversationId != id {
+                            conversationIdToActivate = id
+                        }
                     } else {
                         // Conversation was archived/deleted — fall back to the first visible conversation
                         if let fallback = listStore.visibleConversations.first {
@@ -366,6 +388,16 @@ struct MainWindowView: View {
                         // Stale target — drop the dock but keep the app visible.
                         windowState.applySelectionCorrection(.app(appId))
                     }
+                }
+
+                // The skeleton gate is only for explicit user-initiated switches.
+                // If selection is stale, inactive, or already rendered, clear it.
+                if let id = conversationIdToActivate {
+                    pendingConversationSwitchId = id
+                } else if selectionTargetConversationId == nil
+                    || selectionTargetConversationId == conversationManager.activeConversationId
+                    || selectionTargetConversationId == conversationManager.draftLocalId {
+                    pendingConversationSwitchId = nil
                 }
 
                 // Yield to the run loop before the heavy `ConversationManager`

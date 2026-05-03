@@ -13,12 +13,16 @@ export interface HostBashRequest {
   timeout_seconds?: number;
   /** Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL). */
   env?: Record<string, string>;
+  /** When set, route this request only to the client with this ID. */
+  targetClientId?: string;
 }
 
 export interface HostBashCancelRequest {
   type: "host_bash_cancel";
   requestId: string;
   conversationId: string;
+  /** When set, route this cancel only to the client that owns the request. */
+  targetClientId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

@@ -2,7 +2,9 @@ export const DEFAULT_MAX_BACKOFF_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
  * Compute retry delay with exponential backoff and jitter.
- * Cap is applied AFTER jitter so the result never exceeds maxMs.
+ * The exponential term is clamped to maxMs BEFORE jitter to prevent
+ * Infinity/NaN for large attempt values, and capped again after jitter
+ * so the result never exceeds maxMs.
  */
 export function computeRetryDelay(
   attempt: number,
@@ -10,8 +12,7 @@ export function computeRetryDelay(
   maxMs: number = DEFAULT_MAX_BACKOFF_MS,
   random: () => number = Math.random,
 ): number {
-  const exponential = baseMs * Math.pow(2, attempt);
+  const exponential = Math.min(baseMs * Math.pow(2, attempt), maxMs);
   const jitter = exponential * 0.2 * (2 * random() - 1);
-  const raw = exponential + jitter;
-  return Math.max(0, Math.min(Math.round(raw), maxMs));
+  return Math.max(0, Math.min(Math.round(exponential + jitter), maxMs));
 }

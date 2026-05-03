@@ -183,8 +183,9 @@ describe("006-services-config migration", () => {
   });
 
   test("merges with existing backfilled services object", async () => {
-    // Simulates the scenario where backfillConfigDefaults wrote a default
-    // services object before migrations run, and legacy fields coexist.
+    // Simulates a legacy-daemon scenario where an older loader wrote a
+    // schema-default services object to disk before migrations run, and
+    // legacy top-level fields coexist with it.
     writeConfig({
       provider: "openai",
       model: "gpt-4o",

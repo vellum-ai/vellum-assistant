@@ -12,10 +12,6 @@
           "file_path": {
             "type": "string",
             "description": "Absolute path to a local audio or video file to transcribe"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["file_path"]

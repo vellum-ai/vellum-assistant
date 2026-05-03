@@ -11,7 +11,6 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
-import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -509,13 +508,6 @@ export async function handleChannelInbound({
         eventId: result.eventId,
       };
     }
-  }
-
-  // Track contact interaction only for genuinely new messages (not webhook
-  // retries). This was previously in ACL enforcement which runs before dedup,
-  // causing retries to inflate interaction counts.
-  if (!result.duplicate && resolvedMember) {
-    touchContactInteraction(resolvedMember.channel.id);
   }
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to

@@ -45,7 +45,9 @@ import {
   mergeConversationOptions,
 } from "./conversation-store.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
+import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 
 const log = getLogger("process-message");
 
@@ -156,10 +158,25 @@ async function prepareConversationForMessage(
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
-    conversation.addPreactivatedSkillId("computer-use");
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
   }
+  // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
+  // unconditionally when the client supports the capability — feature-flag
+  // gating is enforced by the skill-projection layer via SKILL.md
+  // frontmatter, so an attached proxy is harmless when the flag is off.
+  if (supportsHostProxy(resolvedInterface, "host_app_control")) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(conversationId),
+      );
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
+  }
+  // The early `isProcessing()` throw above guarantees the conversation is
+  // idle here, so preactivation is unconditional once the proxies are wired.
+  preactivateHostProxySkills(conversation, resolvedInterface);
   conversation.setCommandIntent(options?.commandIntent ?? null);
   conversation.setTurnChannelContext({
     userMessageChannel: resolvedChannel,

@@ -71,10 +71,6 @@
           "retry_backoff_ms": {
             "type": "integer",
             "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name"]
@@ -97,10 +93,6 @@
           "job_id": {
             "type": "string",
             "description": "If provided, show detailed info and recent runs for this specific job."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -178,10 +170,6 @@
           "retry_backoff_ms": {
             "type": "integer",
             "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]
@@ -200,10 +188,6 @@
           "job_id": {
             "type": "string",
             "description": "The ID of the schedule to delete"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]

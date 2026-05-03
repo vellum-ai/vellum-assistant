@@ -691,7 +691,7 @@ export class ConversationGraphMemory {
 
     return {
       routed: true,
-      runMessages: prependMemoryV2Block(messages, result.block),
+      runMessages: injectTextBlock(messages, result.block),
       injectedBlockText: result.block,
     };
   }
@@ -880,27 +880,4 @@ function readRawUserText(message: Message | undefined): string | null {
     .filter((t) => t.length > 0);
   if (texts.length === 0) return null;
   return texts.join(" ");
-}
-
-/**
- * Prepend a pre-rendered `<memory>` block (produced by
- * `injectMemoryV2Block`) to the last user message. Unlike v1's
- * {@link injectMemoryBlock}, the input here is already wrapped — we
- * just need to attach it as a leading text block. We still strip any
- * pre-existing memory injections first so the layer is idempotent
- * across compaction-driven re-injection.
- */
-function prependMemoryV2Block(messages: Message[], block: string): Message[] {
-  if (block.trim().length === 0) return messages;
-  if (messages.length === 0) return messages;
-  const cleaned = stripExistingMemoryInjections(messages);
-  const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
-  return [
-    ...cleaned.slice(0, -1),
-    {
-      ...userTail,
-      content: [{ type: "text" as const, text: block }, ...userTail.content],
-    },
-  ];
 }

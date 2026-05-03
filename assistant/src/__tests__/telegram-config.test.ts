@@ -13,7 +13,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ telegram: {}, ui: {} }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
   setNestedValue: () => {},
 }));

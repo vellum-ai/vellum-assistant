@@ -25,23 +25,23 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
   host_transfer: "host_file", // transfers piggyback on host_file capability
   host_cu: "host_cu",
   host_browser: "host_browser",
+  host_app_control: "host_app_control",
 };
 
 /**
  * Infer the {@link HostProxyCapability} a message should be targeted at based
  * on its `type` field.  Returns `undefined` for message types that are not
  * host-proxy messages (i.e. they should broadcast to all subscribers).
+ *
+ * Host-proxy message types are shaped `host_<domain>[_<sub>]_<verb>` where
+ * `<verb>` is `request` or `cancel`. We strip the trailing verb and look up
+ * the remaining stem directly in {@link HOST_PREFIX_TO_CAPABILITY}.
  */
-function capabilityForMessageType(
+export function capabilityForMessageType(
   type: string,
 ): HostProxyCapability | undefined {
-  // All host-proxy message types are prefixed with `host_<domain>_<verb>`.
-  // We match on the first two underscore-delimited segments.
-  const first = type.indexOf("_");
-  if (first === -1) return undefined;
-  const second = type.indexOf("_", first + 1);
-  const prefix = second === -1 ? type : type.slice(0, second);
-  return HOST_PREFIX_TO_CAPABILITY[prefix];
+  const stem = type.replace(/_(request|cancel)$/, "");
+  return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
@@ -90,6 +90,7 @@ export interface ClientEntry extends BaseSubscriberEntry {
   clientId: string;
   interfaceId: InterfaceId;
   capabilities: HostProxyCapability[];
+  machineName?: string;
 }
 
 export interface ProcessEntry extends BaseSubscriberEntry {
@@ -245,7 +246,12 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
-   * - if `filter.conversationId` is set, `event.conversationId` must equal it
+   * - if `targetClientId` is set, deliver only to the subscriber with that
+   *   clientId, bypassing the conversation-id filter entirely (the web-origin
+   *   event's conversationId differs from the macOS client's subscribed
+   *   conversation).
+   * - if `filter.conversationId` is set (and `targetClientId` is not), the
+   *   `event.conversationId` must equal it
    * - if `targetCapability` is set, only subscribers whose capabilities include
    *   it receive the event; untargeted events go to all
    *
@@ -254,7 +260,7 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEvent,
-    options?: { targetCapability?: HostProxyCapability },
+    options?: { targetCapability?: HostProxyCapability; targetClientId?: string },
   ): Promise<void> {
     if (event.conversationId) {
       try {
@@ -265,29 +271,40 @@ export class AssistantEventHub {
     }
 
     const targetCapability = options?.targetCapability;
+    const targetClientId = options?.targetClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
 
-      // Conversation scoping: scoped events skip subscribers filtering on a
-      // different conversation.
-      if (
-        event.conversationId != null &&
-        entry.filter.conversationId != null &&
-        entry.filter.conversationId !== event.conversationId
-      )
-        continue;
-
-      // Capability targeting: targeted events only go to subscribers that
-      // declare the required capability.
-      if (targetCapability != null) {
+      if (targetClientId != null) {
+        // Targeted: bypass conversation filter, deliver only to the named client.
+        if (entry.type !== "client" || entry.clientId !== targetClientId)
+          continue;
         if (
-          entry.type !== "client" ||
+          targetCapability != null &&
           !entry.capabilities.includes(targetCapability)
         )
           continue;
+      } else {
+        // Untargeted: existing conversation-scoped + capability logic.
+        if (
+          event.conversationId != null &&
+          entry.filter.conversationId != null &&
+          entry.filter.conversationId !== event.conversationId
+        )
+          continue;
+
+        // Capability targeting: targeted events only go to subscribers that
+        // declare the required capability.
+        if (targetCapability != null) {
+          if (
+            entry.type !== "client" ||
+            !entry.capabilities.includes(targetCapability)
+          )
+            continue;
+        }
       }
 
       try {
@@ -303,6 +320,18 @@ export class AssistantEventHub {
         "One or more assistant-event subscribers threw",
       );
     }
+  }
+
+  /**
+   * Return the active client subscriber with the given clientId, or
+   * `undefined` if no such subscriber exists.
+   */
+  getClientById(clientId: string): ClientEntry | undefined {
+    for (const entry of this.subscribers) {
+      if (entry.active && entry.type === "client" && entry.clientId === clientId)
+        return entry;
+    }
+    return undefined;
   }
 
   /**
@@ -401,10 +430,7 @@ export class AssistantEventHub {
   disposeClient(clientId: string): number {
     const targets: SubscriberEntry[] = [];
     for (const entry of this.subscribers) {
-      if (
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
+      if (entry.type === "client" && entry.clientId === clientId) {
         targets.push(entry);
       }
     }
@@ -473,13 +499,15 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: ServerMessage,
   conversationId?: string,
+  options?: { targetClientId?: string },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
+  const targetClientId = options?.targetClientId;
 
   // Register pending interactions so approval/host prompts are tracked
   // regardless of which path triggered the broadcast.
   if (resolvedConversationId) {
-    registerPendingInteraction(msg, resolvedConversationId);
+    registerPendingInteraction(msg, resolvedConversationId, targetClientId);
   }
 
   // Emit feed events for confirmation requests (tool approval prompts).
@@ -495,13 +523,12 @@ export function broadcastMessage(
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
   const targetCapability = capabilityForMessageType(msg.type);
+  const publishOptions =
+    targetCapability != null || targetClientId != null
+      ? { targetCapability, targetClientId }
+      : undefined;
   _hubChain = _hubChain
-    .then(() =>
-      assistantEventHub.publish(
-        event,
-        targetCapability ? { targetCapability } : undefined,
-      ),
-    )
+    .then(() => assistantEventHub.publish(event, publishOptions))
     .then(() => {
       // When a conversation title changes, also broadcast an unscoped
       // `conversation_list_invalidated` so every connected client's sidebar
@@ -552,10 +579,14 @@ function resolveCanonicalRequestSourceType(
  * Heavy dependencies (conversation-store, canonical-guardian-store, etc.) are
  * imported lazily so that loading this module during tests doesn't trigger
  * config/data-dir side effects.
+ *
+ * @param targetClientId - When set, the host_bash request should be routed to
+ *   this specific client. May be undefined for macos-origin turns.
  */
 function registerPendingInteraction(
   msg: ServerMessage,
   conversationId: string,
+  targetClientId?: string,
 ): void {
   if (msg.type === "confirmation_request") {
     pendingInteractions.register(msg.requestId, {
@@ -585,6 +616,7 @@ function registerPendingInteraction(
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "host_bash",
+      targetClientId, // NEW — may be undefined for macos-origin turns
     });
   } else if (msg.type === "host_browser_request") {
     pendingInteractions.register(msg.requestId, {
@@ -600,6 +632,11 @@ function registerPendingInteraction(
     pendingInteractions.register(msg.requestId, {
       conversationId,
       kind: "host_cu",
+    });
+  } else if (msg.type === "host_app_control_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversationId,
+      kind: "host_app_control",
     });
   } else if (msg.type === "host_transfer_request") {
     pendingInteractions.register(msg.requestId, {

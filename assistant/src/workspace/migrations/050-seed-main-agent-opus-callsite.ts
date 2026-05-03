@@ -12,7 +12,8 @@ import type { WorkspaceMigration } from "./types.js";
  *      `llm.callSites` without overwriting a user-defined override.
  *   2. **Fresh install** (config.json absent): write a minimal starter
  *      config with just this seed. `loadConfig()` runs after migrations
- *      and backfills the remaining schema defaults via `deepMergeMissing`.
+ *      and applies schema defaults to the in-memory config without
+ *      rewriting disk, so the seeded callSite is preserved as-is.
  *
  * Applied only when:
  *   - the resolved provider is Anthropic (other providers own their

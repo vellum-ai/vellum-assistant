@@ -1413,7 +1413,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     $LSE_ENVIRONMENT_PLIST
     $COMMIT_SHA_PLIST
     <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+    <string>15.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSScreenRecordingUsageDescription</key>
@@ -1564,7 +1564,7 @@ if [ -d "$XCASSETS" ]; then
         if ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
             --compile "$RESOURCES_DIR" \
             --platform macosx \
-            --minimum-deployment-target 14.0 \
+            --minimum-deployment-target 15.0 \
             --app-icon AppIcon \
             --output-partial-info-plist /dev/null \
             2>&1); then
@@ -1584,7 +1584,7 @@ if [ -d "$XCASSETS" ]; then
         if xcrun actool "$XCASSETS" \
             --compile "$RESOURCES_DIR" \
             --platform macosx \
-            --minimum-deployment-target 14.0 \
+            --minimum-deployment-target 15.0 \
             --app-icon AppIcon \
             --output-partial-info-plist /dev/null \
             2>&1; then
@@ -1891,7 +1891,7 @@ if [ -d "$QLTHUMB_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLThumbnail \
         -emit-executable \
-        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx15.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookThumbnailing \
         -framework AppKit \
@@ -1920,7 +1920,7 @@ if [ -d "$QLPREV_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLPreview \
         -emit-executable \
-        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx15.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookUI \
         -framework UniformTypeIdentifiers \

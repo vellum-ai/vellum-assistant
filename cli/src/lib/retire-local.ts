@@ -1,9 +1,9 @@
 import { spawn } from "child_process";
+import { homedir } from "os";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
 import {
-  getBaseDir,
   getDaemonPidPath,
   loadAllAssistants,
 } from "./assistant-config.js";
@@ -77,7 +77,7 @@ export async function retireLocal(
   // For named instances (instanceDir differs from the base directory),
   // archive and remove the entire instance directory. For the default
   // instance, archive only the .vellum subdirectory.
-  const isNamedInstance = resources.instanceDir !== getBaseDir();
+  const isNamedInstance = resources.instanceDir !== homedir();
   const dirToArchive = isNamedInstance ? resources.instanceDir : vellumDir;
 
   // Move the data directory out of the way so the path is immediately available

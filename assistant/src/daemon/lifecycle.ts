@@ -50,10 +50,7 @@ import {
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  selectEmbeddingBackend,
-  SPARSE_EMBEDDING_VERSION,
-} from "../memory/embedding-backend.js";
+import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
@@ -692,8 +689,11 @@ export async function runDaemon(): Promise<void> {
       if (qdrantStarted) {
         try {
           const embeddingSelection = await selectEmbeddingBackend(config);
+          // Sentinel only encodes the dense provider+model identity; sparse
+          // encoder changes never require collection recreation, so they
+          // intentionally do not contribute to the v1 collection identity.
           const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
             : undefined;
           const qdrantClient = initQdrantClient({
             url: qdrantUrl,
@@ -742,6 +742,27 @@ export async function runDaemon(): Promise<void> {
             log.warn(
               { err },
               "PKB index reconciliation failed — continuing startup",
+            );
+          }
+        })();
+
+        // Build the BM25 corpus stats (per-token document frequencies and
+        // average document length) used by the v2 sparse channel. Without
+        // this, document-side sparse embeddings fall back to legacy TF-only
+        // weighting via the chicken-and-egg guard in
+        // `embed-concept-page.ts`. Fire-and-forget for the same reason as
+        // PKB reconcile — the stats are an optional optimization, never a
+        // boot-blocking dependency.
+        void (async () => {
+          try {
+            const { rebuildConceptPageCorpusStats } =
+              await import("../memory/v2/sparse-bm25.js");
+            await rebuildConceptPageCorpusStats(getWorkspaceDir());
+            log.info("Memory v2 BM25 corpus stats built");
+          } catch (err) {
+            log.warn(
+              { err },
+              "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
             );
           }
         })();
