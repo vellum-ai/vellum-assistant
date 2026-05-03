@@ -2,6 +2,28 @@ import SwiftUI
 import VellumAssistantShared
 import Dispatch
 
+// MARK: - ProgressExpandedItem
+
+/// Represents a single item in a chronological expanded-content trace.
+/// When `AssistantProgressView.expandedItems` is provided, the expanded
+/// body renders these items in order instead of the default `toolCalls`
+/// array, allowing thinking blocks to appear interleaved with tool calls.
+enum ProgressExpandedItem: Identifiable {
+    /// A tool call to render via `ToolCallStepDetailRow`.
+    case toolCall(ToolCallData)
+    /// A thinking block to render via `ThinkingStepDetailRow`.
+    case thinking(content: String, expansionKey: String, isStreaming: Bool)
+
+    var id: String {
+        switch self {
+        case .toolCall(let tc):
+            return "tool:\(tc.id.uuidString)"
+        case .thinking(_, let key, _):
+            return "thinking:\(key)"
+        }
+    }
+}
+
 // MARK: - AssistantProgressView
 
 /// Unified container that handles all tool progress states through a single component
@@ -15,6 +37,7 @@ struct AssistantProgressView: View {
     let streamingCodePreview: String?
     let streamingCodeToolName: String?
     let decidedConfirmations: [ToolConfirmationData]
+    let expandedItems: [ProgressExpandedItem]?
     var onRehydrate: (() -> Void)?
 
     // Confirmation action callbacks (threaded from MessageListView)
@@ -60,6 +83,7 @@ struct AssistantProgressView: View {
         streamingCodePreview: String? = nil,
         streamingCodeToolName: String? = nil,
         decidedConfirmations: [ToolConfirmationData],
+        expandedItems: [ProgressExpandedItem]? = nil,
         onRehydrate: (() -> Void)? = nil,
         onConfirmationAllow: ((String) -> Void)? = nil,
         onConfirmationDeny: ((String) -> Void)? = nil,
@@ -78,6 +102,7 @@ struct AssistantProgressView: View {
         self.streamingCodePreview = streamingCodePreview
         self.streamingCodeToolName = streamingCodeToolName
         self.decidedConfirmations = decidedConfirmations
+        self.expandedItems = expandedItems
         self.onRehydrate = onRehydrate
         self.onConfirmationAllow = onConfirmationAllow
         self.onConfirmationDeny = onConfirmationDeny
@@ -698,52 +723,91 @@ struct AssistantProgressView: View {
         )
     }
 
+    /// Renders a single tool call row with its inline confirmation bubble.
+    /// Extracted from `expandedContent` so the same rendering logic is shared
+    /// between the default `toolCalls` path and the `expandedItems` path.
+    @ViewBuilder
+    private func toolCallRow(toolCall: ToolCallData, model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
+        ToolCallStepDetailRow(
+            toolCall: toolCall,
+            phase: phase,
+            isDetailExpanded: isStepExpanded(toolCall.id),
+            skillLabel: toolCall.toolName == "skill_execute" ? model.skillExecuteLabel : nil,
+            onRehydrate: onRehydrate
+        )
+
+        // Inline confirmation bubble for tool calls awaiting approval
+        if let confirmation = toolCall.pendingConfirmation {
+            ToolConfirmationBubble(
+                confirmation: confirmation,
+                isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
+                onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                onDeny: { onConfirmationDeny?(confirmation.requestId) },
+                onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
+                onTemporaryAllow: onTemporaryAllow,
+                onAllowAndSuggestRule: {
+                    // Allow the tool first
+                    if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
+                        let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+                        onAlwaysAllow?(confirmation.requestId, option.pattern, scope, "allow")
+                    } else {
+                        onConfirmationAllow?(confirmation.requestId)
+                    }
+                    // Fire the suggest API and open the rule editor with the result
+                    Task {
+                        await fetchSuggestionAndOpenEditor(for: toolCall)
+                    }
+                }
+            )
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+        }
+    }
+
+    /// Derives a `Binding<Bool>` for a thinking block's expansion state from the
+    /// shared `ProgressCardUIState`. Scoped to one string key so
+    /// `ThinkingStepDetailRow` can use it as a drop-in `@Binding`.
+    private func isThinkingExpanded(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { progressUIState.isThinkingExpanded(key) },
+            set: { newValue in
+                progressUIState.setThinkingExpanded(key, expanded: newValue)
+            }
+        )
+    }
+
     @ViewBuilder
     private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(toolCalls) { toolCall in
-                ToolCallStepDetailRow(
-                    toolCall: toolCall,
-                    phase: phase,
-                    isDetailExpanded: isStepExpanded(toolCall.id),
-                    skillLabel: toolCall.toolName == "skill_execute" ? model.skillExecuteLabel : nil,
-                    onRehydrate: onRehydrate
-                )
-
-                // Inline confirmation bubble for tool calls awaiting approval
-                if let confirmation = toolCall.pendingConfirmation {
-                    ToolConfirmationBubble(
-                        confirmation: confirmation,
-                        isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
-                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
-                        onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
-                        onTemporaryAllow: onTemporaryAllow,
-                        onAllowAndSuggestRule: {
-                            // Allow the tool first
-                            if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
-                                let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-                                onAlwaysAllow?(confirmation.requestId, option.pattern, scope, "allow")
-                            } else {
-                                onConfirmationAllow?(confirmation.requestId)
-                            }
-                            // Fire the suggest API and open the rule editor with the result
-                            Task {
-                                await fetchSuggestionAndOpenEditor(for: toolCall)
-                            }
-                        }
-                    )
-                    .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+            if let items = expandedItems {
+                // Chronological trace with interleaved tool calls and thinking blocks.
+                ForEach(items) { item in
+                    switch item {
+                    case .toolCall(let tc):
+                        toolCallRow(toolCall: tc, model: model, phase: phase)
+                    case .thinking(let content, let key, let streaming):
+                        ThinkingStepDetailRow(
+                            content: content,
+                            isStreaming: streaming,
+                            isExpanded: isThinkingExpanded(key)
+                        )
+                    }
                 }
-            }
+                // No synthetic ThinkingStepRow — thinking content is already
+                // represented in the chronological trace above.
+            } else {
+                // Default path: render tool calls from the flat array.
+                ForEach(toolCalls) { toolCall in
+                    toolCallRow(toolCall: toolCall, model: model, phase: phase)
+                }
 
-            // Synthetic "Thinking" row for the post-tool-completion thinking phase.
-            if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
-                ThinkingStepRow(
-                    startDate: thinkingStart,
-                    completedAt: thinkingAfterToolsEndDate,
-                    isActive: model.isActive
-                )
+                // Synthetic "Thinking" row for the post-tool-completion thinking phase.
+                if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
+                    ThinkingStepRow(
+                        startDate: thinkingStart,
+                        completedAt: thinkingAfterToolsEndDate,
+                        isActive: model.isActive
+                    )
+                }
             }
         }
     }
@@ -1565,6 +1629,74 @@ private struct ThinkingStepRow: View {
             }
             .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
         }
+    }
+}
+
+// MARK: - Thinking Step Detail Row
+
+/// Collapsible row for a thinking block inside a `ProgressExpandedItem` trace.
+/// Uses `VCollapsibleStepRow` with a brain icon and secondary text styling.
+/// Markdown segments are parsed lazily — only when the row is expanded — to
+/// avoid blocking the main thread for collapsed thinking blocks.
+private struct ThinkingStepDetailRow: View {
+    let content: String
+    let isStreaming: Bool
+    @Binding var isExpanded: Bool
+
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
+
+    /// Lazily parsed markdown segments. Populated on first expansion and
+    /// refreshed when the content changes while expanded.
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
+
+    private var title: String {
+        isStreaming ? "Thinking..." : "Thought process"
+    }
+
+    private var rowState: VCollapsibleStepRowState {
+        isStreaming ? .running : .succeeded
+    }
+
+    /// Syncs the markdown segment cache when the row is expanded and the
+    /// underlying content has changed. Mirrors the lazy-parse pattern used
+    /// by `ThinkingBlockView`.
+    private func syncCacheIfExpanded() {
+        guard isExpanded, cachedContent != content else { return }
+        cachedContent = content
+        cachedSegments = parseMarkdownSegments(content)
+    }
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: title,
+            state: rowState,
+            hasDetails: !content.isEmpty,
+            isExpanded: $isExpanded,
+            leadingAccessory: {
+                VIconView(.brain, size: 11)
+                    .foregroundStyle(VColor.contentSecondary)
+            },
+            detailContent: {
+                if !cachedSegments.isEmpty {
+                    MarkdownSegmentView(
+                        segments: cachedSegments,
+                        isStreaming: isStreaming,
+                        maxContentWidth: max(bubbleMaxWidth - 2 * VSpacing.sm, 0),
+                        textColor: VColor.contentSecondary,
+                        secondaryTextColor: VColor.contentTertiary,
+                        mutedTextColor: VColor.contentTertiary,
+                        tintColor: VColor.primaryBase,
+                        codeTextColor: VColor.contentDefault,
+                        codeBackgroundColor: VColor.surfaceBase
+                    )
+                    .padding(VSpacing.sm)
+                }
+            }
+        )
+        .onAppear { syncCacheIfExpanded() }
+        .onChange(of: content) { _, _ in syncCacheIfExpanded() }
+        .onChange(of: isExpanded) { _, _ in syncCacheIfExpanded() }
     }
 }
 
