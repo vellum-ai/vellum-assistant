@@ -962,19 +962,6 @@ export function updateChannelStatus(
 }
 
 /**
- * Update the lastSeenAt timestamp on a contact channel by its primary key.
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateChannelLastSeenById(channelId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({ lastSeenAt: now, updatedAt: now })
-    .where(eq(contactChannels.id, channelId))
-    .run();
-}
-
-/**
  * Update a guardian contact's principalId and its channel's identity fields.
  * Used for healing guardian binding drift when the JWT principal no longer
  * matches the stored guardian binding after a DB reset.
@@ -1035,23 +1022,6 @@ export function updateContactPrincipalAndChannel(
 
   emitContactChange();
   return true;
-}
-
-/**
- * Atomically increment interactionCount and set lastInteraction on a contact channel.
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateChannelInteraction(channelId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({
-      lastInteraction: now,
-      interactionCount: sql`${contactChannels.interactionCount} + 1`,
-      updatedAt: now,
-    })
-    .where(eq(contactChannels.id, channelId))
-    .run();
 }
 
 // ── Assistant Contact Metadata ──────────────────────────────────────
