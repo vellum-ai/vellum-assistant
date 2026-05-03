@@ -8,6 +8,7 @@ export interface HostTransferToHostRequest {
   type: "host_transfer_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   direction: "to_host";
   transferId: string;
   destPath: string;
@@ -20,6 +21,7 @@ export interface HostTransferToSandboxRequest {
   type: "host_transfer_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   direction: "to_sandbox";
   transferId: string;
   sourcePath: string;
@@ -33,6 +35,7 @@ export interface HostTransferCancelRequest {
   type: "host_transfer_cancel";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

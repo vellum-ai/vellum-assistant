@@ -12,7 +12,7 @@ import {
 } from "../../browser-session/events.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -30,21 +30,26 @@ export type HostBrowserResultResolution =
   | { ok: true }
   | {
       ok: false;
-      code: "BAD_REQUEST" | "NOT_FOUND";
-      status: 400 | 404;
+      code: "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT";
+      status: 400 | 404 | 409;
       message: string;
     };
 
 /**
- * Shared resolver used by both the HTTP route handler and the WS
- * `host_browser_result` frame handler. Looks up the pending interaction
- * by requestId, validates its kind, and forwards the response to the
- * owning conversation.
+ * Resolver for the `POST /v1/host-browser-result` HTTP route. Looks up
+ * the pending interaction by requestId, validates its kind is
+ * `host_browser`, and forwards the response to the owning conversation.
+ *
+ * NOTE: The WebSocket `host_browser_result` frame path does NOT go
+ * through this function — it is handled by `HostBrowserProxy.resolveResult`
+ * directly, which only consults `pendingInteractions` and does not
+ * currently perform a kind check. That asymmetry is pre-existing; if
+ * the WS path is ever opened to less-trusted clients, it should adopt
+ * the same kind-check guard added here.
  *
  * This function does NOT perform auth — callers are expected to have
  * already authenticated the caller (the HTTP route uses
- * `requireBoundGuardian`, the WS path relies on the JWT check performed
- * at WebSocket upgrade time).
+ * `requireBoundGuardian`).
  */
 export function resolveHostBrowserResultByRequestId(frame: {
   requestId?: unknown;
@@ -62,12 +67,22 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  if (!pendingInteractions.get(requestId)) {
+  const peeked = pendingInteractions.get(requestId);
+  if (!peeked) {
     return {
       ok: false,
       code: "NOT_FOUND",
       status: 404,
       message: "No pending browser request for this requestId",
+    };
+  }
+
+  if (peeked.kind !== "host_browser") {
+    return {
+      ok: false,
+      code: "CONFLICT",
+      status: 409,
+      message: `Pending interaction is of kind "${peeked.kind}", expected "host_browser"`,
     };
   }
 
@@ -182,6 +197,8 @@ function handleHostBrowserResult({ body }: RouteHandlerArgs) {
   if (!resolution.ok) {
     if (resolution.code === "NOT_FOUND")
       throw new NotFoundError(resolution.message);
+    if (resolution.code === "CONFLICT")
+      throw new ConflictError(resolution.message);
     throw new BadRequestError(resolution.message);
   }
 

@@ -20,9 +20,11 @@ const DEVICE_ID_SALT = "vellum-assistant-host-id";
 export interface GuardianTokenData {
   guardianPrincipalId: string;
   accessToken: string;
-  accessTokenExpiresAt: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
+  accessTokenExpiresAt: string | number;
   refreshToken: string;
-  refreshTokenExpiresAt: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
+  refreshTokenExpiresAt: string | number;
   refreshAfter: string;
   isNew: boolean;
   deviceId: string;
@@ -159,6 +161,54 @@ export function saveGuardianToken(
 }
 
 /**
+ * Call POST /v1/guardian/refresh on the remote gateway to obtain a new
+ * access token using an existing (possibly expired) access token for auth.
+ * Returns the refreshed token data (persisted locally), or null if the
+ * refresh fails (e.g. no stored token, or refresh token itself is expired).
+ */
+export async function refreshGuardianToken(
+  gatewayUrl: string,
+  assistantId: string,
+): Promise<GuardianTokenData | null> {
+  const tokenData = loadGuardianToken(assistantId);
+  if (!tokenData) return null;
+
+  // Gateway persists expiresAt as epoch-ms numbers; Date.parse("1234567890000")
+  // returns NaN. new Date() accepts both ISO strings and epoch-ms numbers.
+  const refreshExpiry = new Date(tokenData.refreshTokenExpiresAt).getTime();
+  if (!Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now()) return null;
+
+  try {
+    const response = await fetch(`${gatewayUrl}/v1/guardian/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenData.accessToken}`,
+      },
+      body: JSON.stringify({ refreshToken: tokenData.refreshToken }),
+    });
+    if (!response.ok) return null;
+
+    const json = (await response.json()) as Record<string, unknown>;
+    const refreshed: GuardianTokenData = {
+      guardianPrincipalId: (json.guardianPrincipalId as string) ?? tokenData.guardianPrincipalId,
+      accessToken: json.accessToken as string,
+      accessTokenExpiresAt: (json.accessTokenExpiresAt as string | number) ?? tokenData.accessTokenExpiresAt,
+      refreshToken: (json.refreshToken as string) ?? tokenData.refreshToken,
+      refreshTokenExpiresAt: (json.refreshTokenExpiresAt as string | number) ?? tokenData.refreshTokenExpiresAt,
+      refreshAfter: (json.refreshAfter as string) ?? tokenData.refreshAfter,
+      isNew: false,
+      deviceId: tokenData.deviceId,
+      leasedAt: new Date().toISOString(),
+    };
+    saveGuardianToken(assistantId, refreshed);
+    return refreshed;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Call POST /v1/guardian/init on the remote gateway to bootstrap a JWT
  * credential pair. The returned tokens are persisted locally under
  * `$XDG_CONFIG_HOME/vellum{-env}/assistants/<assistantId>/guardian-token.json`.
@@ -190,9 +240,9 @@ export async function leaseGuardianToken(
   const tokenData: GuardianTokenData = {
     guardianPrincipalId: json.guardianPrincipalId as string,
     accessToken: json.accessToken as string,
-    accessTokenExpiresAt: json.accessTokenExpiresAt as string,
+    accessTokenExpiresAt: json.accessTokenExpiresAt as string | number,
     refreshToken: json.refreshToken as string,
-    refreshTokenExpiresAt: json.refreshTokenExpiresAt as string,
+    refreshTokenExpiresAt: json.refreshTokenExpiresAt as string | number,
     refreshAfter: json.refreshAfter as string,
     isNew: json.isNew as boolean,
     deviceId,
@@ -248,7 +298,7 @@ export function seedGuardianTokenFromSiblingEnv(assistantId: string): boolean {
     try {
       const raw = readFileSync(sibling);
       const parsed = JSON.parse(raw.toString("utf-8")) as GuardianTokenData;
-      const refreshExpiry = Date.parse(parsed.refreshTokenExpiresAt);
+      const refreshExpiry = new Date(parsed.refreshTokenExpiresAt).getTime();
       if (!Number.isFinite(refreshExpiry) || refreshExpiry <= now) continue;
       const dir = dirname(destPath);
       if (!existsSync(dir)) {

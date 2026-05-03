@@ -42,10 +42,25 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
 
             // Scrollable content — lower priority so pinnedContent's
             // own ScrollView (e.g. TraceTimelineView) isn't starved.
+            //
+            // `.containerRelativeFrame(.horizontal)` (rather than
+            // `.frame(maxWidth: .infinity, alignment: .top)`) sizes the
+            // padded content to the ScrollView's visible width without
+            // emitting `_FlexFrameLayout`. A FlexFrame here would query
+            // `explicitAlignment` recursively on every descendant — when
+            // `content()` is a `LazyVStack` of streaming events the
+            // cascade walks every realized cell on every layout pass,
+            // O(n × depth), which has caused multi-second hangs in
+            // sibling surfaces (see clients/macos/AGENTS.md
+            // "No `_FlexFrameLayout` ... in LazyVStack" and the
+            // matching `.containerRelativeFrame` adoption in
+            // `HomeDetailPanel`).
+            //
+            // Reference: https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)
             ScrollView {
                 content()
                     .padding(contentPadding)
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .containerRelativeFrame(.horizontal, alignment: .top)
             }
             .layoutPriority(-1)
         }

@@ -13,7 +13,7 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
+import { buildServiceRunArgs } from "./docker-statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -561,10 +561,11 @@ async function buildAllImages(
 }
 
 /**
- * Returns a function that builds the `docker run` arguments for a given
- * service. All three containers share a network namespace via
- * `--network=container:` so inter-service traffic is over localhost,
- * matching the platform's Kubernetes pod topology.
+ * Build `docker run` argument arrays for each service in the StatefulSet.
+ *
+ * Delegates to `buildServiceRunArgs` from `docker-statefulset.ts`, which owns
+ * the declarative container / volume / env spec. Signature preserved for
+ * backward compatibility with callers throughout this file.
  */
 export function serviceDockerRunArgs(opts: {
   signingKey?: string;
@@ -577,206 +578,8 @@ export function serviceDockerRunArgs(opts: {
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
-  const {
-    cesServiceToken,
-    defaultWorkspaceConfigPath,
-    extraAssistantEnv,
-    gatewayPort,
-    imageTags,
-    instanceName,
-    res,
-  } = opts;
-  return {
-    assistant: () => {
-      const args: string[] = [
-        "run",
-        "--init",
-        "-d",
-        "--name",
-        res.assistantContainer,
-        `--network=${res.network}`,
-        "-p",
-        `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
-        // Published so the Meet subsystem's sibling bot containers can reach
-        // the daemon's internal HTTP API at host.docker.internal:<port>.
-        //
-        // Published on all host interfaces (no `127.0.0.1:` prefix) because on
-        // vanilla Linux Docker, `host.docker.internal:host-gateway` resolves
-        // to the Docker bridge gateway IP (e.g. 172.17.0.1), not loopback.
-        // Packets from sibling containers arrive at the host's bridge
-        // interface, and an iptables DNAT rule keyed on dest=127.0.0.1 would
-        // not match — causing connection refused. Docker Desktop (macOS/
-        // Windows) still works because its VM proxy forwards to the same
-        // published port regardless of the binding address.
-        //
-        // Security tradeoff: the daemon HTTP API is now reachable from the
-        // host's LAN (any device that can hit the host IP on this port).
-        // This matches the gateway port's existing posture and is acceptable
-        // for single-user self-hosted Docker mode per the Phase 1.8 security
-        // note. Managed/multi-tenant deployments are out of scope and would
-        // require a different design.
-        "-p",
-        `${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
-        "-v",
-        `${res.workspaceVolume}:/workspace`,
-        "-v",
-        `${res.socketVolume}:/run/ces-bootstrap`,
-        "-v",
-        `${res.assistantIpcVolume}:/run/assistant-ipc`,
-        "-v",
-        `${res.gatewayIpcVolume}:/run/gateway-ipc`,
-        "-e",
-        "IS_CONTAINERIZED=true",
-        "-e",
-        "DEBUG_STDOUT_LOGS=1",
-        "-e",
-        `VELLUM_ASSISTANT_NAME=${instanceName}`,
-        "-e",
-        "VELLUM_CLOUD=docker",
-        "-e",
-        "RUNTIME_HTTP_HOST=0.0.0.0",
-        "-e",
-        "VELLUM_WORKSPACE_DIR=/workspace",
-        "-e",
-        "VELLUM_BACKUP_DIR=/workspace/.backups",
-        "-e",
-        "VELLUM_BACKUP_KEY_PATH=/workspace/.backup.key",
-        "-e",
-        "CES_CREDENTIAL_URL=http://localhost:8090",
-        "-e",
-        `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
-        "-e",
-        "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
-        "-e",
-        "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
-      ];
-      if (defaultWorkspaceConfigPath) {
-        const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
-        args.push(
-          "-v",
-          `${defaultWorkspaceConfigPath}:${containerPath}:ro`,
-          "-e",
-          `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${containerPath}`,
-        );
-      }
-      if (cesServiceToken) {
-        args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
-      }
-      if (opts.signingKey) {
-        args.push("-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`);
-      }
-      if (opts.bootstrapSecret) {
-        // Mirror the secret into the assistant container so the runtime's
-        // guardian-bootstrap handler can validate the x-bootstrap-secret
-        // header forwarded by the gateway. Without this, the published
-        // runtime port would expose an unauthenticated token-minting
-        // endpoint reachable from the host bypassing the gateway's gate.
-        args.push("-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`);
-      }
-      for (const envVar of [
-        ...Object.values(PROVIDER_ENV_VAR_NAMES),
-        "VELLUM_ENVIRONMENT",
-        "VELLUM_PLATFORM_URL",
-      ]) {
-        if (process.env[envVar]) {
-          args.push("-e", `${envVar}=${process.env[envVar]}`);
-        }
-      }
-      if (extraAssistantEnv) {
-        for (const [key, value] of Object.entries(extraAssistantEnv)) {
-          args.push("-e", `${key}=${value}`);
-        }
-      }
-      const avatarDevice = resolveAvatarDevicePath();
-      if (existsSync(avatarDevice)) {
-        args.push(
-          "--device",
-          `${avatarDevice}:${avatarDevice}`,
-          "-e",
-          `${AVATAR_DEVICE_ENV_VAR}=${avatarDevice}`,
-        );
-      }
-      args.push(imageTags.assistant);
-      return args;
-    },
-    gateway: () => [
-      "run",
-      "--init",
-      "-d",
-      "--name",
-      res.gatewayContainer,
-      `--network=container:${res.assistantContainer}`,
-      "-v",
-      `${res.workspaceVolume}:/workspace`,
-      "-v",
-      `${res.gatewaySecurityVolume}:/gateway-security`,
-      "-v",
-      `${res.assistantIpcVolume}:/run/assistant-ipc`,
-      "-v",
-      `${res.gatewayIpcVolume}:/run/gateway-ipc`,
-      "-e",
-      "VELLUM_WORKSPACE_DIR=/workspace",
-      "-e",
-      "GATEWAY_SECURITY_DIR=/gateway-security",
-      "-e",
-      `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-      "-e",
-      "ASSISTANT_HOST=localhost",
-      "-e",
-      `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-      "-e",
-      "CES_CREDENTIAL_URL=http://localhost:8090",
-      "-e",
-      "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
-      "-e",
-      "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
-      ...(cesServiceToken
-        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
-        : []),
-      ...(opts.signingKey
-        ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
-        : []),
-      ...(opts.bootstrapSecret
-        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
-        : []),
-      ...(process.env.VELLUM_ENVIRONMENT
-        ? ["-e", `VELLUM_ENVIRONMENT=${process.env.VELLUM_ENVIRONMENT}`]
-        : []),
-      ...(process.env.VELLUM_PLATFORM_URL
-        ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
-        : []),
-      ...(process.env.VELAY_BASE_URL
-        ? ["-e", `VELAY_BASE_URL=${process.env.VELAY_BASE_URL}`]
-        : []),
-      imageTags.gateway,
-    ],
-    "credential-executor": () => [
-      "run",
-      "--init",
-      "-d",
-      "--name",
-      res.cesContainer,
-      `--network=container:${res.assistantContainer}`,
-      "-v",
-      `${res.socketVolume}:/run/ces-bootstrap`,
-      "-v",
-      `${res.workspaceVolume}:/workspace:ro`,
-      "-v",
-      `${res.cesSecurityVolume}:/ces-security`,
-      "-e",
-      "CES_MODE=managed",
-      "-e",
-      "VELLUM_WORKSPACE_DIR=/workspace",
-      "-e",
-      "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-      "-e",
-      "CREDENTIAL_SECURITY_DIR=/ces-security",
-      ...(cesServiceToken
-        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
-        : []),
-      imageTags["credential-executor"],
-    ],
-  };
+  const avatarDevice = resolveAvatarDevicePath();
+  return buildServiceRunArgs({ ...opts, avatarDevicePath: avatarDevice });
 }
 
 /** The order in which services must be started. */

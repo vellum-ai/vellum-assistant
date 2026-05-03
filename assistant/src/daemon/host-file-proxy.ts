@@ -67,9 +67,35 @@ export class HostFileProxy {
     input: HostFileInput,
     conversationId: string,
     signal?: AbortSignal,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
+    }
+
+    // Resolve targetClientId: explicit → validate; single capable client → auto-resolve.
+    // Callers may embed targetClientId in the input object (tool handlers) or pass it as
+    // the 4th parameter (legacy). Prefer the explicit param; fall back to input field.
+    let resolvedTargetClientId: string | undefined = targetClientId ?? input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      const capable = assistantEventHub.listClientsByCapability("host_file");
+      if (capable.length === 1) {
+        resolvedTargetClientId = capable[0].clientId;
+      }
     }
 
     const requestId = uuid();
@@ -86,7 +112,9 @@ export class HostFileProxy {
           "Host file proxy request timed out",
         );
         resolve({
-          content: "Host file proxy timed out waiting for client response",
+          content: resolvedTargetClientId
+            ? `Host file proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+            : "Host file proxy timed out waiting for client response",
           isError: true,
         });
       }, timeoutSec * 1000);
@@ -96,11 +124,18 @@ export class HostFileProxy {
           if (pendingInteractions.get(requestId)) {
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_file_cancel",
-                requestId,
+              broadcastMessage(
+                {
+                  type: "host_file_cancel",
+                  requestId,
+                  conversationId,
+                  ...(resolvedTargetClientId != null
+                    ? { targetClientId: resolvedTargetClientId }
+                    : {}),
+                },
                 conversationId,
-              });
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
               // Best-effort cancel notification
             }
@@ -114,6 +149,7 @@ export class HostFileProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_file",
+        targetClientId: resolvedTargetClientId,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -122,12 +158,21 @@ export class HostFileProxy {
       });
 
       try {
-        broadcastMessage({
-          ...input,
-          type: "host_file_request",
-          requestId,
+        broadcastMessage(
+          {
+            ...input,
+            type: "host_file_request",
+            requestId,
+            conversationId,
+            // Always include in message body so the receiving client can verify
+            // which endpoint was targeted (even when auto-resolved).
+            ...(resolvedTargetClientId != null
+              ? { targetClientId: resolvedTargetClientId }
+              : {}),
+          },
           conversationId,
-        });
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
         pendingInteractions.resolve(requestId);
         log.warn(
@@ -142,7 +187,7 @@ export class HostFileProxy {
   /**
    * Process a client result and resolve the RPC. Called by route handlers.
    */
-  resolveResult(
+  resolve(
     requestId: string,
     response: { content: string; isError: boolean; imageData?: string },
   ): void {
@@ -173,11 +218,18 @@ export class HostFileProxy {
     for (const entry of pendingInteractions.getByKind("host_file")) {
       pendingInteractions.resolve(entry.requestId);
       try {
-        broadcastMessage({
-          type: "host_file_cancel",
-          requestId: entry.requestId,
-          conversationId: entry.conversationId,
-        });
+        broadcastMessage(
+          {
+            type: "host_file_cancel",
+            requestId: entry.requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId as string | undefined },
+        );
       } catch {
         // Best-effort cancel notification
       }

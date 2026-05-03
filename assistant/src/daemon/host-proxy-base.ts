@@ -34,8 +34,12 @@ const log = getLogger("host-proxy-base");
  * narrowing is impossible — subclasses are responsible for passing event
  * names that match a real `ServerMessage` variant.
  */
-function broadcastDynamic(envelope: Record<string, unknown>): void {
-  broadcastMessage(envelope as unknown as ServerMessage);
+function broadcastDynamic(envelope: Record<string, unknown>, targetClientId?: string): void {
+  broadcastMessage(
+    envelope as unknown as ServerMessage,
+    undefined,
+    targetClientId ? { targetClientId } : undefined,
+  );
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -63,6 +67,7 @@ interface PendingEntry<TResultPayload> {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   conversationId: string;
+  targetClientId?: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -131,6 +136,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
     conversationId: string,
     signal?: AbortSignal,
     extraFields?: Record<string, unknown>,
+    targetClientId?: string,
   ): Promise<TResultPayload> {
     const requestId = uuid();
 
@@ -162,7 +168,8 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
                 type: this.cancelEventName,
                 requestId,
                 conversationId,
-              });
+                targetClientId,
+              }, targetClientId);
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -178,6 +185,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
         reject,
         timer,
         conversationId,
+        targetClientId,
         detachAbort,
       });
 
@@ -188,8 +196,9 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
           conversationId,
           toolName,
           input,
+          targetClientId,
           ...(extraFields ?? {}),
-        });
+        }, targetClientId);
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -246,7 +255,8 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
           type: this.cancelEventName,
           requestId,
           conversationId: entry.conversationId,
-        });
+          targetClientId: entry.targetClientId,
+        }, entry.targetClientId);
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }

@@ -1,4 +1,8 @@
 import { randomBytes } from "crypto";
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 
 import type { AssistantEntry } from "./assistant-config.js";
 import { saveAssistantEntry } from "./assistant-config.js";
@@ -17,6 +21,62 @@ import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
+
+// ---------------------------------------------------------------------------
+// Failure log capture
+// ---------------------------------------------------------------------------
+
+/** XDG-compliant directory for upgrade failure logs */
+function getUpgradeLogsDir(): string {
+  const stateHome =
+    process.env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
+  return join(stateHome, "vellum", "upgrade-logs");
+}
+
+/**
+ * Capture stdout/stderr from all three containers after a readiness failure
+ * and write them to an XDG state directory. Returns the directory path so
+ * the caller can print it for the user.
+ *
+ * Runs best-effort — never throws.
+ */
+export async function captureUpgradeFailureLogs(
+  res: ReturnType<typeof dockerResourceNames>,
+  label: string,
+): Promise<string | null> {
+  const isoTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const logDir = join(getUpgradeLogsDir(), `${label}-${isoTimestamp}`);
+  try {
+    mkdirSync(logDir, { recursive: true });
+
+    const containers: [string, string][] = [
+      [res.assistantContainer, "assistant.log"],
+      [res.gatewayContainer, "gateway.log"],
+      [res.cesContainer, "credential-executor.log"],
+    ];
+
+    for (const [container, filename] of containers) {
+      try {
+        // Capture stdout + stderr together so container logs written to either
+        // stream (docker logs writes container stdout→stdout, stderr→stderr)
+        // are preserved in a single file. spawnSync avoids the execOutput
+        // limitation of returning only stdout on success.
+        const result = spawnSync("docker", ["logs", "--tail", "500", container], {
+          encoding: "utf8",
+          maxBuffer: 10 * 1024 * 1024, // 10 MB
+        });
+        const output = [result.stdout, result.stderr].filter(Boolean).join("");
+        if (output) writeFileSync(join(logDir, filename), output);
+      } catch {
+        // Container may not exist or may have already been removed
+      }
+    }
+
+    return existsSync(logDir) ? logDir : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shared constants & builders for upgrade / rollback lifecycle events
@@ -733,6 +793,11 @@ export async function performDockerRollback(
   } else {
     // Failure path — attempt auto-rollback to original version
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
+
+    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-rollback-failure`);
+    if (logDir) {
+      console.log(`📋 Container logs saved to: ${logDir}`);
+    }
 
     if (currentImageRefs) {
       await broadcastUpgradeEvent(

@@ -8,14 +8,14 @@ import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-cu-result
 // ---------------------------------------------------------------------------
 
-function handleHostCuResult({ body }: RouteHandlerArgs) {
+function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -61,6 +61,20 @@ function handleHostCuResult({ body }: RouteHandlerArgs) {
     throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_cu"`,
     );
+  }
+
+  // Validate submitting client matches the targeted client (if any).
+  if (peeked.targetClientId != null) {
+    const rawClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    const submittingClientId = rawClientId?.trim() || undefined;
+    if (!submittingClientId) {
+      throw new BadRequestError("x-vellum-client-id header is missing for a targeted host CU request.");
+    }
+    if (submittingClientId !== peeked.targetClientId) {
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
   }
 
   const conversation = findConversation(peeked.conversationId);
@@ -121,6 +135,24 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host CU request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this request.",
+      },
+      "404": {
+        description:
+          "No pending interaction found for the given requestId, or the conversation/proxy no longer exists.",
+      },
+      "409": {
+        description:
+          "Pending interaction exists but is of a different kind (e.g. host_bash, host_file).",
+      },
+    },
     handler: handleHostCuResult,
   },
 ];

@@ -19,6 +19,7 @@ struct SidebarConversationItem: View, Equatable {
     var onArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
+    var onMarkRead: () -> Void
     var onDragStart: () -> Void
     var onAnalyze: (() -> Void)?
     var onOpenInNewWindow: (() -> Void)?
@@ -61,6 +62,12 @@ struct SidebarConversationItem: View, Equatable {
             conversation.latestAssistantMessageAt != nil
     }
 
+    private var canMarkRead: Bool {
+        conversation.hasUnseenLatestAssistantMessage &&
+            !conversation.shouldSuppressUnreadIndicator &&
+            conversation.conversationId != nil
+    }
+
     @ViewBuilder
     private var contextMenuContent: some View {
         VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
@@ -75,10 +82,16 @@ struct SidebarConversationItem: View, Equatable {
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
                 onArchive()
             }
-            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-                onMarkUnread()
+            if canMarkRead {
+                VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark as read") {
+                    onMarkRead()
+                }
+            } else {
+                VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                    onMarkUnread()
+                }
+                .disabled(!canMarkUnread)
             }
-            .disabled(!canMarkUnread)
         }
 
         if !conversation.isChannelConversation, let onAnalyze {

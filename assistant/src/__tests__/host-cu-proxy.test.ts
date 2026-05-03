@@ -973,4 +973,8 @@ describe("HostCuProxy", () => {
       expect(proxy.isAvailable()).toBe(true);
     });
   });
+
+  // targetClientId validation lives at the surfaceProxyResolver layer (so an
+  // invalid ID does not burn a step or pollute action history before being
+  // rejected). See cu-unified-flow.test.ts for those tests.
 });

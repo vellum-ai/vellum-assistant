@@ -888,7 +888,7 @@ jobs:
           COMMIT_SHA="${{ github.sha }}" \
           VELLUM_ENVIRONMENT=dev \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
-          SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/dev-latest/appcast.xml" \
+          SU_FEED_URL="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/appcast.xml" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release 2>&1 | while IFS= read -r line; do
@@ -1074,7 +1074,7 @@ jobs:
                 <sparkle:version>${BUILD_VERSION}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
                 <enclosure
-                  url="https://github.com/${REPO}/releases/download/dev-latest/vellum-assistant-dev.zip"
+                  url="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/vellum-assistant-dev.zip"
                   sparkle:edSignature="${SIGNATURE}"
                   length="${SIZE}"
                   type="application/octet-stream" />
@@ -1107,23 +1107,20 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   # ── Sparkle Rolling Release ────────────────────────────────────────────
-  # Maintain a rolling `dev-latest` GitHub pre-release with the signed
-  # Sparkle ZIP + appcast so existing dev installs can self-update via
-  # Sparkle's standard appcast polling.
+  # ── Upload Sparkle artifacts to GCS ───────────────────────────────────
+  # Push appcast.xml + ZIP to the public vellum-nonprod-sparkle GCS bucket.
+  # Dev macOS builds have SUFeedURL pointing here, so Sparkle auto-updates
+  # work without creating GitHub releases.
 
-  publish-sparkle:
+  upload-sparkle:
     needs: [compute-version, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
       - name: Download Sparkle artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1136,43 +1133,36 @@ jobs:
           name: dev-dmg
           path: dmg-artifacts
 
-      - name: Update dev-latest rolling release
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Sparkle artifacts to GCS
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
-          TAG="dev-latest"
-          REPO="${{ github.repository }}"
+          BUCKET="vellum-nonprod-sparkle"
 
           ZIP=$(find sparkle-artifacts -name "*.zip" -type f | head -1)
           APPCAST=$(find sparkle-artifacts -name "appcast.xml" -type f | head -1)
           DMG=$(find dmg-artifacts -name "*.dmg" -type f | head -1)
 
           if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
-            echo "::warning::Sparkle artifacts not found, skipping rolling release"
+            echo "::warning::Sparkle artifacts not found, skipping GCS upload"
             exit 0
           fi
 
-          # Delete existing release if present (gh release upload --clobber
-          # doesn't update the release body/title).
-          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gcloud storage cp "$ZIP" "gs://${BUCKET}/dev/vellum-assistant-dev.zip"
+          gcloud storage cp "$APPCAST" "gs://${BUCKET}/dev/appcast.xml"
+          [ -n "$DMG" ] && gcloud storage cp "$DMG" "gs://${BUCKET}/dev/vellum-assistant-dev.dmg"
 
-          ASSETS=("$ZIP#vellum-assistant-dev.zip" "$APPCAST#appcast.xml")
-          [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant-dev.dmg")
-
-          gh release create "$TAG" \
-            "${ASSETS[@]}" \
-            --repo "$REPO" \
-            --title "Dev Build ${VERSION}" \
-            --notes "Rolling dev release for Sparkle auto-update. Version: ${VERSION}" \
-            --prerelease
-
-          echo "Updated dev-latest rolling release with ${VERSION}"
+          echo "Uploaded Sparkle artifacts to gs://${BUCKET}/dev/ (version=${VERSION})"
 
   # ── Dispatch iOS release to platform repo ────────────────────────────
 
   dispatch-ios-release:
-    needs: [compute-version, register-release, publish-sparkle, build-chrome-extension]
+    needs: [compute-version, register-release, upload-sparkle, build-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev

@@ -11,7 +11,14 @@ import {
 /**
  * Result type shared by both sandbox and host path policies.
  */
-export type PathFailureReason = "not_absolute" | "out_of_bounds";
+export type PathFailureReason = "not_absolute" | "out_of_bounds" | "denied";
+
+/**
+ * Basenames that must never be read or written by the assistant, regardless
+ * of where they resolve. Defense-in-depth: even if a key file is accidentally
+ * placed inside the workspace boundary, the assistant cannot access it.
+ */
+const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
 
 export type PathResult =
   | { ok: true; resolved: string }
@@ -106,6 +113,16 @@ export function sandboxPolicy(
     };
   }
 
+  // Check both the logical path and the symlink-resolved path so a symlink
+  // with a non-denied name pointing at a denied file is still caught.
+  if (DENIED_BASENAMES.has(basename(resolved)) || DENIED_BASENAMES.has(basename(realResolved))) {
+    return {
+      ok: false,
+      reason: "denied",
+      error: `Access to "${basename(resolved)}" is denied`,
+    };
+  }
+
   return { ok: true, resolved };
 }
 
@@ -123,6 +140,13 @@ export function hostPolicy(rawPath: string): PathResult {
       ok: false,
       reason: "not_absolute",
       error: `path must be absolute for host file access: ${rawPath}`,
+    };
+  }
+  if (DENIED_BASENAMES.has(basename(rawPath))) {
+    return {
+      ok: false,
+      reason: "denied",
+      error: `Access to "${basename(rawPath)}" is denied`,
     };
   }
   return { ok: true, resolved: rawPath };

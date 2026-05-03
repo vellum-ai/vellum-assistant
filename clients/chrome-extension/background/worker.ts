@@ -457,16 +457,34 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
       ? `${baseUrl}/v1/host-browser-event`
       : `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/host-browser-event`;
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (mode.kind === "vellum-cloud" && mode.token) {
-    headers["authorization"] = `Bearer ${mode.token}`;
-  } else if (mode.kind === "self-hosted" && selfHostedPairToken) {
+  if (mode.kind === "vellum-cloud") {
+    if (mode.token) {
+      headers["authorization"] = `Bearer ${mode.token}`;
+    }
+    if (mode.organizationId) {
+      headers["Vellum-Organization-Id"] = mode.organizationId;
+    }
+    // Fire-and-forget: we can't await getCsrfToken here, but cloud mode uses
+    // session-cookie auth and the CSRF token is still needed for Django's
+    // SessionAuthentication. Use a best-effort inline fetch.
+    void getCsrfToken(baseUrl).then((csrfToken) => {
+      if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
+    return;
+  } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
   }
   void fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(envelope),
-    credentials: mode.kind === "vellum-cloud" ? "include" : "omit",
+    credentials: "omit",
   }).catch(() => {
     /* fire and forget */
   });
@@ -487,16 +505,31 @@ function dispatchHostBrowserSessionInvalidated(
       ? `${baseUrl}/v1/host-browser-session-invalidated`
       : `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/host-browser-session-invalidated`;
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (mode.kind === "vellum-cloud" && mode.token) {
-    headers["authorization"] = `Bearer ${mode.token}`;
-  } else if (mode.kind === "self-hosted" && selfHostedPairToken) {
+  if (mode.kind === "vellum-cloud") {
+    if (mode.token) {
+      headers["authorization"] = `Bearer ${mode.token}`;
+    }
+    if (mode.organizationId) {
+      headers["Vellum-Organization-Id"] = mode.organizationId;
+    }
+    void getCsrfToken(baseUrl).then((csrfToken) => {
+      if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
+    return;
+  } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
   }
   void fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(envelope),
-    credentials: mode.kind === "vellum-cloud" ? "include" : "omit",
+    credentials: "omit",
   }).catch(() => {
     /* fire and forget */
   });

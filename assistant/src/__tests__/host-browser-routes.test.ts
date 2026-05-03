@@ -41,7 +41,11 @@ const pendingInteractions = await import("../runtime/pending-interactions.js");
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/host-browser-routes.js";
 
 afterAll(() => {
@@ -97,6 +101,25 @@ describe("handleHostBrowserResult", () => {
         },
       }),
     ).toThrow(NotFoundError);
+  });
+
+  test("kind mismatch: throws ConflictError when pending interaction is not host_browser", () => {
+    const requestId = "bash-req-kind-mismatch";
+    pendingInteractions.register(requestId, {
+      conversationId: "conv-1",
+      kind: "host_bash", // wrong kind
+    });
+
+    expect(() =>
+      handleHostBrowserResult({
+        body: { requestId, content: "x", isError: false },
+      }),
+    ).toThrow(ConflictError);
+
+    // Interaction must NOT have been consumed — the bash proxy can still resolve it
+    expect(pendingInteractions.get(requestId)).toBeDefined();
+    // resolveResult should never have been called
+    expect(resolveSpy).toHaveLength(0);
   });
 
   test("defaults: missing content/isError default to '' and false", async () => {

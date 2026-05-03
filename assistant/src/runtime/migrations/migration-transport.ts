@@ -61,30 +61,30 @@ export interface ValidationError {
   path?: string;
 }
 
-export interface ManifestFileEntry {
+interface ManifestFileEntry {
   path: string;
   sha256: string;
   size_bytes: number;
 }
 
-export interface ManifestAssistantInfo {
+interface ManifestAssistantInfo {
   id: string;
   name: string;
   runtime_version: string;
 }
 
-export interface ManifestOrigin {
+interface ManifestOrigin {
   mode: "managed" | "self-hosted-remote" | "self-hosted-local";
   platform_version?: string;
   hostname?: string;
 }
 
-export interface ManifestCompatibility {
+interface ManifestCompatibility {
   min_runtime_version: string;
   max_runtime_version: string | null;
 }
 
-export interface ManifestExportOptions {
+interface ManifestExportOptions {
   include_logs: boolean;
   include_browser_state: boolean;
   include_memory_vectors: boolean;
@@ -142,7 +142,7 @@ export interface ExportManagedResult {
   status: string;
 }
 
-export type ExportResult = ExportRuntimeResult | ExportManagedResult;
+type ExportResult = ExportRuntimeResult | ExportManagedResult;
 
 // ---------------------------------------------------------------------------
 // Import preflight
@@ -600,7 +600,7 @@ export async function pollImportStatus(
 // Convenience: poll until terminal state
 // ---------------------------------------------------------------------------
 
-export interface PollOptions {
+interface PollOptions {
   /** Polling interval in milliseconds. Defaults to 2000. */
   intervalMs?: number;
   /** Maximum number of polls before giving up. Defaults to 60. */

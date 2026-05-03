@@ -87,6 +87,7 @@ struct ConversationSwitcherDrawer: View {
                 sidebar.renameText = conversation.title
             },
             onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
+            onMarkRead: { conversationManager.markConversationSeen(conversationId: conversation.id) },
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },

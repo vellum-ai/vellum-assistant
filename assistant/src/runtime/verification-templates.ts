@@ -42,9 +42,6 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   CHANNEL_BOOTSTRAP_BOUND: "guardian_verify.channel.bootstrap_bound",
 } as const;
 
-export type GuardianVerifyTemplateKey =
-  (typeof GUARDIAN_VERIFY_TEMPLATE_KEYS)[keyof typeof GUARDIAN_VERIFY_TEMPLATE_KEYS];
-
 /** Template keys for Telegram/Slack text-based verification messages. */
 type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED
@@ -56,7 +53,7 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND;
 
 /** Template keys for deterministic channel verification reply messages. */
-export type ChannelVerifyReplyTemplateKey =
+type ChannelVerifyReplyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND;
@@ -65,18 +62,18 @@ export type ChannelVerifyReplyTemplateKey =
 // Template Variables
 // ---------------------------------------------------------------------------
 
-export interface GuardianVerifyTemplateVars {
+interface GuardianVerifyTemplateVars {
   code: string;
   expiresInMinutes: number;
   assistantName?: string;
 }
 
-export interface GuardianVerifyVoiceTemplateVars {
+interface GuardianVerifyVoiceTemplateVars {
   /** Number of digits in the verification code. */
   codeDigits: number;
 }
 
-export interface ChannelVerifyReplyVars {
+interface ChannelVerifyReplyVars {
   /** Failure reason (anti-oracle: generic message). Only used for failed template. */
   failureReason?: string;
   /** Drives different success copy for guardian vs trusted contact verification. */

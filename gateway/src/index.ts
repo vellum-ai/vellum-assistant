@@ -101,6 +101,11 @@ import {
   createMigrationJobStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
+import {
+  createListBackupsHandler,
+  createBackupSnapshotHandler,
+} from "./backup/backup-routes.js";
+import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -127,6 +132,7 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
+import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import { logAuthBypassState } from "./http/middleware/auth.js";
 import {
@@ -404,6 +410,10 @@ async function main() {
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
+
+  const backupDeps = { assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl };
+  const handleListBackups = createListBackupsHandler(backupDeps);
+  const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
 
   const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
@@ -977,6 +987,22 @@ async function main() {
       auth: "edge-scoped",
       scope: "admin.write",
       handler: (req) => migrationRollbackProxy(req),
+    },
+
+    // ── Backups ──
+    {
+      path: "/v1/backups",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleListBackups(req),
+    },
+    {
+      path: "/v1/backups/create",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleCreateBackup(req),
     },
 
     // ── Channel readiness ──
@@ -1651,6 +1677,20 @@ async function main() {
         }
 
         const forward = async () => {
+          // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
+          // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          if (normalized.event.actor.actorExternalId) {
+            void upsertContactChannel({
+              sourceChannel: "slack",
+              externalUserId: normalized.event.actor.actorExternalId,
+              ...(normalized.event.source.chatType === "im"
+                ? { externalChatId: normalized.event.message.conversationExternalId }
+                : {}),
+              displayName: normalized.event.actor.displayName,
+              username: normalized.event.actor.username,
+            }).catch(() => {});
+          }
+
           try {
             // Download and upload attachments if present (skip for edits and
             // callback actions — edits only update text, callbacks have no media)
@@ -1978,6 +2018,11 @@ async function main() {
 
   void refreshRouteSchema();
 
+  // ── Backup worker ──
+  const backupWorkerHandle = startBackupWorker({
+    assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+  });
+
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
 
@@ -2023,6 +2068,7 @@ async function main() {
     draining = true;
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
+    backupWorkerHandle.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();

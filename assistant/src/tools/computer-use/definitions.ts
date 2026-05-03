@@ -63,6 +63,11 @@ export const computerUseClickTool: Tool = {
             description:
               "Explanation of what you see and why you are clicking here",
           },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["reasoning"],
       },
@@ -98,6 +103,11 @@ export const computerUseTypeTextTool: Tool = {
           reasoning: {
             type: "string",
             description: "Explanation of what you are typing and why",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
           },
         },
         required: ["text", "reasoning"],
@@ -135,6 +145,11 @@ export const computerUseKeyTool: Tool = {
           reasoning: {
             type: "string",
             description: "Explanation of why you are pressing this key",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
           },
         },
         required: ["key", "reasoning"],
@@ -189,6 +204,11 @@ export const computerUseScrollTool: Tool = {
           reasoning: {
             type: "string",
             description: "Explanation of why you are scrolling",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
           },
         },
         required: ["direction", "amount", "reasoning"],
@@ -250,6 +270,11 @@ export const computerUseDragTool: Tool = {
             type: "string",
             description: "Explanation of what you are dragging and why",
           },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["reasoning"],
       },
@@ -284,6 +309,11 @@ export const computerUseWaitTool: Tool = {
           reasoning: {
             type: "string",
             description: "Explanation of what you are waiting for",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
           },
         },
         required: ["duration_ms", "reasoning"],
@@ -323,6 +353,11 @@ export const computerUseOpenAppTool: Tool = {
             description:
               "Explanation of why you need to open or switch to this app",
           },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["app_name", "reasoning"],
       },
@@ -359,6 +394,11 @@ export const computerUseRunAppleScriptTool: Tool = {
             type: "string",
             description:
               "Explanation of what this script does and why AppleScript is better than UI interaction for this step",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
           },
         },
         required: ["script", "reasoning"],

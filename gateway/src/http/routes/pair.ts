@@ -39,8 +39,8 @@ const log = getLogger("pair");
 const RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
-/** Pair tokens are valid for one hour — long enough for a working session. */
-const PAIR_TOKEN_TTL_SECONDS = 3600;
+/** Pair tokens are valid for 24 hours — covers extended sessions and SSE reconnects. */
+const PAIR_TOKEN_TTL_SECONDS = 86400;
 
 const DAEMON_INTERNAL_ASSISTANT_ID = "self";
 
@@ -130,23 +130,27 @@ function isLoopbackHostHeader(host: string | null): boolean {
 // Guardian resolution
 // ---------------------------------------------------------------------------
 
-interface GuardianLookupRow {
-  guardianId: string;
+interface GuardianPrincipalRow {
+  principalId: string | null;
 }
 
-async function resolveLocalGuardianId(): Promise<string> {
+async function resolveLocalGuardianPrincipalId(): Promise<string> {
   try {
-    const rows = await assistantDbQuery<GuardianLookupRow>(
-      "SELECT guardianId FROM guardians LIMIT 1",
+    const rows = await assistantDbQuery<GuardianPrincipalRow>(
+      `SELECT c.principal_id AS principalId
+       FROM contacts c
+       JOIN contact_channels cc ON cc.contact_id = c.id
+       WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
+       LIMIT 1`,
       [],
     );
-    if (rows.length > 0 && rows[0].guardianId) {
-      return rows[0].guardianId;
+    if (rows.length > 0 && rows[0].principalId) {
+      return rows[0].principalId;
     }
   } catch (err) {
     log.warn(
       { err },
-      "Failed to look up local vellum guardian; falling back to 'local'",
+      "Failed to look up local guardian principal; falling back to 'local'",
     );
   }
   return "local";
@@ -257,13 +261,14 @@ export async function handlePair(
     );
   }
 
-  const guardianId = await resolveLocalGuardianId();
+  const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
+  const assistantId = getExternalAssistantId();
 
   if (interfaceId === "chrome-extension") {
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;
     const token = mintToken({
       aud: "vellum-gateway",
-      sub: `guardian:${guardianId}`,
+      sub: `actor:${assistantId}:${guardianPrincipalId}`,
       scope_profile: "actor_client_v1",
       policy_epoch: CURRENT_POLICY_EPOCH,
       ttlSeconds: PAIR_TOKEN_TTL_SECONDS,
@@ -271,14 +276,14 @@ export async function handlePair(
     const expiresAtIso = new Date(expiresAt).toISOString();
 
     log.info(
-      { interfaceId, clientId, guardianId, expiresAt: expiresAtIso },
+      { interfaceId, clientId, guardianPrincipalId, expiresAt: expiresAtIso },
       "Client paired successfully via loopback",
     );
 
     return Response.json({
       token,
       expiresAt: expiresAtIso,
-      guardianId,
+      guardianId: guardianPrincipalId,
       assistantId: getExternalAssistantId(),
     });
   }

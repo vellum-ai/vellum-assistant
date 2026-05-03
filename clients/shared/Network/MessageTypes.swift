@@ -1618,6 +1618,9 @@ public struct HostFileRequest: Decodable, Sendable {
     public let oldString: String?
     public let newString: String?
     public let replaceAll: Bool?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostFileProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, operation, path
@@ -1625,6 +1628,7 @@ public struct HostFileRequest: Decodable, Sendable {
         case oldString = "old_string"
         case newString = "new_string"
         case replaceAll = "replace_all"
+        case targetClientId
     }
 }
 
@@ -1663,6 +1667,9 @@ public struct HostCuRequest: Decodable, Sendable {
     public let input: [String: AnyCodable]
     public let stepNumber: Int
     public let reasoning: String?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostCuProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1672,6 +1679,7 @@ public struct HostCuRequest: Decodable, Sendable {
         case input
         case stepNumber
         case reasoning
+        case targetClientId
     }
 }
 
@@ -2036,11 +2044,15 @@ public struct HostTransferRequest: Decodable, Sendable {
     public let sizeBytes: Int?
     public let sha256: String?
     public let overwrite: Bool?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostTransferProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, direction
         case transferId, destPath, sourcePath, sizeBytes
         case sha256, overwrite
+        case targetClientId
     }
 }
 

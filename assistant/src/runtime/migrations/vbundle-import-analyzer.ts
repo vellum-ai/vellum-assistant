@@ -44,9 +44,9 @@ const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 // Public types
 // ---------------------------------------------------------------------------
 
-export type ImportAction = "create" | "overwrite" | "unchanged" | "skip";
+type ImportAction = "create" | "overwrite" | "unchanged" | "skip";
 
-export interface ImportFileReport {
+interface ImportFileReport {
   /** Archive path (e.g. "data/db/assistant.db") */
   path: string;
   /** What would happen to this file on import */
@@ -61,7 +61,7 @@ export interface ImportFileReport {
   current_sha256: string | null;
 }
 
-export interface ImportConflict {
+interface ImportConflict {
   code: string;
   message: string;
   path?: string;
@@ -231,7 +231,7 @@ function sha256Hex(data: Uint8Array): string {
 // Core analyzer
 // ---------------------------------------------------------------------------
 
-export interface AnalyzeImportOptions {
+interface AnalyzeImportOptions {
   /** The parsed and validated manifest from the bundle */
   manifest: ManifestType;
   /** Resolves archive paths to disk paths for comparison */

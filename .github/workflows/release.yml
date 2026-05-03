@@ -1468,7 +1468,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
-            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
+            export SU_FEED_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -1707,7 +1707,7 @@ jobs:
 
           REPO="${{ github.repository }}"
           if [ "$IS_STAGING" = "true" ]; then
-            DOWNLOAD_URL="https://github.com/${REPO}/releases/download/staging-latest/vellum-assistant.zip"
+            DOWNLOAD_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/vellum-assistant.zip"
             TITLE="Vellum Staging"
           else
             DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/vellum-assistant.zip"
@@ -1898,7 +1898,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
-            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
+            export SU_FEED_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -2606,61 +2606,52 @@ jobs:
           done
 
   # ── Sparkle Rolling Release (Staging) ──────────────────────────────────
-  # Maintain a rolling `staging-latest` GitHub pre-release with the signed
-  # Sparkle ZIP + appcast so existing staging installs can self-update.
+  # ── Upload Sparkle artifacts to GCS (staging) ─────────────────────────
+  # Push appcast.xml + ZIP to the public vellum-staging-sparkle GCS bucket.
+  # Staging macOS builds have SUFeedURL pointing here, keeping GitHub
+  # releases clean (no staging pre-releases on the public releases page).
 
-  publish-sparkle-staging:
+  upload-sparkle-staging:
     needs: [extract-version, build-macos-arm64]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: staging
     permissions:
-      contents: write
+      contents: read
+      id-token: write
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
       - name: Download macOS build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-build
           path: macos-artifacts
 
-      - name: Update staging-latest rolling release
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Sparkle artifacts to GCS
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
-          TAG="staging-latest"
-          REPO="${{ github.repository }}"
+          BUCKET="vellum-staging-sparkle"
 
           ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
           APPCAST=$(find macos-artifacts -name "appcast.xml" -type f | head -1)
           DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
 
           if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
-            echo "::warning::Sparkle artifacts not found, skipping rolling release"
+            echo "::warning::Sparkle artifacts not found, skipping GCS upload"
             exit 0
           fi
 
-          # Delete existing release if present
-          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gcloud storage cp "$ZIP" "gs://${BUCKET}/staging/vellum-assistant.zip"
+          gcloud storage cp "$APPCAST" "gs://${BUCKET}/staging/appcast.xml"
+          [ -n "$DMG" ] && gcloud storage cp "$DMG" "gs://${BUCKET}/staging/vellum-assistant.dmg"
 
-          ASSETS=("$ZIP#vellum-assistant.zip" "$APPCAST#appcast.xml")
-          [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
-
-          gh release create "$TAG" \
-            "${ASSETS[@]}" \
-            --repo "$REPO" \
-            --title "Staging Build ${VERSION}" \
-            --notes "Rolling staging release for Sparkle auto-update. Version: ${VERSION}" \
-            --prerelease
-
-          echo "Updated staging-latest rolling release with ${VERSION}"
+          echo "Uploaded staging Sparkle artifacts to gs://${BUCKET}/staging/ (version=${VERSION})"
 
   notify-staging-dmg:
     name: Slack Notification (Staging DMG Ready)

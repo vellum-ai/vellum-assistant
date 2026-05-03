@@ -8,14 +8,14 @@ import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-file-result
 // ---------------------------------------------------------------------------
 
-function handleHostFileResult({ body }: RouteHandlerArgs) {
+function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -42,7 +42,21 @@ function handleHostFileResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  HostFileProxy.instance.resolveResult(requestId, {
+  // Validate submitting client matches the targeted client (if any).
+  if (peeked.targetClientId != null) {
+    const rawClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
+    const submittingClientId = rawClientId?.trim() || undefined;
+    if (!submittingClientId) {
+      throw new BadRequestError("x-vellum-client-id header is missing for a targeted host file request.");
+    }
+    if (submittingClientId !== peeked.targetClientId) {
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
+  }
+
+  HostFileProxy.instance.resolve(requestId, {
     content: content ?? "",
     isError: isError ?? false,
     imageData,
@@ -82,6 +96,23 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host file request.",
+      },
+      "403": {
+        description:
+          "Submitting client does not match the targeted client for this request.",
+      },
+      "404": {
+        description: "No pending interaction found for the given requestId.",
+      },
+      "409": {
+        description:
+          "Pending interaction exists but is of a different kind (e.g. host_bash, host_cu).",
+      },
+    },
     handler: handleHostFileResult,
   },
 ];

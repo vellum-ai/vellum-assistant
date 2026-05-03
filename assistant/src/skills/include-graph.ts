@@ -1,6 +1,6 @@
 import type { SkillSummary } from "../config/skills.js";
 
-export interface IncludeGraphResult {
+interface IncludeGraphResult {
   /** Ordered list of all skill IDs visited during traversal (including the root). */
   visited: string[];
 }
@@ -37,12 +37,12 @@ export function getImmediateChildren(
   return children;
 }
 
-export interface IncludeValidationSuccess {
+interface IncludeValidationSuccess {
   ok: true;
   visited: string[];
 }
 
-export interface IncludeValidationError {
+interface IncludeValidationError {
   ok: false;
   error: "missing";
   missingChildId: string;
@@ -50,13 +50,13 @@ export interface IncludeValidationError {
   path: string[]; // full path from root to the parent that referenced the missing child
 }
 
-export interface IncludeValidationCycleError {
+interface IncludeValidationCycleError {
   ok: false;
   error: "cycle";
   cyclePath: string[]; // the IDs forming the cycle, e.g. ['a', 'b', 'c', 'a']
 }
 
-export type IncludeValidationResult =
+type IncludeValidationResult =
   | IncludeValidationSuccess
   | IncludeValidationError
   | IncludeValidationCycleError;

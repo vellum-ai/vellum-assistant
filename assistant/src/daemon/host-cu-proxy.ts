@@ -128,6 +128,7 @@ export class HostCuProxy {
     stepNumber: number,
     reasoning?: string,
     signal?: AbortSignal,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -164,11 +165,18 @@ export class HostCuProxy {
             this._ownedRequests.delete(requestId);
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_cu_cancel",
-                requestId,
+              broadcastMessage(
+                {
+                  type: "host_cu_cancel",
+                  requestId,
+                  conversationId,
+                  ...(targetClientId != null
+                    ? { targetClientId }
+                    : {}),
+                },
                 conversationId,
-              });
+                { targetClientId },
+              );
             } catch {
               // Best-effort cancel notification
             }
@@ -184,6 +192,7 @@ export class HostCuProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_cu",
+        targetClientId,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -191,15 +200,21 @@ export class HostCuProxy {
       });
 
       try {
-        broadcastMessage({
-          type: "host_cu_request",
-          requestId,
+        broadcastMessage(
+          {
+            type: "host_cu_request",
+            requestId,
+            conversationId,
+            toolName,
+            input,
+            stepNumber,
+            reasoning,
+            // Include in body so receiving client can verify targeted endpoint.
+            ...(targetClientId != null ? { targetClientId } : {}),
+          },
           conversationId,
-          toolName,
-          input,
-          stepNumber,
-          reasoning,
-        });
+          { targetClientId },
+        );
       } catch (err) {
         this._ownedRequests.delete(requestId);
         pendingInteractions.resolve(requestId);
@@ -389,11 +404,18 @@ export class HostCuProxy {
       const entry = pendingInteractions.resolve(requestId);
       if (!entry) continue;
       try {
-        broadcastMessage({
-          type: "host_cu_cancel",
-          requestId,
-          conversationId: entry.conversationId,
-        });
+        broadcastMessage(
+          {
+            type: "host_cu_cancel",
+            requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId as string | undefined },
+        );
       } catch {
         // Best-effort cancel notification
       }

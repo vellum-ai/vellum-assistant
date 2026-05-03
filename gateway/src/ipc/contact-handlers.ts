@@ -120,8 +120,8 @@ export const contactRoutes: IpcRoute[] = [
       const channelId = crypto.randomUUID();
 
       await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, role, contact_type, interaction_count, created_at, updated_at)
-         VALUES (?, ?, ?, 'human', 0, ?, ?)`,
+        `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
+         VALUES (?, ?, ?, 'human', ?, ?)`,
         [contactId, effectiveDisplayName, effectiveRole, now, now],
       );
 

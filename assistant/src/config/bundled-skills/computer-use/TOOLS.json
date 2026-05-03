@@ -24,7 +24,11 @@
         "properties": {
           "click_type": {
             "type": "string",
-            "enum": ["single", "double", "right"],
+            "enum": [
+              "single",
+              "double",
+              "right"
+            ],
             "description": "Type of click to perform (default: \"single\")"
           },
           "element_id": {
@@ -42,9 +46,15 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["reasoning"]
+        "required": [
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-click.ts",
       "execution_target": "host"
@@ -64,9 +74,16 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are typing and why"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["text", "reasoning"]
+        "required": [
+          "text",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-type-text.ts",
       "execution_target": "host"
@@ -86,9 +103,16 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this key"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["key", "reasoning"]
+        "required": [
+          "key",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-key.ts",
       "execution_target": "host"
@@ -115,7 +139,12 @@
           },
           "direction": {
             "type": "string",
-            "enum": ["up", "down", "left", "right"],
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right"
+            ],
             "description": "Scroll direction"
           },
           "amount": {
@@ -125,9 +154,17 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are scrolling"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["direction", "amount", "reasoning"]
+        "required": [
+          "direction",
+          "amount",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-scroll.ts",
       "execution_target": "host"
@@ -167,9 +204,15 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are dragging and why"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["reasoning"]
+        "required": [
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-drag.ts",
       "execution_target": "host"
@@ -189,9 +232,16 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are waiting for"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["duration_ms", "reasoning"]
+        "required": [
+          "duration_ms",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-wait.ts",
       "execution_target": "host"
@@ -211,9 +261,16 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you need to open or switch to this app"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["app_name", "reasoning"]
+        "required": [
+          "app_name",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-open-app.ts",
       "execution_target": "host"
@@ -233,9 +290,16 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["script", "reasoning"]
+        "required": [
+          "script",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-run-applescript.ts",
       "execution_target": "host"
@@ -253,7 +317,9 @@
             "description": "Human-readable summary of what was accomplished"
           }
         },
-        "required": ["summary"]
+        "required": [
+          "summary"
+        ]
       },
       "executor": "tools/computer-use-done.ts",
       "execution_target": "host"
@@ -275,7 +341,10 @@
             "description": "Explanation of how you determined the answer"
           }
         },
-        "required": ["answer", "reasoning"]
+        "required": [
+          "answer",
+          "reasoning"
+        ]
       },
       "executor": "tools/computer-use-respond.ts",
       "execution_target": "host"
