@@ -24,9 +24,10 @@
  * Response body: `{ token, expiresAt, guardianId, assistantId }`
  */
 
-import { getLogger } from "../../logger.js";
-import { CURRENT_POLICY_EPOCH, mintToken } from "../../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
+import { mintToken } from "../../auth/token-service.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 
 const log = getLogger("pair");
