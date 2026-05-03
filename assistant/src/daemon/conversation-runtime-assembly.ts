@@ -1618,7 +1618,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   // NOTE: `<memory>` blocks (both the dynamic activation block from
-  // `prependMemoryV2Block` and the static `memory-v2-static` injector) are
+  // `injectTextBlock` and the static `memory-v2-static` injector) are
   // intentionally NOT stripped — memory injections persist in history so
   // the assistant retains intra-turn memory state. The activation pipeline
   // dedupes via `everInjected`, and compaction handles aggregate growth, so
