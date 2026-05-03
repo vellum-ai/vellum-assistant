@@ -6,11 +6,12 @@
 // and returns a concatenated, header-wrapped block ready to splice into the
 // current user message via the injector chain.
 //
-// Pairs with the v2 per-turn activation block (`prependMemoryV2Block` in
-// `conversation-graph-memory.ts`) — that block carries activated concept
-// pages selected by the activation pipeline; this static block carries the
-// always-relevant aggregate views written by consolidation and the user.
-// Both land on the user message so the system prompt stays cache-stable.
+// Pairs with the v2 per-turn activation block (`maybeRouteV2Injection` in
+// `conversation-graph-memory.ts`, which threads through `injectTextBlock`)
+// — that block carries activated concept pages selected by the activation
+// pipeline; this static block carries the always-relevant aggregate views
+// written by consolidation and the user. Both land on the user message so
+// the system prompt stays cache-stable.
 //
 // Refresh cadence is owned by the caller: the agent loop only passes the
 // content through when `mode === "full"` (first turn / post-compaction),

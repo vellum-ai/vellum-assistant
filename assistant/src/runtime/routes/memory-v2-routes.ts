@@ -134,7 +134,7 @@ const MemoryV2GetConceptPageParams = z
 
 export type MemoryV2GetConceptPageResult = {
   slug: string;
-  /** Frontmatter + body, exactly as `renderInjectionBlock` would format it. */
+  /** Frontmatter + body, as produced by `renderPageContent`. */
   rendered: string;
 };
 
