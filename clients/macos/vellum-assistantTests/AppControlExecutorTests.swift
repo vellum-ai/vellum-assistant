@@ -82,5 +82,53 @@ final class AppControlExecutorTests: XCTestCase {
         XCTAssertNil(result.windowBounds)
         XCTAssertNil(result.pngBase64)
     }
+
+    // MARK: - bounds-missing executionError selection
+
+    /// When ScreenCaptureKit fails (commonly: Screen Recording permission
+    /// missing), the capture surfaces a `captureError` even though the window
+    /// state may be `.running` or `.minimized`. The bounds-missing branch of
+    /// click/drag must propagate that message verbatim — that's the new signal
+    /// users need so they know to grant the permission.
+    func test_boundsMissingExecutionError_prefersCaptureError() {
+        let capture = AppWindowCapture.CaptureResult(
+            state: .running,
+            pngBase64: nil,
+            bounds: nil,
+            captureError: "Screen capture failed: permission denied — Screen Recording permission may be required"
+        )
+        let message = AppControlExecutor.boundsMissingExecutionError(capture)
+        XCTAssertEqual(
+            message,
+            "Screen capture failed: permission denied — Screen Recording permission may be required"
+        )
+    }
+
+    /// Falls back to a state-classification message when capture itself
+    /// succeeded (no captureError) but bounds are still unavailable — e.g.
+    /// the app is minimized to the Dock.
+    func test_boundsMissingExecutionError_fallsBackToStateMessage() {
+        let capture = AppWindowCapture.CaptureResult(
+            state: .minimized,
+            pngBase64: nil,
+            bounds: nil,
+            captureError: nil
+        )
+        let message = AppControlExecutor.boundsMissingExecutionError(capture)
+        XCTAssertEqual(message, "Window not visible (state=minimized)")
+    }
+
+    /// Even for `.missing` (process gone), the helper still returns a
+    /// non-empty fallback so click/drag never hand the daemon an empty error.
+    func test_boundsMissingExecutionError_missingState_hasFallback() {
+        let capture = AppWindowCapture.CaptureResult(
+            state: .missing,
+            pngBase64: nil,
+            bounds: nil,
+            captureError: nil
+        )
+        let message = AppControlExecutor.boundsMissingExecutionError(capture)
+        XCTAssertEqual(message, "Window not visible (state=missing)")
+    }
 }
 #endif
