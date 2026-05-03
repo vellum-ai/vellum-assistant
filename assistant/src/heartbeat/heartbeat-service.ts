@@ -17,6 +17,15 @@ import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import {
+  completeHeartbeatRun,
+  insertPendingHeartbeatRun,
+  markStaleRunningAsError,
+  markStaleRunsAsMissed,
+  skipHeartbeatRun,
+  startHeartbeatRun,
+  supersedePendingRun,
+} from "./heartbeat-run-store.js";
 
 const log = getLogger("heartbeat-check");
 
@@ -104,6 +113,9 @@ export class HeartbeatService {
   private activeRun: Promise<void> | null = null;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
+  private _pendingRunId: string | null = null;
+  private _startupMissedCount = 0;
+  private _startupCrashedCount = 0;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -128,6 +140,18 @@ export class HeartbeatService {
       return;
     }
     if (this.timer) return;
+
+    this._startupMissedCount = markStaleRunsAsMissed();
+    this._startupCrashedCount = markStaleRunningAsError();
+    if (this._startupMissedCount > 0 || this._startupCrashedCount > 0) {
+      log.info(
+        {
+          missedCount: this._startupMissedCount,
+          crashedCount: this._startupCrashedCount,
+        },
+        "Recovered stale heartbeat runs on startup",
+      );
+    }
 
     log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
     this.scheduleNextRun(config.intervalMs);
@@ -170,6 +194,10 @@ export class HeartbeatService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
+    }
     this._nextRunAt = null;
     if (this.activeRun) {
       let timerId: ReturnType<typeof setTimeout>;
@@ -186,7 +214,22 @@ export class HeartbeatService {
    *  When `force` is true (e.g. manual "Run Now"), skip enabled & active-hours guards. */
   async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
-    if (!force && !config.enabled) return false;
+
+    let runId: string | null;
+    let scheduledFor: number;
+    if (force) {
+      scheduledFor = Date.now();
+      runId = insertPendingHeartbeatRun(scheduledFor);
+    } else {
+      runId = this._pendingRunId;
+      scheduledFor = this._nextRunAt ?? Date.now();
+      this._pendingRunId = null;
+    }
+
+    if (!force && !config.enabled) {
+      if (runId) skipHeartbeatRun(runId, "disabled");
+      return false;
+    }
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
@@ -211,6 +254,7 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
+        if (runId) skipHeartbeatRun(runId, "outside_active_hours");
         this.scheduleNextRun(config.intervalMs);
         return false;
       }
@@ -219,10 +263,14 @@ export class HeartbeatService {
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
+      if (runId) skipHeartbeatRun(runId, "overlap");
       return false;
     }
 
-    const run = this.executeRun();
+    if (!runId) {
+      runId = insertPendingHeartbeatRun(scheduledFor);
+    }
+    const run = this.executeRun(runId, scheduledFor);
     this.activeRun = run;
     // Clear activeRun once executeRun finishes. On timeout, runOnce releases
     // activeRun separately (see catch block below) so future runs aren't
@@ -252,6 +300,12 @@ export class HeartbeatService {
       // Release activeRun so the overlap guard doesn't permanently block
       // future heartbeat runs when executeRun hangs past the timeout.
       this.activeRun = null;
+      if (runId) {
+        completeHeartbeatRun(runId, {
+          status: "timeout",
+          error: "Heartbeat execution exceeded the 30-minute timeout",
+        });
+      }
     } finally {
       clearTimeout(timerId);
       this._lastRunAt = Date.now();
@@ -261,7 +315,11 @@ export class HeartbeatService {
   }
 
   private scheduleNextRun(intervalMs: number): void {
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+    }
     this._nextRunAt = Date.now() + intervalMs;
+    this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
   }
 
   /**
@@ -383,14 +441,20 @@ export class HeartbeatService {
     }
   }
 
-  private async executeRun(): Promise<void> {
+  private async executeRun(
+    runId: string,
+    _scheduledFor: number,
+  ): Promise<void> {
     log.info("Running heartbeat");
+
+    startHeartbeatRun(runId);
 
     // Credential health check — surface broken credentials proactively
     // before the LLM heartbeat prompt runs. Returns unhealthy provider
     // names so the prompt can instruct the LLM to skip those providers.
     const unhealthyProviders = await this.runCredentialHealthCheck();
 
+    let conversationId: string | undefined;
     try {
       const checklist = this.readChecklist();
       const { prompt, includedReengagement } = this.buildPrompt(
@@ -405,6 +469,7 @@ export class HeartbeatService {
         origin: "heartbeat",
         systemHint: "Heartbeat",
       });
+      conversationId = conversation.id;
 
       this.deps.onConversationCreated?.({
         conversationId: conversation.id,
@@ -425,50 +490,66 @@ export class HeartbeatService {
 
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
 
-      let title = "Heartbeat";
-      try {
-        const row = getConversation(conversation.id);
-        if (row?.title && row.title !== GENERATING_TITLE) {
-          title = row.title;
-        }
-      } catch {
-        // Best-effort; fall back to generic title.
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title,
-        summary: "Periodic check completed. Tap to see details.",
-        dedupKey: `heartbeat:ok:${today}`,
-        priority: 30,
-      }).catch((err) => {
-        log.warn(
-          { err, conversationId: conversation.id },
-          "Failed to emit heartbeat feed event",
-        );
+      const transitioned = completeHeartbeatRun(runId, {
+        status: "ok",
+        conversationId,
       });
+
+      if (transitioned) {
+        let title = "Heartbeat";
+        try {
+          const row = getConversation(conversation.id);
+          if (row?.title && row.title !== GENERATING_TITLE) {
+            title = row.title;
+          }
+        } catch {
+          // Best-effort; fall back to generic title.
+        }
+
+        const today = new Date().toISOString().split("T")[0];
+        void emitFeedEvent({
+          source: "assistant",
+          title,
+          summary: "Periodic check completed. Tap to see details.",
+          dedupKey: `heartbeat:ok:${today}`,
+          priority: 30,
+        }).catch((err) => {
+          log.warn(
+            { err, conversationId: conversation.id },
+            "Failed to emit heartbeat feed event",
+          );
+        });
+      }
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
-      try {
-        this.deps.alerter({
-          type: "heartbeat_alert",
-          title: "Heartbeat Failed",
-          body: err instanceof Error ? err.message : String(err),
-        });
-      } catch (alertErr) {
-        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
-      }
 
-      const today = new Date().toISOString().split("T")[0];
-      void emitFeedEvent({
-        source: "assistant",
-        title: "Heartbeat",
-        summary: "Heartbeat check failed. Check logs for details.",
-        dedupKey: `heartbeat:fail:${today}`,
-        priority: 55,
-        urgency: "medium",
-      }).catch(() => {});
+      const transitioned = completeHeartbeatRun(runId, {
+        status: "error",
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      if (transitioned) {
+        try {
+          this.deps.alerter({
+            type: "heartbeat_alert",
+            title: "Heartbeat Failed",
+            body: err instanceof Error ? err.message : String(err),
+          });
+        } catch (alertErr) {
+          log.error({ alertErr }, "Failed to broadcast heartbeat alert");
+        }
+
+        const today = new Date().toISOString().split("T")[0];
+        void emitFeedEvent({
+          source: "assistant",
+          title: "Heartbeat",
+          summary: "Heartbeat check failed. Check logs for details.",
+          dedupKey: `heartbeat:fail:${today}`,
+          priority: 55,
+          urgency: "medium",
+        }).catch(() => {});
+      }
     }
   }
 
