@@ -301,35 +301,6 @@ struct AssistantProgressView: View {
         .onAppear {
             handleOnAppear()
         }
-        .sheet(item: $suggestRuleToolCall) { tc in
-            RuleEditorModal(
-                toolName: tc.toolName,
-                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
-                commandDescription: tc.reasonDescription ?? "",
-                riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
-                directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
-                suggestion: suggestRuleSuggestion,
-                onSave: { rule in
-                    Task {
-                        try? await TrustRuleClient().createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                            }(),
-                            scope: rule.scope
-                        )
-                    }
-                },
-                onDismiss: {
-                    suggestRuleToolCall = nil
-                    suggestRuleSuggestion = nil
-                }
-            )
-        }
     }
 
     // MARK: - Change Handlers (extracted to reduce body type-check complexity)
