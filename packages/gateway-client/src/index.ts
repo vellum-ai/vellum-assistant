@@ -17,6 +17,7 @@ export {
 
 export {
   ipcCall,
+  IpcCallError,
   PersistentIpcClient,
 } from "./ipc-client.js";
 
