@@ -1,12 +1,6 @@
 /**
- * Regression test for the `setHeartbeatConfig` HTTP handler.
- *
- * The handler used to call `saveConfig({ ...config, heartbeat })`, which
- * serialised the full Zod-defaulted config to disk and baked
- * `intervalMs`/`activeHoursStart`/`activeHoursEnd` into `config.json`
- * even when the caller never set them. The migration to
- * `loadRawConfig` + `saveRawConfig` writes only the user-set fields
- * while still returning the resolved (post-default) values in the
+ * Asserts `setHeartbeatConfig` persists only user-set heartbeat fields to
+ * `config.json` and surfaces the resolved (post-default) values via the
  * response payload.
  */
 

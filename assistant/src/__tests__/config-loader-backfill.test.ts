@@ -83,10 +83,8 @@ function writeConfig(obj: unknown): void {
 // ---------------------------------------------------------------------------
 // Tests: deepMergeOverwrite (unit) — JSON-null-as-deletion semantics
 //
-// `deepMergeMissing` is no longer used in production code (the on-load
-// backfill that consumed it was deleted), so its unit tests have been
-// removed alongside it. `deepMergeOverwrite` remains in use by
-// `mergeDefaultWorkspaceConfig` and platform override paths.
+// `deepMergeOverwrite` is used by `mergeDefaultWorkspaceConfig` and platform
+// override paths.
 // ---------------------------------------------------------------------------
 
 describe("deepMergeOverwrite", () => {

@@ -40,14 +40,12 @@ mock.module("../platform/client.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ services: {} }),
   loadConfig: () => ({ services: {} }),
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
   loadRawConfig: () => mockLoadRawConfig(),
   saveRawConfig: (raw: Record<string, unknown>) => {
     mockSaveRawConfigCalls.push(raw);
   },
   applyNestedDefaults: (c: unknown) => c,
-  deepMergeMissing: (a: unknown) => a,
   deepMergeOverwrite: (a: unknown) => a,
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: (obj: Record<string, unknown>, key: string) =>

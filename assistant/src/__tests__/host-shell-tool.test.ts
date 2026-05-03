@@ -40,7 +40,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -57,10 +56,16 @@ mock.module("../util/logger.js", () => ({
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (
-  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string> },
+  input: {
+    command: string;
+    working_dir?: string;
+    timeout_seconds?: number;
+    env?: Record<string, string>;
+  },
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-bash-proxy.js", () => ({
   HostBashProxy: {
