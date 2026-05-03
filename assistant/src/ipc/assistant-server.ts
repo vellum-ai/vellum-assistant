@@ -70,6 +70,14 @@ export type IpcResponse = {
   statusCode?: number;
   /** Machine-readable error code (e.g. "NOT_FOUND") for RouteError instances. */
   errorCode?: string;
+  /**
+   * Structured error payload mirroring `RouteError.details` — present only
+   * when the originating `RouteError` carries a `details` field (e.g.
+   * `version_incompatible` migration imports). Mirrors the HTTP adapter's
+   * `error.details` envelope so IPC clients can recover the same
+   * machine-readable context as HTTP clients.
+   */
+  errorDetails?: unknown;
   headers?: Record<string, string>;
 };
 
@@ -274,12 +282,16 @@ export class AssistantIpcServer {
 
   private buildErrorResponse(id: string, err: unknown): IpcResponse {
     if (err instanceof RouteError) {
-      return {
+      const response: IpcResponse = {
         id,
         error: err.message,
         statusCode: err.statusCode,
         errorCode: err.code,
       };
+      if (err.details !== undefined) {
+        response.errorDetails = err.details;
+      }
+      return response;
     }
     return { id, error: String(err) };
   }

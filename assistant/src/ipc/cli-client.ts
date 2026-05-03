@@ -30,6 +30,16 @@ type IpcResponse = {
   id: string;
   result?: unknown;
   error?: string;
+  /** HTTP-style status code mirrored from `RouteError.statusCode`. */
+  statusCode?: number;
+  /** Machine-readable error code (e.g. "UNPROCESSABLE_ENTITY"). */
+  errorCode?: string;
+  /**
+   * Structured error payload mirroring `RouteError.details` — present only
+   * when the originating error carried a `details` field. Mirrors the HTTP
+   * adapter's `error.details` envelope.
+   */
+  errorDetails?: unknown;
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +53,15 @@ export interface CliIpcCallResult<T = unknown> {
   ok: boolean;
   result?: T;
   error?: string;
+  /** HTTP-style status code surfaced from a daemon-side `RouteError`. */
+  statusCode?: number;
+  /** Machine-readable error code (e.g. "UNPROCESSABLE_ENTITY"). */
+  errorCode?: string;
+  /**
+   * Structured error payload mirroring `RouteError.details` — present only
+   * when the originating daemon-side error carried a `details` field.
+   */
+  errorDetails?: unknown;
 }
 
 /**
@@ -115,7 +134,19 @@ export async function cliIpcCall<T = unknown>(
             const msg = JSON.parse(line) as IpcResponse;
             if (msg.id === reqId) {
               if (msg.error) {
-                finish({ ok: false, error: msg.error });
+                finish({
+                  ok: false,
+                  error: msg.error,
+                  ...(msg.statusCode !== undefined && {
+                    statusCode: msg.statusCode,
+                  }),
+                  ...(msg.errorCode !== undefined && {
+                    errorCode: msg.errorCode,
+                  }),
+                  ...(msg.errorDetails !== undefined && {
+                    errorDetails: msg.errorDetails,
+                  }),
+                });
               } else {
                 finish({ ok: true, result: msg.result as T });
               }
