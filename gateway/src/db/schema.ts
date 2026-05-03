@@ -21,14 +21,38 @@ import {
 
 export const slackActiveThreads = sqliteTable("slack_active_threads", {
   threadTs: text("thread_ts").primaryKey(),
+  // Channel hosting the active thread. Nullable so SQLite can ALTER TABLE ADD
+  // COLUMN onto existing installs; pre-existing rows expire within
+  // ACTIVE_THREAD_TTL_MS and replay enumeration filters out null entries.
+  channelId: text("channel_id"),
   trackedAt: integer("tracked_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
 });
 
 export const slackSeenEvents = sqliteTable("slack_seen_events", {
+  // Generic dedup key — either a Slack `event_id` (live path) or a synthetic
+  // `msg:${channel}:${ts}` key (reconnect-replay path) so both paths dedup
+  // symmetrically against the same row. Column name is retained for
+  // backwards compatibility with existing installs; semantically it's a
+  // dedup key, not strictly an event ID.
   eventId: text("event_id").primaryKey(),
   seenAt: integer("seen_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
+});
+
+/**
+ * Persistent high-watermark for Slack Socket Mode catch-up.
+ *
+ * Slack does not buffer events for Socket Mode clients during disconnects,
+ * so missed @mentions and DMs during a reconnect window must be recovered
+ * via `conversations.history` / `conversations.replies` on reconnect. This
+ * row stores the latest accepted event timestamp so catch-up knows where
+ * to resume from. Single row keyed by `'global'` for v1.
+ */
+export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
+  key: text("key").primaryKey(),
+  ts: text("ts").notNull(),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 // ---------------------------------------------------------------------------

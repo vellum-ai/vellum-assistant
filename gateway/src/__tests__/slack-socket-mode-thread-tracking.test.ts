@@ -81,6 +81,7 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
   rawDb.exec(`
     CREATE TABLE slack_active_threads (
       thread_ts TEXT PRIMARY KEY,
+      channel_id TEXT,
       tracked_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
@@ -88,6 +89,29 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       event_id TEXT PRIMARY KEY,
       seen_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE slack_last_seen_ts (
+      key TEXT PRIMARY KEY,
+      ts TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE contact_channels (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      address TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      external_user_id TEXT,
+      external_chat_id TEXT,
+      status TEXT NOT NULL DEFAULT 'unverified',
+      policy TEXT NOT NULL DEFAULT 'allow',
+      revoked_reason TEXT,
+      blocked_reason TEXT,
+      last_seen_at INTEGER,
+      last_interaction INTEGER,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
   `);
   return { rawDb, store: new SlackStore(drizzle(rawDb, { schema })) };

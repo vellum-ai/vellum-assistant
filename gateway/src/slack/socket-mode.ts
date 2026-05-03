@@ -5,6 +5,12 @@ import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
 import {
+  fetchChannelHistorySince,
+  fetchThreadRepliesSince,
+  runWithConcurrency,
+  type SlackHistoryMessage,
+} from "./slack-web.js";
+import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
@@ -33,6 +39,25 @@ const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
 const USER_RESOLVE_TIMEOUT_MS = 3_000;
+
+/**
+ * Reconnect catch-up bounds.
+ *
+ * `MAX_LOOKBACK_MS` caps how far back we'll ask Slack for missed messages.
+ * Sleeps longer than this fall back to the daemon's existing inbound-
+ * triggered backfill (JARVIS-643) once new live events resume.
+ *
+ * `SAFETY_OVERLAP_MS` widens the `oldest` window slightly past the
+ * persisted watermark so a non-mention event that advanced the watermark
+ * cannot silently mask an earlier missed mention. Resulting overlap is
+ * absorbed by the compound `msg:${channel}:${ts}` dedup key.
+ *
+ * `HISTORY_LIMIT` and `CONCURRENCY` bound API budget per reconnect.
+ */
+const CATCHUP_MAX_LOOKBACK_MS = 60 * 60 * 1_000;
+const CATCHUP_SAFETY_OVERLAP_MS = 60 * 1_000;
+const CATCHUP_HISTORY_LIMIT = 50;
+const CATCHUP_CONCURRENCY = 4;
 
 export type SlackSocketModeConfig = {
   appToken: string;
@@ -251,10 +276,12 @@ export class SlackSocketModeClient {
   }
 
   /**
-   * Register a thread as active so future replies (without @mention) are forwarded.
+   * Register a thread as active so future replies (without @mention) are
+   * forwarded. `channelId` is required so reconnect catch-up can scope a
+   * `conversations.replies` fetch to the right channel.
    */
-  trackThread(threadTs: string): void {
-    this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
+  trackThread(threadTs: string, channelId: string): void {
+    this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
   }
 
   /**
@@ -298,6 +325,13 @@ export class SlackSocketModeClient {
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
         this.reconnectAttempt = 0;
+        // Recover messages that arrived during the reconnect gap (Slack
+        // does not buffer Socket Mode events during disconnects). Runs
+        // off the open handler so initial-start, normal reconnect, and
+        // sleep/wake force-reconnect all share the same recovery path.
+        // Errors are swallowed inside replayMissedEvents — a failed
+        // catch-up should never destabilize the live socket.
+        void this.replayMissedEvents(ws);
       });
 
       ws.addEventListener("message", (messageEvent) => {
@@ -368,6 +402,7 @@ export class SlackSocketModeClient {
       type?: string;
       payload?: {
         event_id?: string;
+        event_time?: number;
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
@@ -433,11 +468,40 @@ export class SlackSocketModeClient {
 
     const eventPayload = envelope.payload;
     if (!eventPayload?.event) return;
-
-    const event = eventPayload.event;
-
     if (!eventPayload.event_id) return;
 
+    this.processEventPayload({
+      event_id: eventPayload.event_id,
+      event_time: eventPayload.event_time,
+      event: eventPayload.event,
+    });
+  }
+
+  /**
+   * Filter, deduplicate, advance the watermark, and dispatch a single
+   * Slack event payload. Shared by the live Socket Mode path
+   * (`handleMessage`) and the reconnect catch-up path
+   * (`replayMissedEvents`) so both flows enforce identical filters,
+   * dedup, and ordering semantics.
+   *
+   * The `event_id` may be either a real Slack ID (live path) or a
+   * synthetic `replay:${channel}:${ts}` ID (replay path). Both flow
+   * through the same compound dedup table so the two paths never
+   * double-emit a message that arrived on both.
+   */
+  private processEventPayload(eventPayload: {
+    event_id: string;
+    event_time?: number;
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent;
+  }): void {
+    const event = eventPayload.event;
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
     const messageChangedEvent = event as SlackMessageChangedEvent;
@@ -582,13 +646,35 @@ export class SlackSocketModeClient {
       "Slack event accepted by filter",
     );
 
-    // Deduplicate on event_id
+    // Compound dedup. Live events are keyed by Slack `event_id`; replay
+    // events are keyed by `replay:${channel}:${ts}`. Both also write a
+    // `msg:${channel}:${ts}` key when the event has a stable
+    // (channel, ts) identity, so a message that arrives via both paths
+    // is deduped on the second arrival regardless of which came first.
     const eventId = eventPayload.event_id;
+    const messageKey = computeMessageDedupKey(event);
     if (this.store.hasEvent(eventId)) {
       log.debug({ eventId }, "Duplicate Slack event, skipping");
       return;
     }
+    if (messageKey && this.store.hasEvent(messageKey)) {
+      log.debug(
+        { eventId, messageKey },
+        "Slack event already seen via paired path, skipping",
+      );
+      return;
+    }
     this.store.markEventSeen(eventId, DEDUP_TTL_MS);
+    if (messageKey) {
+      this.store.markEventSeen(messageKey, DEDUP_TTL_MS);
+    }
+
+    // Advance the catch-up watermark before dispatch so a normalize/emit
+    // failure does not stall progress past this event on the next reconnect.
+    const watermarkTs = extractEventWatermarkTs(event, eventPayload.event_time);
+    if (watermarkTs) {
+      this.store.setLastSeenTsIfGreater(watermarkTs);
+    }
 
     if (isAppMention) {
       const appMentionEvent = event as SlackAppMentionEvent;
@@ -598,8 +684,12 @@ export class SlackSocketModeClient {
         appMentionEvent.channel,
         appMentionEvent.user,
       );
-      if (threadTs && !isRejection(routing)) {
-        this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
+      if (threadTs && !isRejection(routing) && appMentionEvent.channel) {
+        this.store.trackThread(
+          threadTs,
+          appMentionEvent.channel,
+          ACTIVE_THREAD_TTL_MS,
+        );
       }
     }
 
@@ -859,9 +949,10 @@ export class SlackSocketModeClient {
     // continue after app mentions and admitted messages, without reactions,
     // edits, or deletes arming unrelated threads.
     const threadTs = normalized.threadTs;
+    const channelId = normalized.event.message.conversationExternalId;
     const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
-    if (shouldTrackActiveThread && threadTs) {
-      this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
+    if (shouldTrackActiveThread && threadTs && channelId) {
+      this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
 
     // Enrich actor display name if the sync cache missed.
@@ -888,6 +979,184 @@ export class SlackSocketModeClient {
     }
 
     this.onEvent(normalized);
+  }
+
+  /**
+   * Catch up on messages that arrived during the reconnect window.
+   *
+   * Slack does not buffer Socket Mode events for disconnected clients
+   * (see https://api.slack.com/apis/socket-mode), so on reconnect we
+   * fetch a bounded slice of `conversations.history` /
+   * `conversations.replies` since the persisted watermark and feed any
+   * recovered messages back through `processEventPayload`. Compound
+   * dedup (`msg:${channel}:${ts}`) prevents double-emit if the same
+   * message also arrives via the live socket.
+   *
+   * Scope (v1):
+   *   - Routed channels (gateway routing entries)
+   *   - Active threads (`slack_active_threads`)
+   *   - Known DM channels (`contact_channels` rows of type `slack` with
+   *     a `D…` external chat id)
+   *
+   * Brand-new mentions in unrouted, never-engaged channels remain
+   * unrecoverable for v1 — the daemon's existing inbound-triggered
+   * backfill (`triggerSlackThreadBackfillIfNeeded`,
+   * `tryBackfillSlackDmIfCold`) will hydrate context once the next
+   * live event arrives.
+   */
+  private async replayMissedEvents(ownerWs: WebSocket): Promise<void> {
+    // Bail if a fresh forceReconnect has replaced the active socket
+    // before the async work began. Without this gate, a stale generation
+    // could fan out catch-up traffic that races with the new connection.
+    if (this.ws !== ownerWs) return;
+
+    const botToken = this.config.botToken;
+    if (!botToken) return;
+    const botUserId = this.config.botUserId;
+    if (!botUserId) {
+      log.debug("Skipping reconnect catch-up: bot user id not yet resolved");
+      return;
+    }
+
+    const persisted = this.store.getLastSeenTs();
+    if (!persisted) {
+      // Bootstrap on first ever connect: seed the watermark to "now" so
+      // we never replay arbitrary historical messages on a fresh install.
+      this.store.setLastSeenTsIfGreater(toSlackTs(Date.now()));
+      log.info(
+        "Slack catch-up: bootstrapped watermark, skipping initial replay",
+      );
+      return;
+    }
+
+    const minOldestMs = Date.now() - CATCHUP_MAX_LOOKBACK_MS;
+    const persistedMs = Math.floor(Number(persisted) * 1_000);
+    const overlapMs = Math.max(persistedMs - CATCHUP_SAFETY_OVERLAP_MS, 0);
+    const oldestMs = Math.max(overlapMs, minOldestMs);
+    const oldest = toSlackTs(oldestMs);
+
+    const routedChannels = new Set<string>();
+    for (const entry of this.config.gatewayConfig.routingEntries) {
+      if (entry.type === "conversation_id") routedChannels.add(entry.key);
+    }
+    const dmChannels = this.store.listKnownSlackDmChannels();
+    for (const channel of dmChannels) routedChannels.add(channel);
+
+    const activeThreads = this.store.listActiveThreadsWithChannel();
+
+    log.info(
+      {
+        oldest,
+        channels: routedChannels.size,
+        threads: activeThreads.length,
+      },
+      "Slack reconnect catch-up starting",
+    );
+
+    let recovered = 0;
+
+    // Channel/DM history fan-out. We use conversations.history rather than
+    // conversations.replies for top-level channels because we want
+    // any unseen top-level message — replies in tracked threads are
+    // covered separately below.
+    const channelTasks = Array.from(routedChannels).map((channel) => {
+      return async () => {
+        if (this.ws !== ownerWs) return;
+        const result = await fetchChannelHistorySince({
+          botToken,
+          channel,
+          oldest,
+          limit: CATCHUP_HISTORY_LIMIT,
+        });
+        if (this.ws !== ownerWs) return;
+        for (const msg of result.messages) {
+          if (this.injectReplayMessage(channel, msg, botUserId)) recovered++;
+        }
+      };
+    });
+
+    const threadTasks = activeThreads.map(({ channelId, threadTs }) => {
+      return async () => {
+        if (this.ws !== ownerWs) return;
+        const result = await fetchThreadRepliesSince({
+          botToken,
+          channel: channelId,
+          threadTs,
+          oldest,
+          limit: CATCHUP_HISTORY_LIMIT,
+        });
+        if (this.ws !== ownerWs) return;
+        for (const msg of result.messages) {
+          if (this.injectReplayMessage(channelId, msg, botUserId)) recovered++;
+        }
+      };
+    });
+
+    try {
+      await runWithConcurrency(
+        [...channelTasks, ...threadTasks],
+        CATCHUP_CONCURRENCY,
+      );
+    } catch (err) {
+      log.warn({ err }, "Slack reconnect catch-up encountered an error");
+    }
+
+    log.info({ recovered, oldest }, "Slack reconnect catch-up complete");
+  }
+
+  /**
+   * Build a synthetic events_api envelope for a recovered message and
+   * dispatch it through the shared `processEventPayload` path. Returns
+   * true if the message was passed through to processing (subject to
+   * filter/dedup), false if it was skipped at this stage (no `ts`,
+   * bot's own message, or other shape that the live filter would also
+   * drop).
+   */
+  private injectReplayMessage(
+    channel: string,
+    msg: SlackHistoryMessage,
+    botUserId: string,
+  ): boolean {
+    if (!msg.ts) return false;
+
+    // Skip the bot's own outbound messages and edits/deletes — the live
+    // filter would already drop these and replaying them risks loops.
+    if (msg.user === botUserId) return false;
+    if (msg.bot_id) return false;
+    if (
+      msg.subtype &&
+      msg.subtype !== "thread_broadcast" &&
+      msg.subtype !== "file_share"
+    ) {
+      return false;
+    }
+
+    const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
+    const isDm = channel.startsWith("D");
+    const eventType: "app_mention" | "message" = mentionsBot
+      ? "app_mention"
+      : "message";
+
+    const syntheticEvent = {
+      type: eventType,
+      user: msg.user ?? "",
+      text: msg.text ?? "",
+      ts: msg.ts,
+      thread_ts: msg.thread_ts,
+      channel,
+      channel_type: isDm ? "im" : "channel",
+      team: msg.team,
+    } as unknown as
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent;
+
+    this.processEventPayload({
+      event_id: `replay:${channel}:${msg.ts}`,
+      event_time: Math.floor(Number(msg.ts)) || undefined,
+      event: syntheticEvent,
+    });
+    return true;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -954,6 +1223,68 @@ export class SlackSocketModeClient {
       this.dedupCleanupTimer = null;
     }
   }
+}
+
+/**
+ * Compute a stable `msg:${channel}:${ts}` dedup key for events that carry
+ * a (channel, ts) identity. Used so the live and reconnect-replay paths
+ * dedup symmetrically — a message that arrives via both paths is rejected
+ * on the second arrival regardless of which came first.
+ *
+ * Returns undefined for events without a stable message identity (e.g.
+ * `message_changed`, `message_deleted`, reactions). Those rely on their
+ * Slack `event_id` for dedup; replay never synthesizes them.
+ */
+function computeMessageDedupKey(event: {
+  type?: string;
+  subtype?: string;
+  channel?: string;
+  ts?: string;
+}): string | undefined {
+  // Restrict to top-level message-shaped events. Edits/deletes carry a
+  // separate `previous_message`/`message` payload and don't need this key
+  // because the replay path doesn't synthesize them.
+  if (event.type !== "message" && event.type !== "app_mention") {
+    return undefined;
+  }
+  if (
+    event.subtype === "message_changed" ||
+    event.subtype === "message_deleted"
+  ) {
+    return undefined;
+  }
+  if (!event.channel || !event.ts) return undefined;
+  return `msg:${event.channel}:${event.ts}`;
+}
+
+/**
+ * Extract the watermark timestamp for an event. Prefers the message ts,
+ * falling back to envelope `event_time` for events that don't carry their
+ * own ts (reactions). Returns a Slack-format `<seconds>.<micros>` string
+ * or undefined when no usable timestamp is present.
+ */
+function extractEventWatermarkTs(
+  event: {
+    ts?: string;
+    item?: { ts?: string };
+    deleted_ts?: string;
+    message?: { ts?: string };
+  },
+  envelopeEventTime: number | undefined,
+): string | undefined {
+  if (event.ts) return event.ts;
+  if (event.message?.ts) return event.message.ts;
+  if (event.deleted_ts) return event.deleted_ts;
+  if (event.item?.ts) return event.item.ts;
+  if (envelopeEventTime) return `${envelopeEventTime}.000000`;
+  return undefined;
+}
+
+/** Convert millisecond epoch to a Slack `<seconds>.<micros>` timestamp string. */
+function toSlackTs(ms: number): string {
+  const secs = Math.floor(ms / 1_000);
+  const micros = Math.floor((ms % 1_000) * 1_000);
+  return `${secs}.${String(micros).padStart(6, "0")}`;
 }
 
 /**
