@@ -257,12 +257,13 @@ export function updateSchedule(
 
   const isOneShot = newExpr == null;
 
-  // Validate if expression or syntax changed (only for recurring schedules)
+  // Validate if expression, syntax, or timezone changed (only for recurring schedules)
   if (
     !isOneShot &&
     (updates.expression !== undefined ||
       updates.cronExpression !== undefined ||
-      updates.syntax !== undefined)
+      updates.syntax !== undefined ||
+      updates.timezone !== undefined)
   ) {
     const spec = {
       syntax: newSyntax,
