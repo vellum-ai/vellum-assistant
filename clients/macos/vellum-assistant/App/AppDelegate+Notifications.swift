@@ -469,7 +469,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         if categoryId == "ACTIVITY_COMPLETE" {
             let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
             await MainActor.run {
-                guard !self.isBootstrapping else { return }
                 if let conversationId, !conversationId.isEmpty {
                     self.openConversation(conversationId: conversationId)
                 } else {
@@ -493,7 +492,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 // confirmation's conversation and let the inline bubble handle it.
                 // Do NOT auto-deny.
                 await MainActor.run {
-                    guard !self.isBootstrapping else { return }
                     let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
                     if let conversationId {
                         self.openConversation(conversationId: conversationId)
