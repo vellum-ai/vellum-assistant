@@ -8,8 +8,8 @@
  *
  * Lifecycle (pending map, timeout, abort SSE, dispose, isAvailable) lives
  * in {@link HostProxyBase}; this class layers app-control-specific state
- * (active app, PNG-hash loop guard, action history) and the result-payload
- * → ToolExecutionResult translation on top.
+ * (active app, PNG-hash loop guard) and the result-payload →
+ * ToolExecutionResult translation on top.
  *
  * **Singleton lock.** Only one conversation may hold an active app-control
  * session at a time. The lock is module-level (`activeAppControlConversationId`)
@@ -44,8 +44,11 @@ const log = getLogger("host-app-control-proxy");
 // ---------------------------------------------------------------------------
 
 const REQUEST_TIMEOUT_MS = 60 * 1000;
-const ACTION_HISTORY_LIMIT = 5;
-const STUCK_REPEAT_THRESHOLD = 5;
+// Threshold of 4 means the warning fires on the 5th identical observation:
+// the first observation establishes the baseline (count = 0), each
+// subsequent identical observation increments the counter, so count = 4 is
+// reached on the 5th total observation.
+const STUCK_REPEAT_THRESHOLD = 4;
 
 // ---------------------------------------------------------------------------
 // Tool name constants
@@ -114,9 +117,6 @@ export class HostAppControlProxy extends HostProxyBase<
    */
   private observationHashRepeatCount = 0;
 
-  /** Ring buffer of the last {@link ACTION_HISTORY_LIMIT} tool+input fingerprints (FIFO). */
-  private _actionHistory: string[] = [];
-
   constructor(conversationId: string) {
     super({
       capabilityName: "host_app_control",
@@ -139,10 +139,6 @@ export class HostAppControlProxy extends HostProxyBase<
 
   get observationRepeatCount(): number {
     return this.observationHashRepeatCount;
-  }
-
-  get actionHistory(): readonly string[] {
-    return this._actionHistory;
   }
 
   // ---------------------------------------------------------------------------
@@ -180,10 +176,6 @@ export class HostAppControlProxy extends HostProxyBase<
         };
       }
     }
-
-    // Record the action fingerprint up-front so it shows up in history
-    // even if the request times out / aborts.
-    this.recordActionFingerprint(toolName, input);
 
     try {
       const payload = await this.dispatchRequest(
@@ -309,18 +301,6 @@ export class HostAppControlProxy extends HostProxyBase<
       isError,
       ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
     };
-  }
-
-  /** Append `<toolName>:<JSON(input)>` to the bounded action history. */
-  private recordActionFingerprint(
-    toolName: string,
-    input: HostAppControlInput,
-  ): void {
-    const fingerprint = `${toolName}:${JSON.stringify(input)}`;
-    this._actionHistory.push(fingerprint);
-    if (this._actionHistory.length > ACTION_HISTORY_LIMIT) {
-      this._actionHistory = this._actionHistory.slice(-ACTION_HISTORY_LIMIT);
-    }
   }
 
   // ---------------------------------------------------------------------------

@@ -324,6 +324,13 @@ export interface SurfaceConversationContext {
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
   hostAppControlProxy?: HostAppControlProxy;
+  /**
+   * Setter that lets the resolver detach the conversation's app-control proxy
+   * after `app_control_stop`. Disposes the existing proxy when transitioning
+   * to undefined so subsequent tool calls cleanly fail with "unavailable"
+   * rather than dispatching to a torn-down proxy.
+   */
+  setHostAppControlProxy?(proxy: HostAppControlProxy | undefined): void;
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
@@ -1796,15 +1803,37 @@ export async function surfaceProxyResolver(
 
     // `app_control_stop` resolves immediately: tear down the proxy without
     // a client round-trip. Mirrors CU's terminal-tool short-circuit
-    // (`computer_use_done` / `computer_use_respond`).
+    // (`computer_use_done` / `computer_use_respond`). Clear the
+    // conversation's reference (setter disposes the existing proxy) so a
+    // later `app_control_observe`/etc. cleanly fails with "unavailable"
+    // instead of dispatching against a torn-down proxy, and so a sibling
+    // conversation can acquire the released singleton lock without the
+    // disposed proxy still being addressable.
     if (toolName === "app_control_stop") {
-      ctx.hostAppControlProxy.dispose();
+      if (ctx.setHostAppControlProxy) {
+        ctx.setHostAppControlProxy(undefined);
+      } else {
+        ctx.hostAppControlProxy.dispose();
+      }
       return { content: "App control stopped.", isError: false };
     }
 
+    // The TS `HostAppControlInput` (and the Swift mirror) is a discriminated
+    // union on `tool` ("start" | "observe" | "press" | …). The agent's raw
+    // tool input only carries the action-specific payload (app, x/y, text,
+    // …) — the discriminator is implied by `toolName` (`app_control_<tool>`).
+    // Inject it here so the proxy's singleton-lock guard (`input.tool ===
+    // "start"`) and the Swift client's discriminated-union decoder both see
+    // the field they require.
+    const tool = toolName.slice("app_control_".length);
+    const inputWithTool = {
+      ...input,
+      tool,
+    } as unknown as HostAppControlInput;
+
     return ctx.hostAppControlProxy.request(
       toolName,
-      input as unknown as HostAppControlInput,
+      inputWithTool,
       ctx.conversationId,
       signal ?? new AbortController().signal,
     );

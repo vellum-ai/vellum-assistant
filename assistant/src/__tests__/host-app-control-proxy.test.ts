@@ -302,9 +302,9 @@ describe("HostAppControlProxy", () => {
       expect(r0.content).not.toContain("WARNING");
       expect(proxy.observationRepeatCount).toBe(0);
 
-      // 4 additional identical observations bring the repeat count to 4 —
-      // still below the threshold (5).
-      for (let i = 0; i < 4; i++) {
+      // 3 additional identical observations bring the repeat count to 3 —
+      // still below the threshold (4).
+      for (let i = 0; i < 3; i++) {
         const p = proxy.request(
           "app_control_observe",
           { tool: "observe", app: "com.example.editor" },
@@ -316,16 +316,16 @@ describe("HostAppControlProxy", () => {
         const r = await p;
         expect(r.content).not.toContain("WARNING");
       }
-      expect(proxy.observationRepeatCount).toBe(4);
+      expect(proxy.observationRepeatCount).toBe(3);
 
-      // 5th identical observation — count reaches 5, warning fires.
+      // 5th total identical observation — count reaches 4, warning fires.
       const pFinal = proxy.request(
         "app_control_observe",
         { tool: "observe", app: "com.example.editor" },
         "conv-1",
         ctrl.signal,
       );
-      const sentFinal = sentMessages[5] as Record<string, unknown>;
+      const sentFinal = sentMessages[4] as Record<string, unknown>;
       proxy.resolve(
         sentFinal.requestId as string,
         payload({ pngBase64: PNG_A }),
@@ -333,7 +333,7 @@ describe("HostAppControlProxy", () => {
       const rFinal = await pFinal;
       expect(rFinal.content).toContain("WARNING");
       expect(rFinal.content.toLowerCase()).toContain("stuck");
-      expect(proxy.observationRepeatCount).toBe(5);
+      expect(proxy.observationRepeatCount).toBe(4);
 
       proxy.dispose();
     });
@@ -574,39 +574,6 @@ describe("HostAppControlProxy", () => {
         expect(r.isError).toBe(false);
       }
       expect(sentMessages).toHaveLength(100);
-
-      proxy.dispose();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Action history bounding
-  // -------------------------------------------------------------------------
-
-  describe("action history", () => {
-    test("keeps only the most recent 5 entries", async () => {
-      const proxy = new HostAppControlProxy("conv-1");
-      const ctrl = new AbortController();
-
-      for (let i = 0; i < 8; i++) {
-        const p = proxy.request(
-          "app_control_press",
-          { tool: "press", app: "com.example.editor", key: `k${i}` },
-          "conv-1",
-          ctrl.signal,
-        );
-        const sent = sentMessages[i] as Record<string, unknown>;
-        proxy.resolve(
-          sent.requestId as string,
-          payload({ pngBase64: `P${i}` }),
-        );
-        await p;
-      }
-
-      expect(proxy.actionHistory).toHaveLength(5);
-      // Oldest retained entry should fingerprint key "k3".
-      expect(proxy.actionHistory[0]).toContain('"key":"k3"');
-      expect(proxy.actionHistory[4]).toContain('"key":"k7"');
 
       proxy.dispose();
     });
