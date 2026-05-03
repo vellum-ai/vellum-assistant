@@ -96,13 +96,11 @@ export class HostBashProxy {
     } else if (capableClients.length === 1) {
       // Auto-resolve when exactly one capable client is connected.
       resolvedTargetClientId = capableClients[0].clientId;
-    } else if (capableClients.length > 1) {
-      return Promise.resolve({
-        content: `Error: multiple clients support host_bash (${capableClients.length} connected). Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_bash\` to see client IDs and labels.`,
-        isError: true,
-      });
     }
-    // capableClients.length === 0: fall through — existing timeout/error path handles it.
+    // capableClients.length === 0 or > 1 without explicit target: resolvedTargetClientId
+    // stays undefined and falls through to untargeted broadcast — the existing timeout/error
+    // path handles the zero-client case, and multi-client ambiguity is enforced at the tool
+    // executor layer (not here) once target_client_id is exposed in the tool schema.
 
     const requestId = uuid();
 
