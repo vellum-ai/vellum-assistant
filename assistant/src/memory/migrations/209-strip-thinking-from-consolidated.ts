@@ -1,6 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Strip thinking and redacted_thinking blocks from all assistant messages.

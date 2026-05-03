@@ -1,6 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 const CHECKPOINT_KEY = "migration_llm_request_logs_created_at_index_v1";
 

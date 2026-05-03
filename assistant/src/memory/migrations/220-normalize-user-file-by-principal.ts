@@ -1,6 +1,6 @@
 import { computeUserFileBaseSlug } from "../../contacts/contact-store.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Reverse is a no-op. This migration only consolidates `user_file` across

@@ -1,6 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * One-shot migration: rename the `integration:gmail` provider key to

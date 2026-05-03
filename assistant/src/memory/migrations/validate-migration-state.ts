@@ -2,6 +2,9 @@ import { IntegrityError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
+
+export { withCrashRecovery };
 import {
   MIGRATION_REGISTRY,
   type MigrationValidationResult,
@@ -62,62 +65,6 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
   }
 
   return crashed;
-}
-
-/**
- * Wrap a migration function with crash-recovery bookkeeping.
- *
- * Writes a 'started' checkpoint before executing the migration body, then
- * overwrites it with the completion value on success. If the process crashes
- * between the start marker and completion, recoverCrashedMigrations (which
- * runs before all migrations) will detect and clear it on the next startup.
- *
- * The migrationFn receives the raw SQLite database and should perform its
- * own transaction management internally.
- */
-export function withCrashRecovery(
-  database: DrizzleDb,
-  checkpointKey: string,
-  migrationFn: () => void,
-): void {
-  const raw = getSqliteFrom(database);
-
-  const existing = raw
-    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
-    .get(checkpointKey) as { value: string } | null;
-  if (
-    existing &&
-    existing.value !== "started" &&
-    existing.value !== "rolling_back"
-  )
-    return;
-
-  raw
-    .query(
-      `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
-    )
-    .run(checkpointKey, Date.now());
-
-  try {
-    migrationFn();
-  } catch (error) {
-    log.error(
-      { checkpointKey, error },
-      `Memory migration failed: ${checkpointKey} — marking as failed and continuing`,
-    );
-    raw
-      .query(
-        `UPDATE memory_checkpoints SET value = 'failed', updated_at = ? WHERE key = ?`,
-      )
-      .run(Date.now(), checkpointKey);
-    return;
-  }
-
-  raw
-    .query(
-      `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
-    )
-    .run(Date.now(), checkpointKey);
 }
 
 /**

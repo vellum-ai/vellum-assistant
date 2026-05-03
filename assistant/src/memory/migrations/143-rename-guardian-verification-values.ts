@@ -1,5 +1,5 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Reverse v23: add the "guardian_" prefix back to verification-related

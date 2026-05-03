@@ -1,6 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 const CHECKPOINT_KEY = "migration_slack_compaction_watermark_v1";
 

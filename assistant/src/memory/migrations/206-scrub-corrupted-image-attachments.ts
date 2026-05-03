@@ -2,7 +2,7 @@ import { readFileSync, unlinkSync } from "node:fs";
 
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Remove image attachments that contain HTML error pages instead of actual

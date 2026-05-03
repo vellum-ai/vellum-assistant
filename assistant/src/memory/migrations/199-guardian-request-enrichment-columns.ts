@@ -1,7 +1,7 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Add enrichment columns to canonical_guardian_requests for guardian

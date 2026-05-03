@@ -6,7 +6,7 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { resolvePricingForUsageWithOverrides } from "../../util/pricing.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
+import { withCrashRecovery } from "./migration-crash-recovery.js";
 
 /**
  * Reverse v20: no-op — cannot reliably identify which llm_usage_events rows
