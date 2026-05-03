@@ -144,11 +144,16 @@ export class HostBashProxy {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_bash_cancel",
-                requestId,
+              broadcastMessage(
+                {
+                  type: "host_bash_cancel",
+                  requestId,
+                  conversationId,
+                  targetClientId: resolvedTargetClientId,
+                },
                 conversationId,
-              });
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -237,11 +242,16 @@ export class HostBashProxy {
         entry.detachAbort();
         pendingInteractions.resolve(requestId);
         try {
-          broadcastMessage({
-            type: "host_bash_cancel",
-            requestId,
-            conversationId: entry.conversationId,
-          });
+          broadcastMessage(
+            {
+              type: "host_bash_cancel",
+              requestId,
+              conversationId: entry.conversationId,
+              targetClientId: entry.targetClientId,
+            },
+            entry.conversationId,
+            { targetClientId: entry.targetClientId },
+          );
         } catch {
           // Best-effort cancel notification — connection may already be closed.
         }

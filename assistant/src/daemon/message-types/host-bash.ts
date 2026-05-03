@@ -21,6 +21,8 @@ export interface HostBashCancelRequest {
   type: "host_bash_cancel";
   requestId: string;
   conversationId: string;
+  /** When set, route this cancel only to the client that owns the request. */
+  targetClientId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

@@ -181,7 +181,7 @@ class HostShellTool implements Tool {
     const background = input.background === true;
 
     const targetClientId =
-      typeof input.target_client_id === "string"
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
