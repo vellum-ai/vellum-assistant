@@ -146,7 +146,10 @@ enum AppControlExecutor {
             pngBase64: capture.pngBase64,
             windowBounds: capture.bounds,
             executionResult: "observed: \(resolved.name) (pid=\(resolved.pid))",
-            executionError: nil
+            // Surface ScreenCaptureKit failures (commonly missing Screen
+            // Recording permission) so the daemon/LLM doesn't see a "successful"
+            // observe with no image and no signal to the user.
+            executionError: capture.captureError
         )
     }
 
@@ -283,10 +286,12 @@ enum AppControlExecutor {
                 state: capture.state,
                 pngBase64: capture.pngBase64,
                 windowBounds: capture.bounds,
-                executionError: "Window not visible (state=\(capture.state.rawValue))"
+                executionError: boundsMissingExecutionError(capture)
             )
         }
 
+        // Bounds came through, so a missing PNG is non-fatal: the click can
+        // proceed without a screenshot. Ignore `capture.captureError` here.
         do {
             try AppMouse.click(
                 pid: resolved.pid,
@@ -341,10 +346,12 @@ enum AppControlExecutor {
                 state: capture.state,
                 pngBase64: capture.pngBase64,
                 windowBounds: capture.bounds,
-                executionError: "Window not visible (state=\(capture.state.rawValue))"
+                executionError: boundsMissingExecutionError(capture)
             )
         }
 
+        // Bounds came through, so a missing PNG is non-fatal: the drag can
+        // proceed without a screenshot. Ignore `capture.captureError` here.
         do {
             try AppMouse.drag(
                 pid: resolved.pid,
@@ -385,6 +392,22 @@ enum AppControlExecutor {
             executionResult: "session stopped",
             executionError: nil
         )
+    }
+
+    // MARK: - capture error mapping
+
+    /// Pick an `executionError` value for the bounds-missing branch of click
+    /// and drag. Bounds are required by those tools to translate the
+    /// caller-supplied coordinates into screen space — so when bounds are
+    /// missing we always return a non-nil error.
+    ///
+    /// We prefer `capture.captureError` when present (it tells the user *why*
+    /// we couldn't get bounds — commonly missing Screen Recording permission)
+    /// over a bare state-classification message. Marked `internal` for unit
+    /// testing; not part of the public executor surface.
+    static func boundsMissingExecutionError(_ capture: AppWindowCapture.CaptureResult) -> String {
+        return capture.captureError
+            ?? "Window not visible (state=\(capture.state.rawValue))"
     }
 
     // MARK: - PID resolution

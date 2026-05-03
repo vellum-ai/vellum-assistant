@@ -17,8 +17,12 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppWi
 ///                    (e.g. minimized to Dock or app is hidden).
 ///   - `.missing`   — no running NSRunningApplication has the requested PID.
 ///
-/// PNG bytes (base64) and `WindowBounds` are populated when a normal window was
-/// found and ScreenCaptureKit was able to capture it (`state == .running`).
+/// `WindowBounds` is populated whenever a layer-0 window matched
+/// (`state == .running`). `pngBase64` is populated only when ScreenCaptureKit
+/// also succeeded; on capture failure it stays `nil` and `captureError`
+/// carries the underlying reason (most commonly: Screen Recording permission
+/// is not granted). Callers must not assume "running implies image" — `state`
+/// describes the window, `captureError` describes the screenshot.
 ///
 /// Window filtering uses `CGWindowListCopyWindowInfo` (which remains available in
 /// macOS 15) to identify on-screen layer-0 windows owned by the target PID. The
@@ -30,6 +34,19 @@ enum AppWindowCapture {
         let state: HostAppControlState
         let pngBase64: String?
         let bounds: WindowBounds?
+        /// Set when ScreenCaptureKit failed even though the window exists. Most
+        /// commonly indicates missing Screen Recording permission. The window
+        /// `state` remains correctly classified (`.running`/`.minimized`/
+        /// `.missing`); this field is an orthogonal signal that *capture* failed.
+        let captureError: String?
+    }
+
+    /// Inner result for the ScreenCaptureKit path. Distinguishes "no PNG, here's
+    /// why" from "no PNG, no error" so callers can surface the failure reason
+    /// without conflating it with the window-state classification.
+    private struct PNGCaptureResult {
+        let pngBase64: String?
+        let error: String?
     }
 
     /// Capture the frontmost normal window owned by `pid`. See type docs for state semantics.
@@ -56,13 +73,19 @@ enum AppWindowCapture {
             return CaptureResult(
                 state: processIsAlive ? .minimized : .missing,
                 pngBase64: nil,
-                bounds: nil
+                bounds: nil,
+                captureError: nil
             )
         }
 
         let bounds = parseBounds(entry[kCGWindowBounds])
-        let pngBase64 = await captureWindowPNG(windowID: windowNumber)
-        return CaptureResult(state: .running, pngBase64: pngBase64, bounds: bounds)
+        let png = await captureWindowPNG(windowID: windowNumber)
+        return CaptureResult(
+            state: .running,
+            pngBase64: png.pngBase64,
+            bounds: bounds,
+            captureError: png.error
+        )
     }
 
     // MARK: - Private helpers
@@ -83,12 +106,20 @@ enum AppWindowCapture {
         )
     }
 
-    private static func captureWindowPNG(windowID: CGWindowID) async -> String? {
+    /// Capture a single PNG of `windowID` via ScreenCaptureKit. Returns the
+    /// base64 PNG on success, or a human-readable error message describing why
+    /// capture failed. Empirically, missing Screen Recording permission may
+    /// either *throw* (most common, observed in `ScreenCapture.swift`) or
+    /// silently return an empty `SCShareableContent.windows` list on some
+    /// macOS versions — we surface a permission hint in both branches so the
+    /// daemon and the LLM can suggest the right fix.
+    private static func captureWindowPNG(windowID: CGWindowID) async -> PNGCaptureResult {
         do {
             let shareable = try await SCShareableContent.current
             guard let scWindow = shareable.windows.first(where: { $0.windowID == windowID }) else {
-                log.warning("AppWindowCapture: SCShareableContent missing windowID \(windowID)")
-                return nil
+                let message = "ScreenCaptureKit could not find window \(windowID) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
+                log.warning("AppWindowCapture: \(message, privacy: .public)")
+                return PNGCaptureResult(pngBase64: nil, error: message)
             }
 
             let filter = SCContentFilter(desktopIndependentWindow: scWindow)
@@ -102,10 +133,14 @@ enum AppWindowCapture {
                 contentFilter: filter,
                 configuration: config
             )
-            return encodePNGBase64(cgImage: cgImage)
+            guard let png = encodePNGBase64(cgImage: cgImage) else {
+                return PNGCaptureResult(pngBase64: nil, error: "Failed to encode captured window as PNG")
+            }
+            return PNGCaptureResult(pngBase64: png, error: nil)
         } catch {
-            log.warning("AppWindowCapture: ScreenCaptureKit capture failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            let message = "Screen capture failed: \(error.localizedDescription) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
+            log.warning("AppWindowCapture: \(message, privacy: .public)")
+            return PNGCaptureResult(pngBase64: nil, error: message)
         }
     }
 

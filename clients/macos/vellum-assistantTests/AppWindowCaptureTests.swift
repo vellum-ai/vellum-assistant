@@ -34,8 +34,14 @@ final class AppWindowCaptureTests: XCTestCase {
         XCTAssertNotNil(result.bounds, "Expected non-nil bounds for a running Finder window")
 
         // pngBase64 may be nil if Screen Recording permission is not granted in this
-        // test environment. When it is present, validate the PNG magic header.
+        // test environment. When it is present, validate the PNG magic header
+        // and assert no captureError was reported. When it is absent, captureError
+        // should explain why (typically a Screen Recording permission hint).
         if let pngBase64 = result.pngBase64 {
+            XCTAssertNil(
+                result.captureError,
+                "Expected no captureError when pngBase64 is present; got: \(result.captureError ?? "")"
+            )
             let pngData = try XCTUnwrap(Data(base64Encoded: pngBase64))
             XCTAssertGreaterThanOrEqual(pngData.count, 8, "PNG payload too small to contain magic bytes")
 
@@ -43,15 +49,29 @@ final class AppWindowCaptureTests: XCTestCase {
             let magic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
             let prefix = Array(pngData.prefix(4))
             XCTAssertEqual(prefix, magic, "PNG bytes do not begin with the PNG magic header")
+        } else {
+            // If we got no PNG, captureError must explain why so the daemon and
+            // LLM can surface that to the user (commonly: Screen Recording
+            // permission missing).
+            let error = result.captureError ?? ""
+            XCTAssertFalse(
+                error.isEmpty,
+                "Expected non-empty captureError when pngBase64 is nil for a running window"
+            )
         }
     }
 
-    func test_capture_unknownPid_returnsMissing() async {
+    /// A bogus PID is a "no window" failure — the result is `.missing` and
+    /// `captureError` stays `nil`. The error field is reserved for *capture*
+    /// failures (ScreenCaptureKit returned no image even though the window
+    /// existed), not window-state classification failures.
+    func test_capture_unknownPid_returnsMissingWithNoCaptureError() async {
         let unknownPid: pid_t = 999_999
         let result = await AppWindowCapture.capture(forPid: unknownPid)
         XCTAssertEqual(result.state, .missing)
         XCTAssertNil(result.pngBase64)
         XCTAssertNil(result.bounds)
+        XCTAssertNil(result.captureError)
     }
 }
 #endif
