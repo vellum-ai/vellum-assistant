@@ -8,13 +8,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig, saveConfig } from "../../config/loader.js";
+import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { getDb } from "../../memory/db-connection.js";
-import { conversations } from "../../memory/schema/conversations.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
@@ -32,25 +30,20 @@ function handleListRuns(queryParams: Record<string, string>) {
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
     : 20;
-  const db = getDb();
-  const rows = db
-    .select({
-      id: conversations.id,
-      title: conversations.title,
-      createdAt: conversations.createdAt,
-    })
-    .from(conversations)
-    .where(eq(conversations.source, "heartbeat"))
-    .orderBy(desc(conversations.createdAt))
-    .limit(limit)
-    .all();
 
+  const runs = listHeartbeatRuns(limit);
   return {
-    runs: rows.map((r) => ({
+    runs: runs.map((r) => ({
       id: r.id,
-      title: r.title ?? "Heartbeat",
+      scheduledFor: r.scheduledFor,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      durationMs: r.durationMs,
+      status: r.status,
+      skipReason: r.skipReason,
+      error: r.error,
+      conversationId: r.conversationId,
       createdAt: r.createdAt,
-      result: "ok",
     })),
   };
 }
@@ -102,7 +95,22 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      runs: z.array(z.unknown()).describe("Heartbeat run records"),
+      runs: z
+        .array(
+          z.object({
+            id: z.string(),
+            scheduledFor: z.number(),
+            startedAt: z.number().nullable(),
+            finishedAt: z.number().nullable(),
+            durationMs: z.number().nullable(),
+            status: z.string(),
+            skipReason: z.string().nullable(),
+            error: z.string().nullable(),
+            conversationId: z.string().nullable(),
+            createdAt: z.number(),
+          }),
+        )
+        .describe("Heartbeat run records"),
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListRuns(queryParams ?? {}),
@@ -135,8 +143,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       success: z.boolean(),
     }),
-    handler: ({ body }: RouteHandlerArgs) =>
-      handleWriteChecklist(body ?? {}),
+    handler: ({ body }: RouteHandlerArgs) => handleWriteChecklist(body ?? {}),
   },
   {
     operationId: "getHeartbeatConfig",

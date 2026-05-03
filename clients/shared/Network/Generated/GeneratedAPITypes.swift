@@ -1994,17 +1994,31 @@ public struct HeartbeatRunsListResponse: Codable, Sendable {
 
 public struct HeartbeatRunsListResponseRun: Codable, Sendable {
     public let id: String
-    public let title: String
+    public let scheduledFor: Int
+    public let startedAt: Int?
+    public let finishedAt: Int?
+    public let durationMs: Int?
+    public let status: String
+    public let skipReason: String?
+    public let error: String?
+    public let conversationId: String?
     public let createdAt: Int
-    public let result: String
-    public let summary: String?
 
-    public init(id: String, title: String, createdAt: Int, result: String, summary: String? = nil) {
+    public init(
+        id: String, scheduledFor: Int, startedAt: Int?, finishedAt: Int?,
+        durationMs: Int?, status: String, skipReason: String?,
+        error: String?, conversationId: String?, createdAt: Int
+    ) {
         self.id = id
-        self.title = title
+        self.scheduledFor = scheduledFor
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.durationMs = durationMs
+        self.status = status
+        self.skipReason = skipReason
+        self.error = error
+        self.conversationId = conversationId
         self.createdAt = createdAt
-        self.result = result
-        self.summary = summary
     }
 }
 
