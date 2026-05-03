@@ -1011,6 +1011,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     );
     return true; // async
   }
+  if (message.type === "self-hosted-pair") {
+    // The popup calls this when the user clicks "Pair" on the self-hosted
+    // setup screen. We set the mode, attempt /v1/pair so the popup gets
+    // early feedback, and store the JWT so callbacks work immediately when
+    // the popup follows up with "connect".
+    (async () => {
+      const gatewayUrl = await getStoredGatewayUrl();
+      await setStoredUserMode("self-hosted");
+      const pairResp = await fetch(
+        `${gatewayUrl.replace(/\/$/, "")}/v1/pair`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-vellum-interface-id": "chrome-extension",
+          },
+        },
+      );
+      if (!pairResp.ok) {
+        throw new Error(`Pair failed (${pairResp.status})`);
+      }
+      const body = (await pairResp.json()) as { token?: string };
+      selfHostedPairToken = body.token ?? null;
+      sendResponseFn({ ok: true });
+    })()
+      .catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    return true; // async
+  }
   if (message.type === "environment-get") {
     // Returns the effective environment and its components so the popup
     // can display which environment is active and whether an override is
