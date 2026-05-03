@@ -806,6 +806,45 @@ export function parseUnifiedJobStatus(
   };
 }
 
+export interface BundleCompatibility {
+  min_runtime_version: string;
+  max_runtime_version: string | null;
+}
+
+/**
+ * Thrown by platformRequestSignedUrl when the platform rejects a download
+ * signed-URL request because the target runtime version is outside the
+ * ExportJob's [min_runtime_version, max_runtime_version] band. Terminal
+ * — callers must NOT retry; surface to the user and abort the
+ * teleport/restore wizard.
+ */
+export class VersionMismatchError extends Error {
+  readonly bundleCompat: BundleCompatibility;
+  readonly targetRuntimeVersion: string;
+
+  constructor(bundleCompat: BundleCompatibility, targetRuntimeVersion: string) {
+    super(
+      VersionMismatchError.formatMessage(bundleCompat, targetRuntimeVersion),
+    );
+    this.name = "VersionMismatchError";
+    this.bundleCompat = bundleCompat;
+    this.targetRuntimeVersion = targetRuntimeVersion;
+  }
+
+  static formatMessage(
+    compat: BundleCompatibility,
+    targetRuntimeVersion: string,
+  ): string {
+    const range = compat.max_runtime_version
+      ? `${compat.min_runtime_version}–${compat.max_runtime_version}`
+      : `${compat.min_runtime_version}+`;
+    return (
+      `Cannot import: bundle requires runtime ${range}, but this runtime is ${targetRuntimeVersion}. ` +
+      `Update your runtime before importing.`
+    );
+  }
+}
+
 /**
  * Request a signed URL from the platform for either uploading a new bundle
  * or downloading an existing one. Calls `POST /v1/migrations/signed-url/`.
@@ -817,6 +856,9 @@ export function parseUnifiedJobStatus(
  *
  * Retries once with a fresh org-ID cache on 401 to match the retry pattern
  * used by other authenticated platform helpers.
+ *
+ * Throws {@link VersionMismatchError} on a 422 `version_mismatch` response,
+ * which is terminal — callers must NOT retry.
  */
 export async function platformRequestSignedUrl(
   params: {
@@ -824,6 +866,11 @@ export async function platformRequestSignedUrl(
     bundleKey?: string;
     contentType?: string;
     contentLength?: number;
+    // Source-side, upload only: runtime version that produced the bundle.
+    minRuntimeVersion?: string;
+    maxRuntimeVersion?: string | null;
+    // Target-side, download only: runtime version that will import.
+    targetRuntimeVersion?: string;
   },
   token: string,
   platformUrl?: string,
@@ -839,6 +886,17 @@ export async function platformRequestSignedUrl(
   if (params.contentType !== undefined) body.content_type = params.contentType;
   if (params.contentLength !== undefined) {
     body.content_length = params.contentLength;
+  }
+  if (params.minRuntimeVersion !== undefined) {
+    body.min_runtime_version = params.minRuntimeVersion;
+  }
+  if (params.maxRuntimeVersion !== undefined) {
+    // Explicit null is the documented "no upper bound" sentinel; keep it
+    // in the payload rather than stripping to undefined.
+    body.max_runtime_version = params.maxRuntimeVersion;
+  }
+  if (params.targetRuntimeVersion !== undefined) {
+    body.target_runtime_version = params.targetRuntimeVersion;
   }
 
   const doRequest = async (): Promise<Response> =>
@@ -874,9 +932,28 @@ export async function platformRequestSignedUrl(
     };
   }
 
+  // Non-success body. Read once and reuse for both the 422 version-mismatch
+  // branch and the generic-error fallthrough — `response.json()` consumes
+  // the body, so a second read would always return undefined.
   const errorBody = (await response.json().catch(() => ({}))) as {
     detail?: string;
+    reason?: string;
+    bundle_compat?: BundleCompatibility;
+    target_runtime_version?: string;
   };
+
+  if (
+    response.status === 422 &&
+    errorBody.reason === "version_mismatch" &&
+    errorBody.bundle_compat &&
+    typeof errorBody.target_runtime_version === "string"
+  ) {
+    throw new VersionMismatchError(
+      errorBody.bundle_compat,
+      errorBody.target_runtime_version,
+    );
+  }
+
   throw new Error(
     errorBody.detail ??
       `Failed to request signed URL: ${response.status} ${response.statusText}`,
