@@ -188,14 +188,14 @@ git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO
 
 The default permission set mirrors the permissions used by the reference `credence-the-bot` installation:
 
-| Permission        | Level | Purpose                                                    |
-| ----------------- | ----- | ---------------------------------------------------------- |
-| `contents`        | write | Push commits, create/delete branches                       |
-| `pull_requests`   | write | Open PRs, post PR comments and reviews                     |
-| `actions`         | write | Trigger and cancel workflow runs                           |
-| `workflows`       | write | Commit `.github/workflows/` files                          |
-| `checks`          | read  | Read CI check-run status (e.g. `gh pr checks`)             |
-| `metadata`        | read  | Required by GitHub for all App installations (auto-added)  |
+| Permission      | Level | Purpose                                                   |
+| --------------- | ----- | --------------------------------------------------------- |
+| `contents`      | write | Push commits, create/delete branches                      |
+| `pull_requests` | write | Open PRs, post PR comments and reviews                    |
+| `actions`       | write | Trigger and cancel workflow runs                          |
+| `workflows`     | write | Commit `.github/workflows/` files                         |
+| `checks`        | read  | Read CI check-run status (e.g. `gh pr checks`)            |
+| `metadata`      | read  | Required by GitHub for all App installations (auto-added) |
 
 > **Note on `checks:read`:** This is required to poll CI status via the Checks API (`GET /repos/.../commits/{sha}/check-runs`). Without it, `gh pr checks` returns empty or 403. Adding this permission after initial install requires org admin approval of the updated installation at `https://github.com/organizations/{org}/settings/installations`.
 
