@@ -6205,6 +6205,10 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host CU request.
+        "403":
+          description: Submitting client does not match the targeted client for this request.
       requestBody:
         required: true
         content:
@@ -6263,6 +6267,10 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host file request.
+        "403":
+          description: Submitting client does not match the targeted client for this request.
       requestBody:
         required: true
         content:
