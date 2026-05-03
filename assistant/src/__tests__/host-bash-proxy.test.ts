@@ -16,14 +16,22 @@ mock.module("../config/loader.js", () => ({
 }));
 
 const sentMessages: unknown[] = [];
+const sentMessageOptions: unknown[] = [];
 const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
+let mockCapableClients: Array<{ clientId: string; capabilities: string[] }> = [];
+let mockClientRegistry: Map<string, { clientId: string; capabilities: string[] }> = new Map();
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  broadcastMessage: (msg: unknown, _conversationId?: string, options?: unknown) => {
+    sentMessages.push(msg);
+    sentMessageOptions.push(options);
+  },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_bash" && mockHasClient ? { id: "mock-client" } : null,
+    listClientsByCapability: (_cap: string) => mockCapableClients,
+    getClientById: (clientId: string) => mockClientRegistry.get(clientId),
   },
 }));
 
@@ -45,9 +53,28 @@ describe("HostBashProxy", () => {
 
   function setup() {
     sentMessages.length = 0;
+    sentMessageOptions.length = 0;
     resolvedInteractionIds.length = 0;
     mockHasClient = false;
+    mockCapableClients = [];
+    mockClientRegistry = new Map();
     proxy = new (HostBashProxy as any)();
+  }
+
+  function setupSingleClient(clientId = "client-1") {
+    const entry = { clientId, capabilities: ["host_bash"] };
+    mockCapableClients = [entry];
+    mockClientRegistry.set(clientId, entry);
+  }
+
+  function setupMultipleClients(clientIds: string[]) {
+    mockCapableClients = clientIds.map((id) => ({
+      clientId: id,
+      capabilities: ["host_bash"],
+    }));
+    for (const entry of mockCapableClients) {
+      mockClientRegistry.set(entry.clientId, entry);
+    }
   }
 
   afterEach(() => {
@@ -526,6 +553,186 @@ describe("HostBashProxy", () => {
 
       await resultPromise;
       expect(resolvedInteractionIds).toEqual([]);
+    });
+  });
+
+  describe("target client routing", () => {
+    test("auto-resolves when exactly one capable client is connected", async () => {
+      setup();
+      setupSingleClient("client-abc");
+
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-abc");
+
+      // Options passed to broadcastMessage should also have targetClientId
+      const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
+      expect(opts?.targetClientId).toBe("client-abc");
+
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "hello\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("uses explicit targetClientId when it is valid", async () => {
+      setup();
+      setupSingleClient("client-abc");
+      // Also register a second client so we're sure explicit targeting works
+      const entry2 = { clientId: "client-xyz", capabilities: ["host_bash"] };
+      mockCapableClients.push(entry2);
+      mockClientRegistry.set("client-xyz", entry2);
+
+      const resultPromise = proxy.request(
+        { command: "echo hello", targetClientId: "client-abc" },
+        "session-1",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-abc");
+
+      const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
+      expect(opts?.targetClientId).toBe("client-abc");
+
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "ok\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("returns error for explicit targetClientId that is not connected", async () => {
+      setup();
+      setupSingleClient("client-abc");
+
+      const result = await proxy.request(
+        { command: "echo hello", targetClientId: "client-unknown" },
+        "session-1",
+      );
+
+      // Should return error without broadcasting
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("client-unknown");
+      expect(result.content).toContain("assistant clients list --capability host_bash");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("returns error for explicit targetClientId that is connected but lacks host_bash", async () => {
+      setup();
+      // Register a client without host_bash capability
+      mockClientRegistry.set("client-no-bash", {
+        clientId: "client-no-bash",
+        capabilities: [],
+      });
+
+      const result = await proxy.request(
+        { command: "echo hello", targetClientId: "client-no-bash" },
+        "session-1",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("client-no-bash");
+      expect(result.content).toContain("does not support host_bash");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("falls through to untargeted broadcast when multiple capable clients are connected and no targetClientId", async () => {
+      setup();
+      setupMultipleClients(["client-1", "client-2", "client-3"]);
+
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+      );
+
+      // Should broadcast without an early error return
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_bash_request");
+      // No target client resolved — untargeted broadcast
+      expect(sent.targetClientId).toBeUndefined();
+
+      const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
+      expect(opts?.targetClientId).toBeUndefined();
+
+      // Manually resolve to clean up
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "hello\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("falls through to broadcast when zero capable clients (existing timeout path)", async () => {
+      setup();
+      // mockCapableClients is empty (default), so capableClients.length === 0
+
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+      );
+
+      // Should still broadcast (no early return)
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_bash_request");
+      // targetClientId is undefined when no clients present
+      expect(sent.targetClientId).toBeUndefined();
+
+      // Manually resolve to clean up
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      await resultPromise;
+    });
+
+    test("includes targetClientId in timeout error message when client was resolved", async () => {
+      setup();
+      setupSingleClient("client-mac");
+
+      jest.useFakeTimers();
+      try {
+        const resultPromise = proxy.request(
+          { command: "echo slow", timeout_seconds: 30 },
+          "session-1",
+        );
+
+        // Proxy timeout = 33s; advance past it
+        jest.advanceTimersByTime(34 * 1000);
+
+        const result = await resultPromise;
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("client-mac");
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });
