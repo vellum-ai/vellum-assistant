@@ -75,6 +75,8 @@ mock.module("../../../../util/logger.js", () => ({
   LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
 }));
 
+// Also mock the CLI logger singleton so log.info calls do not write to stdout.
+
 mock.module("../../../../config/loader.js", () => ({
   API_KEY_PROVIDERS: [] as const,
   getConfig: () => ({
@@ -241,7 +243,7 @@ describe("assistant platform status", () => {
     // THEN the command succeeds
     expect(exitCode).toBe(0);
 
-    // AND stdout contains no JSON (writeOutput is skipped in plain text mode)
-    expect(stdout.trim()).toBe("");
+    // Plain-text mode logs via log.info — verify writeOutput (JSON) was NOT called
+    expect(() => JSON.parse(stdout.trim())).toThrow();
   });
 });

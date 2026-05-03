@@ -106,6 +106,9 @@ mock.module("../../v2/qdrant.js", () => ({
   // Other exports from the real module — stubbed so transitive imports
   // don't crash on missing names when the mock replaces the module wholesale.
   hybridQueryConceptPages: async () => [],
+  _resetMemoryV2QdrantForTests: () => {},
+  ensureConceptPageCollection: async () => {},
+  MEMORY_V2_COLLECTION: "memory_v2_concept_pages",
 }));
 
 // ── Workspace setup ────────────────────────────────────────────────
