@@ -14,9 +14,7 @@ import {
 import {
   platformRequestSignedUrl,
   readPlatformToken,
-  VersionMismatchError,
 } from "../lib/platform-client.js";
-import cliPkg from "../../package.json";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -291,27 +289,22 @@ async function backupPlatform(
   // poll-loop 401 refresh doesn't get clobbered here — otherwise a long
   // export that recovered mid-poll via re-auth would still 401 on the
   // download-URL request and abort an otherwise successful run.
-  let bundleUrl: string;
-  try {
-    const result = await platformRequestSignedUrl(
-      {
-        operation: "download",
-        bundleKey,
-        targetRuntimeVersion: cliPkg.version,
-      },
-      exportPlatformToken,
-      platformUrl,
-    );
-    bundleUrl = result.url;
-  } catch (err) {
-    if (err instanceof VersionMismatchError) {
-      // 422 version_mismatch is terminal — surface the platform-formatted
-      // message and exit; do NOT retry.
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-    throw err;
-  }
+  //
+  // We deliberately do NOT send `targetRuntimeVersion` here. This flow
+  // saves the bundle to disk for offline storage; there is no target
+  // runtime to gate against, and the user can later restore the file
+  // into any compatible runtime. Sending the CLI's version would
+  // incorrectly block older CLIs from backing up newer assistants.
+  // The platform treats `target_runtime_version` as optional and skips
+  // the version check when it's omitted.
+  const { url: bundleUrl } = await platformRequestSignedUrl(
+    {
+      operation: "download",
+      bundleKey,
+    },
+    exportPlatformToken,
+    platformUrl,
+  );
 
   let downloadResponse: Response;
   try {

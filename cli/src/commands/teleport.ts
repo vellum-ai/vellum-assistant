@@ -29,9 +29,9 @@ import {
   fetchCurrentUser,
   fetchOrganizationId,
 } from "../lib/platform-client.js";
-import cliPkg from "../../package.json";
 import {
   localRuntimeExportToGcs,
+  localRuntimeIdentity,
   localRuntimeImportFromGcs,
   localRuntimePollJobStatus,
   MigrationInProgressError,
@@ -661,13 +661,41 @@ async function importToAssistant(
     // never touches the bytes. The URL must target the same platform the
     // bundle was uploaded to; otherwise the object won't exist on this
     // platform's GCS bucket.
+    //
+    // The platform's vbundle version gate compares the **target runtime's**
+    // version against the bundle's compatibility range. The CLI and the
+    // target assistant's daemon can diverge (assistants upgrade
+    // independently), so we MUST query the target runtime's `/v1/identity`
+    // for its version rather than sending `cliPkg.version`. Sending the CLI
+    // version here would falsely 422 a valid import (or pass a bundle the
+    // target can't actually load) whenever the two drift apart.
+    let targetRuntimeVersion: string;
+    try {
+      const identity = await callRuntimeWithAuthRetry(
+        entry.runtimeUrl,
+        entry.assistantId,
+        (token) => localRuntimeIdentity(entry, token),
+      );
+      targetRuntimeVersion = identity.version;
+    } catch (err) {
+      // Surface and abort — silently falling back to `cliPkg.version` would
+      // re-introduce the bug this code is fixing. If the runtime is
+      // unreachable, the import would fail downstream anyway.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not read target runtime version from '${entry.assistantId}': ${msg}`,
+      );
+      console.error(`Try: vellum wake ${entry.assistantId}`);
+      process.exit(1);
+    }
+
     let bundleUrl: string;
     try {
       const result = await platformRequestSignedUrl(
         {
           operation: "download",
           bundleKey,
-          targetRuntimeVersion: cliPkg.version,
+          targetRuntimeVersion,
         },
         platformToken,
         bundlePlatformUrl,
@@ -676,8 +704,8 @@ async function importToAssistant(
     } catch (err) {
       if (err instanceof VersionMismatchError) {
         // 422 version_mismatch is terminal — the bundle's runtime range and
-        // this CLI's version don't overlap. Surface the platform-formatted
-        // message and exit; do NOT retry.
+        // the target runtime's version don't overlap. Surface the
+        // platform-formatted message and exit; do NOT retry.
         console.error(`Error: ${err.message}`);
         process.exit(1);
       }

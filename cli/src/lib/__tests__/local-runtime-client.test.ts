@@ -4,6 +4,7 @@ import type { AssistantEntry } from "../assistant-config.js";
 import {
   MigrationInProgressError,
   localRuntimeExportToGcs,
+  localRuntimeIdentity,
   localRuntimeImportFromGcs,
   localRuntimePollJobStatus,
 } from "../local-runtime-client.js";
@@ -476,5 +477,81 @@ describe("vellum-cloud routing through wildcard proxy", () => {
     if (status.status === "complete") {
       expect(status.bundleKey).toBe("exports/org-1/x.vbundle");
     }
+  });
+});
+
+describe("localRuntimeIdentity", () => {
+  test("local: GETs /v1/identity with Bearer auth and returns version", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          name: "Test",
+          role: "",
+          personality: "",
+          emoji: "",
+          home: "",
+          version: "0.6.5",
+          createdAt: "2025-01-01T00:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await localRuntimeIdentity(ENTRY, TOKEN);
+
+    expect(result).toEqual({ version: "0.6.5" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${RUNTIME_URL}/v1/identity`);
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test("vellum: routes through wildcard proxy /v1/assistants/<id>/identity", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          name: "Test",
+          role: "",
+          personality: "",
+          emoji: "",
+          home: "",
+          version: "0.7.2",
+          createdAt: "2025-01-01T00:00:00Z",
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await localRuntimeIdentity(VELLUM_ENTRY, VAK_TOKEN);
+
+    expect(result).toEqual({ version: "0.7.2" });
+    expect(calls[0]!.url).toBe(
+      `https://platform.vellum.ai/v1/assistants/11111111-2222-3333-4444-555555555555/identity`,
+    );
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${VAK_TOKEN}`);
+  });
+
+  test("non-2xx throws with status + body so callers can surface", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response("unreachable", { status: 502 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(/502/);
+  });
+
+  test("missing version field throws (we never silently degrade)", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(JSON.stringify({ name: "Test", role: "" }), {
+        status: 200,
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(localRuntimeIdentity(ENTRY, TOKEN)).rejects.toThrow(
+      /no version field/,
+    );
   });
 });
