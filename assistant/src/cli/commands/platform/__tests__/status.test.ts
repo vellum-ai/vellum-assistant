@@ -169,9 +169,9 @@ describe("assistant platform status", () => {
   test("platform pod returns full status from context", async () => {
     /**
      * When the assistant is running as a platform-managed pod, the status
-     * command should report all fields from the registration context.
-     * connected/organizationId/userId are no longer part of the output —
-     * those were keychain-only fields that were always false on managed pods.
+     * command reports all fields from the registration context plus
+     * organizationId and userId from the keychain. The connected field
+     * is absent — platform status does not expose it.
      */
 
     // GIVEN a containerized platform environment
@@ -215,9 +215,6 @@ describe("assistant platform status", () => {
     expect(parsed.available).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
-
-    // connected removed — it only reflected keychain credentials from the
-    // connect flow, which is a no-op on managed pods (always false)
     expect(parsed.connected).toBeUndefined();
   });
 
