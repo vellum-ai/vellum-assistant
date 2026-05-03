@@ -107,9 +107,9 @@ public struct InteractionClient: InteractionClientProtocol {
             // Route is /v1/contacts/prompt/submit — not scoped under assistants/{id}.
             let response = try await GatewayHTTPClient.post(
                 path: "contacts/prompt/submit",
-                unprefixed: true,
                 json: body,
-                timeout: 10
+                timeout: 10,
+                unprefixed: true
             )
             if !response.isSuccess {
                 log.error("sendContactPromptResponse failed (HTTP \(response.statusCode))")
