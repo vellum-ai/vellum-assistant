@@ -231,6 +231,21 @@ class HostShellTool implements Tool {
       };
     }
 
+    // Guard: explicit targetClientId provided but proxy is unavailable (client
+    // disconnected between tool-definition and tool-execution). Without this
+    // guard both targetClientId != null guards above are bypassed, and the
+    // code falls through to local daemon execution — silently running commands
+    // inside the Docker container instead of on the intended host machine.
+    if (
+      targetClientId != null &&
+      !HostBashProxy.instance.isAvailable()
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_bash\` to see currently connected clients.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostBashProxy.instance.isAvailable()) {

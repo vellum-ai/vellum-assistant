@@ -830,6 +830,22 @@ describe("host_bash — proxy delegation", () => {
     expect(spawnCalls.length).toBe(1);
   });
 
+  test("returns error when explicit targetClientId is set but proxy is unavailable (client disconnected)", async () => {
+    // mockProxyAvailable defaults to false — simulates client disconnecting
+    // after tool definitions were built (targetClientId already resolved).
+    spawnCalls.length = 0;
+    const result = await hostShellTool.execute(
+      { command: "echo should-not-run", target_client_id: "client-mac-abc123" },
+      { ...makeContext(), transportInterface: "web" },
+    );
+
+    // Must error, NOT fall through to local spawn
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("client-mac-abc123");
+    expect(result.content).toContain("no longer connected");
+    expect(spawnCalls.length).toBe(0);
+  });
+
   test("falls back to local execution when no proxy is set", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-no-proxy-"));
     testDirs.push(dir);
