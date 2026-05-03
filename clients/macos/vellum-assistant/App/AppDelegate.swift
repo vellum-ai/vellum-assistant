@@ -53,6 +53,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var hostCuOverlayCancellables = Set<AnyCancellable>()
     /// In-flight CU tasks keyed by request ID, for cancel support.
     var inFlightCuTasks: [String: Task<Void, Never>] = [:]
+    /// In-flight host app-control tasks keyed by request ID, for cancel support.
+    var inFlightAppControlTasks: [String: Task<Void, Never>] = [:]
     /// Executor for host browser (CDP) requests.
     let hostBrowserExecutor = HostBrowserExecutor()
     var isStartingSession = false

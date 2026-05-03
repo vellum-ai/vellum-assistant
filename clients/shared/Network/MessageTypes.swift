@@ -2890,6 +2890,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case hostAppControlRequest(HostAppControlRequest)
+    case hostAppControlCancel(HostAppControlCancel)
     case hostBrowserRequest(HostBrowserRequest)
     case hostBrowserCancel(HostBrowserCancelRequest)
     case hostTransferRequest(HostTransferRequest)
@@ -3385,6 +3387,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "host_app_control_request":
+            let message = try HostAppControlRequest(from: decoder)
+            self = .hostAppControlRequest(message)
+        case "host_app_control_cancel":
+            let message = try HostAppControlCancel(from: decoder)
+            self = .hostAppControlCancel(message)
         case "host_browser_request":
             let message = try HostBrowserRequest(from: decoder)
             self = .hostBrowserRequest(message)

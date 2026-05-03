@@ -100,6 +100,7 @@ export function handleSubscribeAssistantEvents(
     "host_bash",
     "host_file",
     "host_cu",
+    "host_app_control",
     "host_browser",
   ];
 
