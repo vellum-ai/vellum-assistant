@@ -76,7 +76,7 @@ export const graphRememberDefinition: ToolDefinition = {
       finish_turn: {
         type: "boolean",
         description:
-          "Set to true ONLY on the final `remember` call when you have nothing else to say and want to hand control back to the user. When true, the assistant turn ends after this tool call and no further LLM call is made. Do NOT set true on intermediate `remember` calls. Default: false.",
+          "When you have nothing else to say and want to hand control back to the user you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
       },
     },
     required: ["content"],
