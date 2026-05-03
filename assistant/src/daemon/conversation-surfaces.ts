@@ -1780,6 +1780,10 @@ export async function surfaceProxyResolver(
     // Record the action and proxy to the connected desktop client
     const reasoning =
       typeof input.reasoning === "string" ? input.reasoning : undefined;
+    const targetClientId =
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
     ctx.hostCuProxy.recordAction(toolName, input, reasoning);
     return ctx.hostCuProxy.request(
       toolName,
@@ -1788,6 +1792,7 @@ export async function surfaceProxyResolver(
       ctx.hostCuProxy.stepCount,
       reasoning,
       signal,
+      targetClientId,
     );
   }
 

@@ -1,6 +1,8 @@
+import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
@@ -36,6 +38,11 @@ class HostFileEditTool implements Tool {
             type: "boolean",
             description:
               "Replace all occurrences instead of requiring a unique match (default: false)",
+          },
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
           },
         },
         required: ["path", "old_string", "new_string"],
@@ -84,6 +91,24 @@ class HostFileEditTool implements Tool {
 
     const replaceAll = input.replace_all === true;
 
+    const targetClientId =
+      typeof input.target_client_id === "string" && input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
+    const transportInterface = context.transportInterface;
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      assistantEventHub.listClientsByCapability("host_file").length > 1
+    ) {
+      return {
+        content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostFileProxy.instance.isAvailable()) {
@@ -94,6 +119,7 @@ class HostFileEditTool implements Tool {
           old_string: oldString as string,
           new_string: newString as string,
           replace_all: replaceAll,
+          targetClientId,
         },
         context.conversationId,
         context.signal,
