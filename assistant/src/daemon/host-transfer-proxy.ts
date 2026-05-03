@@ -30,6 +30,7 @@ interface TransferEntry {
   sizeBytes?: number;
   sha256?: string;
   fileBuffer?: Buffer;
+  targetClientId?: string;
 }
 
 /**
@@ -106,11 +107,32 @@ export class HostTransferProxy {
       destPath: string;
       overwrite: boolean;
       conversationId: string;
+      targetClientId?: string;
     },
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
+    }
+
+    let resolvedTargetClientId: string | undefined = input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      const capable = assistantEventHub.listClientsByCapability("host_file");
+      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
     }
 
     const requestId = uuid();
@@ -140,8 +162,9 @@ export class HostTransferProxy {
               "Host transfer proxy request timed out",
             );
             resolve({
-              content:
-                "Host transfer proxy timed out waiting for client response",
+              content: resolvedTargetClientId
+                ? `Host transfer proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+                : "Host transfer proxy timed out waiting for client response",
               isError: true,
             });
           }, timeoutMs);
@@ -152,11 +175,18 @@ export class HostTransferProxy {
                 this.transfers.delete(transferId);
                 pendingInteractions.resolve(requestId);
                 try {
-                  broadcastMessage({
-                    type: "host_transfer_cancel",
-                    requestId,
-                    conversationId: input.conversationId,
-                  });
+                  broadcastMessage(
+                    {
+                      type: "host_transfer_cancel",
+                      requestId,
+                      conversationId: input.conversationId,
+                      ...(resolvedTargetClientId != null
+                        ? { targetClientId: resolvedTargetClientId }
+                        : {}),
+                    },
+                    input.conversationId,
+                    { targetClientId: resolvedTargetClientId },
+                  );
                 } catch {
                   // Best-effort cancel notification
                 }
@@ -175,11 +205,13 @@ export class HostTransferProxy {
             sizeBytes,
             sha256,
             fileBuffer,
+            targetClientId: resolvedTargetClientId,
           });
 
           pendingInteractions.register(requestId, {
             conversationId: input.conversationId,
             kind: "host_transfer",
+            targetClientId: resolvedTargetClientId,
             rpcResolve: resolve,
             rpcReject: reject,
             timer,
@@ -188,17 +220,24 @@ export class HostTransferProxy {
           });
 
           try {
-            broadcastMessage({
-              type: "host_transfer_request",
-              requestId,
-              conversationId: input.conversationId,
-              direction: "to_host",
-              transferId,
-              destPath: input.destPath,
-              sizeBytes,
-              sha256,
-              overwrite: input.overwrite,
-            });
+            broadcastMessage(
+              {
+                type: "host_transfer_request",
+                requestId,
+                conversationId: input.conversationId,
+                direction: "to_host",
+                transferId,
+                destPath: input.destPath,
+                sizeBytes,
+                sha256,
+                overwrite: input.overwrite,
+                ...(resolvedTargetClientId != null
+                  ? { targetClientId: resolvedTargetClientId }
+                  : {}),
+              },
+              input.conversationId,
+              { targetClientId: resolvedTargetClientId },
+            );
           } catch (err) {
             this.transfers.delete(transferId);
             pendingInteractions.resolve(requestId);
@@ -235,11 +274,32 @@ export class HostTransferProxy {
       destPath: string;
       overwrite?: boolean;
       conversationId: string;
+      targetClientId?: string;
     },
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
+    }
+
+    let resolvedTargetClientId: string | undefined = input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      const capable = assistantEventHub.listClientsByCapability("host_file");
+      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
     }
 
     const requestId = uuid();
@@ -258,7 +318,9 @@ export class HostTransferProxy {
           "Host transfer proxy request timed out",
         );
         resolve({
-          content: "Host transfer proxy timed out waiting for client response",
+          content: resolvedTargetClientId
+            ? `Host transfer proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+            : "Host transfer proxy timed out waiting for client response",
           isError: true,
         });
       }, timeoutMs);
@@ -269,11 +331,18 @@ export class HostTransferProxy {
             this.transfers.delete(transferId);
             pendingInteractions.resolve(requestId);
             try {
-              broadcastMessage({
-                type: "host_transfer_cancel",
-                requestId,
-                conversationId: input.conversationId,
-              });
+              broadcastMessage(
+                {
+                  type: "host_transfer_cancel",
+                  requestId,
+                  conversationId: input.conversationId,
+                  ...(resolvedTargetClientId != null
+                    ? { targetClientId: resolvedTargetClientId }
+                    : {}),
+                },
+                input.conversationId,
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
               // Best-effort cancel notification
             }
@@ -290,11 +359,13 @@ export class HostTransferProxy {
         direction: "to_sandbox",
         filePath: input.destPath,
         overwrite: input.overwrite,
+        targetClientId: resolvedTargetClientId,
       });
 
       pendingInteractions.register(requestId, {
         conversationId: input.conversationId,
         kind: "host_transfer",
+        targetClientId: resolvedTargetClientId,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -303,14 +374,21 @@ export class HostTransferProxy {
       });
 
       try {
-        broadcastMessage({
-          type: "host_transfer_request",
-          requestId,
-          conversationId: input.conversationId,
-          direction: "to_sandbox",
-          transferId,
-          sourcePath: input.sourcePath,
-        });
+        broadcastMessage(
+          {
+            type: "host_transfer_request",
+            requestId,
+            conversationId: input.conversationId,
+            direction: "to_sandbox",
+            transferId,
+            sourcePath: input.sourcePath,
+            ...(resolvedTargetClientId != null
+              ? { targetClientId: resolvedTargetClientId }
+              : {}),
+          },
+          input.conversationId,
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
         this.transfers.delete(transferId);
         pendingInteractions.resolve(requestId);
@@ -458,11 +536,18 @@ export class HostTransferProxy {
     if (transferId) this.transfers.delete(transferId);
     pendingInteractions.resolve(requestId);
     try {
-      broadcastMessage({
-        type: "host_transfer_cancel",
-        requestId,
-        conversationId: interaction.conversationId,
-      });
+      broadcastMessage(
+        {
+          type: "host_transfer_cancel",
+          requestId,
+          conversationId: interaction.conversationId,
+          ...(interaction.targetClientId != null
+            ? { targetClientId: interaction.targetClientId }
+            : {}),
+        },
+        interaction.conversationId,
+        { targetClientId: interaction.targetClientId },
+      );
     } catch {
       // Best-effort cancel notification
     }
@@ -483,17 +568,33 @@ export class HostTransferProxy {
     return entry?.requestId ?? null;
   }
 
+  /**
+   * Look up the targetClientId for a given transferId without consuming the entry.
+   * Routes call this to verify ownership without affecting the transfer state.
+   * Returns null when untargeted (no validation needed).
+   */
+  getTargetClientIdForTransfer(transferId: string): string | null {
+    return this.transfers.get(transferId)?.targetClientId ?? null;
+  }
+
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_transfer")) {
       const transferId = entry.metadata?.transferId as string | undefined;
       if (transferId) this.transfers.delete(transferId);
       pendingInteractions.resolve(entry.requestId);
       try {
-        broadcastMessage({
-          type: "host_transfer_cancel",
-          requestId: entry.requestId,
-          conversationId: entry.conversationId,
-        });
+        broadcastMessage(
+          {
+            type: "host_transfer_cancel",
+            requestId: entry.requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId },
+        );
       } catch {
         // Best-effort cancel notification
       }

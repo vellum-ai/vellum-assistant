@@ -12,6 +12,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
+    listClientsByCapability: (_cap: string) =>
+      mockHasClient ? [{ clientId: "mock-client", capabilities: ["host_file"] }] : [],
+    getClientById: (_id: string) => null,
   },
 }));
 
