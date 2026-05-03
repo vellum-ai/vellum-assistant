@@ -1028,20 +1028,28 @@ export class SlackSocketModeClient {
 
     const botToken = this.config.botToken;
     if (!botToken) return;
-    const botUserId = this.config.botUserId;
-    if (!botUserId) {
-      log.debug("Skipping reconnect catch-up: bot user id not yet resolved");
-      return;
-    }
 
+    // Bootstrap before the bot-identity check. The bot-identity check below
+    // can keep returning early across reconnects if `auth.test` failed
+    // transiently in `start()` and never retried — gating bootstrap on it
+    // would leave the watermark unwritten for the entire degraded session,
+    // and the eventual restart with a working `auth.test` would bootstrap
+    // fresh against "now then" rather than "now at first ws.open", silently
+    // widening the unrecoverable window. Bootstrap is identity-agnostic, so
+    // run it first; the actual replay still requires `botUserId` and is
+    // gated below.
     const persisted = this.store.getLastSeenTs();
     if (!persisted) {
-      // Bootstrap on first ever connect: seed the watermark to "now" so
-      // we never replay arbitrary historical messages on a fresh install.
       this.store.setLastSeenTsIfGreater(toSlackTs(Date.now()));
       log.info(
         "Slack catch-up: bootstrapped watermark, skipping initial replay",
       );
+      return;
+    }
+
+    const botUserId = this.config.botUserId;
+    if (!botUserId) {
+      log.debug("Skipping reconnect catch-up: bot user id not yet resolved");
       return;
     }
 

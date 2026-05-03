@@ -359,6 +359,58 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("bootstraps watermark even if botUserId is not yet resolved", async () => {
+    // If `auth.test` errored transiently in `start()`, `botUserId` is
+    // undefined for the rest of that gateway lifetime (reconnects do not
+    // retry `auth.test`). Bootstrap must not be gated on identity, or the
+    // watermark stays unwritten across the entire degraded session and the
+    // next gateway restart bootstraps fresh against "now then" — silently
+    // widening the unrecoverable window past the original ws.open.
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    client.config.botUserId = undefined;
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    expect(store.getLastSeenTs()).toBeUndefined();
+    fetchMock = mock(async () => {
+      throw new Error("should not fetch when botUserId is unresolved");
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      expect(store.getLastSeenTs()).toBeDefined();
+      expect(emitted).toHaveLength(0);
+      expect(fetchMock).toHaveBeenCalledTimes(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("returns without fetching when watermark is set but botUserId is unresolved", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    client.config.botUserId = undefined;
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+    fetchMock = mock(async () => {
+      throw new Error("should not fetch when botUserId is unresolved");
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      expect(store.getLastSeenTs()).toBe("1700000000.000000");
+      expect(emitted).toHaveLength(0);
+      expect(fetchMock).toHaveBeenCalledTimes(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("bails out when this.ws !== ownerWs (stale generation)", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
