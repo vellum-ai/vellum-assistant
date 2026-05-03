@@ -265,6 +265,11 @@ const DEPRECATED_FIELDS: Record<string, string> = {
   "permissions.autoApproveUpTo":
     "permissions.autoApproveUpTo has been removed. The gateway now controls all " +
     "auto-approve thresholds. The field will be removed from your config file.",
+  "memory.jobs.batchSize":
+    "memory.jobs.batchSize has been removed. The memory job worker now uses " +
+    "per-lane concurrency caps (slowLlmConcurrency, fastConcurrency, " +
+    "embedConcurrency) instead of a single batch size. " +
+    "The field will be removed from your config file.",
 };
 
 /**

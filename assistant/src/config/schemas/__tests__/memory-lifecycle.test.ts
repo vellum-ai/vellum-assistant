@@ -7,7 +7,6 @@ describe("MemoryJobsConfigSchema", () => {
     const parsed = MemoryJobsConfigSchema.parse({});
     expect(parsed).toEqual({
       workerConcurrency: 2,
-      batchSize: 10,
       stalledJobTimeoutMs: 30 * 60 * 1000,
       slowLlmConcurrency: 1,
       fastConcurrency: 2,

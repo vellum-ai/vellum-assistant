@@ -19,9 +19,6 @@ const MemoryJobsConfigInputSchema = z.object({
   workerConcurrency: positiveInt("workerConcurrency")
     .optional()
     .describe("Number of concurrent workers processing memory jobs"),
-  batchSize: positiveInt("batchSize")
-    .default(10)
-    .describe("Number of memory items processed per batch"),
   stalledJobTimeoutMs: positiveInt("stalledJobTimeoutMs")
     .default(30 * 60 * 1000)
     .describe(
@@ -73,7 +70,6 @@ export const MemoryJobsConfigSchema = MemoryJobsConfigInputSchema.transform(
 
     return {
       workerConcurrency,
-      batchSize: input.batchSize,
       stalledJobTimeoutMs: input.stalledJobTimeoutMs,
       slowLlmConcurrency,
       fastConcurrency,

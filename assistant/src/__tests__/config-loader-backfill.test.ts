@@ -346,6 +346,24 @@ describe("loadConfig startup behavior", () => {
     expect(raw.provider).toBe("anthropic");
   });
 
+  test("strips memory.jobs.batchSize from existing user configs", () => {
+    // Pre-PR-#29364, the memory job worker read `memory.jobs.batchSize` to
+    // size its single claim batch. The per-lane scheduler no longer reads
+    // it, so the field is deprecated. Existing configs that have it
+    // written to disk should load cleanly with the field silently stripped.
+    writeConfig({
+      provider: "anthropic",
+      memory: { jobs: { batchSize: 25, workerConcurrency: 4 } },
+    });
+
+    loadConfig();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.memory?.jobs?.batchSize).toBeUndefined();
+    // Sibling fields under memory.jobs are preserved
+    expect(raw.memory?.jobs?.workerConcurrency).toBe(4);
+  });
+
   test("still writes a default config on first launch when file is absent", () => {
     // Discoverability: when no config.json exists, write one populated with
     // all schema defaults so users can see and edit available options.
