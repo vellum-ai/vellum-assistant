@@ -29,36 +29,19 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
 };
 
 /**
- * Prefix keys sorted by length descending, so longest-prefix matches win.
- * This matters for three-segment domains like `host_app_control` whose prefix
- * (`host_app_control`) shares a leading segment with shorter ones (`host_app`
- * would otherwise be undefined and silently fall through to a broadcast).
- */
-const HOST_PREFIX_KEYS_BY_LENGTH = Object.keys(HOST_PREFIX_TO_CAPABILITY).sort(
-  (a, b) => b.length - a.length,
-);
-
-/**
  * Infer the {@link HostProxyCapability} a message should be targeted at based
  * on its `type` field.  Returns `undefined` for message types that are not
  * host-proxy messages (i.e. they should broadcast to all subscribers).
  *
  * Host-proxy message types are shaped `host_<domain>[_<sub>]_<verb>` where
- * `<verb>` is `request` or `cancel`. We strip the trailing verb and then
- * pick the longest registered prefix that the remainder starts with — this
- * way both two-segment domains (`host_bash`) and three-segment domains
- * (`host_app_control`) route correctly.
+ * `<verb>` is `request` or `cancel`. We strip the trailing verb and look up
+ * the remaining stem directly in {@link HOST_PREFIX_TO_CAPABILITY}.
  */
 export function capabilityForMessageType(
   type: string,
 ): HostProxyCapability | undefined {
   const stem = type.replace(/_(request|cancel)$/, "");
-  for (const key of HOST_PREFIX_KEYS_BY_LENGTH) {
-    if (stem === key || stem.startsWith(`${key}_`)) {
-      return HOST_PREFIX_TO_CAPABILITY[key];
-    }
-  }
-  return undefined;
+  return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
