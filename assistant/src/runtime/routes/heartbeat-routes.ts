@@ -10,7 +10,12 @@ import { dirname } from "node:path";
 
 import { z } from "zod";
 
-import { getConfig, saveConfig } from "../../config/loader.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { readTextFileSync } from "../../util/fs.js";
@@ -202,25 +207,37 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
     }),
     handler: async ({ body = {} }: RouteHandlerArgs) => {
-      const config = getConfig();
-      const heartbeat = { ...config.heartbeat };
-
-      if (typeof body.enabled === "boolean") heartbeat.enabled = body.enabled;
+      // Build a patch containing only the fields the caller actually set.
+      // Writing back the full Zod-defaulted heartbeat object would bake
+      // defaults onto disk, masking later schema changes from the user.
+      const heartbeatPatch: Record<string, unknown> = {};
+      if (typeof body.enabled === "boolean")
+        heartbeatPatch.enabled = body.enabled;
       if (typeof body.intervalMs === "number")
-        heartbeat.intervalMs = body.intervalMs;
+        heartbeatPatch.intervalMs = body.intervalMs;
       if (typeof body.activeHoursStart === "number")
-        heartbeat.activeHoursStart = body.activeHoursStart;
+        heartbeatPatch.activeHoursStart = body.activeHoursStart;
       if (typeof body.activeHoursEnd === "number")
-        heartbeat.activeHoursEnd = body.activeHoursEnd;
+        heartbeatPatch.activeHoursEnd = body.activeHoursEnd;
 
       try {
-        saveConfig({ ...config, heartbeat });
-        log.info({ heartbeat }, "Heartbeat config updated");
+        const raw = loadRawConfig();
+        raw.heartbeat = {
+          ...((raw.heartbeat as Record<string, unknown>) ?? {}),
+          ...heartbeatPatch,
+        };
+        saveRawConfig(raw);
+        invalidateConfigCache();
+        log.info({ heartbeat: heartbeatPatch }, "Heartbeat config updated");
       } catch (err) {
         log.error({ err }, "Failed to save heartbeat config");
         throw new InternalError("Failed to save config");
       }
 
+      // Read effective values back through the schema-defaulting loader so
+      // callers that only set a subset of fields still see the resolved
+      // (post-default) shape in the response.
+      const heartbeat = getConfig().heartbeat;
       const svc = HeartbeatService.getInstance();
       return {
         enabled: heartbeat.enabled,
