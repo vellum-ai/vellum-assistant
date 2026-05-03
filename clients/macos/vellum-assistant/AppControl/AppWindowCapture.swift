@@ -1,9 +1,7 @@
 #if os(macOS)
 import AppKit
 import CoreGraphics
-import ImageIO
 import ScreenCaptureKit
-import UniformTypeIdentifiers
 import VellumAssistantShared
 import os
 
@@ -25,9 +23,11 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppWi
 /// describes the window, `captureError` describes the screenshot.
 ///
 /// Window filtering uses `CGWindowListCopyWindowInfo` (which remains available in
-/// macOS 15) to identify on-screen layer-0 windows owned by the target PID. The
-/// actual pixel capture goes through `SCScreenshotManager` because
-/// `CGWindowListCreateImage` is unavailable in macOS 15.
+/// macOS 15) to identify on-screen layer-0 windows owned by the target PID.
+/// Pixel capture is delegated to `AppWindowStreamer`, which maintains a
+/// long-running `SCStream` per window — the one-shot `SCScreenshotManager
+/// .captureImage` path returns stale frames for GPU-rendered apps regardless
+/// of timing or warmup tricks.
 enum AppWindowCapture {
 
     struct CaptureResult: Equatable {
@@ -106,87 +106,26 @@ enum AppWindowCapture {
         )
     }
 
-    /// Capture a single PNG of `windowID` via ScreenCaptureKit. Returns the
-    /// base64 PNG on success, or a human-readable error message describing why
-    /// capture failed. Empirically, missing Screen Recording permission may
-    /// either *throw* (most common, observed in `ScreenCapture.swift`) or
-    /// silently return an empty `SCShareableContent.windows` list on some
-    /// macOS versions — we surface a permission hint in both branches so the
-    /// daemon and the LLM can suggest the right fix.
+    /// Capture a single PNG of `windowID` by pulling the latest frame from
+    /// the long-running `AppWindowStreamer` (which maintains a continuous
+    /// `SCStream` per window). On the first call for a window the streamer
+    /// starts the stream and waits for the first frame (~200-500ms);
+    /// subsequent calls return the buffered latest frame in ~5-15ms.
     ///
-    /// Capture uses a warmup-then-real two-shot pattern. `SCScreenshotManager
-    /// .captureImage` empirically returns a stale buffered frame (sometimes
-    /// seconds old) on its first call against a window that hasn't been
-    /// recently captured — observed against an emulator window where the
-    /// screenshot lagged behind the live framebuffer by several seconds even
-    /// after a 200ms settle delay. The first call flushes whatever the
-    /// WindowServer / SCK had cached; we then sleep ~2 frames at 60fps for
-    /// the SCK pipeline to advance, and the second call returns the current
-    /// frame. The cost is one extra capture + ~33ms; the benefit is that
-    /// `observe` reflects reality.
+    /// Stream-based capture is necessary because the one-shot
+    /// `SCScreenshotManager.captureImage` path with `desktopIndependentWindow`
+    /// returns stale frames for apps that render via Metal/OpenGL/CAMetalLayer
+    /// (emulators, OpenGL canvases, custom Electron). The streamer uses
+    /// `SCContentFilter(display:including:)` instead, which routes through
+    /// the display-composite path and sees fresh GPU pixels.
     private static func captureWindowPNG(windowID: CGWindowID) async -> PNGCaptureResult {
-        do {
-            let shareable = try await SCShareableContent.current
-            guard let scWindow = shareable.windows.first(where: { $0.windowID == windowID }) else {
-                let message = "ScreenCaptureKit could not find window \(windowID) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
-                log.warning("AppWindowCapture: \(message, privacy: .public)")
-                return PNGCaptureResult(pngBase64: nil, error: message)
-            }
-
-            let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-            let config = SCStreamConfiguration()
-            config.width = max(Int(scWindow.frame.width), 1)
-            config.height = max(Int(scWindow.frame.height), 1)
-            config.pixelFormat = kCVPixelFormatType_32BGRA
-            config.showsCursor = false
-
-            // Warmup capture — discarded. Forces SCK to invalidate any stale
-            // buffered frame for this window. Errors here are non-fatal: if
-            // the warmup fails, the real capture below will surface the error.
-            _ = try? await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
-
-            let cgImage = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            guard let png = encodePNGBase64(cgImage: cgImage) else {
-                return PNGCaptureResult(pngBase64: nil, error: "Failed to encode captured window as PNG")
-            }
+        switch await AppWindowStreamer.shared.latestFrame(forWindow: windowID) {
+        case .success(let png):
             return PNGCaptureResult(pngBase64: png, error: nil)
-        } catch {
-            let message = "Screen capture failed: \(error.localizedDescription) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
+        case .failure(let message):
             log.warning("AppWindowCapture: \(message, privacy: .public)")
             return PNGCaptureResult(pngBase64: nil, error: message)
         }
-    }
-
-    /// Gap between the warmup capture and the real capture. ~2 frames at
-    /// 60fps — long enough for the SCK pipeline to advance past whatever
-    /// stale frame was cached, short enough that the added observe latency
-    /// is unnoticeable.
-    private static let CAPTURE_INTER_SHOT_GAP_MS: Int = 33
-
-    private static func encodePNGBase64(cgImage: CGImage) -> String? {
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data as CFMutableData,
-            UTType.png.identifier as CFString,
-            1,
-            nil
-        ) else {
-            log.warning("AppWindowCapture: CGImageDestinationCreateWithData returned nil")
-            return nil
-        }
-        CGImageDestinationAddImage(destination, cgImage, nil)
-        guard CGImageDestinationFinalize(destination) else {
-            log.warning("AppWindowCapture: CGImageDestinationFinalize failed")
-            return nil
-        }
-        return (data as Data).base64EncodedString()
     }
 }
 #endif
