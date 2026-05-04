@@ -389,6 +389,7 @@ describe("UsageTelemetryReporter", () => {
     expect(e.llm_call_site).toBe("compactionAgent");
     expect(e.inference_profile).toBe("quality-optimized");
     expect(e.inference_profile_source).toBe("conversation");
+    expect(e.cost).toBe(0.001);
     expect(e.recorded_at).toBe(1700000099000);
   });
 
@@ -417,6 +418,26 @@ describe("UsageTelemetryReporter", () => {
       inference_profile: null,
       inference_profile_source: null,
     });
+  });
+
+  test("cost is null when estimatedCostUsd is null (unpriced event)", async () => {
+    const event = makeUsageEvent({
+      id: "evt-unpriced",
+      estimatedCostUsd: null,
+      pricingStatus: "unpriced",
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events[0].cost).toBeNull();
   });
 
   test("organization_id and user_id included in payload when available", async () => {

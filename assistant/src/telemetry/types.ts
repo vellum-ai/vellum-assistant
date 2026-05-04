@@ -21,6 +21,8 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   llm_call_site: LLMCallSite | null;
   inference_profile: string | null;
   inference_profile_source: UsageAttributionProfileSource | null;
+  /** Computed estimated cost in USD for this LLM call. Null when pricing data is unavailable. */
+  cost: number | null;
 }
 
 /** Turn event — one per user message. */

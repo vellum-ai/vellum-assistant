@@ -194,6 +194,7 @@ export class UsageTelemetryReporter {
             llm_call_site: e.callSite,
             inference_profile: e.inferenceProfile,
             inference_profile_source: e.inferenceProfileSource,
+            cost: e.estimatedCostUsd ?? null,
             recorded_at: e.createdAt,
           }),
         ),
