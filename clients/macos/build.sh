@@ -784,6 +784,12 @@ if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
     fi
 fi
 BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-$_DEFAULT_DISPLAY_NAME}"
+# macOS stores process names in p_comm[MAXCOMLEN+1] where MAXCOMLEN=16.
+# Names longer than 16 characters are silently truncated by the kernel,
+# which breaks pgrep -x matching and the instance-kill logic below.
+if [ "${#BUNDLE_DISPLAY_NAME}" -gt 16 ]; then
+    echo "Warning: BUNDLE_DISPLAY_NAME '${BUNDLE_DISPLAY_NAME}' is ${#BUNDLE_DISPLAY_NAME} chars (max 16 for pgrep -x)" >&2
+fi
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
