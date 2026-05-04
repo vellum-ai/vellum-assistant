@@ -228,9 +228,6 @@ struct AssistantProgressView: View {
     }
 
     private func completedHeadline(model: ProgressCardPresentationModel) -> String {
-        if toolCalls.isEmpty {
-            return "Thought process"
-        }
         var total: TimeInterval = 0
         for tc in toolCalls {
             if let s = tc.startedAt, let e = tc.completedAt {
