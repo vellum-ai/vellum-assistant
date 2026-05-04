@@ -434,6 +434,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "memory/v2/rebuild-corpus-stats:POST",
     scopes: ["settings.write"],
   },
+  { endpoint: "memory/v2/fit-anisotropy:POST", scopes: ["settings.write"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
