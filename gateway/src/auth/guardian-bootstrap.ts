@@ -485,27 +485,32 @@ function mintRefreshToken(
 /**
  * Attempt to fetch the assistant owner's display name from the platform.
  *
- * Reads platform_user_id, platform_base_url, and assistant_api_key from the
- * credential store. If all three are present, calls GET
- * /v1/internal/gateway/owner/ and returns the display_name from the response.
- * Returns null on any missing credential or network/parse failure — callers
- * should fall back to a generated principal ID in that case.
+ * Only runs when IS_PLATFORM=true. Reads platform_base_url and
+ * assistant_api_key from the credential store, then calls
+ * GET /v1/internal/gateway/guardian/ with a 5-second timeout.
+ * Returns null on any missing credential, timeout, or network/parse failure —
+ * callers fall back to a generated principal ID in that case.
  */
 async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
-  const [platformUserId, platformBaseUrl, assistantApiKey] = await Promise.all([
-    readCredential(credentialKey("vellum", "platform_user_id")),
+  const isPlatform =
+    process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+    process.env.IS_PLATFORM?.trim() === "1";
+  if (!isPlatform) return null;
+
+  const [platformBaseUrl, assistantApiKey] = await Promise.all([
     readCredential(credentialKey("vellum", "platform_base_url")),
     readCredential(credentialKey("vellum", "assistant_api_key")),
   ]);
 
-  if (!platformUserId || !platformBaseUrl || !assistantApiKey) {
+  if (!platformBaseUrl || !assistantApiKey) {
     return null;
   }
 
   try {
-    const url = `${platformBaseUrl.replace(/\/+$/, "")}/v1/internal/gateway/owner/`;
+    const url = `${platformBaseUrl.replace(/\/+$/, "")}/v1/internal/gateway/guardian/`;
     const response = await fetch(url, {
       headers: { Authorization: `Api-Key ${assistantApiKey}` },
+      signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) {
       log.warn(
