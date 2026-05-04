@@ -59,13 +59,19 @@ export async function cloudApiFetch(
     Accept: "application/json",
   };
 
+  const storedSession = await getStoredSession();
+
   // Inject org header from the stored session unless explicitly skipped.
   // The /v1/organizations/ endpoint must skip this (bootstrap call).
-  if (!init?.skipOrgHeader) {
-    const session = await getStoredSession();
-    if (session?.organizationId) {
-      headers["Vellum-Organization-Id"] = session.organizationId;
-    }
+  if (!init?.skipOrgHeader && storedSession?.organizationId) {
+    headers["Vellum-Organization-Id"] = storedSession.organizationId;
+  }
+
+  // Session cookies are SameSite=Lax and won't be sent cross-site from the
+  // extension service worker.  Use the allauth session token header instead,
+  // which DRF's XSessionTokenAuthentication class accepts.
+  if (storedSession?.sessionToken) {
+    headers["X-Session-Token"] = storedSession.sessionToken;
   }
 
   // Include the CSRF token on mutating requests. Django's
