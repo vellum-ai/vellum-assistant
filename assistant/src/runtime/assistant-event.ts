@@ -16,7 +16,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 export {
   formatSseFrame,
   formatSseHeartbeat,
-  formatSseHeartbeatWithData,
 } from "@vellumai/skill-host-contracts";
 
 /** Daemon-side specialization of the generic event envelope. */

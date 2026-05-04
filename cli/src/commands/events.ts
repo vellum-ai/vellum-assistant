@@ -139,9 +139,6 @@ export async function events(): Promise<void> {
     query,
     headers: getClientRegistrationHeaders(),
   })) {
-    if (!event.message) {
-      continue;
-    }
     if (jsonOutput) {
       console.log(JSON.stringify(event));
     } else {

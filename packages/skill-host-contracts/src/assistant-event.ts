@@ -84,12 +84,3 @@ export function formatSseFrame(event: AssistantEvent): string {
 export function formatSseHeartbeat(): string {
   return ": heartbeat\n\n";
 }
-
-/**
- * Format a keep-alive as both an SSE comment (for proxy keepalive) and a
- * data-bearing event (so fetch-based SSE clients that cannot observe comment
- * lines can still detect heartbeats for disconnect watchdogs).
- */
-export function formatSseHeartbeatWithData(): string {
-  return `${formatSseHeartbeat()}event: assistant_event\ndata: ${JSON.stringify({ type: "heartbeat" })}\n\n`;
-}
