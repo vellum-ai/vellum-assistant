@@ -13,7 +13,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-import { getIsPlatform } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
+import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { getLogger } from "../util/logger.js";
 import {
   setMcpAuthComplete,
@@ -51,7 +52,11 @@ export async function orchestrateMcpOAuthConnect(args: {
 }): Promise<OrchestrateMcpOAuthConnectResult> {
   const { serverId, transport } = args;
 
-  const callbackTransport: McpOAuthCallbackTransport = getIsPlatform()
+  // Containerized deployments (platform-managed AND self-hosted Docker) must
+  // use the gateway transport: the browser is outside the daemon container,
+  // so a loopback callback inside the container is unreachable. Bare-metal
+  // daemons can use loopback as before.
+  const callbackTransport: McpOAuthCallbackTransport = getIsContainerized()
     ? "gateway"
     : "loopback";
 
@@ -61,7 +66,11 @@ export async function orchestrateMcpOAuthConnect(args: {
     transport.url,
     /* interactive */ false,
     callbackTransport,
-    { onAuthorizationUrl: (url) => { capturedAuthUrl = url; } },
+    {
+      onAuthorizationUrl: (url) => {
+        capturedAuthUrl = url;
+      },
+    },
   );
 
   // Clear stale credentials so the flow starts fresh
@@ -74,7 +83,9 @@ export async function orchestrateMcpOAuthConnect(args: {
   // Build the MCP transport and client
   const serverUrl = new URL(transport.url);
   const TransportClass =
-    transport.type === "sse" ? SSEClientTransport : StreamableHTTPClientTransport;
+    transport.type === "sse"
+      ? SSEClientTransport
+      : StreamableHTTPClientTransport;
   const mcpTransport = new TransportClass(serverUrl, {
     authProvider: provider,
     requestInit: transport.headers ? { headers: transport.headers } : undefined,
@@ -85,25 +96,42 @@ export async function orchestrateMcpOAuthConnect(args: {
     await client.connect(mcpTransport);
     // No error — server is already authenticated
     provider.stopCallbackServer();
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
     return { auth_url: "", already_authenticated: true };
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       // Expected — onAuthorizationUrl has fired, capturedAuthUrl is set
     } else {
       provider.stopCallbackServer();
-      try { await client.close(); } catch { /* ignore */ }
+      try {
+        await client.close();
+      } catch {
+        /* ignore */
+      }
       throw err;
     }
   }
 
   if (!capturedAuthUrl) {
     provider.stopCallbackServer();
-    try { await client.close(); } catch { /* ignore */ }
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
     throw new Error("No authorization URL captured from OAuth provider");
   }
 
-  setMcpAuthPending(serverId, capturedAuthUrl);
+  // Per-attempt token. Gates fire-and-forget state writes so that a
+  // re-run of `assistant mcp auth <serverId>` before the previous attempt
+  // finishes cannot have its slot overwritten by stale completion writes
+  // from the older attempt.
+  const attemptId = crypto.randomUUID();
+  setMcpAuthPending(serverId, capturedAuthUrl, attemptId);
 
   // Fire-and-forget background tail — completes the token exchange once
   // the user approves in the browser.
@@ -113,19 +141,73 @@ export async function orchestrateMcpOAuthConnect(args: {
   // so the daemon can reconnect on the next MCP reload without re-connecting here.
   void (async () => {
     try {
-      const code = await codePromise;
+      // Apply an explicit timeout: the loopback callback path has a built-in
+      // 2-minute timer, but the gateway transport's deferred promise relies on
+      // the caller for time-boxing. Without this race, gateway-mode tails leak
+      // forever if the user never completes the OAuth handshake.
+      const code = await Promise.race([
+        codePromise,
+        new Promise<never>((_, reject) => {
+          const t = setTimeout(
+            () => reject(new Error("OAuth callback timed out")),
+            CALLBACK_TIMEOUT_MS,
+          );
+          // Don't keep the event loop alive solely for this timer
+          if (typeof t.unref === "function") t.unref();
+        }),
+      ]);
       await mcpTransport.finishAuth(code);
-      setMcpAuthComplete(serverId);
+      const applied = setMcpAuthComplete(serverId, attemptId);
+      if (!applied) {
+        log.info(
+          { serverId, attemptId },
+          "MCP OAuth completion superseded by newer attempt — skipping state write",
+        );
+        return;
+      }
       log.info({ serverId }, "MCP OAuth flow completed");
+      // Trigger MCP reload from inside the daemon so the CLI doesn't need
+      // to fall back on the deprecated file-based signal mechanism.
+      // Best-effort: reload failures are logged but don't poison the
+      // success status the polling CLI is about to observe.
+      try {
+        await reloadMcpServers();
+      } catch (reloadErr) {
+        log.warn(
+          {
+            serverId,
+            err:
+              reloadErr instanceof Error
+                ? reloadErr.message
+                : String(reloadErr),
+          },
+          "MCP reload after auth completion failed",
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setMcpAuthError(serverId, message);
-      log.warn({ serverId, error: message }, "MCP OAuth flow failed");
+      const applied = setMcpAuthError(serverId, message, attemptId);
+      if (!applied) {
+        log.info(
+          { serverId, attemptId, error: message },
+          "MCP OAuth error superseded by newer attempt — skipping state write",
+        );
+      } else {
+        log.warn({ serverId, error: message }, "MCP OAuth flow failed");
+      }
     } finally {
       provider.stopCallbackServer();
-      try { await client.close(); } catch { /* ignore */ }
+      try {
+        await client.close();
+      } catch {
+        /* ignore */
+      }
     }
   })();
 
   return { auth_url: capturedAuthUrl };
 }
+
+// Matches the loopback callback timeout; keep both in lockstep so loopback
+// and gateway transports time-box OAuth identically.
+const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000;

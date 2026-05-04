@@ -16,12 +16,24 @@ import { Command } from "commander";
 // ── Module mocks (must precede imports that pull them in) ──────────────
 
 type MockIpcResult = { ok: boolean; result?: unknown; error?: string };
-let mockCliIpcCallFn: ReturnType<typeof mock<(method: string, params?: Record<string, unknown>, opts?: { timeoutMs?: number }) => Promise<MockIpcResult>>> = mock(
+let mockCliIpcCallFn: ReturnType<
+  typeof mock<
+    (
+      method: string,
+      params?: Record<string, unknown>,
+      opts?: { timeoutMs?: number },
+    ) => Promise<MockIpcResult>
+  >
+> = mock(
   (
     _method: string,
     _params?: Record<string, unknown>,
     _opts?: { timeoutMs?: number },
-  ): Promise<MockIpcResult> => Promise.resolve({ ok: false, error: "Could not connect to assistant daemon. Is it running?" }),
+  ): Promise<MockIpcResult> =>
+    Promise.resolve({
+      ok: false,
+      error: "Could not connect to assistant daemon. Is it running?",
+    }),
 );
 
 mock.module("../ipc/cli-client.js", () => ({
@@ -537,7 +549,10 @@ describe("assistant mcp auth — IPC path", () => {
     // SSE server config created in beforeAll.
     testDataDir = ipcTestDataDir;
     mockCliIpcCallFn = mock(() =>
-      Promise.resolve({ ok: false, error: "Could not connect to assistant daemon. Is it running?" }),
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      }),
     );
     mockOpenInHostBrowserFn = mock(async (_url: string) => {});
     stdoutLines = [];
@@ -626,7 +641,7 @@ describe("assistant mcp auth — IPC path", () => {
     expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
   });
 
-  test("polling complete → exits 0 and calls signalMcpReload", async () => {
+  test("polling complete → exits 0 (daemon-side reload triggers itself; CLI no longer writes file signal)", async () => {
     let ipcCallIndex = 0;
     mockCliIpcCallFn = mock(() => {
       ipcCallIndex++;
@@ -646,6 +661,10 @@ describe("assistant mcp auth — IPC path", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Authentication successful");
+    // Pre-existing legacy test files used to assert signalMcpReload() was
+    // invoked from this branch. The IPC success path now relies on the
+    // daemon-side orchestrator to call reloadMcpServers() itself, so the
+    // deprecated file-based signal is intentionally no longer used here.
   });
 
   test("polling error → exits 1 with error message", async () => {
@@ -683,7 +702,7 @@ describe("assistant mcp auth — IPC path", () => {
       // Daemon restarted — state lost
       return Promise.resolve({
         ok: false,
-        error: "No active OAuth flow for server \"srv\"",
+        error: 'No active OAuth flow for server "srv"',
       });
     });
 

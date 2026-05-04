@@ -6,9 +6,14 @@
  */
 
 type McpAuthState =
-  | { status: "pending"; authUrl: string; expiresAt: number }
-  | { status: "complete"; serverId: string; completedAt: number }
-  | { status: "error"; error: string; failedAt: number };
+  | { status: "pending"; authUrl: string; attemptId: string; expiresAt: number }
+  | {
+      status: "complete";
+      serverId: string;
+      attemptId: string;
+      completedAt: number;
+    }
+  | { status: "error"; error: string; attemptId: string; failedAt: number };
 
 const activeMcpAuthFlows = new Map<string, McpAuthState>();
 
@@ -18,36 +23,67 @@ const COMPLETION_GRACE_MS = 60 * 1000; // 60s so the polling CLI gets one final 
 /**
  * Record that an OAuth flow is pending authorization.
  * Overwrites any prior state for the same serverId (supersede semantics
- * matching registerPendingCallback).
+ * matching registerPendingCallback). The caller must pass an `attemptId`
+ * (a unique token per attempt) so that fire-and-forget completion writes
+ * can verify they still own the slot before mutating shared state — see
+ * `setMcpAuthComplete` / `setMcpAuthError`.
  */
-export function setMcpAuthPending(serverId: string, authUrl: string): void {
+export function setMcpAuthPending(
+  serverId: string,
+  authUrl: string,
+  attemptId: string,
+): void {
   activeMcpAuthFlows.set(serverId, {
     status: "pending",
     authUrl,
+    attemptId,
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
 }
 
 /**
- * Record that an OAuth flow completed successfully.
+ * Record that an OAuth flow completed successfully. Returns true if the
+ * write was applied; false if the attempt has been superseded by a newer
+ * one (in which case the caller's tail should silently exit without
+ * touching state).
  */
-export function setMcpAuthComplete(serverId: string): void {
+export function setMcpAuthComplete(
+  serverId: string,
+  attemptId: string,
+): boolean {
+  const current = activeMcpAuthFlows.get(serverId);
+  if (current && current.attemptId !== attemptId) {
+    return false; // superseded
+  }
   activeMcpAuthFlows.set(serverId, {
     status: "complete",
     serverId,
+    attemptId,
     completedAt: Date.now(),
   });
+  return true;
 }
 
 /**
- * Record that an OAuth flow failed.
+ * Record that an OAuth flow failed. Returns true if the write was applied;
+ * false if the attempt has been superseded.
  */
-export function setMcpAuthError(serverId: string, error: string): void {
+export function setMcpAuthError(
+  serverId: string,
+  error: string,
+  attemptId: string,
+): boolean {
+  const current = activeMcpAuthFlows.get(serverId);
+  if (current && current.attemptId !== attemptId) {
+    return false; // superseded
+  }
   activeMcpAuthFlows.set(serverId, {
     status: "error",
     error,
+    attemptId,
     failedAt: Date.now(),
   });
+  return true;
 }
 
 /**

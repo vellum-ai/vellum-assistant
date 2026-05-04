@@ -27,7 +27,9 @@ async function pollMcpAuthStatus(
 ): Promise<{ status: "complete" | "error"; error?: string }> {
   const deadline = Date.now() + options.timeoutMs;
   while (Date.now() < deadline) {
-    await new Promise<void>((resolve) => setTimeout(resolve, options.intervalMs));
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, options.intervalMs),
+    );
     const result = await cliIpcCall<{ status: string; error?: string }>(
       "internal_mcp_auth_status",
       { pathParams: { serverId } },
@@ -42,7 +44,11 @@ async function pollMcpAuthStatus(
     // was not found — most likely because the daemon restarted mid-poll and
     // lost the in-memory state.  Surface this immediately instead of looping
     // for the full 2.5 minutes and then reporting a generic timeout.
-    if (!result.ok && result.error && result.error.includes("No active OAuth flow")) {
+    if (
+      !result.ok &&
+      result.error &&
+      result.error.includes("No active OAuth flow")
+    ) {
       return {
         status: "error",
         error: `OAuth flow was lost (assistant may have restarted). Run 'assistant mcp auth ${serverId}' to retry.`,
@@ -53,7 +59,10 @@ async function pollMcpAuthStatus(
       return { status: "error", error: result.error };
     }
   }
-  return { status: "error", error: "OAuth authorization timed out after 2.5 minutes" };
+  return {
+    status: "error",
+    error: "OAuth authorization timed out after 2.5 minutes",
+  };
 }
 
 export async function checkServerHealth(
@@ -514,10 +523,11 @@ Examples:
       }
 
       // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
-      const startResult = await cliIpcCall<{ auth_url: string; state: string; already_authenticated?: boolean }>(
-        "internal_mcp_auth_start",
-        { body: { serverId: name } },
-      );
+      const startResult = await cliIpcCall<{
+        auth_url: string;
+        state: string;
+        already_authenticated?: boolean;
+      }>("internal_mcp_auth_start", { body: { serverId: name } });
 
       if (startResult.ok && startResult.result?.already_authenticated) {
         log.info(`Server "${name}" is already authenticated.`);
@@ -530,7 +540,9 @@ Examples:
         log.info(`Opening browser for "${name}" OAuth authorization...`);
         await openInHostBrowser(authUrl);
         log.info(`If the browser did not open, visit:\n${authUrl}`);
-        log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
+        log.info(
+          "Waiting for authorization in browser... (press Ctrl+C to cancel)",
+        );
 
         const finalStatus = await pollMcpAuthStatus(name, {
           intervalMs: 2_000,
@@ -539,11 +551,14 @@ Examples:
 
         if (finalStatus.status === "complete") {
           log.info(`Authentication successful for "${name}".`);
+          // No signalMcpReload() here — the daemon-side orchestrator triggers
+          // reloadMcpServers() itself on completion (via the IPC path, the
+          // assistant always knows when the flow finished). The deprecated
+          // file-based signal mechanism is reserved for legacy CLI commands
+          // that don't have an IPC equivalent.
           log.info(
-            "The running assistant will pick up this change automatically. " +
-              "Or run 'vellum mcp reload' to apply now.",
+            "The running assistant has picked up this change automatically.",
           );
-          signalMcpReload();
           process.exit(0);
           return;
         }
