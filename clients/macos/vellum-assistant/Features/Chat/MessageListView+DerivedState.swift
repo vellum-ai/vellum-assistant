@@ -172,6 +172,7 @@ extension MessageListView {
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
             pinnedLatestTurnAnchorMessageId: scrollState.pinnedLatestTurnAnchorMessageId,
+            searchQuery: searchQuery,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
             onAlwaysAllow: onAlwaysAllow,

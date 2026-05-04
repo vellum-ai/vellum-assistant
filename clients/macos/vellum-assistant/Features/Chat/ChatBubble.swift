@@ -42,6 +42,7 @@ struct ChatBubble: View, Equatable {
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.searchQuery == rhs.searchQuery
     }
     let message: ChatMessage
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
@@ -93,6 +94,7 @@ struct ChatBubble: View, Equatable {
     /// When true, suppress the inline avatar on this bubble because
     /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
+    var searchQuery: String = ""
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
@@ -152,7 +154,8 @@ struct ChatBubble: View, Equatable {
         processingStatusText: String? = nil,
         isStreamingContinuation: Bool = false,
         activeSurfaceId: String? = nil,
-        hideInlineAvatar: Bool = false
+        hideInlineAvatar: Bool = false,
+        searchQuery: String = ""
     ) {
         self.message = message
         self.decidedConfirmation = decidedConfirmation
@@ -180,6 +183,7 @@ struct ChatBubble: View, Equatable {
         self.isStreamingContinuation = isStreamingContinuation
         self.activeSurfaceId = activeSurfaceId
         self.hideInlineAvatar = hideInlineAvatar
+        self.searchQuery = searchQuery
 
         // Eagerly compute interleaved content cache so the first body
         // evaluation uses the correct layout path (no flash).
@@ -908,7 +912,8 @@ struct ChatBubble: View, Equatable {
                         tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
                         codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
                         codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
-                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
+                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase,
+                        searchQuery: searchQuery
                     )
                     .equatable()
                 } else if !message.attachments.isEmpty {

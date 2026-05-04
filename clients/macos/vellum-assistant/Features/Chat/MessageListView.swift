@@ -80,6 +80,7 @@ struct MessageListView: View {
     /// Measured width of the full chat pane. `layoutMetrics` derives the
     /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
+    var searchQuery: String = ""
     var layoutMetrics: MessageListLayoutMetrics {
         MessageListLayoutMetrics(containerWidth: containerWidth)
     }
