@@ -88,14 +88,45 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         "contact-prompt-submit: channel already exists",
       );
     } else {
-      contactId = crypto.randomUUID();
       channelId = crypto.randomUUID();
 
-      await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-         VALUES (?, ?, ?, 'human', ?, ?)`,
-        [contactId, effectiveDisplayName, effectiveRole, now, now],
-      );
+      // For guardian prompts, reuse the existing guardian contact rather than
+      // creating a duplicate — there must only ever be one guardian.
+      if (effectiveRole === "guardian") {
+        const existingGuardian = await assistantDbQuery<{ id: string }>(
+          `SELECT id FROM contacts WHERE role = 'guardian' LIMIT 1`,
+          [],
+        );
+        if (existingGuardian.length > 0) {
+          contactId = existingGuardian[0].id;
+          log.info(
+            { channelType, address: normalizedAddress, contactId, channelId },
+            "contact-prompt-submit: adding channel to existing guardian contact",
+          );
+        } else {
+          contactId = crypto.randomUUID();
+          await assistantDbRun(
+            `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
+             VALUES (?, ?, 'guardian', 'human', ?, ?)`,
+            [contactId, effectiveDisplayName, now, now],
+          );
+          log.info(
+            { channelType, address: normalizedAddress, contactId, channelId },
+            "contact-prompt-submit: created new guardian contact + channel",
+          );
+        }
+      } else {
+        contactId = crypto.randomUUID();
+        await assistantDbRun(
+          `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
+           VALUES (?, ?, ?, 'human', ?, ?)`,
+          [contactId, effectiveDisplayName, effectiveRole, now, now],
+        );
+        log.info(
+          { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
+          "contact-prompt-submit: created new contact + channel",
+        );
+      }
 
       try {
         await assistantDbRun(
@@ -104,12 +135,14 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
           [channelId, contactId, channelType, normalizedAddress, now, now],
         );
       } catch (channelErr) {
-        // Compensating delete — remove the orphaned contact row.
+        // Compensating delete — only remove the contact if we created it.
         log.error(
           { channelErr, contactId, channelType },
           "contact-prompt-submit: channel INSERT failed, rolling back contact",
         );
-        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+        if (effectiveRole !== "guardian") {
+          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+        }
 
         // Notify daemon of failure so the CLI doesn't hang.
         await ipcCallAssistant("resolve_contact_prompt", {
@@ -120,11 +153,6 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
           { status: 500 },
         );
       }
-
-      log.info(
-        { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
-        "contact-prompt-submit: created new contact + channel",
-      );
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
