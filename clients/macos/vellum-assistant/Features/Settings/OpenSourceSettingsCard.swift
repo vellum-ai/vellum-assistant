@@ -1,12 +1,10 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Constants shared across the open-source nudge surfaces (Settings card,
-/// About panel link). The `starred` key namespace matches the web app's
-/// `app.githubNudge.starred` localStorage key so future cross-surface
+/// `@AppStorage` key for the GitHub-nudge "starred" flag. Matches the web
+/// app's `app.githubNudge.starred` `localStorage` key so future cross-surface
 /// behavior can read a single source of truth per user/device.
 enum GitHubNudge {
-    static let repoURL = URL(string: "https://github.com/vellum-ai/vellum-assistant")!
     static let starredKey = "app.githubNudge.starred"
 }
 
@@ -66,7 +64,7 @@ struct OpenSourceSettingsCard: View {
                     style: .primary
                 ) {
                     starred = true
-                    openURL(GitHubNudge.repoURL)
+                    openURL(AppURLs.repositoryURL)
                 }
             }
         }

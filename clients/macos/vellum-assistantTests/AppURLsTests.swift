@@ -104,6 +104,12 @@ final class AppURLsTests: XCTestCase {
         XCTAssertEqual(AppURLs.privacyPolicyDocs.absoluteString, "https://staging.vellum.ai/docs/privacy-policy")
     }
 
+    // MARK: - Source repository
+
+    func testRepositoryURL() {
+        XCTAssertEqual(AppURLs.repositoryURL.absoluteString, "https://github.com/vellum-ai/vellum-assistant")
+    }
+
     // MARK: - UTM helper
 
     func testUTMHelperBuildsBaseURLWithQueryParams() {

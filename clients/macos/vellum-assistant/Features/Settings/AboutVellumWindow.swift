@@ -117,7 +117,7 @@ struct AboutVellumView: View {
             // the home for app provenance and source-code references.
             VLink(
                 "View on GitHub",
-                destination: GitHubNudge.repoURL,
+                destination: AppURLs.repositoryURL,
                 font: VFont.bodyMediumDefault
             )
 

@@ -72,6 +72,13 @@ public enum AppURLs {
         docsURL(path: "/data-sharing")
     }
 
+    // MARK: - Source repository
+
+    /// Public source repository — linked from the Settings "Open Source" card
+    /// and the About panel's "View on GitHub" entry. Force-unwrap is safe: the
+    /// literal is a known-valid absolute URL.
+    public static let repositoryURL = URL(string: "https://github.com/vellum-ai/vellum-assistant")!
+
     // MARK: - Helpers
 
     /// Build a docs URL by appending a path to the (possibly env-overridden) base.
