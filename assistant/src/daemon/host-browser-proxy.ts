@@ -61,6 +61,9 @@ export class HostBrowserProxy {
 
   /**
    * Whether a client with `host_browser` capability is connected.
+   * Returns `true` when either the Chrome Extension or the macOS SSE
+   * bridge is available — i.e. any transport can forward host-browser
+   * requests.
    */
   isAvailable(): boolean {
     return (
@@ -69,6 +72,16 @@ export class HostBrowserProxy {
         HOST_BROWSER_INTERFACE_PREFERENCE,
       ) != null
     );
+  }
+
+  /**
+   * Whether a Chrome Extension client specifically is connected.
+   * Returns `false` when only the macOS SSE bridge is available.
+   * Unlike {@link isAvailable}, this does not consider the macOS bridge
+   * a valid extension transport.
+   */
+  hasExtensionClient(): boolean {
+    return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
   }
 
   request(
