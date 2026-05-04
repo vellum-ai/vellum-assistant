@@ -241,6 +241,8 @@ public enum VIcon: String, CaseIterable, Sendable {
     case binoculars = "lucide-binoculars"
     case brain = "lucide-brain"
     case gitBranch = "lucide-git-branch"
+    case gitPullRequest = "lucide-git-pull-request"
+    case github = "lucide-github"
     case compass = "lucide-compass"
     case house = "lucide-house"
     case zoomIn = "lucide-zoom-in"

@@ -113,6 +113,14 @@ struct AboutVellumView: View {
                 }
             }
 
+            // Open-source repo link — Apple HIG endorses About panels as
+            // the home for app provenance and source-code references.
+            VLink(
+                "View on GitHub",
+                destination: GitHubNudge.repoURL,
+                font: VFont.bodyMediumDefault
+            )
+
             // Check for Updates button — handles check in-place
             VButton(
                 label: isCheckingForUpdates ? "Checking..." : "Check for Updates",

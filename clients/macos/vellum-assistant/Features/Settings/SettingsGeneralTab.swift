@@ -71,6 +71,7 @@ struct SettingsGeneralTab: View {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
             SettingsAppearanceTab(store: store)
+            OpenSourceSettingsCard()
             uninstallSection
             if Self.shouldShowDangerZone(isAuthenticated: authManager.currentUser != nil) {
                 dangerZoneSection
