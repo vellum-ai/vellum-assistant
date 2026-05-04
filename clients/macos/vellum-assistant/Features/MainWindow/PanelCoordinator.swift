@@ -1110,6 +1110,7 @@ struct ActiveChatViewWrapper: View {
 private struct ConversationSwitchLoadingView: View {
     var body: some View {
         HStack(spacing: 0) {
+            Spacer(minLength: 0)
             VStack(spacing: 0) {
                 ChatLoadingSkeleton()
                     .padding(VSpacing.lg)
