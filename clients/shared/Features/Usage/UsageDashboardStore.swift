@@ -154,7 +154,7 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .callSite: return "Task"
+        case .callSite: return "Action"
         case .inferenceProfile: return "Profile"
         case .actor: return "Actor (Legacy)"
         case .provider: return "Provider"
