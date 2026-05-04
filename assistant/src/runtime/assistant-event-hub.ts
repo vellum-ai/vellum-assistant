@@ -392,6 +392,35 @@ export class AssistantEventHub {
   }
 
   /**
+   * Return the best client for the given capability using an explicit
+   * interface preference order. Among clients that support `capability`,
+   * the one whose `interfaceId` appears earliest in `interfacePreference`
+   * wins. Within the same interface tier, `lastActiveAt` is the tiebreaker
+   * (most recent first). Clients not in the preference list are considered last.
+   *
+   * Used by {@link HostBrowserProxy} to prefer the Chrome Extension
+   * (`chrome-extension`) over the macOS SSE bridge (`macos`) when both are
+   * connected, so `chrome.debugger` is used ahead of the localhost:9222 path.
+   */
+  getPreferredClientByCapability(
+    capability: HostProxyCapability,
+    interfacePreference: InterfaceId[],
+  ): ClientEntry | undefined {
+    const clients = this.listClientsByCapability(capability);
+    if (clients.length === 0) return undefined;
+    // listClientsByCapability returns clients sorted by lastActiveAt desc
+    // (most recent first). A stable sort by preference index preserves that
+    // ordering within each interface tier.
+    return clients.sort((a, b) => {
+      const ai = interfacePreference.indexOf(a.interfaceId);
+      const bi = interfacePreference.indexOf(b.interfaceId);
+      const ea = ai === -1 ? interfacePreference.length : ai;
+      const eb = bi === -1 ? interfacePreference.length : bi;
+      return ea - eb;
+    })[0];
+  }
+
+  /**
    * Return all client subscribers with the given interface type,
    * sorted by `lastActiveAt` descending.
    */

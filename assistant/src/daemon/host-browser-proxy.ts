@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import type { InterfaceId } from "../channels/types.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -22,6 +23,12 @@ export type HostBrowserInput = DistributiveOmit<
 >;
 
 const log = getLogger("host-browser-proxy");
+
+/** Interface priority order for host_browser: Chrome Extension first, macOS SSE bridge second. */
+const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
+  "chrome-extension",
+  "macos",
+];
 
 export class HostBrowserProxy {
   private static _instance: HostBrowserProxy | null = null;
@@ -57,7 +64,10 @@ export class HostBrowserProxy {
    */
   isAvailable(): boolean {
     return (
-      assistantEventHub.getMostRecentClientByCapability("host_browser") != null
+      assistantEventHub.getPreferredClientByCapability(
+        "host_browser",
+        HOST_BROWSER_INTERFACE_PREFERENCE,
+      ) != null
     );
   }
 
@@ -119,7 +129,11 @@ export class HostBrowserProxy {
       });
 
       try {
-        if (!this.isAvailable()) {
+        const preferredClient = assistantEventHub.getPreferredClientByCapability(
+          "host_browser",
+          HOST_BROWSER_INTERFACE_PREFERENCE,
+        );
+        if (!preferredClient) {
           pendingInteractions.resolve(requestId);
           reject(
             new Error(
@@ -129,12 +143,11 @@ export class HostBrowserProxy {
           return;
         }
 
-        broadcastMessage({
-          ...input,
-          type: "host_browser_request",
-          requestId,
+        broadcastMessage(
+          { ...input, type: "host_browser_request", requestId, conversationId },
           conversationId,
-        });
+          { targetClientId: preferredClient.clientId },
+        );
       } catch (err) {
         pendingInteractions.resolve(requestId);
         log.warn(
