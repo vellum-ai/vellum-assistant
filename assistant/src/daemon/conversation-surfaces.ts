@@ -54,6 +54,128 @@ const log = getLogger("conversation-surfaces");
 const MAX_UNDO_DEPTH = 10;
 
 /**
+ * Debounce window for persisting `ui_surface_update` data back to the
+ * message row. Surfaces typically receive bursts of updates (e.g. a
+ * Workspace Health Check ticking off items rapidly) — collapsing them
+ * to a single DB write avoids hammering SQLite while still bounding the
+ * "lost work on crash" window to ~half a second.
+ */
+const SURFACE_PERSIST_DEBOUNCE_MS = 500;
+
+/**
+ * In-flight debounced persist timers keyed by `surfaceId`. Surface IDs
+ * are UUIDs and globally unique, so a module-level map is safe across
+ * conversations. Each entry holds the latest data snapshot — newer
+ * updates clobber older ones since the persisted row carries the full
+ * merged state, not a delta.
+ */
+const pendingSurfacePersists = new Map<
+  string,
+  {
+    timer: ReturnType<typeof setTimeout>;
+    conversationId: string;
+    data: SurfaceData;
+  }
+>();
+
+/**
+ * Persist the latest `data` for a `ui_surface` content block by
+ * scanning the conversation's messages for one containing the given
+ * `surfaceId` and patching its `data` field. Mirrors the scan-and-patch
+ * pattern in `markSurfaceCompleted`.
+ *
+ * Safe to call before the assistant message has been persisted (mid-stream):
+ * the scan simply finds nothing and bails. The next update after
+ * `handleMessageComplete` runs will pick up the now-persisted row.
+ */
+function persistSurfaceData(
+  conversationId: string,
+  surfaceId: string,
+  data: SurfaceData,
+): void {
+  try {
+    const rows = getMessages(conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        // Plain-text content rows — skip and keep scanning.
+        continue;
+      }
+      let found = false;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          rb.data = data;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.debug(
+      { err, surfaceId, conversationId },
+      "Failed to persist surface data update",
+    );
+  }
+}
+
+/**
+ * Schedule a debounced write of the merged surface data back to the
+ * persisted message row. Repeated calls within the debounce window
+ * collapse to a single write carrying the latest data.
+ */
+export function scheduleSurfaceDataPersist(
+  conversationId: string,
+  surfaceId: string,
+  data: SurfaceData,
+): void {
+  const existing = pendingSurfacePersists.get(surfaceId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+  const timer = setTimeout(() => {
+    pendingSurfacePersists.delete(surfaceId);
+    persistSurfaceData(conversationId, surfaceId, data);
+  }, SURFACE_PERSIST_DEBOUNCE_MS);
+  pendingSurfacePersists.set(surfaceId, { timer, conversationId, data });
+}
+
+/**
+ * Force-flush any pending debounced persist for `surfaceId`. Called on
+ * surface completion so the final state is durable before the surface
+ * record transitions to `completed`.
+ */
+export function flushSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
+  persistSurfaceData(pending.conversationId, surfaceId, pending.data);
+}
+
+/**
+ * Cancel all pending debounced persists. Called on conversation
+ * teardown to avoid timers firing against torn-down state.
+ */
+export function cancelPendingSurfaceDataPersists(
+  conversationId?: string,
+): void {
+  for (const [surfaceId, pending] of pendingSurfacePersists) {
+    if (conversationId && pending.conversationId !== conversationId) continue;
+    clearTimeout(pending.timer);
+    pendingSurfacePersists.delete(surfaceId);
+  }
+}
+
+/**
  * Mark a `ui_surface` content block as completed in the database so that
  * history reconstruction preserves the completion state.  Also updates
  * in-memory messages when available.
@@ -63,6 +185,10 @@ export function markSurfaceCompleted(
   surfaceId: string,
   summary: string,
 ): void {
+  // Force-flush any pending debounced data persist so the completion
+  // patch lands on top of the latest data instead of racing with it.
+  flushSurfaceDataPersist(surfaceId);
+
   // Update in-memory messages when available so subsequent reads within
   // this session see the change without waiting for DB.
   if (ctx.messages) {
@@ -1784,7 +1910,8 @@ export async function surfaceProxyResolver(
     const reasoning =
       typeof input.reasoning === "string" ? input.reasoning : undefined;
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -2076,6 +2203,12 @@ export async function surfaceProxyResolver(
     if (idx !== -1) {
       ctx.currentTurnSurfaces[idx].data = mergedData;
     }
+
+    // Persist the merged data back to the assistant message's
+    // `ui_surface` content block so a refresh / restart shows the
+    // current state instead of the original creation-time snapshot.
+    // Debounced to coalesce bursts of rapid updates.
+    scheduleSurfaceDataPersist(ctx.conversationId, surfaceId, mergedData);
 
     return { content: "Surface updated", isError: false };
   }

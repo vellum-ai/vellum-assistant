@@ -105,6 +105,7 @@ import {
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
+  cancelPendingSurfaceDataPersists,
   createSurfaceMutex,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
@@ -764,6 +765,9 @@ export class Conversation {
       clearTimeout(timer);
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
+    // Cancel any pending debounced surface-data persists for this
+    // conversation so timers don't fire against torn-down state.
+    cancelPendingSurfaceDataPersists(this.conversationId);
     // Only dispose the per-conversation CU and app-control proxies.
     // Bash/File/Transfer are singletons — their lifecycle is managed by
     // static disposeInstance().
