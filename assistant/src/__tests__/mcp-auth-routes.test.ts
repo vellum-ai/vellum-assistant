@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports) ───────────────────────────────────────
 
+const mockReloadMcpServers = mock(async () => {});
+
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: () => mockReloadMcpServers(),
+}));
+
 const mockOrchestrateConnect = mock(
   async (_args: { serverId: string; transport: unknown }) => ({
     auth_url: "https://provider.example.com/authorize?state=abc",
@@ -58,6 +64,7 @@ describe("mcp-auth-routes", () => {
     mockOrchestrateConnect.mockClear();
     mockGetMcpAuthState.mockClear();
     mockGetMcpAuthState.mockImplementation(() => null);
+    mockReloadMcpServers.mockClear();  // ← add this line
   });
 
   describe("POST internal/mcp/auth/start", () => {
@@ -161,6 +168,30 @@ describe("mcp-auth-routes", () => {
           name: "NotFoundError",
         }),
       );
+    });
+  });
+
+  describe("POST internal/mcp/reload", () => {
+    test("happy path returns { ok: true } and kicks off reload", async () => {
+      const reloadRoute = findRoute("internal_mcp_reload");
+      const result = await reloadRoute.handler({ body: {} });
+
+      expect(result).toEqual({ ok: true });
+      // Flush the micro-task queue so the void promise runs
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockReloadMcpServers).toHaveBeenCalledTimes(1);
+    });
+
+    test("reload-throws-async still returns { ok: true } (fire-and-forget)", async () => {
+      mockReloadMcpServers.mockImplementationOnce(async () => {
+        throw new Error("reload failed");
+      });
+
+      const reloadRoute = findRoute("internal_mcp_reload");
+      // Must not throw even though the reload promise rejects
+      const result = await reloadRoute.handler({ body: {} });
+
+      expect(result).toEqual({ ok: true });
     });
   });
 });

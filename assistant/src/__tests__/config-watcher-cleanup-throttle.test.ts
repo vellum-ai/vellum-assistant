@@ -215,8 +215,8 @@ mock.module("../signals/emit-event.js", () => ({
   handleEmitEventSignal: () => {},
 }));
 
-mock.module("../signals/mcp-reload.js", () => ({
-  handleMcpReloadSignal: () => {},
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
 }));
 
 mock.module("../signals/user-message.js", () => ({

@@ -5,6 +5,15 @@
  * poll for completion via the IPC route.
  */
 
+/**
+ * Sibling: `assistant/src/security/oauth-callback-registry.ts`. The two look
+ * similar (in-memory map, supersede semantics, ~5 min TTL) but live at
+ * different layers. The callback registry stores the deferred resolve/reject
+ * pair for a single OAuth code arrival, keyed by OAuth `state`. This file
+ * stores observable status (pending / complete / error) keyed by serverId so
+ * the polling CLI can render progress without holding a long-lived IPC
+ * connection.
+ */
 type McpAuthState =
   | { status: "pending"; authUrl: string; attemptId: string; expiresAt: number }
   | {

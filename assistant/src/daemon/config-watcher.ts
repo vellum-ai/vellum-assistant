@@ -21,7 +21,6 @@ import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
-import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
@@ -33,6 +32,7 @@ import {
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
 
@@ -151,7 +151,9 @@ export class ConfigWatcher {
             const newConfig = getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
-              handleMcpReloadSignal();
+              reloadMcpServers().catch((err: unknown) => {
+                log.error({ err }, "MCP reload after config change failed");
+              });
             }
           }
         } catch (err) {
@@ -331,7 +333,6 @@ export class ConfigWatcher {
 
     const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
       cancel: handleCancelSignal,
-      "mcp-reload": handleMcpReloadSignal,
       "conversation-undo": handleConversationUndoSignal,
       "emit-event": handleEmitEventSignal,
     };

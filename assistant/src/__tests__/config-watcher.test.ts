@@ -92,8 +92,8 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
-mock.module("../signals/mcp-reload.js", () => ({
-  handleMcpReloadSignal: () => {},
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
 }));
 
 mock.module("../signals/conversation-undo.js", () => ({

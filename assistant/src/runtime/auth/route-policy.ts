@@ -581,6 +581,7 @@ const INTERNAL_ENDPOINTS = [
   "internal/oauth/callback",
   "internal/mcp/auth/start",
   "internal/mcp/auth/status",
+  "internal/mcp/reload",  // ← new
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
