@@ -104,6 +104,7 @@ struct ChatView: View {
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
+    @State private var searchQuery = ""
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
     @State private var diskPressureDismissalRefreshToken = 0
@@ -179,7 +180,8 @@ struct ChatView: View {
             ChatSearchOverlay(
                 viewModel: viewModel,
                 isSearchActive: $isSearchActive,
-                anchorMessageId: $anchorMessageId
+                anchorMessageId: $anchorMessageId,
+                searchQuery: $searchQuery
             )
         }
         .animation(VAnimation.fast, value: isSearchActive)
@@ -360,7 +362,8 @@ struct ChatView: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
-                containerWidth: containerWidth
+                containerWidth: containerWidth,
+                searchQuery: searchQuery
             )
             .animation(nil, value: queuedMessages.isEmpty)
 

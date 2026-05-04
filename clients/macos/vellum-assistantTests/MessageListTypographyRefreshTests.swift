@@ -49,7 +49,8 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             configuredProviders: [],
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
-            pinnedLatestTurnAnchorMessageId: nil
+            pinnedLatestTurnAnchorMessageId: nil,
+            searchQuery: ""
         )
     }
 
@@ -79,7 +80,8 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             selectedModel: "",
             configuredProviders: [],
             providerCatalog: [],
-            providerCatalogHash: 0
+            providerCatalogHash: 0,
+            searchQuery: ""
         )
     }
 

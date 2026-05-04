@@ -46,6 +46,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
+            && lhs.searchQuery == rhs.searchQuery
     }
 
     // MARK: - Data properties (compared in ==)
@@ -70,6 +71,7 @@ struct MessageListContentView: View, Equatable {
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
     let pinnedLatestTurnAnchorMessageId: UUID?
+    let searchQuery: String
 
     // MARK: - Closures (skipped in ==)
 
@@ -248,7 +250,8 @@ struct MessageListContentView: View, Equatable {
                     selectedModel: selectedModel,
                     configuredProviders: configuredProviders,
                     providerCatalog: providerCatalog,
-                    providerCatalogHash: providerCatalogHash
+                    providerCatalogHash: providerCatalogHash,
+                    searchQuery: searchQuery
                 )
                 .equatable()
             }

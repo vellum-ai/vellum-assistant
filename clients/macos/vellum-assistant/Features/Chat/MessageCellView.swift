@@ -33,6 +33,7 @@ struct MessageCellView: View, Equatable {
                   && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
+            && lhs.searchQuery == rhs.searchQuery
     }
 
     let message: ChatMessage
@@ -76,6 +77,7 @@ struct MessageCellView: View, Equatable {
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
     let providerCatalogHash: Int
+    let searchQuery: String
 
     static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
         var hasher = Hasher()
@@ -133,7 +135,8 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar
+                hideInlineAvatar: hideInlineAvatar,
+                searchQuery: searchQuery
             )
             .equatable()
         }
@@ -225,7 +228,8 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar
+                hideInlineAvatar: hideInlineAvatar,
+                searchQuery: searchQuery
             )
             .equatable()
             .background(

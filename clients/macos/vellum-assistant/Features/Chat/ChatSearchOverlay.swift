@@ -8,13 +8,13 @@ struct ChatSearchOverlay: View {
     var viewModel: ChatViewModel
     @Binding var isSearchActive: Bool
     @Binding var anchorMessageId: UUID?
+    @Binding var searchQuery: String
 
-    @State private var searchText = ""
     @State private var currentMatchIndex = 0
 
     private var searchMatches: [UUID] {
-        guard isSearchActive, !searchText.isEmpty else { return [] }
-        let query = searchText.lowercased()
+        guard isSearchActive, !searchQuery.isEmpty else { return [] }
+        let query = searchQuery.lowercased()
         return viewModel.messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
 
@@ -22,7 +22,7 @@ struct ChatSearchOverlay: View {
         Group {
             if isSearchActive {
                 ChatSearchBar(
-                    searchText: $searchText,
+                    searchText: $searchQuery,
                     matchCount: searchMatches.count,
                     currentMatchIndex: currentMatchIndex,
                     onPrevious: { navigateMatch(delta: -1) },
@@ -35,7 +35,7 @@ struct ChatSearchOverlay: View {
                 .layoutHangSignpost("chat.searchOverlay")
             }
         }
-        .onChange(of: searchText) {
+        .onChange(of: searchQuery) {
             currentMatchIndex = 0
             scrollToCurrentMatch()
         }
@@ -47,7 +47,7 @@ struct ChatSearchOverlay: View {
         }
         .onChange(of: isSearchActive) { _, active in
             if !active {
-                searchText = ""
+                searchQuery = ""
                 currentMatchIndex = 0
             }
         }
