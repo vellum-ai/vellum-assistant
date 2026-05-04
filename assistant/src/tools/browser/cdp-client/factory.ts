@@ -291,13 +291,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
 
-  // 1. Extension -- only when a Chrome Extension client is specifically
-  //    connected. The macOS SSE bridge also satisfies isAvailable() but
-  //    routes through localhost:9222 on the host, which is a completely
-  //    different transport. Gating on hasExtensionClient() prevents the
-  //    factory from building an "extension" candidate that silently
-  //    dispatches to the macOS bridge and then fails with a misleading
-  //    "Failed to connect to Chrome DevTools at localhost:9222" error.
+  // 1. Extension -- preferred when a Chrome Extension client is connected.
   if (hostBrowserProxy.hasExtensionClient()) {
     candidates.push({
       kind: "extension",

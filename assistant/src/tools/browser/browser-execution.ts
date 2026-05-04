@@ -2258,7 +2258,7 @@ async function checkExtensionModeStatus(
       verified: "preflight",
       autoCandidate,
       summary:
-        "Extension mode is unavailable: no Chrome Extension is connected. (The macOS bridge is a separate transport and does not satisfy extension mode.)",
+        "Extension mode is unavailable: no Chrome Extension is connected.",
       userActions: extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: { transport: "extension-ws" },

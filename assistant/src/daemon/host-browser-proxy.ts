@@ -75,23 +75,13 @@ export class HostBrowserProxy {
   }
 
   /**
-   * Whether a **Chrome Extension** client specifically is connected.
-   * Returns `false` when only the macOS SSE bridge is available, because
-   * the bridge requires localhost:9222 on the host — it is NOT the same
-   * transport as the Chrome Extension's `chrome.debugger` API path.
-   *
-   * Use this instead of {@link isAvailable} whenever you are building an
-   * "extension" backend candidate so that the factory does not route through
-   * the macOS bridge and fail with a confusing "Failed to connect to Chrome
-   * DevTools at localhost:9222" error.
+   * Whether a Chrome Extension client specifically is connected.
+   * Returns `false` when only the macOS SSE bridge is available.
+   * Unlike {@link isAvailable}, this does not consider the macOS bridge
+   * a valid extension transport.
    */
   hasExtensionClient(): boolean {
-    return (
-      assistantEventHub.getPreferredClientByCapability(
-        "host_browser",
-        ["chrome-extension"],
-      ) != null
-    );
+    return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
   }
 
   request(

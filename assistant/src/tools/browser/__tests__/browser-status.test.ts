@@ -212,6 +212,7 @@ describe("executeBrowserStatus", () => {
       expect(extension).toBeDefined();
       expect(extension.available).toBe(false);
       expect(extension.summary).toContain("no Chrome Extension is connected");
+      expect(extension.verified).toBe("preflight");
       expect(extension.details.transport).toBe("extension-ws");
     });
 
