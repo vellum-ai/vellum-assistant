@@ -409,6 +409,7 @@ export async function processMessage(
     conversation.setSlackRuntimeContextNotice(
       options?.slackRuntimeContextNotice,
     );
+    conversation.setCurrentTurnDirectlyAddressed(options?.directlyAddressed);
     await conversation.runAgentLoop(
       resolvedContent,
       messageId,
@@ -421,6 +422,7 @@ export async function processMessage(
     );
   } finally {
     conversation.setSlackRuntimeContextNotice(undefined);
+    conversation.setCurrentTurnDirectlyAddressed(undefined);
     if (
       options?.isInteractive === true &&
       conversation.getCurrentSender() === broadcastMessage
@@ -473,6 +475,7 @@ export async function processMessageInBackground(
   }
 
   conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
+  conversation.setCurrentTurnDirectlyAddressed(options?.directlyAddressed);
   conversation
     .runAgentLoop(content, messageId, broadcastMessage, {
       isInteractive: options?.isInteractive ?? false,
@@ -481,6 +484,7 @@ export async function processMessageInBackground(
     })
     .finally(() => {
       conversation.setSlackRuntimeContextNotice(undefined);
+      conversation.setCurrentTurnDirectlyAddressed(undefined);
       if (
         options?.isInteractive === true &&
         conversation.getCurrentSender() === broadcastMessage

@@ -31,15 +31,6 @@ export interface WrapOptions {
   sourceDetail?: string;
   /** Override the default character budget for this source. */
   maxChars?: number;
-  /**
-   * Whether the inbound channel determined this message was explicitly
-   * addressed to the bot (e.g. Slack `<@bot>` mention, DM, email To/CC).
-   * Surfaced as `addressed_to_you="true|false"` on the wrapper so the model
-   * has a structural signal alongside the prose. Omit when the channel
-   * could not derive the value — the wrapper attribute is then omitted and
-   * downstream rules fall back to today's prose-inference behavior.
-   */
-  addressedToBot?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,11 +67,7 @@ export function wrapUntrustedContent(
   const detail = options.sourceDetail
     ? ` origin="${sanitizeAttr(options.sourceDetail)}"`
     : "";
-  const addressed =
-    options.addressedToBot === undefined
-      ? ""
-      : ` addressed_to_you="${options.addressedToBot ? "true" : "false"}"`;
-  return `<external_content source="${options.source}"${detail}${addressed}>\n${truncated}\n</external_content>`;
+  return `<external_content source="${options.source}"${detail}>\n${truncated}\n</external_content>`;
 }
 
 /**

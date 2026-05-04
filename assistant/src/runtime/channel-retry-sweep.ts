@@ -179,6 +179,10 @@ export async function sweepFailedEvents(
       sourceMetadata.chatType.trim().length > 0
         ? sourceMetadata.chatType.trim()
         : undefined;
+    const metadataDirectlyAddressed =
+      typeof sourceMetadata?.directlyAddressed === "boolean"
+        ? sourceMetadata.directlyAddressed
+        : undefined;
 
     try {
       const { messageId: userMessageId } = await processMessage(
@@ -196,6 +200,9 @@ export async function sweepFailedEvents(
           trustContext,
           isInteractive:
             resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+          ...(metadataDirectlyAddressed !== undefined
+            ? { directlyAddressed: metadataDirectlyAddressed }
+            : {}),
         },
         sourceChannel,
         sourceInterface,

@@ -1506,7 +1506,7 @@ describe("directlyAddressed propagation", () => {
       expect(result!.event.message.directlyAddressed).toBe(false);
     });
 
-    it("returns directlyAddressed=false when bot user id is unknown", () => {
+    it("omits directlyAddressed when bot user id is unknown so the daemon falls back to prose inference", () => {
       const config = makeConfig();
       const event = makeChannelEvent({ text: "<@UBOT> ping" });
       const result = normalizeSlackChannelMessage(
@@ -1517,7 +1517,7 @@ describe("directlyAddressed propagation", () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result!.event.message.directlyAddressed).toBe(false);
+      expect(result!.event.message.directlyAddressed).toBeUndefined();
     });
   });
 });

@@ -1211,7 +1211,33 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(telegramText).toContain("<no_response/>");
   });
 
-  test("response_discretion rule references the addressed_to_you wrapper attribute", () => {
+  test("addressed_to_bot field renders inside turn_context when directlyAddressed=true", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "slack",
+      channelName: "slack",
+      directlyAddressed: true,
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).toContain("addressed_to_bot: true");
+    expect(text).toContain("response_discretion:");
+    expect(text).toContain("addressed_to_bot field above");
+  });
+
+  test("addressed_to_bot field renders inside turn_context when directlyAddressed=false", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "slack",
+      channelName: "slack",
+      directlyAddressed: false,
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).toContain("addressed_to_bot: false");
+  });
+
+  test("addressed_to_bot field is omitted when directlyAddressed is undefined", () => {
     const options: UnifiedTurnContextOptions = {
       timestamp: "2026-04-02T12:00:00Z",
       interfaceName: "slack",
@@ -1219,8 +1245,23 @@ describe("buildUnifiedTurnContextBlock", () => {
     };
 
     const text = buildUnifiedTurnContextBlock(options);
-    expect(text).toContain("addressed_to_you");
-    expect(text).toContain("<external_content");
+    expect(text).not.toContain("addressed_to_bot:");
+    // Rule still emits and falls back to prose inference.
+    expect(text).toContain("response_discretion:");
+    expect(text).toContain("infer from the prose");
+  });
+
+  test("addressed_to_bot field is not emitted on vellum channels even when provided", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+      channelName: "vellum",
+      directlyAddressed: true,
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).not.toContain("addressed_to_bot:");
+    expect(text).not.toContain("response_discretion:");
   });
 
   test("dedup logic: fields matching canonical_actor_identity are omitted", () => {

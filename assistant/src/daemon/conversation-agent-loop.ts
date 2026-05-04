@@ -495,6 +495,7 @@ export interface AgentLoopConversationContext {
   voiceCallControlPrompt?: string;
   transportHints?: string[];
   slackRuntimeContextNotice?: string;
+  currentTurnDirectlyAddressed?: boolean;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -1301,13 +1302,20 @@ export async function runAgentLoopImpl(
 
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
+        ? {
+            timestamp,
+            interfaceName,
+            channelName,
+            timeSinceLastMessage,
+            directlyAddressed: ctx.currentTurnDirectlyAddressed,
+          }
         : {
             timestamp,
             interfaceName,
             channelName,
             actorContext: resolvedInboundActorContext,
             timeSinceLastMessage,
+            directlyAddressed: ctx.currentTurnDirectlyAddressed,
           },
     );
 
@@ -2991,6 +2999,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.slackRuntimeContextNotice = undefined;
+    ctx.currentTurnDirectlyAddressed = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

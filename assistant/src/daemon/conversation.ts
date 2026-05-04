@@ -234,6 +234,7 @@ export class Conversation {
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /** @internal */ slackRuntimeContextNotice?: string;
+  /** @internal */ currentTurnDirectlyAddressed?: boolean;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -1114,6 +1115,10 @@ export class Conversation {
 
   setSlackRuntimeContextNotice(notice: string | undefined): void {
     this.slackRuntimeContextNotice = notice;
+  }
+
+  setCurrentTurnDirectlyAddressed(value: boolean | undefined): void {
+    this.currentTurnDirectlyAddressed = value;
   }
 
   /**

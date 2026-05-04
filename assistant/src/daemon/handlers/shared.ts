@@ -153,6 +153,14 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Whether the inbound channel determined this message was explicitly
+   * addressed to the bot. Surfaced to the model as the `addressed_to_bot`
+   * field inside the `<turn_context>` block. Omit when the channel could
+   * not derive the value — the field is then absent from the block and the
+   * `response_discretion` rule falls back to prose inference.
+   */
+  directlyAddressed?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

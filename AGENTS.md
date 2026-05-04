@@ -150,6 +150,8 @@ Migrations must be **idempotent** (safe to re-run if interrupted) and **append-o
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
 
+The inverse also holds: when a soft prompt rule asks the daemon to infer a fact that an upstream layer already determined mechanically, plumb that layer's answer through the wire contract instead of asking the model to re-derive it from prose. Discarding a deterministic signal (and rebuilding it via inference downstream) is just as much a layering mistake as approximating a model decision with a regex upstream.
+
 ## Cross-Package Import Boundary
 
 `assistant/` must never import from `gateway/` via relative paths (e.g. `../gateway/src/...`), and vice versa. Each package is an independent build unit — the assistant Docker image and CI typecheck job only install assistant dependencies, so any static import into `../gateway/` breaks the build.

@@ -89,6 +89,13 @@ export interface BackgroundProcessingParams {
    * `slackMeta` envelope for the chronological renderer.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Whether the inbound channel determined this message was explicitly
+   * addressed to the bot. Threaded through to `processMessage` so the
+   * daemon's `<turn_context>` block can render the structural fact for the
+   * `response_discretion` rule.
+   */
+  directlyAddressed?: boolean;
 }
 
 /**
@@ -118,6 +125,7 @@ export function processChannelMessageInBackground(
     sourceLanguageCode,
     chatType,
     slackInbound,
+    directlyAddressed,
   } = params;
 
   (async () => {
@@ -226,6 +234,7 @@ export function processChannelMessageInBackground(
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
           ...(slackInbound ? { slackInbound } : {}),
+          ...(directlyAddressed !== undefined ? { directlyAddressed } : {}),
         },
         sourceChannel,
         sourceInterface,

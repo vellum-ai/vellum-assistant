@@ -75,27 +75,6 @@ describe("wrapUntrustedContent", () => {
     const closingTags = result.match(/<\/external_content>/gi);
     expect(closingTags).toHaveLength(1);
   });
-
-  test("emits addressed_to_you=true when bot was directly addressed", () => {
-    const result = wrapUntrustedContent("hi bot", {
-      source: "webhook",
-      addressedToBot: true,
-    });
-    expect(result).toContain('addressed_to_you="true"');
-  });
-
-  test("emits addressed_to_you=false when bot was not directly addressed", () => {
-    const result = wrapUntrustedContent("thanks team", {
-      source: "webhook",
-      addressedToBot: false,
-    });
-    expect(result).toContain('addressed_to_you="false"');
-  });
-
-  test("omits addressed_to_you attribute when undefined", () => {
-    const result = wrapUntrustedContent("hi", { source: "webhook" });
-    expect(result).not.toContain("addressed_to_you=");
-  });
 });
 
 describe("escapeContentBoundaries", () => {

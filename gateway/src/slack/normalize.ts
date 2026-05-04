@@ -336,12 +336,18 @@ function withBotUserId(
  * `directlyAddressed` field on `GatewayInboundEvent.message` so the daemon
  * can distinguish messages that explicitly tag the bot from messages that
  * reach the runtime via tracked-thread membership alone.
+ *
+ * Returns `undefined` when `botUserId` is unknown (e.g. transient
+ * bot-identity lookup failure during reconnect) so the daemon-side rule
+ * can fall back to prose inference instead of treating the message as
+ * definitively-not-addressed.
  */
 function textMentionsBot(
   text: string | undefined,
   botUserId: string | undefined,
-): boolean {
-  if (!text || !botUserId) return false;
+): boolean | undefined {
+  if (!botUserId) return undefined;
+  if (!text) return false;
   return text.includes(`<@${botUserId}>`);
 }
 
@@ -519,6 +525,8 @@ export function normalizeSlackChannelMessage(
       ? resolveSlackUserSync(event.user, botToken)
       : undefined;
 
+  const directlyAddressed = textMentionsBot(event.text, botUserId);
+
   return {
     event: {
       version: "v1",
@@ -534,7 +542,7 @@ export function normalizeSlackChannelMessage(
         // operation this resolves to `false`. Deriving from the text
         // anyway keeps the field honest for callers that might bypass
         // the filter (e.g. future direct invocations from tests).
-        directlyAddressed: textMentionsBot(event.text, botUserId),
+        ...(directlyAddressed !== undefined ? { directlyAddressed } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
@@ -927,7 +935,14 @@ export function normalizeSlackMessageEdit(
         isEdit: true,
         // DMs are inherently 1:1; channel edits inherit the originating
         // message's addressing semantics, derived from the edited text.
-        directlyAddressed: isDm || textMentionsBot(edited.text, botUserId),
+        // Falls back to undefined when bot identity is unknown so the
+        // daemon can defer to prose inference instead of treating the
+        // edit as definitively not-addressed.
+        ...(isDm
+          ? { directlyAddressed: true }
+          : textMentionsBot(edited.text, botUserId) !== undefined
+            ? { directlyAddressed: textMentionsBot(edited.text, botUserId) }
+            : {}),
       },
       actor: {
         actorExternalId: edited.user,

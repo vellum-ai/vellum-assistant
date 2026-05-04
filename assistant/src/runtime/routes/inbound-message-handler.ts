@@ -720,9 +720,9 @@ export async function handleChannelInbound({
 
   // Channel-derived "explicitly addressed to the bot" signal. The gateway
   // computes this per-channel (Slack `<@bot>` mention, DM, etc.) and forwards
-  // it via `sourceMetadata.directlyAddressed`. Surfaced to the model as an
-  // attribute on the `<external_content>` wrapper and as a structural input
-  // to the `response_discretion` prompt rule.
+  // it via `sourceMetadata.directlyAddressed`. Threaded into the daemon's
+  // `<turn_context>` block so the `response_discretion` rule can consume it
+  // as a structural fact instead of inferring from prose.
   const directlyAddressed =
     typeof sourceMetadata?.directlyAddressed === "boolean"
       ? sourceMetadata.directlyAddressed
@@ -1045,16 +1045,11 @@ export async function handleChannelInbound({
 
       // Wrap non-guardian inbound content in external_content boundaries so
       // the model can distinguish external channel messages from instructions.
-      // The channel-derived `directlyAddressed` signal rides along on the
-      // wrapper as `addressed_to_you="true|false"`.
       const contentForProcessing =
         trustCtx.trustClass !== "guardian"
           ? wrapUntrustedContent(trimmedContent, {
               source: "webhook",
               sourceDetail: trustCtx.requesterIdentifier,
-              ...(directlyAddressed !== undefined
-                ? { addressedToBot: directlyAddressed }
-                : {}),
             })
           : trimmedContent;
 
@@ -1082,6 +1077,7 @@ export async function handleChannelInbound({
         approvalCopyGenerator,
         chatType: sourceChatType,
         slackInbound,
+        directlyAddressed,
       });
     }
   }
