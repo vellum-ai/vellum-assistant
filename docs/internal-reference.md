@@ -415,10 +415,13 @@ data: {"id":"...","assistantId":"self","conversationId":"conv_xxx","emittedAt":"
 
 ```
 
-Keep-alive heartbeat comments are emitted every 5 seconds to prevent proxy timeouts and enable client-side disconnect detection:
+Keep-alive heartbeats are emitted every 5 seconds to prevent proxy timeouts and enable client-side disconnect detection. Each heartbeat consists of an SSE comment (for proxy keepalive) followed by a data event (for fetch-based clients that cannot observe comment lines):
 
 ```
 : heartbeat
+
+event: assistant_event
+data: {"type":"heartbeat"}
 
 ```
 
@@ -489,6 +492,7 @@ while (true) {
     const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
     if (!dataLine) continue;
     const event = JSON.parse(dataLine.slice(6));
+    if (event.type === 'heartbeat') continue; // keep-alive, not a real event
     console.log(event.message.type, event.message);
   }
 }
