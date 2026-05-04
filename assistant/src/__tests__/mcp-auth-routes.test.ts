@@ -2,19 +2,20 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports) ───────────────────────────────────────
 
-const mockOrchestrateConnect = mock(async () => ({
-  auth_url: "https://provider.example.com/authorize?state=abc",
-}));
+const mockOrchestrateConnect = mock(
+  async (_args: { serverId: string; transport: unknown }) => ({
+    auth_url: "https://provider.example.com/authorize?state=abc",
+  }),
+);
 
 mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
-  orchestrateMcpOAuthConnect: (...args: unknown[]) =>
-    mockOrchestrateConnect(...args),
+  orchestrateMcpOAuthConnect: mockOrchestrateConnect,
 }));
 
-const mockGetMcpAuthState = mock(() => null as unknown);
+const mockGetMcpAuthState = mock((_serverId: string) => null as unknown);
 
 mock.module("../mcp/mcp-auth-state.js", () => ({
-  getMcpAuthState: (...args: unknown[]) => mockGetMcpAuthState(...args),
+  getMcpAuthState: mockGetMcpAuthState,
 }));
 
 mock.module("../config/loader.js", () => ({

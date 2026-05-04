@@ -6675,6 +6675,46 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/auth/start:
+    post:
+      operationId: internal_mcp_auth_start_post
+      summary: Start MCP OAuth flow
+      description: Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                serverId:
+                  type: string
+              required:
+                - serverId
+              additionalProperties: false
+  /v1/internal/mcp/auth/status/{serverId}:
+    get:
+      operationId: internal_mcp_auth_status_by_serverId_get
+      summary: Poll MCP OAuth flow status
+      description: Returns the current status of an in-flight MCP OAuth flow (pending/complete/error).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+        "404":
+          description: No active OAuth flow for the given serverId
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post

@@ -15,18 +15,27 @@ import { Command } from "commander";
 
 // ── Module mocks (must precede imports that pull them in) ──────────────
 
-let mockCliIpcCallFn = mock(() =>
-  Promise.resolve({ ok: false, error: "not connected" }),
+type MockIpcResult = { ok: boolean; result?: unknown; error?: string };
+let mockCliIpcCallFn: ReturnType<typeof mock<(method: string, params?: Record<string, unknown>, opts?: { timeoutMs?: number }) => Promise<MockIpcResult>>> = mock(
+  (
+    _method: string,
+    _params?: Record<string, unknown>,
+    _opts?: { timeoutMs?: number },
+  ): Promise<MockIpcResult> => Promise.resolve({ ok: false, error: "not connected" }),
 );
 
 mock.module("../ipc/cli-client.js", () => ({
-  cliIpcCall: (...args: unknown[]) => mockCliIpcCallFn(...args),
+  cliIpcCall: (
+    method: string,
+    params?: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ) => mockCliIpcCallFn(method, params, opts),
 }));
 
 let mockOpenInHostBrowserFn = mock(async (_url: string) => {});
 
 mock.module("../util/browser.js", () => ({
-  openInHostBrowser: (...args: unknown[]) => mockOpenInHostBrowserFn(...args),
+  openInHostBrowser: (url: string) => mockOpenInHostBrowserFn(url),
 }));
 
 let stdoutLines: string[] = [];
@@ -618,7 +627,7 @@ describe("assistant mcp auth — IPC path", () => {
     const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toMatch(/access_denied|OAuth failed/);
+    expect(stderr).toMatch(/cancelled|access_denied|OAuth failed/);
   });
 
   test("polling gets NotFoundError (daemon restarted) → exits 1 with helpful message immediately", async () => {

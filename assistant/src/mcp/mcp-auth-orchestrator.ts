@@ -8,22 +8,22 @@
  * for completion.
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { getIsPlatform } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import {
-  McpOAuthProvider,
-  type McpOAuthCallbackTransport,
-} from "./mcp-oauth-provider.js";
-import {
-  setMcpAuthPending,
   setMcpAuthComplete,
   setMcpAuthError,
+  setMcpAuthPending,
 } from "./mcp-auth-state.js";
+import {
+  type McpOAuthCallbackTransport,
+  McpOAuthProvider,
+} from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-auth-orchestrator");
 
