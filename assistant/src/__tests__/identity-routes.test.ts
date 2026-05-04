@@ -22,7 +22,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { handleDetailedHealth } from "../runtime/routes/identity-routes.js";
+import {
+  handleDetailedHealth,
+  ROUTES,
+  selectIdentityCreatedAt,
+} from "../runtime/routes/identity-routes.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 // ── Env helpers ─────────────────────────────────────────────────────────
@@ -324,5 +328,58 @@ describe("identity routes — health endpoint", () => {
       expect(last).toBeDefined();
       expect(last.runId).toBe("newer-completed");
     });
+  });
+});
+
+describe("identity routes — createdAt selection", () => {
+  test("falls back to mtime when birthtime is the Unix epoch", () => {
+    const mtime = new Date("2026-05-01T14:49:47.519Z");
+
+    expect(
+      selectIdentityCreatedAt({
+        birthtime: new Date(0),
+        mtime,
+      })?.toISOString(),
+    ).toBe(mtime.toISOString());
+  });
+
+  test("prefers birthtime when it is valid", () => {
+    const birthtime = new Date("2026-04-30T12:00:00.000Z");
+    const mtime = new Date("2026-05-01T14:49:47.519Z");
+
+    expect(
+      selectIdentityCreatedAt({
+        birthtime,
+        mtime,
+      })?.toISOString(),
+    ).toBe(birthtime.toISOString());
+  });
+
+  test("/identity uses persisted hatched sidecar instead of live file metadata", () => {
+    const workspaceDir = getWorkspaceDir();
+    const dataDir = join(workspaceDir, "data");
+    const identityPath = join(workspaceDir, "IDENTITY.md");
+    const sidecarPath = join(dataDir, "hatched.json");
+    const persistedHatchedAt = "2026-05-01T14:49:47.519Z";
+
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(
+      identityPath,
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+    writeFileSync(
+      sidecarPath,
+      JSON.stringify({ hatchedAt: persistedHatchedAt }),
+      "utf-8",
+    );
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity",
+    );
+    expect(route).toBeDefined();
+
+    const body = route!.handler({}) as { createdAt?: string };
+    expect(body.createdAt).toBe(persistedHatchedAt);
   });
 });

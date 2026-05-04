@@ -3,8 +3,16 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statfsSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { availableParallelism, cpus, totalmem } from "node:os";
+import { join } from "node:path";
 
 import { z } from "zod";
 
@@ -17,6 +25,7 @@ import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import {
+  getDataDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
@@ -488,13 +497,7 @@ function getIdentity() {
 
   const version = APP_VERSION;
 
-  let createdAt: string | undefined;
-  try {
-    const stats = statSync(identityPath);
-    createdAt = stats.birthtime.toISOString();
-  } catch {
-    // ignore
-  }
+  const createdAt = resolveIdentityCreatedAt(identityPath);
 
   return {
     name: fields.name ?? "",
@@ -505,6 +508,73 @@ function getIdentity() {
     version,
     createdAt,
   };
+}
+
+const HATCHED_SIDECAR_FILENAME = "hatched.json";
+
+function getHatchedSidecarPath(): string {
+  return join(getDataDir(), HATCHED_SIDECAR_FILENAME);
+}
+
+function readHatchedAtSidecar(): string | undefined {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(getHatchedSidecarPath(), "utf-8"),
+    ) as { hatchedAt?: unknown };
+    const parsedTime =
+      typeof parsed.hatchedAt === "string" ? Date.parse(parsed.hatchedAt) : NaN;
+    if (
+      typeof parsed.hatchedAt === "string" &&
+      !isNaN(parsedTime) &&
+      parsedTime > 0
+    ) {
+      return parsed.hatchedAt;
+    }
+  } catch {
+    // Fall through to filesystem metadata.
+  }
+  return undefined;
+}
+
+function writeHatchedAtSidecar(hatchedAt: string): void {
+  try {
+    mkdirSync(getDataDir(), { recursive: true });
+    writeFileSync(
+      getHatchedSidecarPath(),
+      JSON.stringify({ hatchedAt }, null, 2),
+      "utf-8",
+    );
+  } catch {
+    // Best-effort stability; the caller still returns a valid timestamp.
+  }
+}
+
+export function selectIdentityCreatedAt(stats: {
+  birthtime: Date;
+  mtime: Date;
+}): Date | undefined {
+  const candidates = [stats.birthtime, stats.mtime];
+  return candidates.find((candidate) => candidate.getTime() > 0);
+}
+
+function resolveIdentityCreatedAt(identityPath: string): string | undefined {
+  const sidecarHatchedAt = readHatchedAtSidecar();
+  if (sidecarHatchedAt) return sidecarHatchedAt;
+
+  try {
+    const stats = statSync(identityPath);
+    const createdAt = selectIdentityCreatedAt(stats)?.toISOString();
+    if (createdAt) {
+      writeHatchedAtSidecar(createdAt);
+      return createdAt;
+    }
+  } catch {
+    // Fall through to a stable real timestamp.
+  }
+
+  const now = new Date().toISOString();
+  writeHatchedAtSidecar(now);
+  return now;
 }
 
 function getIdentityIntro() {
