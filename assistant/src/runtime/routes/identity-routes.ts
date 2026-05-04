@@ -24,10 +24,7 @@ import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { NotFoundError } from "./errors.js";
-import {
-  getCachedIntro,
-  readWorkspaceIdentityIntro,
-} from "./identity-intro-cache.js";
+import { getCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
 interface DiskSpaceInfo {
@@ -511,9 +508,13 @@ function getIdentity() {
 }
 
 function getIdentityIntro() {
-  const explicitIntro = readWorkspaceIdentityIntro();
-  if (explicitIntro) {
-    return { text: explicitIntro };
+  const identityPath = getWorkspacePromptPath("IDENTITY.md");
+  if (existsSync(identityPath)) {
+    const content = readFileSync(identityPath, "utf-8");
+    const fields = parseIdentityFields(content);
+    if (fields.name) {
+      return { text: `Hi, I'm ${fields.name}!` };
+    }
   }
 
   const cached = getCachedIntro();
@@ -619,7 +620,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity intro text",
     description:
-      "Returns the identity intro string, preferring workspace prompt files over LLM-generated cache.",
+      "Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to LLM-generated cache.",
     tags: ["identity"],
     responseBody: z.object({
       text: z.string(),

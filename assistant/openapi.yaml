@@ -6419,7 +6419,9 @@ paths:
     get:
       operationId: identity_intro_get
       summary: Get identity intro text
-      description: Returns the identity intro string, preferring workspace prompt files over LLM-generated cache.
+      description:
+        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
+        LLM-generated cache.
       tags:
         - identity
       responses:

@@ -12,21 +12,21 @@
  * No messages are persisted. `conversation.processing` is never set or checked.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { z } from "zod";
 
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
+import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import {
-  getCachedIntro,
-  readWorkspaceIdentityIntro,
-  setCachedIntro,
-} from "./identity-intro-cache.js";
+import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("btw-routes");
@@ -69,14 +69,17 @@ async function handleBtw({
 
   // ----- Identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    const explicitIntro = readWorkspaceIdentityIntro();
-    const fastText = explicitIntro ?? getCachedIntro()?.text;
+    let fastText: string | undefined;
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    if (existsSync(identityPath)) {
+      const fields = parseIdentityFields(readFileSync(identityPath, "utf-8"));
+      if (fields.name) {
+        fastText = `Hi, I'm ${fields.name}!`;
+      }
+    }
+    fastText ??= getCachedIntro()?.text;
     if (fastText) {
-      log.debug(
-        explicitIntro
-          ? "Returning workspace identity intro"
-          : "Returning cached identity intro",
-      );
+      log.debug("Returning identity intro fast-path");
       return new ReadableStream({
         start(controller) {
           controller.enqueue(sseEvent("btw_text_delta", { text: fastText }));
