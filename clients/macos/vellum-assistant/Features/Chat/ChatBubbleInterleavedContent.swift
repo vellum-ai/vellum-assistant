@@ -425,7 +425,7 @@ extension ChatBubble {
             guard idx < message.toolCalls.count else { return nil }
             return message.toolCalls[idx]
         }
-        if !groupedToolCalls.isEmpty {
+        if !groupedToolCalls.isEmpty || (expandedItems != nil && !expandedItems!.isEmpty) {
             // Derive confirmations from this group's own tool call stamps.
             // We intentionally do NOT use the message-level decidedConfirmation
             // here because it comes from the confirmation message at index+1,
