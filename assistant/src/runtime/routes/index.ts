@@ -43,6 +43,7 @@ import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
+import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
@@ -141,6 +142,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DOCUMENT_ROUTES,
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
+  ...GATEWAY_LOG_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,
