@@ -32,7 +32,6 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
-import { emitContactChange } from "../contacts/contact-events.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -152,14 +151,6 @@ export class AssistantIpcServer {
       handleDbProxy(params as unknown as DbProxyParams),
     );
 
-    // General-purpose event notification for gateway→assistant use.
-    // Allows the gateway to trigger in-process assistant events after
-    // owning a write (e.g. contact deletion) without routing through
-    // the assistant runtime.
-    this.methods.set("emit_contact_change", () => {
-      emitContactChange();
-      return null;
-    });
   }
 
   /** Start listening on the Unix domain socket. */

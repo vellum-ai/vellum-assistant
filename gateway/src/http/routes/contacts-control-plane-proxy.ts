@@ -101,7 +101,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
       await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
       getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
-      void ipcCallAssistant("emit_contact_change");
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>);
       log.info({ contactId }, "delete_contact: deleted");
       return new Response(null, { status: 204 });
     },

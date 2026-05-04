@@ -18,8 +18,11 @@
  *   handles registration, touch (heartbeat), and unregistration (dispose).
  */
 
+import { z } from "zod";
+
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
+import { emitContactChange } from "../../contacts/contact-events.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -237,7 +240,29 @@ export function handleSubscribeAssistantEvents(
 // Route definitions
 // ---------------------------------------------------------------------------
 
+const EmitEventBodySchema = z.object({
+  kind: z.enum(["contacts_changed"]),
+});
+
 export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "emit_event",
+    endpoint: "events/emit",
+    method: "POST",
+    summary: "Emit an assistant event",
+    description:
+      "Trigger an in-process assistant event by kind. Used by the gateway after owning a write that the assistant runtime would normally emit.",
+    tags: ["events"],
+    requestBody: EmitEventBodySchema,
+    responseStatus: "204",
+    handler: ({ body }) => {
+      const { kind } = EmitEventBodySchema.parse(body);
+      if (kind === "contacts_changed") {
+        emitContactChange();
+      }
+      return null;
+    },
+  },
   {
     operationId: "subscribe_assistant_events",
     endpoint: "events",

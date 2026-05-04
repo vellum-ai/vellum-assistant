@@ -4600,6 +4600,32 @@ paths:
           schema:
             type: string
           description: Scope to a single conversation
+  /v1/events/emit:
+    post:
+      operationId: events_emit_post
+      summary: Emit an assistant event
+      description:
+        Trigger an in-process assistant event by kind. Used by the gateway after owning a write that the assistant
+        runtime would normally emit.
+      tags:
+        - events
+      responses:
+        "204":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - contacts_changed
+              required:
+                - kind
+              additionalProperties: false
   /v1/export:
     post:
       operationId: export_post
