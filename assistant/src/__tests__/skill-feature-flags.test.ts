@@ -19,7 +19,8 @@ afterEach(() => {
 const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const DECLARED_SKILL_ID = "email-channel";
-const APP_BUILDER_MULTIFILE_FLAG_KEY = "app-builder-multifile";
+const ENABLED_UNDECLARED_FLAG_KEY = "enabled-undeclared-flag";
+const ENABLED_UNDECLARED_SKILL_ID = "enabled-undeclared-skill";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -167,14 +168,14 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
+      [ENABLED_UNDECLARED_FLAG_KEY]: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill(
-        "app-builder-multifile",
+        ENABLED_UNDECLARED_SKILL_ID,
         "bundled",
-        APP_BUILDER_MULTIFILE_FLAG_KEY,
+        ENABLED_UNDECLARED_FLAG_KEY,
       ),
     ];
     const config = makeConfig();
@@ -183,20 +184,20 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).not.toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("app-builder-multifile");
+    expect(ids).toContain(ENABLED_UNDECLARED_SKILL_ID);
   });
 
   test("flag ON skill appears normally", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: true,
-      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
+      [ENABLED_UNDECLARED_FLAG_KEY]: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill(
-        "app-builder-multifile",
+        ENABLED_UNDECLARED_SKILL_ID,
         "bundled",
-        APP_BUILDER_MULTIFILE_FLAG_KEY,
+        ENABLED_UNDECLARED_FLAG_KEY,
       ),
     ];
     const config = makeConfig();
@@ -205,7 +206,7 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("app-builder-multifile");
+    expect(ids).toContain(ENABLED_UNDECLARED_SKILL_ID);
   });
 
   test("declared flag key defaults to registry value (false)", () => {
@@ -257,15 +258,15 @@ describe("resolveSkillStates with feature flags", () => {
   test("multiple skills with mixed flags — persisted overrides respected", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      [APP_BUILDER_MULTIFILE_FLAG_KEY]: true,
+      [ENABLED_UNDECLARED_FLAG_KEY]: true,
       deploy: false,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
       makeSkill(
-        "app-builder-multifile",
+        ENABLED_UNDECLARED_SKILL_ID,
         "bundled",
-        APP_BUILDER_MULTIFILE_FLAG_KEY,
+        ENABLED_UNDECLARED_FLAG_KEY,
       ),
       makeSkill("deploy", "bundled", "deploy"),
     ];
@@ -274,8 +275,8 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // email-channel and deploy explicitly false; app-builder-multifile explicitly true
-    expect(ids).toEqual(["app-builder-multifile"]);
+    // email-channel and deploy explicitly false; one unrelated skill explicitly true
+    expect(ids).toEqual([ENABLED_UNDECLARED_SKILL_ID]);
   });
 });
 

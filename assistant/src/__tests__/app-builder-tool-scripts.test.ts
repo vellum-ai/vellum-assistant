@@ -93,7 +93,7 @@ describe("app-builder skill tool scripts", () => {
 
     test("delegates to executeAppCreate and returns result", async () => {
       const result = await appCreateScript.run(
-        { name: "My App", html: "<p>Hello</p>" },
+        { name: "My App" },
         makeContext(),
       );
       expect(result.isError).toBe(false);
@@ -107,7 +107,7 @@ describe("app-builder skill tool scripts", () => {
         isError: false,
       });
       const result = await appCreateScript.run(
-        { name: "Auto App", html: "<div/>" },
+        { name: "Auto App" },
         makeContext({ proxyToolResolver: proxy }),
       );
       expect(result.isError).toBe(false);
@@ -118,7 +118,7 @@ describe("app-builder skill tool scripts", () => {
 
     test("handles missing proxyToolResolver gracefully", async () => {
       const result = await appCreateScript.run(
-        { name: "No Proxy", html: "<p/>" },
+        { name: "No Proxy" },
         makeContext(),
       );
       expect(result.isError).toBe(false);

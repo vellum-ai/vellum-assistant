@@ -104,7 +104,7 @@ describe("executeAppCreate", () => {
     expect(files["src/main.tsx"]).toContain('{"Hello, New App!"}');
   });
 
-  test("with explicit html: uses provided html as src/index.html", async () => {
+  test("rejects retired html shortcut", async () => {
     const files: Record<string, string> = {};
     const app = makeMultifileApp({ name: "Custom App" });
     const store: AppStore = {
@@ -112,21 +112,41 @@ describe("executeAppCreate", () => {
       createApp: () => app,
     };
 
-    const customHtml =
-      '<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>';
     const result = await executeAppCreate(
       {
         name: "Custom App",
-        html: customHtml,
+        html: "<!DOCTYPE html><html><body></body></html>",
       },
       store,
     );
 
-    expect(result.isError).toBe(false);
-    // Explicit HTML should be used instead of scaffold
-    expect(files["src/index.html"]).toBe(customHtml);
-    // main.tsx scaffold should still be written
-    expect(files["src/main.tsx"]).toBeDefined();
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("app_create no longer accepts html");
+    expect(files["src/index.html"]).toBeUndefined();
+    expect(files["src/main.tsx"]).toBeUndefined();
+  });
+
+  test("rejects retired pages shortcut", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Custom App" });
+    const store = mockStore(app, files);
+
+    const result = await executeAppCreate(
+      {
+        name: "Custom App",
+        pages: {
+          "settings.html": "<!DOCTYPE html><html><body></body></html>",
+        },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("app_create no longer accepts pages");
+    expect(files["src/index.html"]).toBeUndefined();
+    expect(files["src/main.tsx"]).toBeUndefined();
   });
 });
 

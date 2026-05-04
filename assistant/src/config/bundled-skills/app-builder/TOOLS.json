@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "app_create",
-      "description": "Create a persistent app with a name, optional description, JSON schema, and HTML definition.",
+      "description": "Create a persistent multi-file TSX app scaffold with a name, optional description, and JSON schema. Write source files under src/ with file tools, then call app_refresh.",
       "category": "apps",
       "risk": "low",
       "input_schema": {
@@ -20,17 +20,6 @@
           "schema_json": {
             "type": "string",
             "description": "JSON schema defining the app data structure"
-          },
-          "html": {
-            "type": "string",
-            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via file_write."
-          },
-          "pages": {
-            "type": "object",
-            "description": "Optional additional pages as a mapping of filename to HTML content (e.g. {\"settings.html\": \"<html>...</html>\"}). Navigate between pages with <a href=\"settings.html\">. Do not include index.html here \u2014 use the html parameter instead.",
-            "additionalProperties": {
-              "type": "string"
-            }
           },
           "auto_open": {
             "type": "boolean",

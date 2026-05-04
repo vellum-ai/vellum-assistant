@@ -77,7 +77,14 @@ export interface AppCreateInput {
   name: string;
   description?: string;
   schema_json?: string;
-  html?: string;
+  /**
+   * Retired single-file shortcut. Kept in the type so legacy or stale callers
+   * get a clear tool error instead of silently creating a v2 app with stale
+   * scaffold content.
+   */
+  html?: unknown;
+  /** Retired single-file multi-page shortcut. */
+  pages?: unknown;
   auto_open?: boolean;
   preview?: Record<string, unknown>;
 }
@@ -90,12 +97,22 @@ export async function executeAppCreate(
   const name = input.name;
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
-  // Reject invalid html types (e.g. object/number) so malformed tool calls
-  // surface errors early.
-  if (input.html != null && typeof input.html !== "string") {
+
+  if (Object.prototype.hasOwnProperty.call(input, "html")) {
     return {
       content: JSON.stringify({
-        error: `html must be a string, got ${typeof input.html}`,
+        error:
+          "app_create no longer accepts html. Create the app scaffold, write src/index.html and src/main.tsx with file_write, then call app_refresh.",
+      }),
+      isError: true,
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "pages")) {
+    return {
+      content: JSON.stringify({
+        error:
+          "app_create no longer accepts pages. Build multi-file TSX apps under src/ and route inside the Preact app instead.",
       }),
       isError: true,
     };
@@ -135,10 +152,7 @@ export async function executeAppCreate(
     .replace(/"/g, "&quot;");
   const jsxSafeName = name.replace(/[<>{}&"']/g, "");
 
-  const indexHtml =
-    typeof input.html === "string"
-      ? input.html
-      : `<!DOCTYPE html>
+  const indexHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">

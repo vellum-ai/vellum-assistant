@@ -171,7 +171,7 @@ describe("CES flags do not affect unrelated flags", () => {
     expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
   });
 
-  test("enabling all CES flags does not change app-builder-multifile flag (defaultEnabled: true)", () => {
+  test("enabling all CES flags does not change unrelated default-open flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -179,9 +179,9 @@ describe("CES flags do not affect unrelated flags", () => {
     _setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // app-builder-multifile defaults to true in the registry and should stay true
-    expect(isAssistantFeatureFlagEnabled("app-builder-multifile", config)).toBe(
-      true,
-    );
+    // Unknown flags default open unless explicitly overridden.
+    expect(
+      isAssistantFeatureFlagEnabled("unrelated-default-open", config),
+    ).toBe(true);
   });
 });
