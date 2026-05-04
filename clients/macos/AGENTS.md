@@ -15,7 +15,7 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 Single build script: `./build.sh` wraps SwiftPM → `.app` bundle → codesign. No Xcode project needed.
 
 ```bash
-# Build debug .app bundle (→ dist/<BUNDLE_DISPLAY_NAME>.app, e.g. dist/Vellum Local.app)
+# Build debug .app bundle (→ dist/<BUNDLE_DISPLAY_NAME>.app, e.g. Vellum Dev.app or Vellum Local.app via vel up)
 ./build.sh
 
 # Build + launch
