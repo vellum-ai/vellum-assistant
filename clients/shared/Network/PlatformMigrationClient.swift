@@ -183,6 +183,84 @@ public enum PlatformMigrationClient {
         throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
     }
 
+    /// Downloads bundle data from a GCS signed URL.
+    ///
+    /// Mirrors `uploadToSignedUrl(_:bundleData:onProgress:)` in reverse: the
+    /// caller passes a signed download URL (from `requestSignedDownloadUrl`)
+    /// and gets back the raw bundle bytes suitable for piping into
+    /// `migrations/import` on a local runtime.
+    ///
+    /// Retries on transient 5xx server errors (500/502/503/504) with the same
+    /// 1s/2s/4s exponential backoff used elsewhere in this client.
+    ///
+    /// - Parameters:
+    ///   - url: The signed download URL.
+    ///   - onProgress: Optional closure called on the main actor with values
+    ///     from 0.0 to 1.0 representing the fraction of bytes received.
+    /// - Returns: The full bundle data.
+    /// - Throws: `PlatformMigrationError.requestFailed` on a non-2xx status,
+    ///   or any error thrown by `URLSession`.
+    public static func downloadFromSignedUrl(
+        _ url: String,
+        onProgress: (@MainActor (Double) -> Void)? = nil
+    ) async throws -> Data {
+        guard let downloadURL = URL(string: url) else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: downloadURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3600
+
+        let delegate: DownloadProgressDelegate?
+        let session: URLSession
+        if let onProgress {
+            let d = DownloadProgressDelegate(onProgress: onProgress)
+            delegate = d
+            session = URLSession(configuration: .default, delegate: d, delegateQueue: nil)
+        } else {
+            delegate = nil
+            session = URLSession.shared
+        }
+        defer {
+            delegate?.reset()
+            if delegate != nil {
+                session.finishTasksAndInvalidate()
+            }
+        }
+
+        let urlPath = logPath(from: downloadURL)
+
+        for attempt in 0...maxRetries {
+            log.info("GET \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
+            let (data, response) = try await session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            log.info("GET \(urlPath, privacy: .public) → \(statusCode)")
+
+            if attempt < maxRetries && retryableStatusCodes.contains(statusCode) {
+                let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
+                log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
+                try await Task.sleep(nanoseconds: delay)
+                delegate?.reset()
+                await onProgress?(0)
+                continue
+            }
+
+            guard (200..<300).contains(statusCode) else {
+                throw PlatformMigrationError.requestFailed(
+                    statusCode: statusCode,
+                    detail: "Bundle download failed"
+                )
+            }
+            // Ensure the progress reaches 1.0 even if the delegate's last
+            // didReceive event was throttled out by the 0.01-step gate.
+            await onProgress?(1.0)
+            return data
+        }
+
+        throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
+    }
+
     /// Triggers a GCS-based import on the platform after the bundle has been uploaded.
     ///
     /// - Parameter bundleKey: The bundle key returned by `requestSignedUploadUrl()`.
@@ -343,6 +421,46 @@ public enum PlatformMigrationClient {
         /// in-flight callbacks from the previous attempt are discarded.
         func reset() {
             lastReportedFraction = 0.0
+            generation += 1
+        }
+    }
+
+    /// Tracks download progress and dispatches throttled updates to the main actor.
+    /// Mirrors `UploadProgressDelegate` but for response data instead of request body.
+    private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
+        private let onProgress: @MainActor (Double) -> Void
+        private var lastReportedFraction: Double = 0.0
+        private var generation: Int = 0
+        private var bytesReceived: Int64 = 0
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive data: Data
+        ) {
+            bytesReceived += Int64(data.count)
+            let total = dataTask.countOfBytesExpectedToReceive
+            guard total > 0 else { return }
+            let progress = Double(bytesReceived) / Double(total)
+            guard progress - lastReportedFraction >= 0.01 || progress >= 1.0 else { return }
+            lastReportedFraction = progress
+            let callback = self.onProgress
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(progress)
+            }
+        }
+
+        /// Resets throttle and increments the generation counter so any
+        /// in-flight callbacks from the previous attempt are discarded.
+        func reset() {
+            lastReportedFraction = 0.0
+            bytesReceived = 0
             generation += 1
         }
     }

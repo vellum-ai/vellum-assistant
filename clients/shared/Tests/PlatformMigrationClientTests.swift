@@ -283,3 +283,123 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
         return data
     }
 }
+
+@MainActor
+final class PlatformMigrationClientDownloadFromSignedUrlTests: XCTestCase {
+    private var previousToken: String?
+
+    override func setUp() {
+        super.setUp()
+        JobStatusURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(JobStatusURLProtocol.self)
+        previousToken = SessionTokenManager.getToken()
+        SessionTokenManager.setToken("test-session-token")
+    }
+
+    override func tearDown() {
+        URLProtocol.unregisterClass(JobStatusURLProtocol.self)
+        JobStatusURLProtocol.requestHandler = nil
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
+        super.tearDown()
+    }
+
+    func testDownloadFromSignedUrlGetsAndReturnsBytes() async throws {
+        let observed = ObservedRequest()
+        let stubBytes = Data([0xAA, 0xBB, 0xCC])
+        JobStatusURLProtocol.requestHandler = { request in
+            observed.url = request.url
+            observed.method = request.httpMethod
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, stubBytes)
+        }
+
+        let data = try await PlatformMigrationClient.downloadFromSignedUrl("https://storage.example/dl")
+
+        XCTAssertEqual(data, stubBytes)
+        XCTAssertEqual(observed.method, "GET")
+    }
+
+    func testDownloadFromSignedUrlReportsProgressTo1Point0OnSuccess() async throws {
+        let stubBytes = Data([0xAA, 0xBB, 0xCC])
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, stubBytes)
+        }
+
+        let holder = ProgressHolder()
+        _ = try await PlatformMigrationClient.downloadFromSignedUrl(
+            "https://storage.example/dl",
+            onProgress: { value in
+                holder.update(value)
+            }
+        )
+
+        let highest = await holder.highest
+        XCTAssertEqual(highest, 1.0, accuracy: 0.0001)
+    }
+
+    func testDownloadFromSignedUrlThrowsRequestFailedOnNon2xx() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"not found"}"#.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.downloadFromSignedUrl("https://storage.example/dl")
+            XCTFail("Expected requestFailed to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .requestFailed(let statusCode, _) = error {
+                XCTAssertEqual(statusCode, 404)
+            } else {
+                XCTFail("Expected .requestFailed, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testDownloadFromSignedUrlInvalidUrlThrowsRequestFailed() async {
+        do {
+            _ = try await PlatformMigrationClient.downloadFromSignedUrl("")
+            XCTFail("Expected requestFailed to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .requestFailed(let statusCode, _) = error {
+                XCTAssertEqual(statusCode, 0)
+            } else {
+                XCTFail("Expected .requestFailed, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+}
+
+/// Captures the highest progress fraction observed across `onProgress` callbacks.
+@MainActor
+private final class ProgressHolder {
+    private(set) var highest: Double = 0.0
+
+    func update(_ value: Double) {
+        if value > highest { highest = value }
+    }
+}
