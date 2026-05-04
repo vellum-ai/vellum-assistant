@@ -23,6 +23,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 mock.module("../runtime/pending-interactions.js", () => ({
+  register: () => undefined,
   resolve: () => undefined,
   get: () => undefined,
   getByKind: () => [],
