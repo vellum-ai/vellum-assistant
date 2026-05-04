@@ -649,8 +649,7 @@ struct TeleportSection: View {
             try await GatewayHTTPClient.post(
                 path: "migrations/export-to-gcs",
                 json: ["upload_url": uploadInfo.uploadUrl],
-                timeout: 3600,
-                unprefixed: true
+                timeout: 3600
             )
         }
         guard exportResponse.isSuccess || exportResponse.statusCode == 202 else {
