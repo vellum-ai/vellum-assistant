@@ -2,6 +2,7 @@ import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { toProviderSafeToolName } from "../provider-tool-name.js";
 import { schemaDefinesProperty } from "../schema-transforms.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -16,7 +17,7 @@ const riskMap: Record<string, RiskLevel> = {
  * and with core/skill tools.
  */
 function mcpToolName(serverId: string, toolName: string): string {
-  return `mcp__${serverId}__${toolName}`;
+  return toProviderSafeToolName(`mcp__${serverId}__${toolName}`);
 }
 
 export interface McpToolMetadata {

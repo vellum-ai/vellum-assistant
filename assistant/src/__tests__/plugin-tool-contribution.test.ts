@@ -236,6 +236,36 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(retrieved?.ownerPluginId).toBe("my-plugin");
   });
 
+  test("registerPluginTools exposes provider-safe aliases for unsafe plugin tool names", async () => {
+    const execute = mock(
+      async (
+        _input: Record<string, unknown>,
+        _context: ToolContext,
+      ): Promise<ToolExecutionResult> => ({ content: "ok", isError: false }),
+    );
+    const accepted = registerPluginTools("stripe-plugin", [
+      makeFakeTool("Stripe Link CLI", { execute }),
+    ]);
+
+    expect(accepted).toHaveLength(1);
+    const alias = accepted[0]!.name;
+    expect(alias).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+    expect(alias.startsWith("Stripe_Link_CLI__")).toBe(true);
+    expect(getTool(alias)).toBeDefined();
+    expect(accepted[0]!.getDefinition().name).toBe(alias);
+
+    await accepted[0]!.execute(
+      {},
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-1",
+        trustClass: "guardian",
+      },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   test("registerPluginTools overwrites any pre-existing ownership metadata", () => {
     // A plugin author could (maliciously or mistakenly) hand in a tool
     // pre-tagged with another skill's or plugin's ID. The helper must

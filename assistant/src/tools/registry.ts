@@ -8,6 +8,7 @@ import { hostFileReadTool } from "./host-filesystem/read.js";
 import { hostFileTransferTool } from "./host-filesystem/transfer.js";
 import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
+import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
 import type { Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
@@ -74,6 +75,24 @@ const skillRefCount = new Map<string, number>();
 // match a skill id. Conflict detection on `tools` (keyed by tool name) is
 // separate and covers the case of two extensions choosing the same tool name.
 const pluginRefCount = new Map<string, number>();
+
+function withProviderSafeToolName(tool: Tool): Tool {
+  const safeName = toProviderSafeToolName(tool.name);
+  if (safeName === tool.name) {
+    return tool;
+  }
+
+  return {
+    ...tool,
+    name: safeName,
+    getDefinition(): ToolDefinition {
+      return {
+        ...tool.getDefinition(),
+        name: safeName,
+      };
+    },
+  };
+}
 
 export function registerTool(tool: Tool): void {
   const existing = tools.get(tool.name);
@@ -176,15 +195,17 @@ export function registerPluginTools(
   pluginName: string,
   newTools: Tool[],
 ): Tool[] {
-  const stamped: Tool[] = newTools.map((tool) => ({
-    ...tool,
-    origin: "plugin" as const,
-    ownerPluginId: pluginName,
-    ownerSkillId: undefined,
-    ownerMcpServerId: undefined,
-    ownerSkillBundled: undefined,
-    ownerSkillVersionHash: undefined,
-  }));
+  const stamped: Tool[] = newTools.map((tool) =>
+    withProviderSafeToolName({
+      ...tool,
+      origin: "plugin" as const,
+      ownerPluginId: pluginName,
+      ownerSkillId: undefined,
+      ownerMcpServerId: undefined,
+      ownerSkillBundled: undefined,
+      ownerSkillVersionHash: undefined,
+    }),
+  );
 
   const accepted: Tool[] = [];
   for (const tool of stamped) {
