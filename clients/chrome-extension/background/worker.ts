@@ -388,6 +388,9 @@ async function dispatchHostBrowserResult(
       if (mode.token) {
         headers["authorization"] = `Bearer ${mode.token}`;
       }
+      if (mode.sessionToken) {
+        headers["X-Session-Token"] = mode.sessionToken;
+      }
       if (mode.organizationId) {
         headers["Vellum-Organization-Id"] = mode.organizationId;
       }
@@ -461,6 +464,9 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
     if (mode.token) {
       headers["authorization"] = `Bearer ${mode.token}`;
     }
+    if (mode.sessionToken) {
+      headers["X-Session-Token"] = mode.sessionToken;
+    }
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
@@ -508,6 +514,9 @@ function dispatchHostBrowserSessionInvalidated(
   if (mode.kind === "vellum-cloud") {
     if (mode.token) {
       headers["authorization"] = `Bearer ${mode.token}`;
+    }
+    if (mode.sessionToken) {
+      headers["X-Session-Token"] = mode.sessionToken;
     }
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
@@ -821,7 +830,8 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
       kind: "vellum-cloud",
       runtimeUrl: apiBaseUrl,
       assistantId: selectedAssistant.id,
-      token: null, // session cookie handles auth
+      token: null,
+      sessionToken: session.sessionToken ?? null,
       organizationId: session.organizationId,
     });
     sseConnection.start();

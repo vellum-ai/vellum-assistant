@@ -30,6 +30,7 @@ export type SseMode =
       runtimeUrl: string;
       assistantId: string;
       token: string | null;
+      sessionToken: string | null;
       organizationId: string | null;
     }
   | {
@@ -137,6 +138,9 @@ export class SseConnection {
     if (mode.kind === 'vellum-cloud') {
       if (mode.token) {
         headers['Authorization'] = `Bearer ${mode.token}`;
+      }
+      if (mode.sessionToken) {
+        headers['X-Session-Token'] = mode.sessionToken;
       }
       if (mode.organizationId) {
         headers['Vellum-Organization-Id'] = mode.organizationId;
