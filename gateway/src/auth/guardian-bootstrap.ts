@@ -22,6 +22,8 @@ import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
+import { readCredential } from "../credential-reader.js";
+import { credentialKey } from "../credential-key.js";
 import { getLogger } from "../logger.js";
 
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
@@ -481,6 +483,46 @@ function mintRefreshToken(
 // ---------------------------------------------------------------------------
 
 /**
+ * Attempt to fetch the assistant owner's display name from the platform.
+ *
+ * Reads platform_user_id, platform_base_url, and assistant_api_key from the
+ * credential store. If all three are present, calls GET
+ * /v1/internal/gateway/owner/ and returns the display_name from the response.
+ * Returns null on any missing credential or network/parse failure — callers
+ * should fall back to a generated principal ID in that case.
+ */
+async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
+  const [platformUserId, platformBaseUrl, assistantApiKey] = await Promise.all([
+    readCredential(credentialKey("vellum", "platform_user_id")),
+    readCredential(credentialKey("vellum", "platform_base_url")),
+    readCredential(credentialKey("vellum", "assistant_api_key")),
+  ]);
+
+  if (!platformUserId || !platformBaseUrl || !assistantApiKey) {
+    return null;
+  }
+
+  try {
+    const url = `${platformBaseUrl.replace(/\/+$/, "")}/v1/internal/gateway/owner/`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Api-Key ${assistantApiKey}` },
+    });
+    if (!response.ok) {
+      log.warn(
+        { status: response.status },
+        "Failed to fetch platform owner display name",
+      );
+      return null;
+    }
+    const data = (await response.json()) as { display_name?: string | null };
+    return data.display_name?.trim() || null;
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch platform owner display name");
+    return null;
+  }
+}
+
+/**
  * Ensure a vellum guardian binding exists. If one already exists, returns
  * its principalId. Otherwise creates a new binding with a fresh principal
  * and dual-writes to both the assistant and gateway DBs.
@@ -497,6 +539,7 @@ export async function ensureVellumGuardianBinding(): Promise<string> {
     return existing.principalId;
   }
 
+  const displayName = await fetchPlatformOwnerDisplayName();
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
   await createGuardianBinding({
     channel: "vellum",
@@ -504,6 +547,7 @@ export async function ensureVellumGuardianBinding(): Promise<string> {
     deliveryChatId: "local",
     guardianPrincipalId,
     verifiedVia: "bootstrap",
+    ...(displayName ? { displayName } : {}),
   });
   return guardianPrincipalId;
 }
