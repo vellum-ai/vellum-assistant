@@ -51,6 +51,7 @@ private enum TeleportError: LocalizedError {
     case notSignedIn
     case exportFailed(statusCode: Int)
     case exportTimedOut
+    case exportJobFailed(message: String)
     case importFailed(message: String)
     case managedEntryNotFound
     case localAssistantNotFound
@@ -70,6 +71,8 @@ private enum TeleportError: LocalizedError {
             return "Export failed (HTTP \(statusCode))"
         case .exportTimedOut:
             return "Export timed out"
+        case .exportJobFailed(let message):
+            return "Export failed: \(message)"
         case .importFailed(let message):
             return "Import failed: \(message)"
         case .managedEntryNotFound:
@@ -793,7 +796,7 @@ struct TeleportSection: View {
                 return
             }
             if status.status == "failed" {
-                throw TeleportError.exportFailed(statusCode: 0)
+                throw TeleportError.exportJobFailed(message: status.error ?? "Export job failed")
             }
         }
         throw TeleportError.exportTimedOut
