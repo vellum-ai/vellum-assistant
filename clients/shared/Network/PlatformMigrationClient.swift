@@ -233,7 +233,7 @@ public enum PlatformMigrationClient {
 
         for attempt in 0...maxRetries {
             log.info("GET \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await session.data(for: request, delegate: delegate)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             log.info("GET \(urlPath, privacy: .public) → \(statusCode)")
 
