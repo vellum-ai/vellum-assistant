@@ -61,7 +61,9 @@ mock.module("../util/logger.js", () => ({
     error: (...args: unknown[]) => {
       stderrLines.push(args.map(String).join(" "));
     },
-    warn: () => {},
+    warn: (...args: unknown[]) => {
+      stderrLines.push(args.map(String).join(" "));
+    },
     debug: () => {},
     trace: () => {},
     fatal: () => {},
@@ -74,7 +76,6 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
   deleteMcpOAuthCredentials: async () => {},
-  McpOAuthProvider: class {},
 }));
 
 mock.module("../mcp/client.js", () => ({
@@ -427,6 +428,23 @@ describe("assistant mcp add", () => {
     const server = servers?.["default-risk"] as Record<string, unknown>;
     expect(server.defaultRiskLevel).toBe("high");
   });
+
+  test("calls cliIpcCall with internal_mcp_reload after saving server", async () => {
+    mockCliIpcCallFn = mock(() => Promise.resolve({ ok: true }));
+
+    await runMcpAdd("reload-test-server", [
+      "-t",
+      "sse",
+      "-u",
+      "https://example.com/sse",
+    ]);
+
+    const reloadCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_reload",
+    );
+    expect(reloadCall).toBeDefined();
+    expect(reloadCall![1]).toEqual({ body: {} });
+  });
 });
 
 describe("assistant mcp remove", () => {
@@ -511,6 +529,51 @@ describe("assistant mcp remove", () => {
   });
 });
 
+describe("assistant mcp reload", () => {
+  beforeAll(() => {
+    testDataDir = join(
+      tmpdir(),
+      `vellum-mcp-reload-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(testDataDir, { recursive: true });
+    configPath = join(testDataDir, "config.json");
+    writeConfig({});
+  });
+
+  afterAll(() => {
+    rmSync(testDataDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    mockCliIpcCallFn = mock(() => Promise.resolve({ ok: true }));
+  });
+
+  test("calls cliIpcCall with internal_mcp_reload", async () => {
+    const { stdout } = await runMcp("reload");
+
+    const reloadCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_reload",
+    );
+    expect(reloadCall).toBeDefined();
+    expect(reloadCall![1]).toEqual({ body: {} });
+    expect(stdout).toContain("MCP reload signal sent");
+  });
+
+  test("warns but does not fail when daemon is unreachable", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon",
+      }),
+    );
+
+    const { exitCode, stderr } = await runMcp("reload");
+
+    expect(exitCode).toBe(0); // best-effort, not fatal
+    expect(stderr).toContain("Could not signal reload");
+  });
+});
+
 describe("assistant mcp auth — IPC path", () => {
   let ipcTestDataDir: string;
   let ipcConfigPath: string;
@@ -589,19 +652,21 @@ describe("assistant mcp auth — IPC path", () => {
     );
   });
 
-  test("IPC start returns ok=false (daemon unavailable) → falls back to loopback flow without calling openInHostBrowser via IPC", async () => {
-    // Default mockCliIpcCallFn returns daemon-unavailable error — simulates no daemon / old daemon
+  test("IPC start returns ok=false (daemon unavailable) → exits 1 with helpful error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      }),
+    );
 
-    await runMcp("auth", ["srv"]).catch(() => {
-      // The loopback McpOAuthProvider mock is a no-op class, so flow may
-      // throw/exit but that's fine for this regression guard.
-    });
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
-    // openInHostBrowser should NOT have been called via the IPC path
-    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Is it running?");
   });
 
-  test("IPC start returns ok=false with old-daemon Unknown method error → falls back to loopback flow", async () => {
+  test("IPC start returns ok=false (Unknown method) → exits 1 with helpful error", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
@@ -609,16 +674,10 @@ describe("assistant mcp auth — IPC path", () => {
       }),
     );
 
-    await runMcp("auth", ["srv"]).catch(() => {
-      // Loopback fallback may throw; that's fine for this regression guard.
-    });
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
-    // openInHostBrowser should NOT have been called via the IPC path
-    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
-    // process.exitCode should NOT be 1 from the daemon-error branch — fallback
-    // path may set it for unrelated reasons in this mock env, but we're
-    // specifically asserting the fallback was reached (loopback class exists),
-    // not the daemon-error short-circuit.
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Is it running?");
   });
 
   test("IPC start returns ok=false with a real daemon error → exits 1 without falling back to loopback", async () => {
@@ -661,10 +720,8 @@ describe("assistant mcp auth — IPC path", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Authentication successful");
-    // Pre-existing legacy test files used to assert signalMcpReload() was
-    // invoked from this branch. The IPC success path now relies on the
-    // daemon-side orchestrator to call reloadMcpServers() itself, so the
-    // deprecated file-based signal is intentionally no longer used here.
+    // The IPC success path relies on the daemon-side orchestrator to call
+    // reloadMcpServers() itself on completion — no CLI-side signal needed.
   });
 
   test("polling error → exits 1 with error message", async () => {

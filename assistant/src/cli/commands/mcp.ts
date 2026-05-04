@@ -1,22 +1,11 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Command } from "commander";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { McpClient } from "../../mcp/client.js";
-import {
-  deleteMcpOAuthCredentials,
-  McpOAuthProvider,
-} from "../../mcp/mcp-oauth-provider.js";
+import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { openInHostBrowser } from "../../util/browser.js";
-import { getSignalsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -109,21 +98,6 @@ export async function checkServerHealth(
       return "\u2717 Timed out";
     }
     return `\u2717 Error: ${message}`;
-  }
-}
-
-/**
- * Write a signal file so the daemon's ConfigWatcher triggers an MCP reload.
- * Used by `mcp reload`, `mcp auth`, and any operation that needs the daemon
- * to reconnect MCP servers.
- */
-function signalMcpReload(): void {
-  try {
-    const signalsDir = getSignalsDir();
-    mkdirSync(signalsDir, { recursive: true });
-    writeFileSync(join(signalsDir, "mcp-reload"), "");
-  } catch {
-    // Best-effort — the daemon may not be running or the directory may not exist.
   }
 }
 
@@ -336,11 +310,18 @@ Examples:
   $ vellum mcp reload   # after editing config.json to add a new server
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
     )
-    .action(() => {
-      signalMcpReload();
-      log.info(
-        "MCP reload signal sent. The running assistant will reconnect servers shortly.",
-      );
+    .action(async () => {
+      const result = await cliIpcCall("internal_mcp_reload", { body: {} });
+      if (!result.ok) {
+        log.warn(
+          `Could not signal reload: ${result.error}. ` +
+            `Run 'assistant mcp reload' once the assistant is up.`,
+        );
+      } else {
+        log.info(
+          "MCP reload signal sent. The running assistant will reconnect servers shortly.",
+        );
+      }
     });
 
   mcp
@@ -383,7 +364,7 @@ Examples:
   $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
     )
     .action(
-      (
+      async (
         name: string,
         opts: {
           transportType: string;
@@ -457,10 +438,15 @@ Examples:
 
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        log.info(
-          "The running assistant will pick up this change automatically. " +
-            "Or run 'vellum mcp reload' to apply now.",
-        );
+        const reloadResult = await cliIpcCall("internal_mcp_reload", { body: {} });
+        if (!reloadResult.ok) {
+          log.warn(
+            `Could not signal reload: ${reloadResult.error}. ` +
+              `Run 'assistant mcp reload' once the assistant is up.`,
+          );
+        } else {
+          log.info("The running assistant is reloading MCP servers now.");
+        }
       },
     );
 
@@ -474,8 +460,8 @@ Arguments:
   name   Name of a configured MCP server to authenticate with
 
 Only works with sse or streamable-http transports (stdio servers do not use
-OAuth). Opens a browser for OAuth authorization with the remote server and
-starts a local callback server to receive the authorization code.
+OAuth). Opens a browser for OAuth authorization with the remote server. The
+running assistant handles the OAuth callback and token exchange.
 
 The command waits up to 2.5 minutes for the user to complete the browser-based
 OAuth flow. If the server already has valid cached tokens, the command succeeds
@@ -512,16 +498,6 @@ Examples:
         return;
       }
 
-      // Validate URL early so we fail fast before starting the callback server
-      let serverUrl: URL;
-      try {
-        serverUrl = new URL(transport.url);
-      } catch {
-        log.error(`Invalid URL for MCP server "${name}": ${transport.url}`);
-        process.exitCode = 1;
-        return;
-      }
-
       // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
       const startResult = await cliIpcCall<{
         auth_url: string;
@@ -551,11 +527,6 @@ Examples:
 
         if (finalStatus.status === "complete") {
           log.info(`Authentication successful for "${name}".`);
-          // No signalMcpReload() here — the daemon-side orchestrator triggers
-          // reloadMcpServers() itself on completion (via the IPC path, the
-          // assistant always knows when the flow finished). The deprecated
-          // file-based signal mechanism is reserved for legacy CLI commands
-          // that don't have an IPC equivalent.
           log.info(
             "The running assistant has picked up this change automatically.",
           );
@@ -577,150 +548,19 @@ Examples:
         return;
       }
 
-      // Distinguish "daemon unreachable / pre-IPC-route" (fall back to loopback)
-      // from "daemon returned a real error" (surface and exit). Without this
-      // narrowing, orchestrator failures on hosted assistants are silently
-      // masked and retried through the very loopback path the IPC route is
-      // meant to replace.
-      const ipcErrMsg = startResult.error ?? "";
-      const isDaemonUnavailable =
+      // Any !startResult.ok case: surface error and exit 1
+      const ipcErrMsg = startResult.error ?? "Unknown error";
+      if (
         ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
-        ipcErrMsg.startsWith("Unknown method:");
-
-      if (!startResult.ok && ipcErrMsg && !isDaemonUnavailable) {
+        ipcErrMsg.startsWith("Unknown method:")
+      ) {
+        log.error(
+          `MCP OAuth requires the assistant to be running. Is it running?`,
+        );
+      } else {
         log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
-        process.exitCode = 1;
-        return;
       }
-
-      // IPC unavailable (old daemon, socket missing, route not registered)
-      // → fall through to existing in-process loopback flow.
-
-      const provider = new McpOAuthProvider(
-        name,
-        transport.url,
-        /* interactive */ true,
-      );
-      // Clear stale client_info and discovery — the callback server uses a random port,
-      // so any previously cached client_info has a mismatched redirect_uri.
-      // Preserve tokens so they survive if this auth attempt fails.
-      await provider.invalidateCredentials("client");
-      await provider.invalidateCredentials("discovery");
-      const { codePromise } = await provider.startCallbackServer();
-
-      const OAUTH_TIMEOUT_MS = 150_000; // 2.5 min for browser interaction
-      const TransportClass =
-        transport.type === "sse"
-          ? SSEClientTransport
-          : StreamableHTTPClientTransport;
-      const mcpTransport = new TransportClass(serverUrl, {
-        authProvider: provider,
-        requestInit: transport.headers
-          ? { headers: transport.headers }
-          : undefined,
-      });
-
-      const client = new Client({ name: "vellum-assistant", version: "1.0.0" });
-
-      try {
-        // Try connecting — if tokens are already cached, this succeeds immediately
-        await client.connect(mcpTransport);
-        provider.stopCallbackServer();
-        await client.close();
-        log.info(`Server "${name}" is already authenticated.`);
-        return;
-      } catch (err) {
-        if (!(err instanceof UnauthorizedError)) {
-          provider.stopCallbackServer();
-          try {
-            await client.close();
-          } catch {
-            /* ignore */
-          }
-          log.error(`Failed to connect to "${name}": ${err}`);
-          process.exitCode = 1;
-          return;
-        }
-      }
-
-      // UnauthorizedError — browser was opened by redirectToAuthorization().
-      // Wait for the user to complete the OAuth flow.
-      log.info(
-        "Waiting for authorization in browser... (press Ctrl+C to cancel)",
-      );
-
-      let code: string;
-      let oauthTimer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        code = await Promise.race([
-          codePromise,
-          new Promise<never>((_, reject) => {
-            oauthTimer = setTimeout(
-              () =>
-                reject(
-                  new Error("OAuth authorization timed out after 2.5 minutes"),
-                ),
-              OAUTH_TIMEOUT_MS,
-            );
-            if (typeof oauthTimer === "object" && "unref" in oauthTimer)
-              oauthTimer.unref();
-          }),
-        ]);
-        clearTimeout(oauthTimer);
-      } catch (err) {
-        clearTimeout(oauthTimer);
-        provider.stopCallbackServer();
-        try {
-          await client.close();
-        } catch {
-          /* ignore */
-        }
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.includes("denied") || message.includes("cancelled")) {
-          log.error(`Authorization cancelled for "${name}".`);
-        } else if (message.includes("timed out")) {
-          log.error(
-            `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
-          );
-        } else {
-          log.error(`Authorization failed for "${name}": ${message}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      log.info("Authorization received. Exchanging token...");
-
-      // Exchange auth code for tokens
-      try {
-        await mcpTransport.finishAuth(code);
-      } catch (err) {
-        provider.stopCallbackServer();
-        try {
-          await client.close();
-        } catch {
-          /* ignore */
-        }
-        log.error(`Token exchange failed for "${name}": ${err}`);
-        process.exitCode = 1;
-        return;
-      }
-
-      // Clean up transport/client so the process can exit
-      try {
-        await client.close();
-      } catch {
-        /* ignore */
-      }
-      provider.stopCallbackServer();
-
-      log.info(`Authentication successful for "${name}".`);
-      log.info(
-        "The running assistant will pick up this change automatically. " +
-          "Or run 'vellum mcp reload' to apply now.",
-      );
-      signalMcpReload();
-      process.exit(0);
+      process.exitCode = 1;
     });
 
   mcp

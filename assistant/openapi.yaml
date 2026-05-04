@@ -6744,6 +6744,16 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/reload:
+    post:
+      operationId: internal_mcp_reload_post
+      summary: Trigger MCP server reload
+      description: Kicks off reloadMcpServers() async on the daemon. Returns immediately.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post

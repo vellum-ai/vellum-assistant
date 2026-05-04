@@ -4,6 +4,14 @@
  * back to the runtime code that initiated the OAuth handshake.
  */
 
+/**
+ * Sibling: `assistant/src/mcp/mcp-auth-state.ts`. The MCP auth state map sits
+ * one layer up from this registry — it tracks polling-visible status per
+ * MCP server, while this registry resolves the OAuth code-arrival promise
+ * keyed by OAuth `state`. The callback registry is shared by all
+ * gateway-transport OAuth flows (MCP and otherwise); the MCP state map is
+ * MCP-specific.
+ */
 interface PendingCallback {
   resolve: (code: string) => void;
   reject: (error: Error) => void;

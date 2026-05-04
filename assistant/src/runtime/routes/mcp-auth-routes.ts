@@ -10,10 +10,14 @@ import { z } from "zod";
 
 import { loadRawConfig } from "../../config/loader.js";
 import type { McpConfig } from "../../config/schemas/mcp.js";
+import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
+import { getLogger } from "../../util/logger.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
+
+const log = getLogger("mcp-auth-routes");
 
 async function handleMcpAuthStart({
   body,
@@ -75,6 +79,20 @@ function handleMcpAuthStatus({
   return { status: "error", error: state.error };
 }
 
+function handleMcpReload(_args: {
+  body?: Record<string, unknown>;
+}): { ok: true } {
+  // Fire-and-forget: reloadMcpServers() has its own reloadInProgress mutex,
+  // so concurrent calls coalesce.
+  void reloadMcpServers().catch((err) => {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "internal_mcp_reload background reload failed",
+    );
+  });
+  return { ok: true };
+}
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "internal_mcp_auth_start",
@@ -100,5 +118,15 @@ export const ROUTES: RouteDefinition[] = [
       "404": { description: "No active OAuth flow for the given serverId" },
     },
     handler: handleMcpAuthStatus,
+  },
+  {
+    operationId: "internal_mcp_reload",
+    endpoint: "internal/mcp/reload",
+    method: "POST",
+    summary: "Trigger MCP server reload",
+    description:
+      "Kicks off reloadMcpServers() async on the daemon. Returns immediately.",
+    tags: ["internal"],
+    handler: handleMcpReload,
   },
 ];
