@@ -62,7 +62,7 @@ export function registerGatewayCommand(program: Command): void {
     "after",
     `
 The gateway is the channel ingress layer — it handles inbound HTTP requests,
-manages trust rules, routes traffic to the assistant daemon, and records
+manages trust rules, routes traffic to the assistant, and records
 structured logs for all inbound activity.
 
 Examples:
