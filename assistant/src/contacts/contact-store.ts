@@ -705,31 +705,6 @@ export function mergeContacts(
 }
 
 /**
- * Delete a contact by ID. Guardians cannot be deleted as a safety guard.
- * Associated contactChannels and assistantContactMetadata rows are
- * cascade-deleted by the DB schema's onDelete constraints.
- */
-export function deleteContact(
-  contactId: string,
-): "ok" | "not_found" | "is_guardian" {
-  const db = getDb();
-
-  const contact = db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .get();
-
-  if (!contact) return "not_found";
-  if (contact.role === "guardian") return "is_guardian";
-
-  db.delete(contacts).where(eq(contacts.id, contactId)).run();
-
-  emitContactChange();
-  return "ok";
-}
-
-/**
  * Find a contact by a specific channel address. Returns null if not found.
  */
 export function findContactByAddress(

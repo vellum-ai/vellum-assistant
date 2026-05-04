@@ -11,7 +11,6 @@
 import { z } from "zod";
 
 import {
-  deleteContact,
   getAssistantContactMetadata,
   getChannelById,
   getContact,
@@ -42,7 +41,6 @@ import {
 import {
   BadRequestError,
   ConflictError,
-  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -152,17 +150,6 @@ function handleGetContact(contactId: string) {
     contact: withGuardianNameOverride(contact),
     assistantMetadata: assistantMeta ?? undefined,
   };
-}
-
-function handleDeleteContact(contactId: string) {
-  const result = deleteContact(contactId);
-  if (result === "not_found") {
-    throw new NotFoundError(`Contact "${contactId}" not found`);
-  }
-  if (result === "is_guardian") {
-    throw new ForbiddenError("Cannot delete a guardian contact");
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,18 +488,6 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleGetContact(pathParams!.id),
-  },
-  {
-    operationId: "deleteContact",
-    endpoint: "contacts/:id",
-    method: "DELETE",
-    policyKey: "contacts",
-    summary: "Delete a contact",
-    description: "Delete a contact by ID.",
-    tags: ["contacts"],
-    responseStatus: "204",
-    handler: ({ pathParams }: RouteHandlerArgs) =>
-      handleDeleteContact(pathParams!.id),
   },
   {
     operationId: "upsert_contact",

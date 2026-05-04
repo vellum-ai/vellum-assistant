@@ -2886,21 +2886,6 @@ paths:
                 - assistantMetadata
               additionalProperties: false
   /v1/contacts/{id}:
-    delete:
-      operationId: contacts_by_id_delete
-      summary: Delete a contact
-      description: Delete a contact by ID.
-      tags:
-        - contacts
-      responses:
-        "204":
-          description: Successful response
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
     get:
       operationId: contacts_by_id_get
       summary: Get a contact

@@ -9,6 +9,10 @@ import { proxyForward } from "@vellumai/assistant-client";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import {
+  assistantDbQuery,
+  assistantDbRun,
+} from "../../db/assistant-db-proxy.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 
@@ -73,10 +77,30 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleDeleteContact(
-      req: Request,
+      _req: Request,
       contactId: string,
     ): Promise<Response> {
-      return forward(req, `/v1/contacts/${contactId}`);
+      const rows = await assistantDbQuery<{ role: string }>(
+        "SELECT role FROM contacts WHERE id = ?",
+        [contactId],
+      );
+      if (rows.length === 0) {
+        log.warn({ contactId }, "delete_contact: not found");
+        return Response.json(
+          { error: { code: "NOT_FOUND", message: `Contact "${contactId}" not found` } },
+          { status: 404 },
+        );
+      }
+      if (rows[0].role === "guardian") {
+        log.warn({ contactId }, "delete_contact: attempted to delete guardian");
+        return Response.json(
+          { error: { code: "FORBIDDEN", message: "Cannot delete a guardian contact" } },
+          { status: 403 },
+        );
+      }
+      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+      log.info({ contactId }, "delete_contact: deleted");
+      return new Response(null, { status: 204 });
     },
 
     async handleMergeContacts(req: Request): Promise<Response> {
