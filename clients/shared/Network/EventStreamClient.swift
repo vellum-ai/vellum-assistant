@@ -133,6 +133,14 @@ public final class EventStreamClient {
     private var hasConnectedAtLeastOnce = false
     private let sseHandshakeDiagnostics = SSEHandshakeDiagnostics()
 
+    // MARK: - Heartbeat Watchdog
+
+    /// Timeout for the heartbeat watchdog (2× the server heartbeat interval).
+    /// If no SSE line (data or heartbeat comment) arrives within this window,
+    /// the connection is assumed dead and torn down for reconnection.
+    private let heartbeatWatchdogTimeout: TimeInterval = 10.0
+    private var heartbeatWatchdogTask: Task<Void, Never>?
+
     // MARK: - SSE Parse Time Tracking
 
     private var sseParseTimeAccumulator: TimeInterval = 0
@@ -192,6 +200,7 @@ public final class EventStreamClient {
     /// `withTaskCancellationHandler` to the underlying data task, so the Task-local
     /// `URLSession` is torn down by the `defer` block inside `startSSEStream`.
     public func stopSSE() {
+        cancelHeartbeatWatchdog()
         tokenRotationTask?.cancel()
         tokenRotationTask = nil
         sseReconnectTask?.cancel()
@@ -448,14 +457,20 @@ public final class EventStreamClient {
                 }
                 self.hasConnectedAtLeastOnce = true
 
+                self.startHeartbeatWatchdog()
+
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
+
+                    self.resetHeartbeatWatchdog()
 
                     if line.hasPrefix("data: ") {
                         let payload = String(line.dropFirst(6))
                         await self.parseSSEData(payload)
                     }
                 }
+
+                self.cancelHeartbeatWatchdog()
             } catch {
                 if !Task.isCancelled {
                     await self.logSSEStreamError(error)
@@ -686,6 +701,36 @@ public final class EventStreamClient {
         }
     }
 
+    // MARK: - Heartbeat Watchdog
+
+    /// Arms the heartbeat watchdog. If no SSE line arrives within
+    /// `heartbeatWatchdogTimeout`, the stream is assumed dead and torn down.
+    private func startHeartbeatWatchdog() {
+        cancelHeartbeatWatchdog()
+        heartbeatWatchdogTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64((self?.heartbeatWatchdogTimeout ?? 10.0) * 1_000_000_000))
+            } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            log.warning("Heartbeat watchdog fired — no SSE activity for \(self.heartbeatWatchdogTimeout, privacy: .public)s, tearing down stream")
+            self.sseTask?.cancel()
+            self.sseTask = nil
+            guard self.shouldReconnect else { return }
+            self.sseReconnectDelay = 1.0
+            self.scheduleSSEReconnect()
+        }
+    }
+
+    /// Resets the heartbeat watchdog timer. Called on every SSE line received.
+    private func resetHeartbeatWatchdog() {
+        startHeartbeatWatchdog()
+    }
+
+    private func cancelHeartbeatWatchdog() {
+        heartbeatWatchdogTask?.cancel()
+        heartbeatWatchdogTask = nil
+    }
+
     // MARK: - SSE Reconnect
 
     private func handleSSEDisconnect() {
@@ -718,6 +763,7 @@ public final class EventStreamClient {
     }
 
     deinit {
+        heartbeatWatchdogTask?.cancel()
         tokenRotationTask?.cancel()
         sseReconnectTask?.cancel()
         sseTask?.cancel()
