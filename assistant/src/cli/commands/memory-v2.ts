@@ -38,6 +38,7 @@ import type {
   MemoryV2BackfillResult,
   MemoryV2ExplainSimilarityResult,
   MemoryV2ExplainSimilarityStats,
+  MemoryV2FitAnisotropyResult,
   MemoryV2RebuildCorpusStatsResult,
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
@@ -187,13 +188,18 @@ Subcommands fall into three groups:
     validate         Print a diagnostic report of orphan outgoing-edge
                      targets, oversized pages, and parse failures.
 
+  Calibration:
+    fit-anisotropy   Fit Mu & Viswanath's all-but-the-top correction so
+                     embedding cosines stop clustering in a narrow band.
+
 Examples:
   $ assistant memory v2 validate
   $ assistant memory v2 migrate
   $ assistant memory v2 migrate --force
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
-  $ assistant memory v2 activation`,
+  $ assistant memory v2 activation
+  $ assistant memory v2 fit-anisotropy`,
   );
 
   // ── migrate ───────────────────────────────────────────────────────────
@@ -432,6 +438,99 @@ Examples:
       log.info(`Rebuilt BM25 corpus stats: ${r.totalDocs} docs.`);
       log.info(`  avg doc length: ${r.avgDl.toFixed(2)} tokens`);
       log.info(`  vocabulary buckets: ${r.vocabularyBuckets.toLocaleString()}`);
+    });
+
+  // ── fit-anisotropy ────────────────────────────────────────────────────
+
+  v2.command("fit-anisotropy")
+    .description(
+      "Fit the embedding anisotropy correction (Mu & Viswanath 'all-but-the-top')",
+    )
+    .option(
+      "--k <n>",
+      "Number of leading principal components to project out (default 1; raise to 2-3 only if PC2/PC3 also explain >5% variance)",
+      "1",
+    )
+    .option(
+      "--sample <n>",
+      "Maximum stored dense vectors to pull for the fit (default 5000)",
+      "5000",
+    )
+    .addHelpText(
+      "after",
+      `
+Modern transformer embeddings (Gemini in particular) are anisotropic — every
+vector lives in a narrow cone of the embedding space, which compresses cosine
+similarities into a tight band (typically 0.4-0.7) and lets a few dominant
+directions drown out semantic signal.
+
+This command samples stored dense vectors from the concept-page Qdrant
+collection, fits a corpus mean + top-k principal components, and persists the
+calibration. Subsequent embeds and queries apply the correction automatically:
+
+  vec' = vec - mean
+  for each pc_i: vec' = vec' - (vec' · pc_i) pc_i
+  vec' = vec' / ||vec'||
+
+After fitting, run 'assistant memory v2 reembed' to re-process every stored
+concept page through the new calibration. Until then, queries are corrected
+but stored vectors are not — the score range stays the same and retrieval may
+degrade. The calibration is keyed by (provider, model, dim), so changing
+embedding model invalidates it.
+
+Recommended k:
+  k=1   safest default. Removes the dominant common direction.
+  k=2-3 only when explained-variance ratios show PC2/PC3 each above ~5%.
+  k>3   not justified without a labeled retrieval eval set.
+
+Examples:
+  $ assistant memory v2 fit-anisotropy
+  $ assistant memory v2 fit-anisotropy --k 2
+  $ assistant memory v2 fit-anisotropy --sample 10000`,
+    )
+    .action(async (opts: { k: string; sample: string }) => {
+      const k = Number.parseInt(opts.k, 10);
+      const sample = Number.parseInt(opts.sample, 10);
+      if (!Number.isFinite(k) || k < 1) {
+        log.error("--k must be a positive integer");
+        process.exitCode = 1;
+        return;
+      }
+      if (!Number.isFinite(sample) || sample < 1) {
+        log.error("--sample must be a positive integer");
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await cliIpcCall<MemoryV2FitAnisotropyResult>(
+        "memory_v2_fit_anisotropy",
+        { body: { k, sample } },
+      );
+
+      if (!result.ok) {
+        log.error(result.error ?? "Failed to fit anisotropy calibration");
+        process.exitCode = 1;
+        return;
+      }
+
+      const r = result.result!;
+      log.info(
+        `Fit anisotropy calibration: ${r.provider}/${r.model} (dim=${r.dim})`,
+      );
+      log.info(`  samples: ${r.sampleCount}`);
+      log.info(`  total variance: ${r.totalVariance.toFixed(6)}`);
+      log.info("  explained variance per component:");
+      for (let i = 0; i < r.componentVariance.length; i++) {
+        const ratio = (r.explainedVarianceRatio[i] * 100).toFixed(2);
+        log.info(
+          `    PC${i + 1}: ${r.componentVariance[i].toFixed(6)} (${ratio}%)`,
+        );
+      }
+      log.info(`  written to: ${r.path}`);
+      log.info("");
+      log.info(
+        "Next step: run 'assistant memory v2 reembed' so every stored concept page is re-written under the new calibration. Until then, query-side correction operates on stored vectors that were embedded without it.",
+      );
     });
 
   // ── validate ──────────────────────────────────────────────────────────

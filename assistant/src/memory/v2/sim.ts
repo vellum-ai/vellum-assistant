@@ -26,6 +26,7 @@
 //   only as a per-turn ordering signal, not compared across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
@@ -85,7 +86,11 @@ export async function simBatch(
   // and the stored doc vectors carry the IDF · TF-saturated weights — Qdrant
   // dot product then yields the BM25 score directly.
   const denseResult = await embedWithBackend(config, [text]);
-  const denseVector = denseResult.vectors[0];
+  const denseVector = await applyCorrectionIfCalibrated(
+    denseResult.vectors[0],
+    denseResult.provider,
+    denseResult.model,
+  );
   const sparseVector = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQueryConceptPages(
@@ -149,7 +154,11 @@ export async function simSkillBatch(
   }
 
   const denseResult = await embedWithBackend(config, [text]);
-  const denseVector = denseResult.vectors[0];
+  const denseVector = await applyCorrectionIfCalibrated(
+    denseResult.vectors[0],
+    denseResult.provider,
+    denseResult.model,
+  );
   const sparseVector = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQuerySkills(

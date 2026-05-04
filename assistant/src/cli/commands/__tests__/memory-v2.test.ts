@@ -147,6 +147,7 @@ describe("subcommand registration", () => {
     expect(subcommandNames).toEqual([
       "activation",
       "explain",
+      "fit-anisotropy",
       "migrate",
       "rebuild-corpus-stats",
       "reembed",

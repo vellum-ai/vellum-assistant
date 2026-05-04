@@ -8,7 +8,16 @@ import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
-import { embedWithBackend } from "../../memory/embedding-backend.js";
+import {
+  applyCorrectionIfCalibrated,
+  explainedVarianceRatio,
+  fitAnisotropyCalibration,
+  saveCalibration,
+} from "../../memory/anisotropy.js";
+import {
+  embedWithBackend,
+  selectEmbeddingBackend,
+} from "../../memory/embedding-backend.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
@@ -23,7 +32,10 @@ import {
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
-import { hybridQueryConceptPages } from "../../memory/v2/qdrant.js";
+import {
+  hybridQueryConceptPages,
+  sampleConceptPageDenseVectors,
+} from "../../memory/v2/qdrant.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import {
   generateBm25QueryEmbedding,
@@ -313,7 +325,11 @@ async function scoreChannel(
   config: ReturnType<typeof loadConfig>,
 ): Promise<MemoryV2ExplainSimilarityChannel> {
   const denseResult = await embedWithBackend(config, [text]);
-  const denseVec = denseResult.vectors[0];
+  const denseVec = await applyCorrectionIfCalibrated(
+    denseResult.vectors[0],
+    denseResult.provider,
+    denseResult.model,
+  );
   const sparseVec = generateBm25QueryEmbedding(text);
 
   const hits = await hybridQueryConceptPages(denseVec, sparseVec, top);
@@ -419,6 +435,92 @@ async function handleExplainSimilarity({
   };
 }
 
+// ── Fit anisotropy calibration ──────────────────────────────────────────
+
+const MemoryV2FitAnisotropyParams = z
+  .object({
+    /**
+     * Number of leading principal components to project out at apply time.
+     * `1` is the canonical default for transformer embeddings; raise to 2-3
+     * only when the variance spectrum shows multiple dominant directions.
+     */
+    k: z.number().int().min(1).max(16).default(1),
+    /**
+     * Maximum number of stored vectors to pull from Qdrant for the fit.
+     * 5_000 is plenty for 3072-dim Gemini — power iteration converges fast
+     * and pulling the full corpus would just cost wall-clock time.
+     */
+    sample: z.number().int().min(1).max(100_000).default(5_000),
+  })
+  .strict();
+
+export interface MemoryV2FitAnisotropyResult {
+  provider: string;
+  model: string;
+  dim: number;
+  k: number;
+  sampleCount: number;
+  totalVariance: number;
+  componentVariance: number[];
+  /** `componentVariance[i] / totalVariance` for each component. */
+  explainedVarianceRatio: number[];
+  /** Absolute path the calibration was written to. */
+  path: string;
+}
+
+async function handleFitAnisotropy({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2FitAnisotropyResult> {
+  const { k, sample } = MemoryV2FitAnisotropyParams.parse(body);
+  const config = loadConfig();
+
+  const selection = await selectEmbeddingBackend(config);
+  if (!selection.backend) {
+    throw new RouteError(
+      `Cannot fit anisotropy calibration: ${selection.reason ?? "no embedding backend configured"}`,
+      "MEMORY_V2_NO_EMBEDDING_BACKEND",
+      409,
+    );
+  }
+
+  const vectors = await sampleConceptPageDenseVectors(sample);
+  if (vectors.length === 0) {
+    throw new RouteError(
+      "Cannot fit anisotropy calibration: the v2 concept-page collection is empty. " +
+        "Embed some concept pages first (run `assistant memory v2 reembed`), then retry.",
+      "MEMORY_V2_NO_VECTORS",
+      409,
+    );
+  }
+  if (vectors.length < k * 4) {
+    // PCA on too-few samples is unstable — refuse rather than hand back
+    // overfit components. The 4× heuristic is conservative; in practice
+    // anisotropy fits stabilise at a few hundred samples per component.
+    throw new RouteError(
+      `Cannot fit k=${k} components from only ${vectors.length} vectors — need at least ${k * 4}. ` +
+        "Embed more concept pages or fit a smaller k.",
+      "MEMORY_V2_INSUFFICIENT_VECTORS",
+      409,
+    );
+  }
+
+  const { provider, model } = selection.backend;
+  const calib = fitAnisotropyCalibration(vectors, k, { provider, model });
+  const path = await saveCalibration(calib);
+
+  return {
+    provider,
+    model,
+    dim: calib.dim,
+    k,
+    sampleCount: calib.sampleCount,
+    totalVariance: calib.totalVariance,
+    componentVariance: calib.componentVariance,
+    explainedVarianceRatio: explainedVarianceRatio(calib),
+    path,
+  };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -487,5 +589,16 @@ export const ROUTES: RouteDefinition[] = [
       "Walks every concept page on disk, recomputes the document-frequency table and average document length used by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with `assistant memory v2 reembed` when document-side weights need refreshing.",
     tags: ["memory"],
     requestBody: MemoryV2RebuildCorpusStatsParams,
+  },
+  {
+    operationId: "memory_v2_fit_anisotropy",
+    method: "POST",
+    endpoint: "memory/v2/fit-anisotropy",
+    handler: handleFitAnisotropy,
+    summary: "Fit the embedding anisotropy correction for memory v2",
+    description:
+      "Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.",
+    tags: ["memory"],
+    requestBody: MemoryV2FitAnisotropyParams,
   },
 ];

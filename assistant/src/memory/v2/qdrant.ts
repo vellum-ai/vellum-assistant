@@ -321,6 +321,89 @@ export async function hybridQueryConceptPages(
 }
 
 /**
+ * Page through the v2 concept-page collection and return up to `maxSamples`
+ * stored dense vectors. Used by the anisotropy-fit pipeline to compute a
+ * corpus mean + top-k principal components without re-embedding every page.
+ *
+ * Sparse vectors are skipped — anisotropy is a dense-embedding phenomenon, and
+ * pulling the sparse side would just inflate the response. Payload is also
+ * skipped because the fit doesn't need slug identity.
+ *
+ * Returns an empty array when the collection is empty or missing. Caller
+ * decides what to do (typically: surface a "no vectors to fit" error).
+ */
+export async function sampleConceptPageDenseVectors(
+  maxSamples: number,
+): Promise<number[][]> {
+  if (maxSamples <= 0) return [];
+  await ensureConceptPageCollection();
+
+  const client = getClient();
+  const out: number[][] = [];
+  let offset: string | number | undefined = undefined;
+  // Same pagination guard pattern as the rest of the file — bounds the loop
+  // even if Qdrant somehow keeps handing back a non-null offset.
+  const maxIterations = 10_000;
+  const batchSize = Math.min(256, maxSamples);
+
+  for (let i = 0; i < maxIterations; i++) {
+    if (out.length >= maxSamples) break;
+    const remaining = maxSamples - out.length;
+    let result;
+    try {
+      result = await client.scroll(MEMORY_V2_COLLECTION, {
+        limit: Math.min(batchSize, remaining),
+        with_payload: false,
+        // Fetch only the dense named vector — sparse is irrelevant for
+        // anisotropy correction.
+        with_vector: ["dense"],
+        ...(offset !== undefined ? { offset } : {}),
+      });
+    } catch (err) {
+      if (isCollectionMissing(err)) {
+        _collectionReady = false;
+        return out;
+      }
+      throw err;
+    }
+
+    for (const point of result.points) {
+      const v = extractDenseVector(point.vector);
+      if (v) out.push(v);
+      if (out.length >= maxSamples) break;
+    }
+
+    const next = result.next_page_offset;
+    if (next == null) break;
+    offset = typeof next === "string" ? next : (next as number);
+  }
+
+  return out;
+}
+
+/**
+ * Pull the `dense` named-vector payload out of a Qdrant point. Defensively
+ * handles both the named-vector shape (`{ dense: [...] }`) and the legacy
+ * unnamed-vector shape (`number[]`) so older collection layouts don't trip
+ * the sampler. Returns `null` for shapes we don't recognise.
+ */
+function extractDenseVector(vector: unknown): number[] | null {
+  if (Array.isArray(vector)) {
+    if (vector.every((n) => typeof n === "number")) {
+      return vector as number[];
+    }
+    return null;
+  }
+  if (vector && typeof vector === "object") {
+    const dense = (vector as { dense?: unknown }).dense;
+    if (Array.isArray(dense) && dense.every((n) => typeof n === "number")) {
+      return dense as number[];
+    }
+  }
+  return null;
+}
+
+/**
  * Detect "collection not found" errors so callers can reset readiness and
  * retry after an external deletion (e.g. workspace reset).
  */

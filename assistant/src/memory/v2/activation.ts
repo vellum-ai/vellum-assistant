@@ -32,6 +32,7 @@
 //     for the next turn and drop below `epsilon` if no longer relevant.
 
 import type { AssistantConfig } from "../../config/types.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
@@ -125,7 +126,11 @@ export async function selectCandidates(
 
   if (annQueryText.length > 0) {
     const denseResult = await embedWithBackend(config, [annQueryText]);
-    const dense = denseResult.vectors[0];
+    const dense = await applyCorrectionIfCalibrated(
+      denseResult.vectors[0],
+      denseResult.provider,
+      denseResult.model,
+    );
     const sparse = generateSparseEmbedding(annQueryText);
     const limit =
       config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;

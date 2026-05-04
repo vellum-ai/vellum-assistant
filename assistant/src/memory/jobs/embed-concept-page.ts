@@ -24,6 +24,7 @@ import type { AssistantConfig } from "../../config/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { getDb } from "../db-connection.js";
 import {
   embedWithBackend,
@@ -203,9 +204,20 @@ export async function embedConceptPageJob(
     }
   }
 
+  // Apply anisotropy correction at the boundary between the (raw) cached
+  // dense vector and the Qdrant collection. Storing raw in SQLite and
+  // corrected in Qdrant means a recalibration just needs a reembed pass —
+  // the cache survives and the (cheap) correction math reruns over each
+  // cached vector. Pass-through when no calibration is fit yet.
+  const correctedDense = await applyCorrectionIfCalibrated(
+    dense,
+    provider,
+    model,
+  );
+
   await upsertConceptPageEmbedding({
     slug,
-    dense,
+    dense: correctedDense,
     sparse,
     updatedAt: now,
   });

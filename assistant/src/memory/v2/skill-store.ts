@@ -25,6 +25,7 @@ import {
   fromSkillSummary,
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
@@ -122,9 +123,14 @@ export async function seedV2SkillEntries(): Promise<void> {
 
     // Embed all content strings in one batched call. Sparse vectors are
     // computed in-process (no network).
-    const { vectors: denseVectors } = await embedWithBackend(
+    const embedded = await embedWithBackend(
       config,
       seeds.map((s) => s.content),
+    );
+    const denseVectors = await Promise.all(
+      embedded.vectors.map((v) =>
+        applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
+      ),
     );
 
     const now = Date.now();
