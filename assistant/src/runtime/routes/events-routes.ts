@@ -61,7 +61,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
- *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
+ *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 5 s).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,

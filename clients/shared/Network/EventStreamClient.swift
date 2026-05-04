@@ -466,12 +466,19 @@ public final class EventStreamClient {
 
                     if line.hasPrefix("data: ") {
                         let payload = String(line.dropFirst(6))
+                        if payload.contains("\"heartbeat\"") {
+                            if let json = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any],
+                               json["type"] as? String == "heartbeat" {
+                                continue
+                            }
+                        }
                         await self.parseSSEData(payload)
                     }
                 }
 
                 self.cancelHeartbeatWatchdog()
             } catch {
+                self.cancelHeartbeatWatchdog()
                 if !Task.isCancelled {
                     await self.logSSEStreamError(error)
                 }
