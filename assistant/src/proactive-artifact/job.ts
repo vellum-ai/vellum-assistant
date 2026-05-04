@@ -200,7 +200,7 @@ async function buildApp(params: {
     conversationType: "background",
     source: "proactive_artifact",
     groupId: "system:background",
-    origin: "proactive_artifact",
+    origin: "heartbeat",
     systemHint: "Proactive artifact build",
   });
 

@@ -215,7 +215,7 @@ const { buildMessageCopyPrompt, parseMessageCopy } =
 // ── Test helpers ────────────────────────────────────────────────────────
 
 let broadcastCalls: Array<Record<string, unknown>> = [];
-const mockBroadcast = (msg: Record<string, unknown>) => {
+const mockBroadcast: any = (msg: Record<string, unknown>) => {
   broadcastCalls.push(msg);
 };
 
