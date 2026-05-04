@@ -17,10 +17,7 @@ import { v4 as uuid } from "uuid";
 
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import {
-  addDocumentConversation,
-  saveDocument,
-} from "../documents/document-store.js";
+import { saveDocument } from "../documents/document-store.js";
 import { listApps } from "../memory/app-store.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { rawAll } from "../memory/raw-query.js";
@@ -289,8 +286,6 @@ Write the complete markdown content. Make it specific, actionable, and tailored 
   if (!result.success) {
     throw new Error(`Failed to save document: ${result.error}`);
   }
-
-  addDocumentConversation(surfaceId, params.conversationId);
 
   return surfaceId;
 }

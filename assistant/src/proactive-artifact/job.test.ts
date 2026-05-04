@@ -458,10 +458,6 @@ describe("runProactiveArtifactJob", () => {
       ).toBe(true);
       expect((saveDocumentCalls[0].wordCount as number) > 0).toBe(true);
 
-      // addDocumentConversation called
-      expect(addDocConvCalls).toHaveLength(1);
-      expect(addDocConvCalls[0].conversationId).toBe("conv-1");
-
       // No bootstrapConversation or processMessage for document path
       expect(bootstrapCalls).toHaveLength(0);
       expect(processMessageCalls).toHaveLength(0);
