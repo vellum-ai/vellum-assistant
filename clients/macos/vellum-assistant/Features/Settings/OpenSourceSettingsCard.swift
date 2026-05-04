@@ -1,9 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// `@AppStorage` key for the GitHub-nudge "starred" flag. Matches the web
-/// app's `app.githubNudge.starred` `localStorage` key so future cross-surface
-/// behavior can read a single source of truth per user/device.
+/// `@AppStorage` key for the GitHub-nudge "starred" flag. Persisted to
+/// `UserDefaults.standard` and currently used as a record that the user
+/// clicked the "Star on GitHub" CTA — read by no surface today. The key
+/// name mirrors the web app's `app.githubNudge.starred` `localStorage`
+/// key as a per-platform naming convention; the two stores are separate.
 enum GitHubNudge {
     static let starredKey = "app.githubNudge.starred"
 }
