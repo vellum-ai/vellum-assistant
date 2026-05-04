@@ -12,6 +12,8 @@ struct SettingsGeneralTab: View {
     var onSignIn: (() -> Void)?
 
     @State private var showingDeleteAccountConfirm: Bool = false
+    @State private var showingRetireConfirmation: Bool = false
+    @State private var isRetiring: Bool = false
 
     // -- Software Update state --
     @State private var healthz: DaemonHealthz?
@@ -72,7 +74,9 @@ struct SettingsGeneralTab: View {
             }
             SettingsAppearanceTab(store: store)
             OpenSourceSettingsCard()
-            uninstallSection
+            if !lockfileAssistants.isEmpty {
+                retireAssistantSection
+            }
             if Self.shouldShowDangerZone(isAuthenticated: authManager.currentUser != nil) {
                 dangerZoneSection
             }
@@ -167,6 +171,40 @@ struct SettingsGeneralTab: View {
                     showingDeleteAccountConfirm = false
                 }
             )
+        }
+        .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Retire", role: .destructive) {
+                isRetiring = true
+                Task {
+                    let completed = await AppDelegate.shared?.performRetireAsync() ?? false
+                    if !completed {
+                        isRetiring = false
+                    }
+                }
+            }
+        } message: {
+            if lockfileAssistants.count > 1 {
+                Text("This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed.")
+            } else {
+                Text("This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone.")
+            }
+        }
+        .sheet(isPresented: $isRetiring) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text("Retiring assistant...")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("Stopping the assistant and removing local data.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
         }
     }
 
@@ -331,15 +369,17 @@ struct SettingsGeneralTab: View {
         return String(format: "%.0f MB", mb)
     }
 
-    // MARK: - Uninstall
+    // MARK: - Retire Assistant
 
-    private var uninstallSection: some View {
+    private var retireAssistantSection: some View {
         SettingsCard(
-            title: "Uninstall",
-            subtitle: "Stops all assistants, archives your data, and moves Vellum to the Trash"
+            title: "Retire Assistant",
+            subtitle: lockfileAssistants.count > 1
+                ? "Stops the current assistant and switches to another."
+                : "Stops the assistant, removes local data, and returns to initial setup."
         ) {
-            VButton(label: "Uninstall Vellum", style: .danger) {
-                AppDelegate.shared?.performUninstall()
+            VButton(label: "Retire", style: .danger) {
+                showingRetireConfirmation = true
             }
         }
     }
