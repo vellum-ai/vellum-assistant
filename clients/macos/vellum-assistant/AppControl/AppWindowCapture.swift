@@ -141,19 +141,19 @@ enum AppWindowCapture {
 
         func elapsed() -> Int { Int(Date().timeIntervalSince(start) * 1000) }
 
-        log.info("captureWindowPNG: start (windowID=\(windowID, privacy: .public), useDisplay=\(useDisplay, privacy: .public))")
+        log.notice("captureWindowPNG: start (windowID=\(windowID, privacy: .public), useDisplay=\(useDisplay, privacy: .public))")
 
         do {
-            log.info("captureWindowPNG: requesting SCShareableContent.current (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: requesting SCShareableContent.current (+\(elapsed())ms)")
             let shareable = try await SCShareableContent.current
-            log.info("captureWindowPNG: got SCShareableContent (+\(elapsed())ms, windows=\(shareable.windows.count, privacy: .public), displays=\(shareable.displays.count, privacy: .public))")
+            log.notice("captureWindowPNG: got SCShareableContent (+\(elapsed())ms, windows=\(shareable.windows.count, privacy: .public), displays=\(shareable.displays.count, privacy: .public))")
 
             guard let scWindow = shareable.windows.first(where: { $0.windowID == windowID }) else {
                 let message = "ScreenCaptureKit could not find window \(windowID) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
                 log.warning("captureWindowPNG: window not found in SCShareableContent.windows (+\(elapsed())ms)")
                 return PNGCaptureResult(pngBase64: nil, error: message)
             }
-            log.info("captureWindowPNG: matched window \(windowID, privacy: .public) frame=\(NSStringFromRect(scWindow.frame), privacy: .public) (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: matched window \(windowID, privacy: .public) frame=\(NSStringFromRect(scWindow.frame), privacy: .public) (+\(elapsed())ms)")
 
             let filter: SCContentFilter
             if useDisplay {
@@ -167,12 +167,12 @@ enum AppWindowCapture {
                         error: "No display available for capture"
                     )
                 }
-                log.info("captureWindowPNG: display path — display id=\(display.displayID, privacy: .public) frame=\(NSStringFromRect(display.frame), privacy: .public) (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: display path — display id=\(display.displayID, privacy: .public) frame=\(NSStringFromRect(display.frame), privacy: .public) (+\(elapsed())ms)")
                 filter = SCContentFilter(display: display, including: [scWindow])
-                log.info("captureWindowPNG: built display:including: filter (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: built display:including: filter (+\(elapsed())ms)")
             } else {
                 filter = SCContentFilter(desktopIndependentWindow: scWindow)
-                log.info("captureWindowPNG: built desktopIndependentWindow filter (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: built desktopIndependentWindow filter (+\(elapsed())ms)")
             }
 
             let config = SCStreamConfiguration()
@@ -180,35 +180,35 @@ enum AppWindowCapture {
             config.height = max(Int(scWindow.frame.height), 1)
             config.pixelFormat = kCVPixelFormatType_32BGRA
             config.showsCursor = false
-            log.info("captureWindowPNG: built config \(config.width, privacy: .public)x\(config.height, privacy: .public) (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: built config \(config.width, privacy: .public)x\(config.height, privacy: .public) (+\(elapsed())ms)")
 
             if !useDisplay {
                 // Warmup capture — discarded. Forces SCK to invalidate any
                 // stale buffered frame for this window. Errors here are
                 // non-fatal: if the warmup fails, the real capture below
                 // will surface the error.
-                log.info("captureWindowPNG: warmup capture start (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: warmup capture start (+\(elapsed())ms)")
                 _ = try? await SCScreenshotManager.captureImage(
                     contentFilter: filter,
                     configuration: config
                 )
-                log.info("captureWindowPNG: warmup capture done (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: warmup capture done (+\(elapsed())ms)")
                 try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
-                log.info("captureWindowPNG: warmup gap elapsed (+\(elapsed())ms)")
+                log.notice("captureWindowPNG: warmup gap elapsed (+\(elapsed())ms)")
             }
 
-            log.info("captureWindowPNG: real capture start (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: real capture start (+\(elapsed())ms)")
             let cgImage = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config
             )
-            log.info("captureWindowPNG: real capture done \(cgImage.width, privacy: .public)x\(cgImage.height, privacy: .public) (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: real capture done \(cgImage.width, privacy: .public)x\(cgImage.height, privacy: .public) (+\(elapsed())ms)")
 
             guard let png = encodePNGBase64(cgImage: cgImage) else {
                 log.warning("captureWindowPNG: PNG encode failed (+\(elapsed())ms)")
                 return PNGCaptureResult(pngBase64: nil, error: "Failed to encode captured window as PNG")
             }
-            log.info("captureWindowPNG: PNG encoded (\(png.count, privacy: .public) base64 chars) (+\(elapsed())ms)")
+            log.notice("captureWindowPNG: PNG encoded (\(png.count, privacy: .public) base64 chars) (+\(elapsed())ms)")
             return PNGCaptureResult(pngBase64: png, error: nil)
         } catch {
             log.warning("captureWindowPNG: caught error after \(elapsed())ms: \(error.localizedDescription, privacy: .public)")
