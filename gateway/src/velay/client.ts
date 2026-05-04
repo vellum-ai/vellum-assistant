@@ -421,6 +421,14 @@ export function createVelayTunnelClient(
   },
 ): VelayTunnelClient | undefined {
   if (!config.velayBaseUrl) {
+    const isPlatform =
+      process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+      process.env.IS_PLATFORM?.trim() === "1";
+    if (isPlatform) {
+      log.warn(
+        "VELAY_BASE_URL is not configured on a platform pod — the assistant tunnel will not be established and inbound webhook delivery will fail",
+      );
+    }
     void clearManagedPublicBaseUrl(deps.configFile).catch((err) => {
       log.error({ err }, "Failed to clear disabled Velay Twilio public URL");
     });
