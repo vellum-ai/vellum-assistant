@@ -27,6 +27,7 @@ import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
+import { registerGatewayCommand } from "./commands/gateway.js";
 import { registerImageGenerationCommand } from "./commands/image-generation.js";
 import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
@@ -96,6 +97,7 @@ Examples:
     registerDomainCommand(program);
     registerEmailCommand(program);
   }
+  registerGatewayCommand(program);
   registerImageGenerationCommand(program);
   registerInferenceCommand(program);
   registerKeysCommand(program);
