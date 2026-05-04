@@ -11,7 +11,8 @@ struct MainWindowVersionMismatchBanner: View {
     let windowState: MainWindowState
 
     var body: some View {
-        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress && !isDismissed {
+        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress && !isDismissed
+            && VellumEnvironment.current != .local {
             // Suppress when the "Update" pill already covers it (daemon behind + update available)
             if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
                 if isDaemonBehind {
