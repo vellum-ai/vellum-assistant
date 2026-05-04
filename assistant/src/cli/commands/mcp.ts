@@ -519,7 +519,7 @@ Examples:
         const authUrl = startResult.result.auth_url;
         log.info(`Opening browser for "${name}" OAuth authorization...`);
         await openInHostBrowser(authUrl);
-        console.log(`[MCP] If the browser did not open, visit:\n${authUrl}`);
+        log.info(`If the browser did not open, visit:\n${authUrl}`);
         log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
 
         const finalStatus = await pollMcpAuthStatus(name, {
@@ -548,6 +548,22 @@ Examples:
         } else {
           log.error(`OAuth failed for "${name}": ${errMsg}`);
         }
+        process.exitCode = 1;
+        return;
+      }
+
+      // Distinguish "daemon unreachable / pre-IPC-route" (fall back to loopback)
+      // from "daemon returned a real error" (surface and exit). Without this
+      // narrowing, orchestrator failures on hosted assistants are silently
+      // masked and retried through the very loopback path the IPC route is
+      // meant to replace.
+      const ipcErrMsg = startResult.error ?? "";
+      const isDaemonUnavailable =
+        ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
+        ipcErrMsg.startsWith("Unknown method:");
+
+      if (!startResult.ok && ipcErrMsg && !isDaemonUnavailable) {
+        log.error(`MCP OAuth failed via daemon: ${ipcErrMsg}`);
         process.exitCode = 1;
         return;
       }
