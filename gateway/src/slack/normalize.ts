@@ -923,6 +923,14 @@ export function normalizeSlackMessageEdit(
   // does not discard subsequent edits of the same Slack message.
   const externalMessageId = eventId;
 
+  // DMs are inherently 1:1; channel edits inherit the originating message's
+  // addressing semantics, derived from the edited text. Falls back to
+  // undefined when bot identity is unknown so the daemon can defer to prose
+  // inference instead of treating the edit as definitively not-addressed.
+  const editDirectlyAddressed = isDm
+    ? true
+    : textMentionsBot(edited.text, botUserId);
+
   return {
     event: {
       version: "v1",
@@ -933,16 +941,9 @@ export function normalizeSlackMessageEdit(
         conversationExternalId: event.channel,
         externalMessageId,
         isEdit: true,
-        // DMs are inherently 1:1; channel edits inherit the originating
-        // message's addressing semantics, derived from the edited text.
-        // Falls back to undefined when bot identity is unknown so the
-        // daemon can defer to prose inference instead of treating the
-        // edit as definitively not-addressed.
-        ...(isDm
-          ? { directlyAddressed: true }
-          : textMentionsBot(edited.text, botUserId) !== undefined
-            ? { directlyAddressed: textMentionsBot(edited.text, botUserId) }
-            : {}),
+        ...(editDirectlyAddressed !== undefined
+          ? { directlyAddressed: editDirectlyAddressed }
+          : {}),
       },
       actor: {
         actorExternalId: edited.user,

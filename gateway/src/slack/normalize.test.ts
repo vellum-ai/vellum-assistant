@@ -1520,4 +1520,104 @@ describe("directlyAddressed propagation", () => {
       expect(result!.event.message.directlyAddressed).toBeUndefined();
     });
   });
+
+  describe("normalizeSlackMessageEdit", () => {
+    it("marks DM edits as directly addressed regardless of edited body text", () => {
+      const config = makeConfig({
+        routingEntries: [],
+        unmappedPolicy: "reject",
+        defaultAssistantId: "ast-default",
+      });
+      const event = makeMessageChangedEvent({
+        channel: "D789",
+        channelType: "im",
+        text: "actually never mind",
+      });
+
+      const result = normalizeSlackMessageEdit(
+        event,
+        "evt-da-edit-dm",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(true);
+    });
+
+    it("derives directlyAddressed=true on a channel edit that contains <@bot>", () => {
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+        unmappedPolicy: "reject",
+        defaultAssistantId: undefined,
+      });
+      const event = makeMessageChangedEvent({
+        channel: "C456",
+        channelType: "channel",
+        text: "<@UBOT> bumping this",
+      });
+
+      const result = normalizeSlackMessageEdit(
+        event,
+        "evt-da-edit-1",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(true);
+    });
+
+    it("derives directlyAddressed=false on an ambient channel edit", () => {
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+        unmappedPolicy: "reject",
+        defaultAssistantId: undefined,
+      });
+      const event = makeMessageChangedEvent({
+        channel: "C456",
+        channelType: "channel",
+        text: "thanks team, fixed the typo",
+      });
+
+      const result = normalizeSlackMessageEdit(
+        event,
+        "evt-da-edit-2",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(false);
+    });
+
+    it("omits directlyAddressed on a channel edit when bot user id is unknown", () => {
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+        unmappedPolicy: "reject",
+        defaultAssistantId: undefined,
+      });
+      const event = makeMessageChangedEvent({
+        channel: "C456",
+        channelType: "channel",
+        text: "<@UBOT> bumping this",
+      });
+
+      const result = normalizeSlackMessageEdit(
+        event,
+        "evt-da-edit-3",
+        config,
+        undefined,
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBeUndefined();
+    });
+  });
 });
