@@ -690,6 +690,48 @@ describe("assistant mcp auth — IPC path", () => {
     const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toMatch(/daemon may have restarted|OAuth flow was lost/);
+    expect(stderr).toMatch(/assistant may have restarted|OAuth flow was lost/);
+  });
+
+  test("IPC start returns ok=true with already_authenticated → exits 0 without OAuth flow", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { auth_url: "", state: "srv", already_authenticated: true },
+      }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("already authenticated");
+    // Should not have opened the browser or started polling
+    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(1);
+  });
+
+  test("polling gets a non-notfound IPC error → exits 1 immediately with the error message", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // Unexpected IPC error (not "No active OAuth flow")
+      return Promise.resolve({
+        ok: false,
+        error: "Internal server error during polling",
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/Internal server error during polling/);
+    // Should fail fast — only 1 start call + 1 poll call, not the full timeout
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(2);
   });
 });

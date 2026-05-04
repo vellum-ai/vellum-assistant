@@ -45,8 +45,12 @@ async function pollMcpAuthStatus(
     if (!result.ok && result.error && result.error.includes("No active OAuth flow")) {
       return {
         status: "error",
-        error: `OAuth flow was lost (daemon may have restarted). Run 'assistant mcp auth ${serverId}' to retry.`,
+        error: `OAuth flow was lost (assistant may have restarted). Run 'assistant mcp auth ${serverId}' to retry.`,
       };
+    }
+    // Fail fast on any other real IPC error instead of looping for 2.5 minutes
+    if (!result.ok && result.error) {
+      return { status: "error", error: result.error };
     }
   }
   return { status: "error", error: "OAuth authorization timed out after 2.5 minutes" };
@@ -510,10 +514,16 @@ Examples:
       }
 
       // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
-      const startResult = await cliIpcCall<{ auth_url: string; state: string }>(
+      const startResult = await cliIpcCall<{ auth_url: string; state: string; already_authenticated?: boolean }>(
         "internal_mcp_auth_start",
         { body: { serverId: name } },
       );
+
+      if (startResult.ok && startResult.result?.already_authenticated) {
+        log.info(`Server "${name}" is already authenticated.`);
+        process.exit(0);
+        return;
+      }
 
       if (startResult.ok && startResult.result?.auth_url) {
         const authUrl = startResult.result.auth_url;
@@ -563,7 +573,7 @@ Examples:
         ipcErrMsg.startsWith("Unknown method:");
 
       if (!startResult.ok && ipcErrMsg && !isDaemonUnavailable) {
-        log.error(`MCP OAuth failed via daemon: ${ipcErrMsg}`);
+        log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
         process.exitCode = 1;
         return;
       }

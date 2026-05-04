@@ -19,7 +19,7 @@ async function handleMcpAuthStart({
   body,
 }: {
   body?: Record<string, unknown>;
-}): Promise<{ auth_url: string; state: string }> {
+}): Promise<{ auth_url: string; state: string; already_authenticated?: boolean }> {
   const { serverId } = body as { serverId: string };
 
   const raw = loadRawConfig();
@@ -38,7 +38,7 @@ async function handleMcpAuthStart({
     );
   }
 
-  let result: { auth_url: string };
+  let result: { auth_url: string; already_authenticated?: boolean };
   try {
     result = await orchestrateMcpOAuthConnect({
       serverId,
@@ -52,7 +52,7 @@ async function handleMcpAuthStart({
     throw new InternalError(err instanceof Error ? err.message : String(err));
   }
 
-  return { auth_url: result.auth_url, state: serverId };
+  return { auth_url: result.auth_url, state: serverId, already_authenticated: result.already_authenticated };
 }
 
 function handleMcpAuthStatus({

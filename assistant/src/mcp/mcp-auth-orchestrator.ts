@@ -35,6 +35,7 @@ export interface McpAuthTransportConfig {
 
 export interface OrchestrateMcpOAuthConnectResult {
   auth_url: string;
+  already_authenticated?: true;
 }
 
 /**
@@ -85,7 +86,7 @@ export async function orchestrateMcpOAuthConnect(args: {
     // No error — server is already authenticated
     provider.stopCallbackServer();
     try { await client.close(); } catch { /* ignore */ }
-    throw new Error(`Server "${serverId}" is already authenticated`);
+    return { auth_url: "", already_authenticated: true };
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       // Expected — onAuthorizationUrl has fired, capturedAuthUrl is set
