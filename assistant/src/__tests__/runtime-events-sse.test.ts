@@ -135,10 +135,12 @@ describe("SSE assistant-events endpoint", () => {
     // Read the first frame directly from the stream.
     const reader = stream.getReader();
 
-    // The first chunk is the immediate heartbeat comment enqueued in start().
+    // The first chunk is the immediate heartbeat (comment + data event) enqueued in start().
     const initial = await reader.read();
     expect(initial.done).toBe(false);
-    expect(new TextDecoder().decode(initial.value)).toBe(": heartbeat\n\n");
+    const initialText = new TextDecoder().decode(initial.value);
+    expect(initialText).toContain(": heartbeat");
+    expect(initialText).toContain('{"type":"heartbeat"}');
 
     // The second chunk is the actual assistant event.
     const { value, done } = await reader.read();
@@ -170,10 +172,12 @@ describe("SSE assistant-events endpoint", () => {
 
     const reader = stream.getReader();
 
-    // Consume the initial heartbeat.
+    // Consume the initial heartbeat (comment + data event).
     const heartbeat = await reader.read();
     expect(heartbeat.done).toBe(false);
-    expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
+    const heartbeatText = new TextDecoder().decode(heartbeat.value);
+    expect(heartbeatText).toContain(": heartbeat");
+    expect(heartbeatText).toContain('{"type":"heartbeat"}');
 
     // Publish events with two different conversationIds.
     const eventA = buildAssistantEvent({ type: "pong" }, "conversation-aaa");

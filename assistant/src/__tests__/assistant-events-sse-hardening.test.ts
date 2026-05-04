@@ -261,7 +261,8 @@ describe("SSE route — heartbeat", () => {
     reader.cancel();
 
     const text = new TextDecoder().decode(value);
-    expect(text).toBe(": heartbeat\n\n");
+    expect(text).toContain(": heartbeat");
+    expect(text).toContain('{"type":"heartbeat"}');
   });
 
   test("emits multiple heartbeats over time", async () => {
@@ -297,7 +298,11 @@ describe("SSE route — heartbeat", () => {
     reader.cancel();
 
     expect(chunks.length).toBeGreaterThan(0);
-    expect(chunks.every((c) => c === ": heartbeat\n\n")).toBe(true);
+    expect(
+      chunks.every(
+        (c) => c.includes(": heartbeat") && c.includes('{"type":"heartbeat"}'),
+      ),
+    ).toBe(true);
   });
 });
 

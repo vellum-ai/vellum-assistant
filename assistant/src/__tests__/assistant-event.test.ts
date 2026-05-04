@@ -4,6 +4,7 @@ import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   formatSseFrame,
   formatSseHeartbeat,
+  formatSseHeartbeatWithData,
 } from "../runtime/assistant-event.js";
 
 // ── Type / shape tests ────────────────────────────────────────────────────────
@@ -123,5 +124,14 @@ describe("formatSseHeartbeat", () => {
 
   test("starts with colon (SSE comment marker)", () => {
     expect(formatSseHeartbeat().startsWith(":")).toBe(true);
+  });
+});
+
+describe("formatSseHeartbeatWithData", () => {
+  test("includes both a comment and a data-bearing event", () => {
+    const hb = formatSseHeartbeatWithData();
+    expect(hb).toContain(": heartbeat\n\n");
+    expect(hb).toContain("event: assistant_event\n");
+    expect(hb).toContain('data: {"type":"heartbeat"}\n');
   });
 });
