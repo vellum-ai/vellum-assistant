@@ -430,6 +430,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/concept-page:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/explain-similarity:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/fit-anisotropy:POST", scopes: ["settings.write"] },
   {
     endpoint: "memory/v2/rebuild-corpus-stats:POST",
     scopes: ["settings.write"],
@@ -500,6 +501,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Consolidation (memory v2 counterpart to Filing)
   { endpoint: "consolidation", scopes: ["settings.read"] },
   { endpoint: "consolidation:POST", scopes: ["settings.write"] },
+
+  // Gateway log proxy
+  { endpoint: "gateway/logs/tail", scopes: ["settings.read"] },
 
   // Heartbeat (config, runs, checklist — all share the "heartbeat" policyKey)
   { endpoint: "heartbeat:GET", scopes: ["settings.read"] },
