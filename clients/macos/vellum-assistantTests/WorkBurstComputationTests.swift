@@ -141,9 +141,9 @@ struct WorkBurstComputationTests {
         #expect(bursts[1].stableId == "th1")
     }
 
-    // MARK: - Standalone thinking (no adjacent tools) -> not part of any burst
+    // MARK: - Standalone thinking separated by text is forwarded into the following tool burst
 
-    @Test("Standalone thinking without adjacent tools is not part of any burst")
+    @Test("Standalone thinking separated by text is forwarded into the following tool burst")
     func standaloneThinking() {
         let groups: [ContentGroup] = [
             .thinking([0]),

@@ -237,7 +237,7 @@ struct AssistantProgressView: View {
                 total += e.timeIntervalSince(s)
             }
         }
-        if total < 0.05 { return "Worked" }
+        if total < 0.05 { return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")" }
         return "Worked for \(VCollapsibleStepRowDurationFormatter.format(total))"
     }
 
