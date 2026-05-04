@@ -30,11 +30,14 @@ case "$CMD" in
 esac
 
 # Resolve extension version. The release workflow injects VERSION; local
-# dev builds fall back to the value in the source manifest.
+# dev builds fall back to the source manifest version suffixed with the
+# current git SHA so the full build provenance is always visible.
 if [ -n "${VERSION:-}" ]; then
   EXT_VERSION="$VERSION"
 else
-  EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
+  BASE_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
+  GIT_SHA=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "local")
+  EXT_VERSION="${BASE_VERSION}-local.${GIT_SHA}"
 fi
 
 # Resolve environment for bundle-time injection. CI and developers can
