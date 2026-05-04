@@ -283,3 +283,233 @@ final class PlatformMigrationClientSignedUploadUrlTests: XCTestCase {
         return data
     }
 }
+
+@MainActor
+final class PlatformMigrationClientSignedDownloadUrlTests: XCTestCase {
+    private var previousToken: String?
+
+    override func setUp() {
+        super.setUp()
+        JobStatusURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(JobStatusURLProtocol.self)
+        previousToken = SessionTokenManager.getToken()
+        SessionTokenManager.setToken("test-session-token")
+    }
+
+    override func tearDown() {
+        URLProtocol.unregisterClass(JobStatusURLProtocol.self)
+        JobStatusURLProtocol.requestHandler = nil
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
+        super.tearDown()
+    }
+
+    func testRequestSignedDownloadUrlPostsOperationDownloadWithBundleKeyAndTargetVersion() async throws {
+        let observed = ObservedRequest()
+        JobStatusURLProtocol.requestHandler = { request in
+            observed.url = request.url
+            observed.method = request.httpMethod
+            observed.sessionTokenHeader = request.value(forHTTPHeaderField: "X-Session-Token")
+            if let stream = request.httpBodyStream {
+                observed.body = Self.readAll(from: stream)
+            } else {
+                observed.body = request.httpBody
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 201,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"url":"https://storage.example/dl","bundle_key":"bundles/dl-v.tar.gz","expires_at":"2026-05-01T00:00:00Z"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let url = try await PlatformMigrationClient.requestSignedDownloadUrl(
+            bundleKey: "bundles/dl-v.tar.gz",
+            targetRuntimeVersion: "2.0.0"
+        )
+
+        let observedURL = try XCTUnwrap(observed.url)
+        XCTAssertTrue(
+            observedURL.absoluteString.hasSuffix("/v1/migrations/signed-url/"),
+            "Expected URL to end with unified signed-url path; got \(observedURL.absoluteString)"
+        )
+        XCTAssertEqual(observed.method, "POST")
+        XCTAssertEqual(observed.sessionTokenHeader, "test-session-token")
+
+        let bodyData = try XCTUnwrap(observed.body)
+        let bodyJson = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
+        )
+        XCTAssertEqual(bodyJson["operation"] as? String, "download")
+        XCTAssertEqual(bodyJson["bundle_key"] as? String, "bundles/dl-v.tar.gz")
+        XCTAssertEqual(bodyJson["target_runtime_version"] as? String, "2.0.0")
+
+        XCTAssertEqual(url, "https://storage.example/dl")
+    }
+
+    func testRequestSignedDownloadUrlAcceptsStatus200() async throws {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"url":"https://storage.example/dl","bundle_key":"bundles/dl-v.tar.gz","expires_at":"2026-05-01T00:00:00Z"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let url = try await PlatformMigrationClient.requestSignedDownloadUrl(
+            bundleKey: "bundles/dl-v.tar.gz",
+            targetRuntimeVersion: "2.0.0"
+        )
+        XCTAssertEqual(url, "https://storage.example/dl")
+    }
+
+    func testRequestSignedDownloadUrlThrowsVersionMismatchOn422() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 422,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"reason":"version_mismatch","bundle_compat":{"min_runtime_version":"2.0.0","max_runtime_version":"2.5.0"},"target_runtime_version":"1.9.0"}"#
+            return (response, Data(body.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedDownloadUrl(
+                bundleKey: "bundles/dl-v.tar.gz",
+                targetRuntimeVersion: "1.9.0"
+            )
+            XCTFail("Expected versionMismatch to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .versionMismatch(let minVersion, let maxVersion, let targetVersion) = error {
+                XCTAssertEqual(minVersion, "2.0.0")
+                XCTAssertEqual(maxVersion, "2.5.0")
+                XCTAssertEqual(targetVersion, "1.9.0")
+                XCTAssertEqual(
+                    error.errorDescription,
+                    "Cannot import: bundle requires runtime 2.0.0–2.5.0, but this local runtime is 1.9.0. Update your local runtime before importing."
+                )
+            } else {
+                XCTFail("Expected .versionMismatch, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testRequestSignedDownloadUrlVersionMismatchWithNullMaxUsesPlusSuffix() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 422,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"reason":"version_mismatch","bundle_compat":{"min_runtime_version":"3.0.0","max_runtime_version":null},"target_runtime_version":"2.9.0"}"#
+            return (response, Data(body.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedDownloadUrl(
+                bundleKey: "bundles/dl-v.tar.gz",
+                targetRuntimeVersion: "2.9.0"
+            )
+            XCTFail("Expected versionMismatch to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .versionMismatch(let minVersion, let maxVersion, let targetVersion) = error {
+                XCTAssertEqual(minVersion, "3.0.0")
+                XCTAssertNil(maxVersion)
+                XCTAssertEqual(targetVersion, "2.9.0")
+                let description = error.errorDescription ?? ""
+                XCTAssertTrue(
+                    description.hasSuffix("requires runtime 3.0.0+, but this local runtime is 2.9.0. Update your local runtime before importing."),
+                    "Unexpected description: \(description)"
+                )
+            } else {
+                XCTFail("Expected .versionMismatch, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testRequestSignedDownloadUrl422WithoutVersionMismatchPayloadFallsThroughToRequestFailed() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 422,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"validation failed"}"#.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedDownloadUrl(
+                bundleKey: "bundles/dl-v.tar.gz",
+                targetRuntimeVersion: "2.0.0"
+            )
+            XCTFail("Expected requestFailed to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .requestFailed(let statusCode, _) = error {
+                XCTAssertEqual(statusCode, 422)
+            } else {
+                XCTFail("Expected .requestFailed, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testRequestSignedDownloadUrlThrowsRequestFailedOnNon200() async {
+        JobStatusURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"server error"}"#.utf8))
+        }
+
+        do {
+            _ = try await PlatformMigrationClient.requestSignedDownloadUrl(
+                bundleKey: "bundles/dl-v.tar.gz",
+                targetRuntimeVersion: "2.0.0"
+            )
+            XCTFail("Expected requestFailed to be thrown")
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .requestFailed(let statusCode, _) = error {
+                XCTAssertEqual(statusCode, 500)
+            } else {
+                XCTFail("Expected .requestFailed, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    private static func readAll(from stream: InputStream) -> Data {
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: 4096)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+}
