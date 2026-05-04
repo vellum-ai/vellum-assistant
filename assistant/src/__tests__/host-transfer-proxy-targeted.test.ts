@@ -3,7 +3,7 @@
  *
  * Covers:
  *  - requestToHost() explicit valid targetClientId → validates, broadcasts with targetClientId
- *  - requestToHost() auto-resolve when exactly one host_file-capable client → auto-resolves
+ *  - requestToHost() untargeted call with single capable client → broadcasts without targetClientId (no auto-resolve)
  *  - requestToHost() unknown targetClientId → early error, no broadcast
  *  - requestToHost() incapable client → early error, no broadcast
  *  - requestToSandbox() explicit valid targetClientId → same 4 cases
@@ -142,10 +142,16 @@ describe("HostTransferProxy — targetClientId", () => {
     });
   });
 
-  // ── requestToHost() — auto-resolve single capable client ─────────────
+  // ── requestToHost() — untargeted single client (no auto-resolve) ──────
+  //
+  // Rationale: auto-resolving targetClientId for single clients requires the
+  // macOS client to send x-vellum-client-id on content requests. Pre-Phase 3
+  // clients don't send this header, causing a 400 and a 120 s hang. For
+  // untargeted calls we broadcast without targetClientId (backward-compatible)
+  // regardless of how many host_file-capable clients are connected.
 
-  describe("requestToHost() — auto-resolve when exactly one capable client", () => {
-    test("auto-resolves targetClientId to the single capable client", async () => {
+  describe("requestToHost() — untargeted call with single capable client", () => {
+    test("broadcasts without targetClientId (no auto-resolve)", async () => {
       setup();
       setupSingleClient("client-solo");
 
@@ -162,10 +168,11 @@ describe("HostTransferProxy — targetClientId", () => {
       await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.targetClientId).toBe("client-solo");
+      // No auto-resolve: untargeted broadcast should have no targetClientId.
+      expect(sent.targetClientId).toBeUndefined();
 
       const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
-      expect(opts?.targetClientId).toBe("client-solo");
+      expect(opts?.targetClientId).toBeUndefined();
 
       const requestId = sent.requestId as string;
       proxy.resolveTransferResult(requestId, { isError: false });
@@ -249,10 +256,10 @@ describe("HostTransferProxy — targetClientId", () => {
     });
   });
 
-  // ── requestToSandbox() — auto-resolve single capable client ──────────
+  // ── requestToSandbox() — untargeted single client (no auto-resolve) ────
 
-  describe("requestToSandbox() — auto-resolve when exactly one capable client", () => {
-    test("auto-resolves targetClientId", async () => {
+  describe("requestToSandbox() — untargeted call with single capable client", () => {
+    test("broadcasts without targetClientId (no auto-resolve)", async () => {
       setup();
       setupSingleClient("client-solo");
 
@@ -264,7 +271,8 @@ describe("HostTransferProxy — targetClientId", () => {
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.targetClientId).toBe("client-solo");
+      // No auto-resolve: untargeted broadcast should have no targetClientId.
+      expect(sent.targetClientId).toBeUndefined();
 
       proxy.cancel(sent.requestId as string);
       await resultPromise;

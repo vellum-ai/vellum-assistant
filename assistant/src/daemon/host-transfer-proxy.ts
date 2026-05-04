@@ -144,9 +144,6 @@ export class HostTransferProxy {
           isError: true,
         });
       }
-    } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
     }
 
     const requestId = uuid();
@@ -311,9 +308,6 @@ export class HostTransferProxy {
           isError: true,
         });
       }
-    } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
     }
 
     const requestId = uuid();
