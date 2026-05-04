@@ -43,6 +43,7 @@ public enum PlatformMigrationClient {
         case signedUrlsNotAvailable
         case requestFailed(statusCode: Int, detail: String)
         case uploadFailed(statusCode: Int)
+        case versionMismatch(minVersion: String, maxVersion: String?, targetVersion: String)
 
         public var errorDescription: String? {
             switch self {
@@ -54,6 +55,14 @@ public enum PlatformMigrationClient {
                 return "Migration request failed (HTTP \(statusCode)): \(detail)"
             case .uploadFailed(let statusCode):
                 return "Bundle upload failed (HTTP \(statusCode))."
+            case .versionMismatch(let minVersion, let maxVersion, let targetVersion):
+                let range: String
+                if let maxVersion {
+                    range = "\(minVersion)–\(maxVersion)"
+                } else {
+                    range = "\(minVersion)+"
+                }
+                return "Cannot import: bundle requires runtime \(range), but this local runtime is \(targetVersion). Update your local runtime before importing."
             }
         }
     }
@@ -100,6 +109,80 @@ public enum PlatformMigrationClient {
 
         let decoder = JSONDecoder()
         return try decoder.decode(SignedUrlResponse.self, from: data)
+    }
+
+    /// Requests a signed download URL from the platform's unified signed-URL endpoint.
+    ///
+    /// POSTs to `/v1/migrations/signed-url/` with
+    /// `{"operation": "download", "bundle_key": ..., "target_runtime_version": ...}`.
+    /// The platform validates the bundle's runtime-compat range against the
+    /// target runtime version and rejects with HTTP 422 + `reason: "version_mismatch"`
+    /// when there is no overlap.
+    ///
+    /// - Parameters:
+    ///   - bundleKey: The bundle key returned by `requestSignedUploadUrl()` (and
+    ///     filled by a prior `migrations/export-to-gcs` runtime export).
+    ///   - targetRuntimeVersion: The runtime version that will perform the import.
+    ///     Used by the platform to enforce the bundle's compat range.
+    /// - Returns: The signed download URL string.
+    /// - Throws: `PlatformMigrationError.versionMismatch` on 422 `version_mismatch`,
+    ///   or `PlatformMigrationError.requestFailed` on other non-2xx responses.
+    public static func requestSignedDownloadUrl(
+        bundleKey: String,
+        targetRuntimeVersion: String
+    ) async throws -> String {
+        let (baseURL, token, orgId) = try resolveAuthContext()
+
+        guard let url = URL(string: "\(baseURL)/v1/migrations/signed-url/") else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "operation": "download",
+            "bundle_key": bundleKey,
+            "target_runtime_version": targetRuntimeVersion,
+        ])
+
+        // 422 is a permanent semantic signal (version_mismatch), not a transient
+        // server error — mark it non-retryable so executeWithRetry doesn't burn
+        // attempts retrying a deterministic rejection.
+        let (data, statusCode) = try await executeWithRetry(
+            request: request,
+            label: "signed-url-download",
+            nonRetryableStatusCodes: [422]
+        )
+
+        if statusCode == 422 {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               (json["reason"] as? String) == "version_mismatch",
+               let compat = json["bundle_compat"] as? [String: Any],
+               let minVersion = compat["min_runtime_version"] as? String,
+               let targetVersion = json["target_runtime_version"] as? String {
+                let maxVersion = compat["max_runtime_version"] as? String
+                throw PlatformMigrationError.versionMismatch(
+                    minVersion: minVersion,
+                    maxVersion: maxVersion,
+                    targetVersion: targetVersion
+                )
+            }
+        }
+
+        guard statusCode == 200 || statusCode == 201 else {
+            let detail = String(data: data, encoding: .utf8) ?? "No response body"
+            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: detail)
+        }
+
+        struct DownloadUrlResponse: Decodable {
+            let url: String
+        }
+        return try JSONDecoder().decode(DownloadUrlResponse.self, from: data).url
     }
 
     /// Uploads binary bundle data to a GCS signed URL.
