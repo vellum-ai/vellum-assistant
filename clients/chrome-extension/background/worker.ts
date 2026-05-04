@@ -831,9 +831,10 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
     const gatewayUrl = await getStoredGatewayUrl();
     if (!shouldConnect) return;
 
-    // Best-effort pair — if it fails we still attempt SSE (which works
-    // for read-only subscriptions) but callbacks that need approval.write
-    // will be rejected until a successful pair.
+    // Best-effort pair — if pairing fails the SSE connection will be rejected
+    // by the gateway with a 401 (the loopback-without-token bypass was removed
+    // in ATL-429). The worker will surface the auth error and stop reconnecting
+    // until the user re-pairs.
     try {
       const pairResp = await fetch(
         `${gatewayUrl.replace(/\/$/, "")}/v1/pair`,
@@ -859,6 +860,7 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
     sseConnection = createSseConnection({
       kind: "self-hosted",
       runtimeUrl: gatewayUrl,
+      token: selfHostedPairToken,
     });
     sseConnection.start();
   }

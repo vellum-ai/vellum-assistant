@@ -36,6 +36,13 @@ export type SseMode =
       kind: 'self-hosted';
       /** Local gateway base URL, e.g. `http://127.0.0.1:7830`. */
       runtimeUrl: string;
+      /**
+       * Bearer token obtained from POST /v1/pair. Required for the gateway to
+       * forward SSE requests to the runtime (the loopback-without-token bypass
+       * was removed in ATL-429). May be null if pairing failed, in which case
+       * the SSE connection will be rejected with a 401.
+       */
+      token: string | null;
     };
 
 export interface SseConnectionDeps {
@@ -123,8 +130,8 @@ export class SseConnection {
     const { mode } = this.deps;
     const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
 
-    // Self-hosted: the gateway proxies /v1/events directly (loopback peers
-    // are trusted without a JWT). Cloud: use the assistant-scoped path.
+    // Self-hosted: the gateway proxies /v1/events using the pair token for auth.
+    // Cloud: use the assistant-scoped path with the session token.
     const url =
       mode.kind === 'self-hosted'
         ? `${baseUrl}/v1/events`
@@ -141,6 +148,8 @@ export class SseConnection {
       if (mode.organizationId) {
         headers['Vellum-Organization-Id'] = mode.organizationId;
       }
+    } else if (mode.kind === 'self-hosted' && mode.token) {
+      headers['Authorization'] = `Bearer ${mode.token}`;
     }
 
     const ac = new AbortController();

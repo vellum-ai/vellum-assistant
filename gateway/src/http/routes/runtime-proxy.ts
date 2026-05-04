@@ -56,12 +56,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // When auth is not required (or OPTIONS), mint a service token instead —
     // the gateway always authenticates itself to the daemon regardless of the
     // client-facing auth setting.
+    //
     let exchangeToken: string;
-    const isLoopback = clientIp ? isLoopbackAddress(clientIp) : false;
     const authHeader = req.headers.get("authorization");
-    const hasBearer = authHeader?.toLowerCase().startsWith("bearer ") ?? false;
 
-    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS" && (!isLoopback || hasBearer)) {
+    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         log.warn(
           { method: req.method, path: url.pathname },
