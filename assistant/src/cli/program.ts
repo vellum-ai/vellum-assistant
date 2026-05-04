@@ -41,6 +41,7 @@ import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerStatusCommand } from "./commands/status.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
@@ -110,6 +111,7 @@ Examples:
   registerPlatformCommand(program);
   registerRoutesCommand(program);
   registerSequenceCommand(program);
+  registerStatusCommand(program);
   registerSkillsCommand(program);
   registerSttCommand(program);
   registerTaskCommand(program);
