@@ -1322,11 +1322,13 @@ export async function streamCommitImport(
     log.warn({ err }, "invalidateConfigCache threw after import");
   }
 
-  // Attempt to remove the backup dir (best-effort). Leaving it around is not
-  // a correctness issue, only a disk-space one, so we swallow errors. The
+  // Remove the backup dir (best-effort). Leaving it around is not a
+  // correctness issue, only a disk-space one, so we swallow errors. The
   // backup dir now always exists once swap succeeds — we created it during
-  // swapWorkspaceContents to hold the pre-import live entries.
-  rm(backupDir, { recursive: true, force: true }).catch((err) => {
+  // swapWorkspaceContents to hold the pre-import live entries. Awaited so
+  // callers (and tests) observe a workspace free of `.pre-import-*`
+  // residue once this function returns.
+  await rm(backupDir, { recursive: true, force: true }).catch((err) => {
     log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
   });
 
