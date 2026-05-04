@@ -17,7 +17,7 @@ import {
 import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import type { Server } from "node:net";
+import { createServer, type Server } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import { startFakeAssistantIpc } from "./fake-assistant-ipc.js";
@@ -194,8 +194,26 @@ let gatewayProc: ChildProcess | null = null;
 let port = 0;
 let fakeAssistantIpc: Server | null = null;
 
+/** Ask the OS for a free port by briefly binding to port 0. */
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === "string") {
+        srv.close();
+        reject(new Error("Failed to get free port"));
+        return;
+      }
+      const p = addr.port;
+      srv.close(() => resolve(p));
+    });
+    srv.on("error", reject);
+  });
+}
+
 async function startGateway(): Promise<void> {
-  port = 49152 + Math.floor(Math.random() * 16383);
+  port = await getFreePort();
 
   const workspaceDir = join(testDir, ".vellum", "workspace");
   fakeAssistantIpc = startFakeAssistantIpc(workspaceDir);
