@@ -204,6 +204,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "skills install",
   "skills uninstall",
   "skills add",
+  "status",
   "stt",
   "stt transcribe",
   "task",

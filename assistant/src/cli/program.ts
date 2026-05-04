@@ -128,7 +128,7 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions"]);
+  const workspaceExemptCommands = new Set(["completions", "status"]);
   program.hook("preAction", (_thisCommand, actionCommand) => {
     if (workspaceExemptCommands.has(actionCommand.name())) {
       return;

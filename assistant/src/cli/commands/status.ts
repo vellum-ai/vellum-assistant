@@ -8,7 +8,6 @@ interface HealthResponse {
   version: string;
   memory: { currentMb: number; maxMb: number };
   disk: { freeMb: number; totalMb: number } | null;
-  migrations: { dbVersion: number; lastWorkspaceMigrationId: string | null };
 }
 
 function fmtMb(mb: number): string {
@@ -19,14 +18,14 @@ function fmtMb(mb: number): string {
 export function registerStatusCommand(program: Command): void {
   program
     .command("status")
-    .description("Show daemon version, workspace, and runtime health")
+    .description("Show assistant version, workspace, and runtime health")
     .action(async () => {
       const result = await cliIpcCall<HealthResponse>("health");
 
       if (!result.ok || !result.result) {
         log.error(
           result.error ??
-            "Daemon not running — could not connect to IPC socket.",
+            "Assistant not running — could not connect to IPC socket.",
         );
         process.exit(1);
       }
@@ -42,7 +41,6 @@ export function registerStatusCommand(program: Command): void {
         ...(h.disk
           ? ([["Disk", `${fmtMb(h.disk.freeMb)} free`]] as [string, string][])
           : []),
-        ["DB", h.migrations.dbVersion != null ? "current" : "unknown"],
       ];
 
       const labelWidth = Math.max(
