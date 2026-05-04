@@ -66,6 +66,7 @@ import {
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
 import {
+  evaluateRuntimeCompatibility,
   formatRuntimeCompatibilityMessage,
   type RuntimeCompatibility,
 } from "../migrations/vbundle-import-policy.js";
@@ -869,6 +870,23 @@ export async function handleMigrationImport(
         reason: "validation_failed",
         errors: validation.errors,
       };
+    }
+
+    // Pre-check runtime-version compat before the DB close/reopen cycle.
+    // commitImport runs the same gate as defense-in-depth for callers that
+    // don't pre-check; we run it here too so an incompatible bundle short-
+    // circuits before resetDb().
+    const compatResult = evaluateRuntimeCompatibility(
+      validation.manifest!.compatibility,
+      APP_VERSION,
+    );
+    if (!compatResult.ok) {
+      throwImportCommitFailure({
+        ok: false,
+        reason: "version_incompatible",
+        bundle_compat: compatResult.bundle_compat,
+        runtime_version: compatResult.runtime_version,
+      });
     }
 
     const pathResolver = new DefaultPathResolver(

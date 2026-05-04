@@ -362,6 +362,44 @@ describe("restoreFromSnapshot", () => {
       }),
     ).rejects.toThrow(/disk full/);
   });
+
+  test("version-incompatible bundle short-circuits before resetDbImpl and commitImpl", async () => {
+    // Bundle declares it requires runtime 99.0.0+, but the test process is
+    // far below that. The restore wrapper must pre-check compat before the
+    // DB close/reopen cycle and skip both resetDbImpl and commitImpl.
+    const incompatPath = join(TEST_DIR, "incompat.vbundle");
+    const { archive } = buildVBundle({
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        {
+          path: "workspace/notes/hello.txt",
+          data: new TextEncoder().encode("hello"),
+        },
+      ],
+      ...defaultV1Options(),
+      compatibility: {
+        min_runtime_version: "99.0.0",
+        max_runtime_version: null,
+      },
+    });
+    writeFileSync(incompatPath, archive);
+
+    const { commitImpl, calls } = makeStubCommitImpl();
+    let resetCalls = 0;
+
+    await expect(
+      restoreFromSnapshot(incompatPath, {
+        pathResolver: NULL_RESOLVER,
+        commitImpl,
+        resetDbImpl: () => {
+          resetCalls += 1;
+        },
+      }),
+    ).rejects.toThrow(/Snapshot restore failed.*99\.0\.0/);
+
+    expect(resetCalls).toBe(0);
+    expect(calls.length).toBe(0);
+  });
 });
 
 describe("snapshot path detection", () => {
