@@ -42,12 +42,41 @@ function formatChannelSummary(ch: ContactChannel): string {
   return parts.join(" ");
 }
 
-function formatContactRow(c: ContactWithChannels): string {
-  const channels =
+function formatContactTable(contacts: ContactWithChannels[]): string {
+  const headers = ["ID", "NAME", "ROLE", "CHANNELS"];
+  const rows = contacts.map((c) => [
+    c.id,
+    c.displayName,
+    `${c.role}/${c.contactType}`,
     c.channels.length > 0
       ? c.channels.map(formatChannelSummary).join(", ")
-      : "(no channels)";
-  return `${c.id}  ${c.displayName}  ${c.role}/${c.contactType}  ${channels}`;
+      : "(no channels)",
+  ]);
+
+  // Pad all columns except the last (CHANNELS can wrap naturally)
+  const fixedCols = headers.length - 1;
+  const widths = headers
+    .slice(0, fixedCols)
+    .map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)));
+
+  const pad = (s: string, w: number) => s.padEnd(w);
+  const headerLine = [
+    ...headers.slice(0, fixedCols).map((h, i) => pad(h, widths[i])),
+    headers[fixedCols],
+  ].join("  ");
+  const separator = [
+    ...widths.map((w) => "─".repeat(w)),
+    "─".repeat(headers[fixedCols].length),
+  ].join("  ");
+
+  const dataLines = rows.map((row) =>
+    [
+      ...row.slice(0, fixedCols).map((cell, i) => pad(cell, widths[i])),
+      row[fixedCols],
+    ].join("  "),
+  );
+
+  return [headerLine, separator, ...dataLines].join("\n");
 }
 
 function formatContactDetail(
@@ -205,9 +234,7 @@ Examples:
           } else if (results.length === 0) {
             process.stdout.write("No contacts found.\n");
           } else {
-            for (const c of results) {
-              process.stdout.write(formatContactRow(c) + "\n");
-            }
+            process.stdout.write(formatContactTable(results) + "\n");
             process.stdout.write(`\n${results.length} contact(s)\n`);
           }
         } catch (err) {
