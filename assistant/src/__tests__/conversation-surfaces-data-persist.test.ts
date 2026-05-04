@@ -26,6 +26,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 // the mocked persistence functions.
 const {
   cancelPendingSurfaceDataPersists,
+  flushPendingSurfaceDataPersists,
   createSurfaceMutex,
   flushSurfaceDataPersist,
   markSurfaceCompleted,
@@ -313,5 +314,91 @@ describe("ui_surface_update persistence", () => {
     await new Promise((r) => setTimeout(r, 600));
 
     expect(writes).toHaveLength(0);
+  });
+
+  test("flushPendingSurfaceDataPersists writes pending updates synchronously and clears timers", async () => {
+    const surfaceId = "surface-flush-pending-1";
+    seedRows([
+      {
+        id: "msg-flush-pending",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId,
+            surfaceType: "card",
+            data: { title: "x", body: "" },
+          },
+        ],
+      },
+    ]);
+
+    scheduleSurfaceDataPersist("conv-persist-1", surfaceId, {
+      title: "x",
+      body: "shutdown-flush",
+    } as SurfaceData);
+
+    // Write should not have fired yet (debounce hasn't elapsed).
+    expect(writes).toHaveLength(0);
+
+    flushPendingSurfaceDataPersists("conv-persist-1");
+
+    // Synchronous flush — write lands immediately with the latest data.
+    expect(writes).toHaveLength(1);
+    expect(writes[0].id).toBe("msg-flush-pending");
+    const block = (writes[0].content as Array<Record<string, unknown>>).find(
+      (b) => b.type === "ui_surface",
+    )!;
+    expect((block.data as Record<string, unknown>).body).toBe("shutdown-flush");
+
+    // Timer is cleared — waiting past the debounce window doesn't fire again.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(writes).toHaveLength(1);
+  });
+
+  test("flushPendingSurfaceDataPersists scoped to one conversation leaves other conversations' timers alone", async () => {
+    const surfaceA = "surface-flush-scoped-a";
+    const surfaceB = "surface-flush-scoped-b";
+    seedRows([
+      {
+        id: "msg-scoped-a",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: surfaceA,
+            surfaceType: "card",
+            data: { title: "x", body: "" },
+          },
+        ],
+      },
+      {
+        id: "msg-scoped-b",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: surfaceB,
+            surfaceType: "card",
+            data: { title: "x", body: "" },
+          },
+        ],
+      },
+    ]);
+
+    scheduleSurfaceDataPersist("conv-persist-1", surfaceA, {
+      title: "x",
+      body: "a",
+    } as SurfaceData);
+    scheduleSurfaceDataPersist("conv-other", surfaceB, {
+      title: "x",
+      body: "b",
+    } as SurfaceData);
+
+    flushPendingSurfaceDataPersists("conv-persist-1");
+
+    // Only conv-persist-1's surface flushed; conv-other's still pending.
+    expect(writes).toHaveLength(1);
+    expect(writes[0].id).toBe("msg-scoped-a");
+
+    // Cleanup the other conversation's timer.
+    cancelPendingSurfaceDataPersists("conv-other");
   });
 });

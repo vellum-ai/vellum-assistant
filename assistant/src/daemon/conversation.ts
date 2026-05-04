@@ -105,8 +105,8 @@ import {
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
-  cancelPendingSurfaceDataPersists,
   createSurfaceMutex,
+  flushPendingSurfaceDataPersists,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
@@ -765,9 +765,11 @@ export class Conversation {
       clearTimeout(timer);
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
-    // Cancel any pending debounced surface-data persists for this
-    // conversation so timers don't fire against torn-down state.
-    cancelPendingSurfaceDataPersists(this.conversationId);
+    // Flush any pending debounced surface-data persists for this
+    // conversation so updates that arrived inside the debounce window
+    // still land in the DB before teardown. Flushing also clears the
+    // pending entries, so no separate cancel call is needed.
+    flushPendingSurfaceDataPersists(this.conversationId);
     // Only dispose the per-conversation CU and app-control proxies.
     // Bash/File/Transfer are singletons — their lifecycle is managed by
     // static disposeInstance().

@@ -164,6 +164,10 @@ export function flushSurfaceDataPersist(surfaceId: string): void {
 /**
  * Cancel all pending debounced persists. Called on conversation
  * teardown to avoid timers firing against torn-down state.
+ *
+ * Use `flushPendingSurfaceDataPersists` instead on a clean shutdown
+ * path where the latest in-flight surface state should still be
+ * written before teardown.
  */
 export function cancelPendingSurfaceDataPersists(
   conversationId?: string,
@@ -172,6 +176,22 @@ export function cancelPendingSurfaceDataPersists(
     if (conversationId && pending.conversationId !== conversationId) continue;
     clearTimeout(pending.timer);
     pendingSurfacePersists.delete(surfaceId);
+  }
+}
+
+/**
+ * Synchronously flush all pending debounced persists, optionally scoped
+ * to a single conversation. Called on clean conversation teardown so an
+ * update that arrived inside the 500ms debounce window still lands in
+ * the DB before the conversation goes away. Each entry is removed from
+ * the pending map after its write fires.
+ */
+export function flushPendingSurfaceDataPersists(conversationId?: string): void {
+  for (const [surfaceId, pending] of pendingSurfacePersists) {
+    if (conversationId && pending.conversationId !== conversationId) continue;
+    clearTimeout(pending.timer);
+    pendingSurfacePersists.delete(surfaceId);
+    persistSurfaceData(pending.conversationId, surfaceId, pending.data);
   }
 }
 
