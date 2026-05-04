@@ -60,6 +60,7 @@ mock.module("../prompts/persona-resolver.js", () => ({
 import {
   computeIdentityContentHash,
   getCachedIntro,
+  readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "../runtime/routes/identity-intro-cache.js";
 
@@ -80,6 +81,34 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("identity intro cache", () => {
+  test("reads explicit intro from IDENTITY.md before SOUL.md", () => {
+    workspaceFiles["IDENTITY.md"] = [
+      "# Identity",
+      "",
+      "## Identity Intro",
+      "Nova here.",
+    ].join("\n");
+    workspaceFiles["SOUL.md"] = [
+      "# Soul",
+      "",
+      "## Identity Intro",
+      "Soul fallback.",
+    ].join("\n");
+
+    expect(readWorkspaceIdentityIntro()).toBe("Nova here.");
+  });
+
+  test("falls back to SOUL.md identity intro for legacy workspaces", () => {
+    workspaceFiles["SOUL.md"] = [
+      "# Soul",
+      "",
+      "## Identity Intro",
+      "Soul fallback.",
+    ].join("\n");
+
+    expect(readWorkspaceIdentityIntro()).toBe("Soul fallback.");
+  });
+
   test("returns null when cache is empty", () => {
     expect(getCachedIntro()).toBeNull();
   });

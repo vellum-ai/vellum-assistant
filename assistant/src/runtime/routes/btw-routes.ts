@@ -12,8 +12,6 @@
  * No messages are persisted. `conversation.processing` is never set or checked.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-
 import { z } from "zod";
 
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
@@ -22,10 +20,13 @@ import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
+import {
+  getCachedIntro,
+  readWorkspaceIdentityIntro,
+  setCachedIntro,
+} from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("btw-routes");
@@ -35,33 +36,6 @@ const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
-
-/**
- * Parse the `## Identity Intro` section from SOUL.md.
- * Returns the first non-empty line under that heading, or null.
- */
-function readSoulIdentityIntro(): string | null {
-  try {
-    const soulPath = getWorkspacePromptPath("SOUL.md");
-    if (!existsSync(soulPath)) return null;
-    const content = readFileSync(soulPath, "utf-8");
-
-    let inSection = false;
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (/^#+\s/.test(trimmed)) {
-        inSection = trimmed.toLowerCase().includes("identity intro");
-        continue;
-      }
-      if (inSection && trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  } catch {
-    // Fall through — no SOUL.md intro available
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -95,12 +69,12 @@ async function handleBtw({
 
   // ----- Identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    const soulIntro = readSoulIdentityIntro();
-    const fastText = soulIntro ?? getCachedIntro()?.text;
+    const explicitIntro = readWorkspaceIdentityIntro();
+    const fastText = explicitIntro ?? getCachedIntro()?.text;
     if (fastText) {
       log.debug(
-        soulIntro
-          ? "Returning SOUL.md identity intro"
+        explicitIntro
+          ? "Returning workspace identity intro"
           : "Returning cached identity intro",
       );
       return new ReadableStream({

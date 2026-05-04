@@ -24,7 +24,10 @@ import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { NotFoundError } from "./errors.js";
-import { getCachedIntro } from "./identity-intro-cache.js";
+import {
+  getCachedIntro,
+  readWorkspaceIdentityIntro,
+} from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
 interface DiskSpaceInfo {
@@ -508,9 +511,9 @@ function getIdentity() {
 }
 
 function getIdentityIntro() {
-  const soulIntro = readSoulIdentityIntro();
-  if (soulIntro) {
-    return { text: soulIntro };
+  const explicitIntro = readWorkspaceIdentityIntro();
+  if (explicitIntro) {
+    return { text: explicitIntro };
   }
 
   const cached = getCachedIntro();
@@ -518,37 +521,6 @@ function getIdentityIntro() {
     throw new NotFoundError("No cached identity intro available");
   }
   return { text: cached.text };
-}
-
-// ---------------------------------------------------------------------------
-// Identity intro cache
-// ---------------------------------------------------------------------------
-
-/**
- * Parse the `## Identity Intro` section from SOUL.md.
- * Returns the first non-empty line under that heading, or null.
- */
-function readSoulIdentityIntro(): string | null {
-  try {
-    const soulPath = getWorkspacePromptPath("SOUL.md");
-    if (!existsSync(soulPath)) return null;
-    const content = readFileSync(soulPath, "utf-8");
-
-    let inSection = false;
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (/^#+\s/.test(trimmed)) {
-        inSection = trimmed.toLowerCase().includes("identity intro");
-        continue;
-      }
-      if (inSection && trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  } catch {
-    // Fall through to cache/fallback
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -647,7 +619,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity intro text",
     description:
-      "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
+      "Returns the identity intro string, preferring workspace prompt files over LLM-generated cache.",
     tags: ["identity"],
     responseBody: z.object({
       text: z.string(),

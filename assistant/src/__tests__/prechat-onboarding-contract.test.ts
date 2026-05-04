@@ -169,6 +169,9 @@ describe("pre-chat onboarding contract", () => {
       expect(dynamic).toContain(
         "Use this to personalize your opener and skip redundant discovery.",
       );
+      expect(dynamic).toContain(
+        "If `assistantName` is present, it is the name the user chose for you; preserve it in IDENTITY.md.",
+      );
     });
 
     test("does NOT inject onboarding context when BOOTSTRAP.md does not exist", () => {

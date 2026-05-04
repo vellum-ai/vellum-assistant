@@ -1322,10 +1322,9 @@ export async function handleSendMessage(
 
   // Store pre-chat onboarding context on the conversation when this is the
   // very first message (no prior messages loaded). Artifact persistence
-  // (IDENTITY.md, USER.md, sidecar) is deferred: on the canned greeting
-  // path it runs inside the setTimeout right before warmPromptCache() so
-  // the warmed system prompt includes the identity; on the normal LLM
-  // path it runs immediately before inference starts.
+  // (IDENTITY.md, USER.md, sidecar) runs before either the canned greeting
+  // broadcast or normal LLM inference so client-side identity reads observe
+  // the selected assistant name.
   const isFirstOnboarding =
     !!body.onboarding && conversation.messages.length === 0;
   if (isFirstOnboarding) {
@@ -1490,6 +1489,10 @@ export async function handleSendMessage(
         conversationId,
       };
 
+      if (isFirstOnboarding) {
+        persistOnboardingArtifacts(body.onboarding!);
+      }
+
       setTimeout(() => {
         broadcastMessage({
           type: "user_message_echo",
@@ -1510,9 +1513,6 @@ export async function handleSendMessage(
           "canned-greeting queue drain",
         );
 
-        if (isFirstOnboarding) {
-          persistOnboardingArtifacts(body.onboarding!);
-        }
         conversation.warmPromptCache();
       }, 0);
 

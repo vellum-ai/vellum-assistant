@@ -127,6 +127,7 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
+import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -2941,6 +2942,8 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
+      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
+
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;

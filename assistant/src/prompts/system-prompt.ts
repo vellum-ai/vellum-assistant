@@ -4,7 +4,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -20,6 +19,7 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
@@ -155,22 +155,7 @@ export function ensurePromptFiles(): void {
     const convDir = getConversationsDir();
     try {
       if (existsSync(convDir) && readdirSync(convDir).length > 0) {
-        unlinkSync(bootstrapCleanup);
-        log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
-
-        // Also clean up the reference file
-        const refCleanup = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
-        if (existsSync(refCleanup)) {
-          try {
-            unlinkSync(refCleanup);
-            log.info("Auto-deleted stale BOOTSTRAP-REFERENCE.md");
-          } catch (err) {
-            log.warn(
-              { err },
-              "Failed to auto-delete stale BOOTSTRAP-REFERENCE.md",
-            );
-          }
-        }
+        cleanupBootstrapFiles("prior conversations exist");
       }
     } catch (err) {
       log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
@@ -343,7 +328,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
           "```json\n" +
           JSON.stringify(options.onboardingContext, null, 2) +
           "\n```\n\n" +
-          "Use this to personalize your opener and skip redundant discovery.",
+          "Use this to personalize your opener and skip redundant discovery. If `assistantName` is present, it is the name the user chose for you; preserve it in IDENTITY.md.",
       );
     }
   }

@@ -218,7 +218,10 @@ struct IdentityPanel: View {
 
         introTask = Task {
             let key = "identity-intro"
-            let prompt = "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
+            let nameInstruction = hasRealName
+                ? "Use your configured name, \"\(assistantDisplayName)\", exactly."
+                : "If you do not have a configured name yet, do not invent one."
+            let prompt = "Generate a very short intro for yourself (2-5 words). \(nameInstruction) This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
             var result = ""
             do {
                 let stream = btwClient.sendMessage(
