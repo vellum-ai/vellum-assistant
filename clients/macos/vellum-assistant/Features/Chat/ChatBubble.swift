@@ -124,6 +124,7 @@ struct ChatBubble: View, Equatable {
     /// so the modal survives the trailing→interleaved rendering path switch.
     @State var suggestRuleToolCall: ToolCallData?
     @State var suggestRuleSuggestion: TrustRuleSuggestion?
+    @State private var suggestRuleSaveError: String?
 
     init(
         message: ChatMessage,
@@ -447,19 +448,23 @@ struct ChatBubble: View, Equatable {
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
                     Task {
-                        try? await TrustRuleClient().createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                if desc.isEmpty {
-                                    return rule.toolName + " — " + rule.pattern
-                                }
-                                return desc
-                            }(),
-                            scope: rule.scope
-                        )
+                        do {
+                            try await TrustRuleClient().createRule(
+                                tool: rule.toolName,
+                                pattern: rule.pattern,
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    if desc.isEmpty {
+                                        return rule.toolName + " — " + rule.pattern
+                                    }
+                                    return desc
+                                }(),
+                                scope: rule.scope
+                            )
+                        } catch {
+                            suggestRuleSaveError = error.localizedDescription
+                        }
                     }
                 },
                 onDismiss: {
@@ -468,6 +473,15 @@ struct ChatBubble: View, Equatable {
                 }
             )
         }
+        .alert(
+            "Failed to Save Rule",
+            isPresented: Binding(
+                get: { suggestRuleSaveError != nil },
+                set: { if !$0 { suggestRuleSaveError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(suggestRuleSaveError ?? "") }
+        )
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in

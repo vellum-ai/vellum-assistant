@@ -866,6 +866,8 @@ struct ToolCallStepDetailRow: View {
     @State private var suggestionTask: Task<Void, Never>?
     /// Tracks the outer badge-tap task (fetchMatchedRule + modal open) so rapid taps don't race.
     @State private var ruleEditorTask: Task<Void, Never>?
+    /// Set when a trust-rule save fails so we can surface an alert to the user.
+    @State private var ruleSaveError: String?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -997,14 +999,34 @@ struct ToolCallStepDetailRow: View {
                 onSave: { rule in
                     let existingRule = ruleEditorExistingRule
                     Task {
-                        if let existingRule {
-                            try? await Self.trustRuleClient.updateRule(
-                                id: existingRule.id,
-                                risk: rule.riskLevel,
-                                description: nil
-                            )
-                        } else {
-                            try? await Self.trustRuleClient.createRule(
+                        do {
+                            if let existingRule {
+                                try await Self.trustRuleClient.updateRule(
+                                    id: existingRule.id,
+                                    risk: rule.riskLevel,
+                                    description: nil
+                                )
+                            } else {
+                                try await Self.trustRuleClient.createRule(
+                                    tool: rule.toolName,
+                                    pattern: rule.pattern,
+                                    risk: rule.riskLevel,
+                                    description: {
+                                        let desc = tc.reasonDescription ?? ""
+                                        return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                    }(),
+                                    scope: rule.scope
+                                )
+                            }
+                        } catch {
+                            ruleSaveError = error.localizedDescription
+                        }
+                    }
+                },
+                onSaveAsNew: { rule in
+                    Task {
+                        do {
+                            try await Self.trustRuleClient.createRule(
                                 tool: rule.toolName,
                                 pattern: rule.pattern,
                                 risk: rule.riskLevel,
@@ -1014,21 +1036,9 @@ struct ToolCallStepDetailRow: View {
                                 }(),
                                 scope: rule.scope
                             )
+                        } catch {
+                            ruleSaveError = error.localizedDescription
                         }
-                    }
-                },
-                onSaveAsNew: { rule in
-                    Task {
-                        try? await Self.trustRuleClient.createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                            }(),
-                            scope: rule.scope
-                        )
                     }
                 },
                 onDismiss: {
@@ -1042,6 +1052,15 @@ struct ToolCallStepDetailRow: View {
                 }
             )
         }
+        .alert(
+            "Failed to Save Rule",
+            isPresented: Binding(
+                get: { ruleSaveError != nil },
+                set: { if !$0 { ruleSaveError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(ruleSaveError ?? "") }
+        )
     }
 
     // MARK: - acp_spawn Deep Link
