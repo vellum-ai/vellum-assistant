@@ -25,6 +25,7 @@ struct PrecomputedCacheKey: Equatable {
     /// rendered slice is different — so the projection cache invalidates
     /// whenever the window starts on a different message.
     let firstVisibleMessageId: UUID?
+    let highlightedMessageId: UUID?
 }
 
 // MARK: - Scroll Geometry Snapshot
