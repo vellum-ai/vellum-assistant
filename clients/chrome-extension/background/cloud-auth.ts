@@ -200,16 +200,22 @@ export async function startCloudLogin(
     }
   }
 
-  // Resolve the user's organization ID for subsequent API calls.
-  const organizationId = await fetchOrganizationId(environment);
-
-  const session: CloudSession = {
+  // Store the token immediately so cloudApiFetch can send X-Session-Token
+  // on the upcoming /v1/organizations/ bootstrap call.  We update the stored
+  // session with the org ID once we have it.
+  const partialSession: CloudSession = {
     email,
     environment,
-    organizationId,
+    organizationId: null,
     sessionToken,
     createdAt: Date.now(),
   };
+  await storeSession(partialSession);
+
+  // Resolve the user's organization ID for subsequent API calls.
+  const organizationId = await fetchOrganizationId(environment);
+
+  const session: CloudSession = { ...partialSession, organizationId };
   await storeSession(session);
   return session;
 }
