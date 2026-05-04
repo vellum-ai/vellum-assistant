@@ -4,7 +4,7 @@ import Foundation
 public enum ConversationErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
-    case managedRateLimit
+    case managedUsageLimit
     case providerOverloaded
     case providerApi
     case providerBilling
@@ -19,16 +19,14 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case managedKeyInvalid
     case unknown
 
-    public init(from code: ConversationErrorCode, errorCategory: String? = nil) {
+    public init(from code: ConversationErrorCode) {
         switch code {
         case .providerNetwork:
             self = .providerNetwork
         case .providerRateLimit:
-            if errorCategory?.hasSuffix("managed_proxy_rate_limit") == true {
-                self = .managedRateLimit
-            } else {
-                self = .rateLimit
-            }
+            self = .rateLimit
+        case .managedUsageLimit:
+            self = .managedUsageLimit
         case .providerOverloaded:
             self = .providerOverloaded
         case .providerApi:
@@ -65,7 +63,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Check your internet connection, then click Retry."
         case .rateLimit:
             return "Wait 30–60 seconds, then click Retry."
-        case .managedRateLimit:
+        case .managedUsageLimit:
             return "This is a Vellum-managed usage limit. Wait for it to reset or switch to your API key in Settings."
         case .providerOverloaded:
             return "This is usually temporary — click Retry in a moment."
@@ -109,7 +107,7 @@ public struct ConversationError: Equatable {
     public let errorCategory: String?
 
     public init(from msg: ConversationErrorMessage) {
-        self.category = ConversationErrorCategory(from: msg.code, errorCategory: msg.errorCategory)
+        self.category = ConversationErrorCategory(from: msg.code)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
         self.recoverySuggestion = self.category.recoverySuggestion

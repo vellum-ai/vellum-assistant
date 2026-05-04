@@ -1456,20 +1456,20 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationError?.conversationId, "sess-1")
     }
 
-    func testManagedProxyRateLimitUsesVellumCategory() {
+    func testManagedUsageLimitUsesVellumCategory() {
         viewModel.conversationId = "sess-1"
 
         let errorMsg = ConversationErrorMessage(
             conversationId: "sess-1",
-            code: .providerRateLimit,
+            code: .managedUsageLimit,
             userMessage: "Vellum managed inference is rate limited.",
             retryable: true,
-            errorCategory: "managed_proxy_rate_limit"
+            errorCategory: "managed_usage_limit"
         )
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
-        XCTAssertEqual(viewModel.conversationError?.category, .managedRateLimit)
-        XCTAssertEqual(viewModel.conversationError?.errorCategory, "managed_proxy_rate_limit")
+        XCTAssertEqual(viewModel.conversationError?.category, .managedUsageLimit)
+        XCTAssertEqual(viewModel.conversationError?.errorCategory, "managed_usage_limit")
         XCTAssertTrue(viewModel.conversationError?.recoverySuggestion.contains("Vellum-managed") == true)
     }
 

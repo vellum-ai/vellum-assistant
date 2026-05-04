@@ -522,6 +522,7 @@ export interface CompactionCircuitClosed {
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
+  | "MANAGED_USAGE_LIMIT"
   | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
   | "PROVIDER_BILLING"

@@ -142,7 +142,7 @@ struct ChatConversationErrorToast: View {
         switch category {
         case .providerNetwork:
             return .wifiOff
-        case .rateLimit, .managedRateLimit:
+        case .rateLimit, .managedUsageLimit:
             return .clockAlert
         case .providerOverloaded:
             return .cloudOff
@@ -173,7 +173,7 @@ struct ChatConversationErrorToast: View {
     /// red for hard failures.
     private static func accentColor(for category: ConversationErrorCategory) -> Color {
         switch category {
-        case .rateLimit, .managedRateLimit:
+        case .rateLimit, .managedUsageLimit:
             return VColor.systemMidStrong
         case .providerNetwork:
             return VColor.systemMidStrong
@@ -191,7 +191,7 @@ struct ChatConversationErrorToast: View {
     /// Action button label tailored to the error category.
     private static func actionLabel(for category: ConversationErrorCategory) -> String {
         switch category {
-        case .rateLimit, .managedRateLimit:
+        case .rateLimit, .managedUsageLimit:
             return "Retry"
         case .regenerateFailed:
             return "Retry"
