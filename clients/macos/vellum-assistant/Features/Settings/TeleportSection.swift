@@ -696,11 +696,14 @@ struct TeleportSection: View {
 
         // Step 7 — Resolve or hatch a local assistant.
         phase = .transferring(step: "Preparing local assistant...")
-        var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isManaged && !$0.isDocker })
+        var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
         if localAssistant == nil {
             let config = VellumCli.RemoteHatchConfig(remote: "local")
             try await AppDelegate.shared?.vellumCli.runRemoteHatch(config: config) { _ in }
-            localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isManaged && !$0.isDocker })
+            localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
+        } else {
+            // Wake existing local assistant in case it's sleeping
+            try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
         }
         guard let resolvedLocal = localAssistant else {
             throw TeleportError.localAssistantNotFound
