@@ -22,7 +22,10 @@ import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
-import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
+import {
+  formatSseFrame,
+  formatSseHeartbeatWithData,
+} from "../assistant-event.js";
 import type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -191,7 +194,7 @@ export function handleSubscribeAssistantEvents(
           return;
         }
 
-        controller.enqueue(encoder.encode(formatSseHeartbeat()));
+        controller.enqueue(encoder.encode(formatSseHeartbeatWithData()));
 
         heartbeatTimer = setInterval(() => {
           try {
@@ -203,7 +206,7 @@ export function handleSubscribeAssistantEvents(
             if (clientId) {
               hub.touchClient(clientId);
             }
-            controller.enqueue(encoder.encode(formatSseHeartbeat()));
+            controller.enqueue(encoder.encode(formatSseHeartbeatWithData()));
           } catch {
             sub.dispose();
             cleanup();
