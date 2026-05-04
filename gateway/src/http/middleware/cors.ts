@@ -1,3 +1,4 @@
+import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("cors");
@@ -13,17 +14,6 @@ const log = getLogger("cors");
 const WEBVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.vellum\.local$/;
 
 /**
- * Pattern matching origins from Chrome extension service workers.
- *
- * Extension service workers use a `chrome-extension://<id>` origin when
- * fetching local gateway endpoints. Chrome's Private Network Access policy
- * requires an OPTIONS preflight with `Access-Control-Allow-Private-Network`
- * before allowing cross-origin requests to localhost from secure contexts
- * (extension service workers qualify as secure contexts).
- */
-const CHROME_EXTENSION_ORIGIN_RE = /^chrome-extension:\/\/[a-z0-9]+$/;
-
-/**
  * Methods the webview bridge may use when calling custom route handlers.
  */
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
@@ -35,28 +25,33 @@ const ALLOWED_HEADERS =
   "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id";
 
 /**
- * Check whether the request `Origin` header matches a Chrome extension.
- * Returns the validated origin string, or null if CORS headers should not be
- * added.
+ * Check whether the request `Origin` header matches a known Vellum Chrome
+ * extension. Returns the validated origin string, or null if CORS headers
+ * should not be added.
+ *
+ * Chrome enforces the `chrome-extension://<id>` origin at the network layer —
+ * an extension cannot impersonate another extension's origin. Chrome's Private
+ * Network Access (PNA) policy additionally requires a successful CORS preflight
+ * before any extension can reach a localhost endpoint. Together these mean that
+ * narrowing CORS to KNOWN_EXTENSION_ORIGINS blocks all other Chrome extensions
+ * from accessing the gateway — they fail the PNA preflight and Chrome never
+ * sends the actual request.
+ *
+ * Note: PNA enforcement only applies to browser contexts. A local process can
+ * set an arbitrary Origin header without going through Chrome. This is the
+ * residual risk; the loopback IP check in individual route handlers (e.g.
+ * pair.ts) is the defence-in-depth boundary for that case.
  */
 export function resolveExtensionOrigin(req: Request): string | null {
   const origin = req.headers.get("origin");
   if (!origin) return null;
-  if (!CHROME_EXTENSION_ORIGIN_RE.test(origin)) return null;
+  if (!KNOWN_EXTENSION_ORIGINS.has(origin)) return null;
   return origin;
 }
 
 /**
- * Build CORS response headers for a Chrome extension origin, including the
- * Private Network Access header required for localhost fetches.
- *
- * We accept any `chrome-extension://` origin rather than an explicit allowlist
- * because extension IDs differ across prod/staging/dev builds and change on
- * republish. The real security boundary is the loopback IP check in the
- * individual route handlers (e.g. pair.ts) — a CORS Allow header does not
- * grant capability, it only tells Chrome the cross-origin request is permitted.
- * Any extension that can reach localhost already has equivalent access without
- * CORS headers.
+ * Build CORS response headers for a known Vellum Chrome extension origin,
+ * including the Private Network Access header required for localhost fetches.
  */
 export function extensionCorsHeaders(origin: string): Record<string, string> {
   return {

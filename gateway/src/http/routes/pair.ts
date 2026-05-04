@@ -26,6 +26,7 @@
 
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
+import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
@@ -265,6 +266,30 @@ export async function handlePair(
   const assistantId = getExternalAssistantId();
 
   if (interfaceId === "chrome-extension") {
+    // Require the request to originate from a known Vellum extension origin.
+    //
+    // Chrome sets the `Origin: chrome-extension://<id>` header on cross-origin
+    // requests from extension service workers and enforces it at the network
+    // layer — no extension can impersonate another extension's origin. Combined
+    // with Chrome's Private Network Access preflight requirement for localhost
+    // access, this ensures only the Vellum extension (across all known
+    // environments) can pair via this interface ID.
+    //
+    // The residual risk is a local process spoofing the Origin header, which
+    // bypasses browser enforcement. The loopback IP check above is the
+    // defence-in-depth boundary for that case.
+    const origin = req.headers.get("origin");
+    if (!origin || !KNOWN_EXTENSION_ORIGINS.has(origin)) {
+      auditDeny(req, clientIp, "unknown_extension_origin", {
+        origin: origin ?? "(none)",
+      });
+      return errorResponse(
+        "FORBIDDEN",
+        "origin does not match a known Vellum extension",
+        403,
+      );
+    }
+
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;
     const token = mintToken({
       aud: "vellum-gateway",
