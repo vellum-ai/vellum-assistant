@@ -388,8 +388,9 @@ async function dispatchHostBrowserResult(
       if (mode.token) {
         headers["authorization"] = `Bearer ${mode.token}`;
       }
-      if (mode.sessionToken) {
-        headers["X-Session-Token"] = mode.sessionToken;
+      const freshSession = await getStoredSession();
+      if (freshSession?.sessionToken) {
+        headers["X-Session-Token"] = freshSession.sessionToken;
       }
       if (mode.organizationId) {
         headers["Vellum-Organization-Id"] = mode.organizationId;
@@ -464,24 +465,25 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
     if (mode.token) {
       headers["authorization"] = `Bearer ${mode.token}`;
     }
-    if (mode.sessionToken) {
-      headers["X-Session-Token"] = mode.sessionToken;
-    }
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    // Fire-and-forget: we can't await getCsrfToken here, but cloud mode uses
-    // session-cookie auth and the CSRF token is still needed for Django's
-    // SessionAuthentication. Use a best-effort inline fetch.
-    void getCsrfToken(baseUrl).then((csrfToken) => {
-      if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-      void fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(envelope),
-        credentials: "include",
-      }).catch(() => { /* fire and forget */ });
-    });
+    // Resolve CSRF token and session token concurrently — both are needed
+    // for authenticated cross-site POSTs but neither is available synchronously.
+    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
+      ([csrfToken, freshSession]) => {
+        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+        if (freshSession?.sessionToken) {
+          headers["X-Session-Token"] = freshSession.sessionToken;
+        }
+        void fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(envelope),
+          credentials: "include",
+        }).catch(() => { /* fire and forget */ });
+      },
+    );
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
@@ -515,21 +517,23 @@ function dispatchHostBrowserSessionInvalidated(
     if (mode.token) {
       headers["authorization"] = `Bearer ${mode.token}`;
     }
-    if (mode.sessionToken) {
-      headers["X-Session-Token"] = mode.sessionToken;
-    }
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    void getCsrfToken(baseUrl).then((csrfToken) => {
-      if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-      void fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(envelope),
-        credentials: "include",
-      }).catch(() => { /* fire and forget */ });
-    });
+    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
+      ([csrfToken, freshSession]) => {
+        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+        if (freshSession?.sessionToken) {
+          headers["X-Session-Token"] = freshSession.sessionToken;
+        }
+        void fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(envelope),
+          credentials: "include",
+        }).catch(() => { /* fire and forget */ });
+      },
+    );
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
