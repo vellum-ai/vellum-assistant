@@ -131,7 +131,7 @@ Never include personal user data — real names, emails, phone numbers, account 
 
 This applies even when the data is the author's own — examples get copied by future contributors, and real data propagates through forks, screenshots, and logs.
 
-**Enforcement:** the pre-commit hook runs `scripts/check-generic-examples.ts` against staged changes. The in-repo patterns are shape-based (non-example emails, phones outside `555-01xx`). Contributors who want to block additional project-specific terms on their own machine can drop them into a local config — see `scripts/generic-examples/README.md`. Inline suppression: add `// generic-examples:ignore-next-line — reason: <why>` on the line above.
+**Enforcement:** the pre-commit hook runs `scripts/check-generic-examples.ts` against staged changes, and the commit-msg hook runs the same patterns against the commit message itself (with `#` comment lines and the `git commit -v` scissors region stripped first). The in-repo patterns are shape-based (non-example emails, phones outside `555-01xx`) and quote-anchored — they catch quoted or back-ticked occurrences, not bare prose. Contributors who want to block additional project-specific terms on their own machine can drop them into a local config — see `scripts/generic-examples/README.md`. Inline suppression: add `// generic-examples:ignore-next-line — reason: <why>` on the line above.
 
 ## Backwards Compatibility
 

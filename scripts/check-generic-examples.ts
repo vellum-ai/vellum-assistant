@@ -2,16 +2,18 @@
 /**
  * Enforces the "Generic Examples" rule from AGENTS.md: test fixtures,
  * examples, and dialogue data must use generic placeholders rather than
- * real personal data. Runs from the pre-commit hook on staged changes.
+ * real personal data. Runs from the pre-commit hook on staged changes
+ * and from the commit-msg hook on the message text itself.
  *
  * The in-repo patterns are shape-based (email/phone formats). Contributors
  * who want to block additional terms can drop them into a local config
  * outside the repo — see scripts/generic-examples/README.md.
  *
  * Usage:
- *   bun scripts/check-generic-examples.ts              # scan staged changes
- *   bun scripts/check-generic-examples.ts --ci         # scan HEAD..origin/main (for CI use)
- *   bun scripts/check-generic-examples.ts --self-test  # run built-in tests
+ *   bun scripts/check-generic-examples.ts                    # scan staged changes
+ *   bun scripts/check-generic-examples.ts --ci               # scan HEAD..origin/main (for CI use)
+ *   bun scripts/check-generic-examples.ts --commit-msg PATH  # scan a commit message file
+ *   bun scripts/check-generic-examples.ts --self-test        # run built-in tests
  *
  * Bypass a single line: add `// generic-examples:ignore-next-line — reason: X`
  * on the line above. Bypass the whole commit: `git commit --no-verify`.
@@ -129,7 +131,7 @@ interface AddedLine {
 const SKIP_FILE_PATTERNS: RegExp[] = [
   /^scripts\/generic-examples\//,
   /^scripts\/check-generic-examples\.ts$/,
-  /^\.githooks\/pre-commit$/,
+  /^\.githooks\/(pre-commit|commit-msg)$/,
   /\.lock$/,
   /\.lockb$/,
   /package-lock\.json$/,
@@ -190,6 +192,34 @@ function parseUnifiedDiff(diff: string): AddedLine[] {
     }
   }
   return added;
+}
+
+// -------- Commit-message parsing --------
+
+// Git inserts this scissors line via `git commit --verbose` (and friends);
+// everything below it is dropped before the commit is recorded.
+const COMMIT_MSG_SCISSORS = "# ------------------------ >8 ------------------------";
+
+function parseCommitMessage(text: string): AddedLine[] {
+  const result: AddedLine[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (raw === COMMIT_MSG_SCISSORS) break;
+    // Lines starting with `#` are stripped before the commit is recorded;
+    // skip them so we don't false-positive on guidance text.
+    if (raw.startsWith("#")) continue;
+    // No previousContent tracking: prior-line suppression markers in commit
+    // messages would survive into the recorded message (odd UX). Same-line
+    // `generic-examples:ignore-line` still works via isSuppressed().
+    result.push({
+      file: "(commit message)",
+      line: i + 1,
+      content: raw,
+      previousContent: "",
+    });
+  }
+  return result;
 }
 
 function getDiff(mode: "staged" | "ci"): string {
@@ -357,6 +387,52 @@ const TEST_CASES: TestCase[] = [
   },
 ];
 
+interface CommitMsgTestCase {
+  name: string;
+  text: string;
+  expectPatterns: string[];
+}
+
+const COMMIT_MSG_TEST_CASES: CommitMsgTestCase[] = [
+  {
+    name: "clean message passes",
+    text: 'fix: handle null user\n\nCloses JARVIS-123\n',
+    expectPatterns: [],
+  },
+  {
+    name: "quoted real email in body is flagged",
+    text: 'fix: migrate user\n\nMigrating "alice@gmail.com" to org table.\n',
+    expectPatterns: ["non-example-email"],
+  },
+  {
+    name: "quoted example email in body is OK",
+    text: 'fix: migrate user\n\nMigrating "user@example.com" to org table.\n',
+    expectPatterns: [],
+  },
+  {
+    name: "comment line containing real email is skipped",
+    text: 'fix: bug\n\n# Please enter the commit message. Lines starting with\n# "#" will be ignored. Example: alice@gmail.com\n',
+    expectPatterns: [],
+  },
+  {
+    name: "scissors line truncates scan",
+    text:
+      'fix: bug\n\n' +
+      '# ------------------------ >8 ------------------------\n' +
+      '# Do not modify or remove the line above.\n' +
+      'diff --git a/file.ts b/file.ts\n' +
+      '+const e = "alice@gmail.com";\n',
+    expectPatterns: [],
+  },
+  {
+    name: "Co-Authored-By trailer with angle-bracketed email is OK",
+    text:
+      'fix: bug\n\n' +
+      'Co-Authored-By: Claude <noreply@anthropic.com>\n',
+    expectPatterns: [],
+  },
+];
+
 function runSelfTest(): number {
   let failed = 0;
   for (const tc of TEST_CASES) {
@@ -376,7 +452,19 @@ function runSelfTest(): number {
       );
     }
   }
-  const total = TEST_CASES.length;
+  for (const tc of COMMIT_MSG_TEST_CASES) {
+    const lines = parseCommitMessage(tc.text);
+    const findings = scan(lines, SHAPE_PATTERNS);
+    const got = findings.map((f) => f.pattern).sort();
+    const want = [...tc.expectPatterns].sort();
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      failed++;
+      process.stderr.write(
+        `FAIL (commit-msg): ${tc.name}\n  want: ${want.join(", ") || "(none)"}\n  got:  ${got.join(", ") || "(none)"}\n`,
+      );
+    }
+  }
+  const total = TEST_CASES.length + COMMIT_MSG_TEST_CASES.length;
   if (failed === 0) {
     process.stdout.write(`${total}/${total} self-tests passed\n`);
     return 0;
@@ -399,9 +487,45 @@ async function promptContinue(): Promise<boolean> {
   });
 }
 
+async function runCommitMsgMode(path: string): Promise<number> {
+  const absPath = resolve(path);
+  if (!existsSync(absPath)) {
+    process.stderr.write(`error: commit message file not found: ${absPath}\n`);
+    return 1;
+  }
+  const text = readFileSync(absPath, "utf8");
+  const lines = parseCommitMessage(text);
+  if (lines.length === 0) return 0;
+
+  const patterns = [...SHAPE_PATTERNS, ...loadPrivatePatterns()];
+  const findings = scan(lines, patterns);
+  if (findings.length === 0) return 0;
+
+  printFindings(findings);
+
+  const blocks = findings.filter((f) => f.severity === "BLOCK");
+  if (blocks.length > 0) return 1;
+
+  // Warnings only.
+  const proceed = await promptContinue();
+  return proceed ? 0 : 1;
+}
+
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) return runSelfTest();
+
+  const commitMsgIdx = args.indexOf("--commit-msg");
+  if (commitMsgIdx >= 0) {
+    const path = args[commitMsgIdx + 1];
+    if (!path) {
+      process.stderr.write(
+        "error: --commit-msg requires a file path argument\n",
+      );
+      return 1;
+    }
+    return runCommitMsgMode(path);
+  }
 
   // Change to repo root so git commands work regardless of cwd.
   try {
