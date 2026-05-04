@@ -11,19 +11,14 @@ import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";
 
 const log = getLogger("permission-prompter");
 
-interface PendingPrompt {
-  resolve: (value: {
-    decision: UserDecision;
-    selectedPattern?: string;
-    selectedScope?: string;
-    decisionContext?: string;
-    wasTimeout?: boolean;
-    wasSystemCancel?: boolean;
-  }) => void;
-  reject: (reason: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  toolUseId?: string;
-}
+type ConfirmResult = {
+  decision: UserDecision;
+  selectedPattern?: string;
+  selectedScope?: string;
+  decisionContext?: string;
+  wasTimeout?: boolean;
+  wasSystemCancel?: boolean;
+};
 
 export type ConfirmationStateCallback = (
   requestId: string,
@@ -33,7 +28,13 @@ export type ConfirmationStateCallback = (
 ) => void;
 
 export class PermissionPrompter {
-  private pending = new Map<string, PendingPrompt>();
+  /**
+   * Tracks which requestIds belong to this prompter instance so that
+   * denyAllPending / dispose can scope their cleanup to this conversation.
+   * The full per-request state (callbacks, timer, toolUseId) lives in
+   * pendingInteractions, matching the host proxy pattern.
+   */
+  private ownedIds = new Set<string>();
   private sendToClient: (msg: ServerMessage) => void;
   private onStateChanged?: ConfirmationStateCallback;
 
@@ -69,74 +70,66 @@ export class PermissionPrompter {
     riskReason?: string,
     isContainerized?: boolean,
     directoryScopeOptions?: readonly { scope: string; label: string }[],
-  ): Promise<{
-    decision: UserDecision;
-    selectedPattern?: string;
-    selectedScope?: string;
-    decisionContext?: string;
-    wasTimeout?: boolean;
-    wasSystemCancel?: boolean;
-    wasAbort?: boolean;
-  }> {
+  ): Promise<ConfirmResult & { wasAbort?: boolean }> {
     if (signal?.aborted) return { decision: "deny", wasAbort: true };
 
     const requestId = uuid();
 
-    // Self-register in pendingInteractions so /v1/confirm can route the
-    // response to this conversation without going through broadcastMessage.
-    if (conversationId) {
-      pendingInteractions.register(requestId, {
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName,
-          input: redactSensitiveFields(input),
-          riskLevel,
-          executionTarget,
-          allowlistOptions: allowlistOptions.map((o) => ({
-            label: o.label,
-            description: o.description,
-            pattern: o.pattern,
-          })),
-          scopeOptions: scopeOptions.map((o) => ({
-            label: o.label,
-            scope: o.scope,
-          })),
-          persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
-        },
-      });
-    }
-
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
+
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        pendingInteractions.resolve(requestId);
+        const interaction = pendingInteractions.resolve(requestId);
+        this.ownedIds.delete(requestId);
         log.warn(
           { requestId, toolName },
           "Permission prompt timed out, defaulting to deny",
         );
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
-        resolve({
-          decision: "deny",
-          wasTimeout: true,
-          decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
-        });
+        (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+          {
+            decision: "deny",
+            wasTimeout: true,
+            decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
+          },
+        );
       }, timeoutMs);
 
-      this.pending.set(requestId, {
-        resolve,
-        reject,
-        timer,
-        toolUseId,
-      });
+      // Register all lifecycle state in pendingInteractions — same pattern as
+      // host proxies. The prompter tracks ownership via ownedIds.
+      if (conversationId) {
+        pendingInteractions.register(requestId, {
+          conversationId,
+          kind: "confirmation",
+          confirmationDetails: {
+            toolName,
+            input: redactSensitiveFields(input),
+            riskLevel,
+            executionTarget,
+            allowlistOptions: allowlistOptions.map((o) => ({
+              label: o.label,
+              description: o.description,
+              pattern: o.pattern,
+            })),
+            scopeOptions: scopeOptions.map((o) => ({
+              label: o.label,
+              scope: o.scope,
+            })),
+            persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
+          },
+          promptResolve: resolve as (value: unknown) => void,
+          promptReject: reject,
+          timer,
+          toolUseId,
+        });
+      }
+      this.ownedIds.add(requestId);
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
+          if (this.ownedIds.has(requestId)) {
             pendingInteractions.resolve(requestId);
+            this.ownedIds.delete(requestId);
             resolve({ decision: "deny", wasAbort: true });
           }
         };
@@ -175,17 +168,17 @@ export class PermissionPrompter {
   }
 
   hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    return this.ownedIds.has(requestId);
   }
 
   /** Returns all currently pending request IDs. */
   getPendingRequestIds(): string[] {
-    return [...this.pending.keys()];
+    return [...this.ownedIds];
   }
 
   /** Returns the toolUseId associated with a pending request, if any. */
   getToolUseId(requestId: string): string | undefined {
-    return this.pending.get(requestId)?.toolUseId;
+    return pendingInteractions.get(requestId)?.toolUseId;
   }
 
   resolveConfirmation(
@@ -195,22 +188,17 @@ export class PermissionPrompter {
     selectedScope?: string,
     decisionContext?: string,
   ): void {
-    const pending = this.pending.get(requestId);
-    if (!pending) {
+    if (!this.ownedIds.has(requestId)) {
       log.warn({ requestId }, "No pending prompt for confirmation response");
       return;
     }
-    clearTimeout(pending.timer);
-    this.pending.delete(requestId);
-    // Idempotent — approval-routes already calls pendingInteractions.resolve()
-    // before routing here, but we call it defensively for non-route paths.
-    pendingInteractions.resolve(requestId);
-    pending.resolve({
-      decision,
-      selectedPattern,
-      selectedScope,
-      decisionContext,
-    });
+    // approval-routes calls pendingInteractions.get() before routing here;
+    // the prompter owns deregistration so it fires the Promise callback cleanly.
+    const interaction = pendingInteractions.resolve(requestId);
+    this.ownedIds.delete(requestId);
+    (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+      { decision, selectedPattern, selectedScope, decisionContext },
+    );
   }
 
   /**
@@ -219,31 +207,31 @@ export class PermissionPrompter {
    * see the denial and can re-request if still needed.
    */
   denyAllPending(): void {
-    for (const [requestId, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      this.pending.delete(requestId);
-      pendingInteractions.resolve(requestId);
-      pending.resolve({
-        decision: "deny",
-        wasSystemCancel: true,
-        decisionContext:
-          "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
-      });
+    for (const requestId of [...this.ownedIds]) {
+      const interaction = pendingInteractions.resolve(requestId);
+      this.ownedIds.delete(requestId);
+      (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+        {
+          decision: "deny",
+          wasSystemCancel: true,
+          decisionContext:
+            "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
+        },
+      );
     }
   }
 
   get hasPending(): boolean {
-    return this.pending.size > 0;
+    return this.ownedIds.size > 0;
   }
 
   dispose(): void {
-    for (const [requestId, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pendingInteractions.resolve(requestId);
-      pending.reject(
+    for (const requestId of [...this.ownedIds]) {
+      const interaction = pendingInteractions.resolve(requestId);
+      this.ownedIds.delete(requestId);
+      interaction?.promptReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
-    this.pending.clear();
   }
 }

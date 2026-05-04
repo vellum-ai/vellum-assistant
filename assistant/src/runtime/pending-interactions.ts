@@ -3,17 +3,18 @@
  * confirmation, secret, host_bash, host_file, host_cu, host_browser, and
  * host_transfer interactions.
  *
- * For confirmation_request and secret_request, the onEvent callback in
- * assistant-event-hub registers the interaction here.
+ * All request types self-register with their full RPC lifecycle state
+ * (resolve/reject callbacks, timer, abort detach):
  *
- * For host proxy interactions (host_bash, host_file, host_cu, host_browser,
- * host_transfer), the proxy itself registers with full RPC lifecycle state
- * (resolve/reject callbacks, timer, abort detach). This eliminates the
- * per-proxy `private pending` maps — all pending state lives here.
+ * - Host proxies (host_bash, host_file, host_cu, host_browser,
+ *   host_app_control, host_transfer): register in request(), using
+ *   rpcResolve/rpcReject/timer/detachAbort/metadata.
+ *
+ * - Prompters (PermissionPrompter, SecretPrompter): register in prompt(),
+ *   using promptResolve/promptReject/timer/toolUseId.
  *
  * Standalone HTTP endpoints (/v1/confirm, /v1/secret, /v1/trust-rules,
- * /v1/host-bash-result, /v1/host-file-result, /v1/host-cu-result,
- * /v1/host-browser-result) look up the conversation from this tracker to
+ * /v1/host-bash-result, etc.) look up the conversation from this tracker to
  * resolve the interaction.
  */
 
@@ -68,18 +69,24 @@ export interface PendingInteraction {
    */
   targetActorPrincipalId?: string;
 
-  // -- RPC lifecycle (populated by host proxies) --
+  // -- RPC lifecycle (host proxies: rpcResolve/rpcReject; prompters: promptResolve/promptReject) --
 
-  /** Resolve the caller's Promise with a tool execution result. */
+  /** Resolve the caller's Promise with a tool execution result (host proxies). */
   rpcResolve?: (result: ToolExecutionResult) => void;
-  /** Reject the caller's Promise with an error. */
+  /** Reject the caller's Promise with an error (host proxies). */
   rpcReject?: (err: Error) => void;
-  /** Proxy-side timeout timer. Cleared on resolve/abort/dispose. */
+  /** Resolve the caller's Promise with a prompter result (PermissionPrompter / SecretPrompter). */
+  promptResolve?: (value: unknown) => void;
+  /** Reject the caller's Promise with an error (PermissionPrompter / SecretPrompter). */
+  promptReject?: (err: Error) => void;
+  /** Timeout timer. Cleared automatically on resolve(). */
   timer?: ReturnType<typeof setTimeout>;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort?: () => void;
   /** Proxy-specific metadata (e.g. timeoutSec for bash, operation/path for file). */
   metadata?: Record<string, unknown>;
+  /** toolUseId associated with a confirmation_request (PermissionPrompter). */
+  toolUseId?: string;
 }
 
 const pending = new Map<string, PendingInteraction>();
