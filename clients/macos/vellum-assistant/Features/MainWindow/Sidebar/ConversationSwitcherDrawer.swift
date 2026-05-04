@@ -15,6 +15,8 @@ struct ConversationSwitcherDrawer: View {
     let selectConversation: (ConversationModel) -> Void
     let onDismiss: () -> Void
 
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     /// Max conversations shown per section before "Show more".
     private let maxPerSection = 5
 
@@ -91,7 +93,7 @@ struct ConversationSwitcherDrawer: View {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
-            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation ? {
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && assistantFeatureFlagStore.isEnabled("analyze-conversation") ? {
                 selectConversation(conversation)
                 Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
             } : nil,

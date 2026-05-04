@@ -264,6 +264,14 @@
       "label": "App Control",
       "description": "Enable the app-control skill (per-app screenshot + raw input bypassing AX tree)",
       "defaultEnabled": false
+    },
+    {
+      "id": "analyze-conversation",
+      "scope": "assistant",
+      "key": "analyze-conversation",
+      "label": "Analyze Conversation",
+      "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
+      "defaultEnabled": false
     }
   ]
 }

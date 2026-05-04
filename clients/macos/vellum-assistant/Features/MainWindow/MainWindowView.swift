@@ -801,7 +801,7 @@ struct ConversationTitleOverlay: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
-    let onAnalyzeConversation: () -> Void
+    var onAnalyzeConversation: (() -> Void)? = nil
     let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 

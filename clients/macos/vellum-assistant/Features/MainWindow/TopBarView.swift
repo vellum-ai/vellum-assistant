@@ -26,6 +26,8 @@ struct TopBarView: View {
     let onRenameConversation: () -> Void
     let onOpenForkParent: () -> Void
 
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     @AppStorage("sidebarExpanded") private var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
     @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
@@ -195,9 +197,9 @@ struct TopBarView: View {
                     },
                     onRename: onRenameConversation,
                     onOpenForkParent: onOpenForkParent,
-                    onAnalyzeConversation: {
+                    onAnalyzeConversation: assistantFeatureFlagStore.isEnabled("analyze-conversation") ? {
                         Task { await conversationManager.analyzeActiveConversation() }
-                    },
+                    } : nil,
                     onRefresh: {
                         conversationManager.refreshActiveConversation()
                     },
