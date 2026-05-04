@@ -567,6 +567,12 @@ registerPolicy("conversations/clear-all", {
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
 
+// Event emission: gateway-only internal notification
+registerPolicy("events/emit", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
 // Channel inbound: gateway-only
 registerPolicy("channels/inbound", {
   requiredScopes: ["ingress.write"],
