@@ -432,6 +432,12 @@ describe("relationship-state-writer", () => {
       // Also sanity: it must be a real, recent date (not the epoch
       // sentinel we emit when stat fails).
       expect(Date.parse(first.hatchedDate)).toBeGreaterThan(0);
+      const sidecarPath = join(workspaceDir, "data", "hatched.json");
+      expect(existsSync(sidecarPath)).toBe(true);
+      const sidecar = JSON.parse(readFileSync(sidecarPath, "utf-8")) as {
+        hatchedAt: string;
+      };
+      expect(sidecar.hatchedAt).toBe(first.hatchedDate);
     });
 
     test("honors an explicit Hatched bullet in IDENTITY.md over file birthtime", async () => {
@@ -488,9 +494,10 @@ describe("relationship-state-writer", () => {
       expect(state.hatchedDate).toBe("2025-01-15T00:00:00.000Z");
     });
 
-    test("IDENTITY.md birthtime takes precedence over the sidecar", async () => {
-      // Seed a stale sidecar and then an IDENTITY.md without an
-      // explicit Hatched bullet — birthtime wins over the sidecar.
+    test("sidecar takes precedence over IDENTITY.md metadata", async () => {
+      // Seed an existing sidecar and then an IDENTITY.md without an
+      // explicit Hatched bullet — the persisted sidecar wins so the
+      // date remains stable across later identity edits.
       mkdirSync(join(workspaceDir, "data"), { recursive: true });
       writeFileSync(
         join(workspaceDir, "data", "hatched.json"),
@@ -500,12 +507,7 @@ describe("relationship-state-writer", () => {
       writeFile("IDENTITY.md", "- **Name:** Sage\n- **Role:** Assistant\n");
 
       const state = (await computeRelationshipState()) as RelationshipStateLike;
-      // The sidecar value is 2020-06-01 but IDENTITY.md was just
-      // written, so birthtime will be a much more recent date.
-      expect(state.hatchedDate).not.toBe("2020-06-01T00:00:00.000Z");
-      expect(Date.parse(state.hatchedDate)).toBeGreaterThan(
-        Date.parse("2020-06-01T00:00:00.000Z"),
-      );
+      expect(state.hatchedDate).toBe("2020-06-01T00:00:00.000Z");
     });
   });
 

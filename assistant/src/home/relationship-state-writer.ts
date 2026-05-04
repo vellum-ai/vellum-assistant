@@ -18,13 +18,7 @@
  * a missing or unreadable file degrades gracefully to an empty string.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { countConversations as countConversationsDb } from "../memory/conversation-queries.js";
@@ -39,6 +33,7 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
+import { resolveAndPersistHatchedAt } from "../workspace/hatched-date.js";
 import { computeProgressPercent, computeTier } from "./progress-formula.js";
 import {
   type Capability,
@@ -149,11 +144,12 @@ function readOnboardingSidecar(): OnboardingContext | null {
  * Reads USER.md / SOUL.md / IDENTITY.md, queries the oauth connection
  * store, and counts conversations via the DB-authoritative helper.
  *
- * Side effect: on the very first call when IDENTITY.md cannot provide
- * a hatched date, `resolveFallbackHatchedDate` persists a one-time
- * `data/hatched.json` sidecar so subsequent calls return a monotonic
- * timestamp. All other paths are read-only. Callers that want to
- * persist the full snapshot should use `writeRelationshipState()`.
+ * Side effect: on the very first call without an explicit Hatched
+ * bullet or existing hatched sidecar, the shared resolver persists a
+ * one-time `data/hatched.json` value seeded from IDENTITY.md metadata
+ * or a real current timestamp. All other paths are read-only. Callers
+ * that want to persist the full snapshot should use
+ * `writeRelationshipState()`.
  */
 export async function computeRelationshipState(): Promise<RelationshipState> {
   // Persona source-of-truth:
@@ -683,73 +679,16 @@ function countConversations(): number {
 }
 
 /**
- * Filename for the hatched-date sidecar, used as a stable fallback
- * when IDENTITY.md is missing / unreadable / has no explicit hatched
- * bullet and file stat is unavailable. Lives under the workspace
- * data dir alongside `relationship-state.json`.
- */
-const HATCHED_SIDECAR_FILENAME = "hatched.json";
-
-function getHatchedSidecarPath(): string {
-  return join(getDataDir(), HATCHED_SIDECAR_FILENAME);
-}
-
-/**
- * Resolve a stable hatched-date fallback timestamp.
- *
- * The Swift client, OpenAPI schema, and UI have no special handling
- * for a Unix-epoch sentinel — they'll render "1/1/1970" to the user.
- * Instead, we use `new Date().toISOString()` the first time a
- * fallback is needed and persist it to a small sidecar file
- * (`data/hatched.json`). Subsequent calls read the sidecar first, so
- * the returned timestamp is monotonic across writes and the
- * `hatchedDate` field never drifts once initialized.
- *
- * Never throws — a sidecar read/write failure still yields a valid
- * (though non-stable) `now` timestamp, which is still far better than
- * the epoch sentinel.
- */
-function resolveFallbackHatchedDate(): string {
-  const path = getHatchedSidecarPath();
-  try {
-    if (existsSync(path)) {
-      const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
-        hatchedAt?: string;
-      };
-      if (parsed.hatchedAt && !isNaN(Date.parse(parsed.hatchedAt))) {
-        return parsed.hatchedAt;
-      }
-    }
-  } catch {
-    // Fall through to write a fresh sidecar.
-  }
-  const now = new Date().toISOString();
-  try {
-    mkdirSync(getDataDir(), { recursive: true });
-    writeFileSync(path, JSON.stringify({ hatchedAt: now }, null, 2), "utf-8");
-  } catch {
-    // If even the sidecar write fails, return `now` anyway — the
-    // caller will just get a fresh-looking date on every call. Not
-    // ideal, but far better than the epoch sentinel.
-  }
-  return now;
-}
-
-/**
  * Pull `assistantName` and `hatchedDate` from IDENTITY.md.
  *
  * IDENTITY.md is a freeform markdown file, so for the name we scan
  * bullet lines for any recognizable `name` label (`Name`,
  * `Assistant Name`, `Preferred Name`, etc.). For the hatched date we
- * prefer any explicit `hatched:` / `birth:` bullet, then fall back to
- * the file's `stat.birthtime` (matching the pattern already
- * established by `identity-routes.ts`), and finally to `stat.mtime`
- * if birthtime is unavailable. We never fall back to `new Date()`
- * directly — `writeRelationshipState()` is called on every turn
- * boundary, so a raw `Date.now()` fallback would cause `hatchedDate`
- * to drift forward on every write. Instead, when nothing else is
- * readable we resolve via `resolveFallbackHatchedDate()` which
- * persists a stable timestamp to a sidecar file on first use.
+ * prefer any explicit `hatched:` / `birth:` bullet, then use the
+ * shared hatched-date resolver. That resolver reads an existing
+ * `data/hatched.json` sidecar first, otherwise seeds it from valid
+ * IDENTITY.md birthtime/mtime or a real current timestamp. This keeps
+ * `hatchedDate` stable without writing from read-only HTTP handlers.
  */
 function parseIdentity(identityPath: string): {
   assistantName: string;
@@ -792,24 +731,10 @@ function parseIdentity(identityPath: string): {
     return { assistantName, hatchedDate: explicitHatched };
   }
 
-  // Stable fallback: use the IDENTITY.md file birth time so the
-  // relationship start date is monotonic across turns. Matches the
-  // approach used by `identity-routes.ts` for the Settings UI.
-  try {
-    const stats = statSync(identityPath);
-    const candidate =
-      stats.birthtime.getTime() > 0 ? stats.birthtime : stats.mtime;
-    if (candidate.getTime() > 0) {
-      return { assistantName, hatchedDate: candidate.toISOString() };
-    }
-  } catch {
-    // File missing or unreadable — fall through to the sidecar.
-  }
-
-  // Last-ditch fallback: `resolveFallbackHatchedDate` returns a stable,
-  // real timestamp (persisted to `data/hatched.json` on first call) so
-  // the wire contract always carries a valid ISO date.
-  return { assistantName, hatchedDate: resolveFallbackHatchedDate() };
+  return {
+    assistantName,
+    hatchedDate: resolveAndPersistHatchedAt(identityPath),
+  };
 }
 
 /**

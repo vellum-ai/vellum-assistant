@@ -25,9 +25,13 @@ mock.module("../util/logger.js", () => ({
 import {
   handleDetailedHealth,
   ROUTES,
-  selectIdentityCreatedAt,
 } from "../runtime/routes/identity-routes.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import {
+  getHatchedSidecarPath,
+  resolveHatchedAtReadOnly,
+  selectHatchedAtFromStats,
+} from "../workspace/hatched-date.js";
 
 // ── Env helpers ─────────────────────────────────────────────────────────
 
@@ -122,6 +126,9 @@ beforeEach(() => {
   if (existsSync(profilerRunsDir)) {
     rmSync(profilerRunsDir, { recursive: true, force: true });
   }
+
+  rmSync(getHatchedSidecarPath(), { force: true });
+  rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
 });
 
 afterEach(() => {
@@ -336,7 +343,7 @@ describe("identity routes — createdAt selection", () => {
     const mtime = new Date("2026-05-01T14:49:47.519Z");
 
     expect(
-      selectIdentityCreatedAt({
+      selectHatchedAtFromStats({
         birthtime: new Date(0),
         mtime,
       })?.toISOString(),
@@ -348,18 +355,38 @@ describe("identity routes — createdAt selection", () => {
     const mtime = new Date("2026-05-01T14:49:47.519Z");
 
     expect(
-      selectIdentityCreatedAt({
+      selectHatchedAtFromStats({
         birthtime,
         mtime,
       })?.toISOString(),
     ).toBe(birthtime.toISOString());
   });
 
+  test("returns undefined when both birthtime and mtime are the Unix epoch", () => {
+    expect(
+      selectHatchedAtFromStats({
+        birthtime: new Date(0),
+        mtime: new Date(0),
+      }),
+    ).toBeUndefined();
+  });
+
+  test("read-only resolver falls back to current time without writing sidecar", () => {
+    const now = new Date("2026-05-04T12:00:00.000Z");
+
+    expect(
+      resolveHatchedAtReadOnly(
+        join(getWorkspaceDir(), "missing-identity.md"),
+        now,
+      ),
+    ).toBe(now.toISOString());
+    expect(existsSync(getHatchedSidecarPath())).toBe(false);
+  });
+
   test("/identity uses persisted hatched sidecar instead of live file metadata", () => {
     const workspaceDir = getWorkspaceDir();
     const dataDir = join(workspaceDir, "data");
     const identityPath = join(workspaceDir, "IDENTITY.md");
-    const sidecarPath = join(dataDir, "hatched.json");
     const persistedHatchedAt = "2026-05-01T14:49:47.519Z";
 
     mkdirSync(dataDir, { recursive: true });
@@ -369,7 +396,7 @@ describe("identity routes — createdAt selection", () => {
       "utf-8",
     );
     writeFileSync(
-      sidecarPath,
+      getHatchedSidecarPath(),
       JSON.stringify({ hatchedAt: persistedHatchedAt }),
       "utf-8",
     );
@@ -381,5 +408,23 @@ describe("identity routes — createdAt selection", () => {
 
     const body = route!.handler({}) as { createdAt?: string };
     expect(body.createdAt).toBe(persistedHatchedAt);
+  });
+
+  test("/identity does not write hatched sidecar on read", () => {
+    const identityPath = join(getWorkspaceDir(), "IDENTITY.md");
+    writeFileSync(
+      identityPath,
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity",
+    );
+    expect(route).toBeDefined();
+
+    const body = route!.handler({}) as { createdAt?: string };
+    expect(Date.parse(body.createdAt ?? "")).toBeGreaterThan(0);
+    expect(existsSync(getHatchedSidecarPath())).toBe(false);
   });
 });
