@@ -66,6 +66,7 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
 
   let contactId: string;
   let channelId: string;
+  let createdNewContact = false;
 
   try {
     // Check if a channel with this (type, address) already exists.
@@ -104,7 +105,12 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
             "contact-prompt-submit: adding channel to existing guardian contact",
           );
         } else {
+          log.warn(
+            { channelType, address: normalizedAddress },
+            "contact-prompt-submit: no existing guardian found — creating one",
+          );
           contactId = crypto.randomUUID();
+          createdNewContact = true;
           await assistantDbRun(
             `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
              VALUES (?, ?, 'guardian', 'human', ?, ?)`,
@@ -117,6 +123,7 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         }
       } else {
         contactId = crypto.randomUUID();
+        createdNewContact = true;
         await assistantDbRun(
           `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
            VALUES (?, ?, ?, 'human', ?, ?)`,
@@ -140,7 +147,7 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
           { channelErr, contactId, channelType },
           "contact-prompt-submit: channel INSERT failed, rolling back contact",
         );
-        if (effectiveRole !== "guardian") {
+        if (createdNewContact) {
           await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
         }
 

@@ -79,6 +79,47 @@ function formatContactTable(contacts: ContactWithChannels[]): string {
   return [headerLine, separator, ...dataLines].join("\n");
 }
 
+function formatChannelTable(channels: ContactChannel[]): string {
+  const headers = ["ID", "TYPE", "ADDRESS", "FLAGS"];
+  const rows = channels.map((ch) => {
+    const flags = [
+      ch.isPrimary ? "primary" : null,
+      ch.status !== "active" ? ch.status : null,
+      ch.policy !== "allow" ? ch.policy : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return [ch.id, ch.type, ch.address, flags];
+  });
+
+  // Pad all columns except the last (FLAGS can be empty)
+  const fixedCols = headers.length - 1;
+  const widths = headers
+    .slice(0, fixedCols)
+    .map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)));
+
+  const pad = (s: string, w: number) => s.padEnd(w);
+  const headerLine = [
+    ...headers.slice(0, fixedCols).map((h, i) => pad(h, widths[i])),
+    headers[fixedCols],
+  ].join("  ");
+  const separator = [
+    ...widths.map((w) => "─".repeat(w)),
+    "─".repeat(headers[fixedCols].length),
+  ].join("  ");
+
+  const dataLines = rows.map((row) =>
+    [
+      ...row.slice(0, fixedCols).map((cell, i) => pad(cell, widths[i])),
+      row[fixedCols],
+    ].join("  "),
+  );
+
+  return [headerLine, separator, ...dataLines]
+    .map((l) => `  ${l}`)
+    .join("\n");
+}
+
 function formatContactDetail(
   c: ContactWithChannels,
   assistantMeta?: AssistantContactMetadata,
@@ -96,17 +137,7 @@ function formatContactDetail(
   if (c.channels.length > 0) {
     lines.push("");
     lines.push("Channels:");
-    for (const ch of c.channels) {
-      const flags = [
-        ch.isPrimary ? "primary" : null,
-        ch.status !== "active" ? ch.status : null,
-        ch.policy !== "allow" ? ch.policy : null,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      const suffix = flags ? `  (${flags})` : "";
-      lines.push(`  ${ch.id}  ${ch.type}  ${ch.address}${suffix}`);
-    }
+    lines.push(formatChannelTable(c.channels));
   }
   if (assistantMeta?.metadata && "assistantId" in assistantMeta.metadata) {
     lines.push("");
