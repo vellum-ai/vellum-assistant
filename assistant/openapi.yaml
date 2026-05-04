@@ -7138,6 +7138,41 @@ paths:
                 - userText
                 - top
               additionalProperties: false
+  /v1/memory/v2/fit-anisotropy:
+    post:
+      operationId: memory_v2_fitanisotropy_post
+      summary: Fit the embedding anisotropy correction for memory v2
+      description:
+        Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal
+        components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries
+        apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the
+        new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                k:
+                  default: 1
+                  type: integer
+                  minimum: 1
+                  maximum: 16
+                sample:
+                  default: 5000
+                  type: integer
+                  minimum: 1
+                  maximum: 100000
+              required:
+                - k
+                - sample
+              additionalProperties: false
   /v1/memory/v2/rebuild-corpus-stats:
     post:
       operationId: memory_v2_rebuildcorpusstats_post
