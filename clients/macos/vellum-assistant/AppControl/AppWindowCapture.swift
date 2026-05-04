@@ -114,55 +114,114 @@ enum AppWindowCapture {
     /// macOS versions — we surface a permission hint in both branches so the
     /// daemon and the LLM can suggest the right fix.
     ///
-    /// Capture uses a warmup-then-real two-shot pattern. `SCScreenshotManager
-    /// .captureImage` empirically returns a stale buffered frame (sometimes
-    /// seconds old) on its first call against a window that hasn't been
-    /// recently captured — observed against an emulator window where the
-    /// screenshot lagged behind the live framebuffer by several seconds even
-    /// after a 200ms settle delay. The first call flushes whatever the
-    /// WindowServer / SCK had cached; we then sleep ~2 frames at 60fps for
-    /// the SCK pipeline to advance, and the second call returns the current
-    /// frame. The cost is one extra capture + ~33ms; the benefit is that
-    /// `observe` reflects reality.
+    /// Two paths, gated by the `VELLUM_APP_CONTROL_USE_DISPLAY_FILTER` env
+    /// var (diagnostic — default off):
+    ///
+    /// - **Default (warmup pattern)** — `SCContentFilter(desktopIndependentWindow:)`
+    ///   with a discardable warmup capture + ~33ms gap before the real capture.
+    ///   This is the historical path. Doesn't hang, but can return stale
+    ///   buffered frames for GPU-rendered apps (emulators) because the
+    ///   per-window filter reads the AppKit/CoreAnimation backing store.
+    ///
+    /// - **Display filter (env-gated)** — `SCContentFilter(display:including:)`,
+    ///   one-shot. Theoretically reads via the display-composite path (fresh
+    ///   GPU pixels) and lets SCK mask down to the window without coordinate
+    ///   math. Empirically hangs for unknown reasons in this codebase
+    ///   (#29389 one-shot + cropped sourceRect, #29445 continuous SCStream
+    ///   both hung at 60s timeout). Re-enabled here behind an env var so we
+    ///   can collect Console logs that pin down which call blocks.
+    ///
+    /// Both paths log every step with elapsed-ms timestamps under the
+    /// `AppWindowCapture` category — filter Console.app for that to see the
+    /// trace. Once we know where the display path hangs we can either fix
+    /// it or close the door on display-filter for good.
     private static func captureWindowPNG(windowID: CGWindowID) async -> PNGCaptureResult {
+        let useDisplay = ProcessInfo.processInfo.environment[USE_DISPLAY_FILTER_ENV] == "1"
+        let start = Date()
+
+        func elapsed() -> Int { Int(Date().timeIntervalSince(start) * 1000) }
+
+        log.info("captureWindowPNG: start (windowID=\(windowID, privacy: .public), useDisplay=\(useDisplay, privacy: .public))")
+
         do {
+            log.info("captureWindowPNG: requesting SCShareableContent.current (+\(elapsed())ms)")
             let shareable = try await SCShareableContent.current
+            log.info("captureWindowPNG: got SCShareableContent (+\(elapsed())ms, windows=\(shareable.windows.count, privacy: .public), displays=\(shareable.displays.count, privacy: .public))")
+
             guard let scWindow = shareable.windows.first(where: { $0.windowID == windowID }) else {
                 let message = "ScreenCaptureKit could not find window \(windowID) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
-                log.warning("AppWindowCapture: \(message, privacy: .public)")
+                log.warning("captureWindowPNG: window not found in SCShareableContent.windows (+\(elapsed())ms)")
                 return PNGCaptureResult(pngBase64: nil, error: message)
             }
+            log.info("captureWindowPNG: matched window \(windowID, privacy: .public) frame=\(NSStringFromRect(scWindow.frame), privacy: .public) (+\(elapsed())ms)")
 
-            let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            let filter: SCContentFilter
+            if useDisplay {
+                let center = CGPoint(x: scWindow.frame.midX, y: scWindow.frame.midY)
+                let display = shareable.displays.first(where: { $0.frame.contains(center) })
+                    ?? shareable.displays.first
+                guard let display else {
+                    log.warning("captureWindowPNG: no display available (+\(elapsed())ms)")
+                    return PNGCaptureResult(
+                        pngBase64: nil,
+                        error: "No display available for capture"
+                    )
+                }
+                log.info("captureWindowPNG: display path — display id=\(display.displayID, privacy: .public) frame=\(NSStringFromRect(display.frame), privacy: .public) (+\(elapsed())ms)")
+                filter = SCContentFilter(display: display, including: [scWindow])
+                log.info("captureWindowPNG: built display:including: filter (+\(elapsed())ms)")
+            } else {
+                filter = SCContentFilter(desktopIndependentWindow: scWindow)
+                log.info("captureWindowPNG: built desktopIndependentWindow filter (+\(elapsed())ms)")
+            }
+
             let config = SCStreamConfiguration()
             config.width = max(Int(scWindow.frame.width), 1)
             config.height = max(Int(scWindow.frame.height), 1)
             config.pixelFormat = kCVPixelFormatType_32BGRA
             config.showsCursor = false
+            log.info("captureWindowPNG: built config \(config.width, privacy: .public)x\(config.height, privacy: .public) (+\(elapsed())ms)")
 
-            // Warmup capture — discarded. Forces SCK to invalidate any stale
-            // buffered frame for this window. Errors here are non-fatal: if
-            // the warmup fails, the real capture below will surface the error.
-            _ = try? await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
+            if !useDisplay {
+                // Warmup capture — discarded. Forces SCK to invalidate any
+                // stale buffered frame for this window. Errors here are
+                // non-fatal: if the warmup fails, the real capture below
+                // will surface the error.
+                log.info("captureWindowPNG: warmup capture start (+\(elapsed())ms)")
+                _ = try? await SCScreenshotManager.captureImage(
+                    contentFilter: filter,
+                    configuration: config
+                )
+                log.info("captureWindowPNG: warmup capture done (+\(elapsed())ms)")
+                try? await Task.sleep(nanoseconds: UInt64(CAPTURE_INTER_SHOT_GAP_MS) * 1_000_000)
+                log.info("captureWindowPNG: warmup gap elapsed (+\(elapsed())ms)")
+            }
 
+            log.info("captureWindowPNG: real capture start (+\(elapsed())ms)")
             let cgImage = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config
             )
+            log.info("captureWindowPNG: real capture done \(cgImage.width, privacy: .public)x\(cgImage.height, privacy: .public) (+\(elapsed())ms)")
+
             guard let png = encodePNGBase64(cgImage: cgImage) else {
+                log.warning("captureWindowPNG: PNG encode failed (+\(elapsed())ms)")
                 return PNGCaptureResult(pngBase64: nil, error: "Failed to encode captured window as PNG")
             }
+            log.info("captureWindowPNG: PNG encoded (\(png.count, privacy: .public) base64 chars) (+\(elapsed())ms)")
             return PNGCaptureResult(pngBase64: png, error: nil)
         } catch {
+            log.warning("captureWindowPNG: caught error after \(elapsed())ms: \(error.localizedDescription, privacy: .public)")
             let message = "Screen capture failed: \(error.localizedDescription) — Screen Recording permission may be required (System Settings > Privacy & Security > Screen & System Audio Recording)"
-            log.warning("AppWindowCapture: \(message, privacy: .public)")
             return PNGCaptureResult(pngBase64: nil, error: message)
         }
     }
+
+    /// Env var that opts in to the diagnostic `display:including:` filter
+    /// path. Set to `"1"` before launching the macOS app to enable. Default
+    /// behavior (env unset or any other value) is the historical
+    /// warmup-capture pattern.
+    private static let USE_DISPLAY_FILTER_ENV = "VELLUM_APP_CONTROL_USE_DISPLAY_FILTER"
 
     /// Gap between the warmup capture and the real capture. ~2 frames at
     /// 60fps — long enough for the SCK pipeline to advance past whatever
