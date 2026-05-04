@@ -278,6 +278,14 @@ function updateHealthDisplay(
 
   // Setup message
   setSetupMessage(phase);
+
+  // Reconnect button: show only when self-hosted + paired + connection failing.
+  const isFailure = health === 'error' || health === 'auth_required' || health === 'reconnecting';
+  if (currentMode === 'self-hosted' && isFailure) {
+    troubleshootSection.style.display = 'block';
+  } else {
+    troubleshootSection.style.display = 'none';
+  }
 }
 
 // ── Main screen mode-specific visibility ────────────────────────────
@@ -296,10 +304,11 @@ function applyMainScreenMode(paired?: boolean): void {
     // self-hosted
     assistantInfo.style.display = 'none';
     if (paired) {
-      // Already paired — show connected state, hide URL input, show re-pair
+      // Already paired — show connected state, hide URL input.
+      // Reconnect button visibility is driven by updateHealthDisplay.
       selfHostedSettings.style.display = 'none';
       connectionAreaEl.style.display = 'block';
-      troubleshootSection.style.display = 'block';
+      troubleshootSection.style.display = 'none';
       sessionActions.style.display = 'flex';
       activityCard.style.display = 'flex';
       signOutBtn.textContent = 'Disconnect';

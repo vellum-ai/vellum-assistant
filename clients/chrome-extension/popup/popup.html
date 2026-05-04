@@ -593,7 +593,7 @@
     }
 
     #btn-pair-local {
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
 
     /* ── Local status text ────────────────────────────────────────── */
@@ -1021,18 +1021,16 @@
       <p class="local-status" id="local-status" style="display:none"></p>
     </div>
 
-    <!-- Re-pair button (shown only after initial pair, hidden initially) -->
-    <div id="troubleshoot-section" style="display:none;">
-      <div class="divider"></div>
-      <button id="btn-pair-local" type="button">Re-pair with gateway</button>
-    </div>
-
     <!-- Sign out / switch button at bottom -->
     <div id="session-actions" class="session-actions" style="display:none;">
+      <!-- Reconnect button: only visible on connection failure -->
+      <div id="troubleshoot-section" style="display:none;">
+        <button id="btn-pair-local" type="button">Reconnect with assistant</button>
+      </div>
       <div class="divider"></div>
       <button id="btn-sign-out" type="button" class="btn-ghost-sm">
-          Sign out
-        </button>
+        Sign out
+      </button>
     </div>
   </div>
 
