@@ -65,7 +65,8 @@ extension ChatBubble {
                 segments: segments,
                 isStreaming: streaming,
                 typographyGeneration: typographyGeneration,
-                maxContentWidth: bubbleMaxWidth
+                maxContentWidth: bubbleMaxWidth,
+                searchQuery: searchQuery
             )
                 .equatable()
         }
