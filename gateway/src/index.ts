@@ -394,6 +394,7 @@ async function main() {
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
+  const handleLogTail = createLogTailHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
@@ -1226,7 +1227,7 @@ async function main() {
       path: "/v1/logs/tail",
       method: "GET",
       auth: "edge",
-      handler: (req) => createLogTailHandler(config)(req),
+      handler: (req) => handleLogTail(req),
     },
 
     // ── Trust rules v3 ──

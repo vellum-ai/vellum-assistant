@@ -38,7 +38,7 @@ const LEVEL_NAMES = ["trace", "debug", "info", "warn", "error", "fatal"] as cons
 
 const GatewayLogsTailParams = z
   .object({
-    n: z.number().int().min(1).max(1000).optional(),
+    n: z.coerce.number().int().min(1).max(1000).optional(),
     level: z.enum(LEVEL_NAMES).optional(),
     module: z.string().optional(),
   })

@@ -28,7 +28,7 @@ export function createLogTailHandler(
 
     // Parse and clamp `n`
     const nRaw = parseInt(searchParams.get("n") ?? "10", 10);
-    const n = Math.max(1, Math.min(1000, nRaw));
+    const n = Math.max(1, Math.min(1000, Number.isNaN(nRaw) ? 10 : nRaw));
 
     // Parse and validate `level`
     const levelParam = searchParams.get("level") ?? "info";
