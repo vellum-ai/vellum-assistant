@@ -445,10 +445,7 @@ Examples:
               `Run 'assistant mcp reload' once the assistant is up.`,
           );
         } else {
-          log.info(
-            "The running assistant will pick up this change automatically. " +
-              "Or run 'vellum mcp reload' to apply now.",
-          );
+          log.info("The running assistant is reloading MCP servers now.");
         }
       },
     );
