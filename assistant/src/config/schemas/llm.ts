@@ -70,6 +70,8 @@ export const LLMCallSiteEnum = z.enum([
   "inference",
   "feedEventCopy",
   "trustRuleSuggestion",
+  "proactiveArtifactDecision",
+  "proactiveArtifactBuild",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
