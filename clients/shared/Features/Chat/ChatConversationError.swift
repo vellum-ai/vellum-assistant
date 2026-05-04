@@ -4,6 +4,7 @@ import Foundation
 public enum ConversationErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
+    case managedRateLimit
     case providerOverloaded
     case providerApi
     case providerBilling
@@ -18,12 +19,16 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case managedKeyInvalid
     case unknown
 
-    public init(from code: ConversationErrorCode) {
+    public init(from code: ConversationErrorCode, errorCategory: String? = nil) {
         switch code {
         case .providerNetwork:
             self = .providerNetwork
         case .providerRateLimit:
-            self = .rateLimit
+            if errorCategory?.hasSuffix("managed_proxy_rate_limit") == true {
+                self = .managedRateLimit
+            } else {
+                self = .rateLimit
+            }
         case .providerOverloaded:
             self = .providerOverloaded
         case .providerApi:
@@ -60,6 +65,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Check your internet connection, then click Retry."
         case .rateLimit:
             return "Wait 30–60 seconds, then click Retry."
+        case .managedRateLimit:
+            return "This is a Vellum-managed usage limit. Wait for it to reset or switch to your API key in Settings."
         case .providerOverloaded:
             return "This is usually temporary — click Retry in a moment."
         case .providerApi:
@@ -102,7 +109,7 @@ public struct ConversationError: Equatable {
     public let errorCategory: String?
 
     public init(from msg: ConversationErrorMessage) {
-        self.category = ConversationErrorCategory(from: msg.code)
+        self.category = ConversationErrorCategory(from: msg.code, errorCategory: msg.errorCategory)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
         self.recoverySuggestion = self.category.recoverySuggestion
