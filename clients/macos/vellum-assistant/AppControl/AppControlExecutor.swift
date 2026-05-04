@@ -145,10 +145,6 @@ enum AppControlExecutor {
                 button: button
             )
         case .stop:
-            // Tear down any continuous capture streams this client started
-            // for the session. Fire-and-forget: don't block the response on
-            // teardown — the stop result is purely a daemon-side ack.
-            Task { await AppWindowStreamer.shared.stopAll() }
             return performStop(requestId: request.requestId)
         }
     }
