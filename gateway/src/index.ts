@@ -109,6 +109,7 @@ import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
+import { createLogTailHandler } from "./http/routes/log-tail.js";
 import {
   createTrustRulesListHandler,
   createTrustRulesCreateHandler,
@@ -1220,6 +1221,12 @@ async function main() {
       auth: "edge",
       handler: (req, params, getClientIp) =>
         handleLogExport(req, params, getClientIp),
+    },
+    {
+      path: "/v1/logs/tail",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => createLogTailHandler(config)(req),
     },
 
     // ── Trust rules v3 ──

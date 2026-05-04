@@ -3281,6 +3281,71 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/logs/tail": {
+        get: {
+          summary: "Tail gateway log entries",
+          description:
+            "Returns the last N structured log entries from the gateway's pino log files, " +
+            "with optional filtering by minimum level and module name.",
+          operationId: "gatewayLogsTail",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "n",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
+              description: "Number of log entries to return (1–1000, default: 10)",
+            },
+            {
+              name: "level",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: ["trace", "debug", "info", "warn", "error", "fatal"],
+                default: "info",
+              },
+              description: "Minimum pino level name (default: info)",
+            },
+            {
+              name: "module",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Filter to exact pino module name",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Log entries and truncation flag",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["lines", "truncated"],
+                    properties: {
+                      lines: {
+                        type: "array",
+                        items: { type: "object" },
+                        description: "Matching log entries in chronological order",
+                      },
+                      truncated: {
+                        type: "boolean",
+                        description: "True if earlier matching entries exist beyond n",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid level parameter" },
+            "401": {
+              description: "Unauthorized — missing or invalid edge JWT",
+            },
+          },
+        },
+      },
       "/v1/trust-rules": {
         get: {
           summary: "List trust rules",
