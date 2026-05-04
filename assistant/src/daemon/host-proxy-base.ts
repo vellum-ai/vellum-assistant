@@ -20,6 +20,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import type { PendingInteraction } from "../runtime/pending-interactions.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -34,7 +35,10 @@ const log = getLogger("host-proxy-base");
  * narrowing is impossible — subclasses are responsible for passing event
  * names that match a real `ServerMessage` variant.
  */
-function broadcastDynamic(envelope: Record<string, unknown>, targetClientId?: string): void {
+function broadcastDynamic(
+  envelope: Record<string, unknown>,
+  targetClientId?: string,
+): void {
   broadcastMessage(
     envelope as unknown as ServerMessage,
     undefined,
@@ -80,7 +84,7 @@ export interface HostProxyBaseOptions {
   /** Outbound message `type` for cancellation (e.g. `"host_cu_cancel"`). */
   cancelEventName: string;
   /** Tag used to identify this proxy's requests in `pendingInteractions`. */
-  resultPendingKind: string;
+  resultPendingKind: PendingInteraction["kind"];
   /** Per-request timeout. Defaults to 60s. */
   timeoutMs?: number;
   /** Customizable disposed-rejection message (used in test assertions). */
@@ -93,7 +97,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
   protected readonly capabilityName: HostProxyCapability;
   protected readonly requestEventName: string;
   protected readonly cancelEventName: string;
-  protected readonly resultPendingKind: string;
+  protected readonly resultPendingKind: PendingInteraction["kind"];
   protected readonly timeoutMs: number;
   protected readonly disposedMessage: string;
 
@@ -164,12 +168,15 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
             detachAbort();
             pendingInteractions.resolve(requestId);
             try {
-              broadcastDynamic({
-                type: this.cancelEventName,
-                requestId,
-                conversationId,
+              broadcastDynamic(
+                {
+                  type: this.cancelEventName,
+                  requestId,
+                  conversationId,
+                  targetClientId,
+                },
                 targetClientId,
-              }, targetClientId);
+              );
             } catch {
               // Best-effort cancel notification — connection may already be closed.
             }
@@ -189,16 +196,33 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
         detachAbort,
       });
 
+      // Register in the global pendingInteractions store so the result-route
+      // handler (e.g. POST /v1/host-app-control-result) can look up the
+      // request by id and route it back to this proxy. Without this the
+      // route silently drops the response — see host-app-control-routes.ts:
+      // `if (!peeked || peeked.kind !== "host_app_control") return ...`.
+      // (HostCuProxy bypasses dispatchRequest entirely with its own inline
+      //  request method that registers directly, which is why CU works
+      //  without this base-level fix.)
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: this.resultPendingKind,
+        ...(targetClientId != null ? { targetClientId } : {}),
+      });
+
       try {
-        broadcastDynamic({
-          type: this.requestEventName,
-          requestId,
-          conversationId,
-          toolName,
-          input,
+        broadcastDynamic(
+          {
+            type: this.requestEventName,
+            requestId,
+            conversationId,
+            toolName,
+            input,
+            targetClientId,
+            ...(extraFields ?? {}),
+          },
           targetClientId,
-          ...(extraFields ?? {}),
-        }, targetClientId);
+        );
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(requestId);
@@ -251,12 +275,15 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
       entry.detachAbort();
       pendingInteractions.resolve(requestId);
       try {
-        broadcastDynamic({
-          type: this.cancelEventName,
-          requestId,
-          conversationId: entry.conversationId,
-          targetClientId: entry.targetClientId,
-        }, entry.targetClientId);
+        broadcastDynamic(
+          {
+            type: this.cancelEventName,
+            requestId,
+            conversationId: entry.conversationId,
+            targetClientId: entry.targetClientId,
+          },
+          entry.targetClientId,
+        );
       } catch {
         // Best-effort cancel notification — connection may already be closed.
       }
