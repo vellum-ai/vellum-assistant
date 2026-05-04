@@ -1211,6 +1211,18 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(telegramText).toContain("<no_response/>");
   });
 
+  test("response_discretion rule references the addressed_to_you wrapper attribute", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "slack",
+      channelName: "slack",
+    };
+
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).toContain("addressed_to_you");
+    expect(text).toContain("<external_content");
+  });
+
   test("dedup logic: fields matching canonical_actor_identity are omitted", () => {
     const uuid = "vellum-principal-b77e94f5-67c0-4599-8baa-871b925b3da8";
     const options: UnifiedTurnContextOptions = {

@@ -130,6 +130,10 @@ export function normalizeTelegramUpdate(
         externalMessageId: String(updateId),
         callbackQueryId: cbq.id,
         callbackData: cbq.data,
+        // Telegram chats with the bot are inherently 1:1; group-mention
+        // detection (`bot_command` / `mention` entities) is a future
+        // refinement.
+        directlyAddressed: true,
       },
       actor: {
         actorExternalId,
@@ -238,6 +242,10 @@ export function normalizeTelegramUpdate(
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(isEdit ? { isEdit: true } : {}),
+      // Telegram chats with the bot are inherently 1:1; group-mention
+      // detection (`bot_command` / `mention` entities) is a future
+      // refinement.
+      directlyAddressed: true,
     },
     actor: {
       actorExternalId,

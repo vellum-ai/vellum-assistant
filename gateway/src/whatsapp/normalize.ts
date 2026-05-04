@@ -204,6 +204,8 @@ export function normalizeWhatsAppWebhook(
             externalMessageId: msg.id,
             ...(callbackData ? { callbackData } : {}),
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            // WhatsApp messages reach the gateway via 1:1 conversations only.
+            directlyAddressed: true,
           },
           actor: {
             actorExternalId: from,

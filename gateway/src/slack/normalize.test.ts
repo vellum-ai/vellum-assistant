@@ -1434,3 +1434,90 @@ describe("source.threadId propagation", () => {
     });
   });
 });
+
+describe("directlyAddressed propagation", () => {
+  describe("normalizeSlackDirectMessage", () => {
+    it("marks DMs as directly addressed regardless of body text", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({ text: "hey what time is it" });
+      const result = normalizeSlackDirectMessage(
+        event,
+        "evt-da-dm-1",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(true);
+    });
+  });
+
+  describe("normalizeSlackAppMention", () => {
+    it("marks app_mention events as directly addressed", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({
+        text: "<@UBOT> any update on ATL-450?",
+        thread_ts: "1700000000.000100",
+      });
+      const result = normalizeSlackAppMention(
+        event,
+        "evt-da-am-1",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(true);
+    });
+  });
+
+  describe("normalizeSlackChannelMessage", () => {
+    it("derives directlyAddressed=true when text contains <@bot>", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({
+        text: "<@UBOT> ping",
+        thread_ts: "1700000000.000100",
+      });
+      const result = normalizeSlackChannelMessage(
+        event,
+        "evt-da-ch-1",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(true);
+    });
+
+    it("derives directlyAddressed=false for ambient thread chatter", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({
+        text: "thanks team",
+        thread_ts: "1700000000.000100",
+      });
+      const result = normalizeSlackChannelMessage(
+        event,
+        "evt-da-ch-2",
+        config,
+        "UBOT",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(false);
+    });
+
+    it("returns directlyAddressed=false when bot user id is unknown", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({ text: "<@UBOT> ping" });
+      const result = normalizeSlackChannelMessage(
+        event,
+        "evt-da-ch-3",
+        config,
+        undefined,
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.directlyAddressed).toBe(false);
+    });
+  });
+});

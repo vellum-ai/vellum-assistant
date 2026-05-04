@@ -331,6 +331,20 @@ function withBotUserId(
   };
 }
 
+/**
+ * Whether `text` contains a `<@botUserId>` mention. Used to derive the
+ * `directlyAddressed` field on `GatewayInboundEvent.message` so the daemon
+ * can distinguish messages that explicitly tag the bot from messages that
+ * reach the runtime via tracked-thread membership alone.
+ */
+function textMentionsBot(
+  text: string | undefined,
+  botUserId: string | undefined,
+): boolean {
+  if (!text || !botUserId) return false;
+  return text.includes(`<@${botUserId}>`);
+}
+
 function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
@@ -440,6 +454,8 @@ export function normalizeSlackDirectMessage(
         content,
         conversationExternalId: event.channel,
         externalMessageId,
+        // DMs are inherently 1:1 — every message is addressed to the bot.
+        directlyAddressed: true,
         ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
@@ -512,6 +528,13 @@ export function normalizeSlackChannelMessage(
         content,
         conversationExternalId: event.channel,
         externalMessageId,
+        // Channel `message` events reach this normalizer via the active-
+        // thread reply path. The live + replay filters route bot-mention
+        // texts through `normalizeSlackAppMention` instead, so in normal
+        // operation this resolves to `false`. Deriving from the text
+        // anyway keeps the field honest for callers that might bypass
+        // the filter (e.g. future direct invocations from tests).
+        directlyAddressed: textMentionsBot(event.text, botUserId),
         ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
@@ -584,6 +607,9 @@ export function normalizeSlackAppMention(
         content,
         conversationExternalId: event.channel,
         externalMessageId,
+        // Slack only fires `app_mention` when the bot is explicitly tagged
+        // (or invited via mention) in a conversation it's party to.
+        directlyAddressed: true,
         ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
@@ -899,6 +925,9 @@ export function normalizeSlackMessageEdit(
         conversationExternalId: event.channel,
         externalMessageId,
         isEdit: true,
+        // DMs are inherently 1:1; channel edits inherit the originating
+        // message's addressing semantics, derived from the edited text.
+        directlyAddressed: isDm || textMentionsBot(edited.text, botUserId),
       },
       actor: {
         actorExternalId: edited.user,

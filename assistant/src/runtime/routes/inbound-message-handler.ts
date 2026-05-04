@@ -718,6 +718,16 @@ export async function handleChannelInbound({
       ? sourceMetadata.languageCode.trim()
       : undefined;
 
+  // Channel-derived "explicitly addressed to the bot" signal. The gateway
+  // computes this per-channel (Slack `<@bot>` mention, DM, etc.) and forwards
+  // it via `sourceMetadata.directlyAddressed`. Surfaced to the model as an
+  // attribute on the `<external_content>` wrapper and as a structural input
+  // to the `response_discretion` prompt rule.
+  const directlyAddressed =
+    typeof sourceMetadata?.directlyAddressed === "boolean"
+      ? sourceMetadata.directlyAddressed
+      : undefined;
+
   // ── Telegram bootstrap deep-link handling ──
   const bootstrapResponse = await handleBootstrapIntercept({
     isDuplicate: result.duplicate,
@@ -1035,11 +1045,16 @@ export async function handleChannelInbound({
 
       // Wrap non-guardian inbound content in external_content boundaries so
       // the model can distinguish external channel messages from instructions.
+      // The channel-derived `directlyAddressed` signal rides along on the
+      // wrapper as `addressed_to_you="true|false"`.
       const contentForProcessing =
         trustCtx.trustClass !== "guardian"
           ? wrapUntrustedContent(trimmedContent, {
               source: "webhook",
               sourceDetail: trustCtx.requesterIdentifier,
+              ...(directlyAddressed !== undefined
+                ? { addressedToBot: directlyAddressed }
+                : {}),
             })
           : trimmedContent;
 

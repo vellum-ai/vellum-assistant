@@ -24,6 +24,16 @@ interface InboundEventBase<C extends InboundChannelId> {
     isEdit?: boolean;
     callbackQueryId?: string;
     callbackData?: string;
+    /**
+     * Whether this message was explicitly addressed to the bot — e.g. a Slack
+     * message containing `<@bot>`, a DM in any 1:1 channel, or an email with
+     * the bot in `To:`. Distinct from "the channel exists" or "the bot is
+     * subscribed to it." When `false`, the message reached the runtime via a
+     * tracked-thread / opt-in path and the model should apply response
+     * discretion. When `undefined`, the channel did not derive the signal —
+     * the daemon defaults to `true` (today's behavior).
+     */
+    directlyAddressed?: boolean;
     attachments?: Array<{
       type: "photo" | "document" | "image" | "video" | "audio" | "sticker";
       fileId: string;

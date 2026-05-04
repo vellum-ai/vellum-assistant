@@ -146,6 +146,9 @@ export async function handleInbound(
           ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
           languageCode: event.actor.languageCode,
           isBot: event.actor.isBot,
+          ...(event.message.directlyAddressed !== undefined
+            ? { directlyAddressed: event.message.directlyAddressed }
+            : {}),
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           ...(options?.sourceMetadata ?? {}),
@@ -179,9 +182,7 @@ export async function handleInbound(
     if (!response.denied) {
       // Fire-and-forget: detach from current async context so pending
       // IPC socket operations cannot leak into test runners.
-      void touchContactChannelStats(event, response.duplicate).catch(
-        () => {},
-      );
+      void touchContactChannelStats(event, response.duplicate).catch(() => {});
     }
 
     if (response.activatedContact) {

@@ -946,9 +946,17 @@ export function buildUnifiedTurnContextBlock(
   }
 
   // Response discretion for non-vellum channels.
+  //
+  // The inbound user message is wrapped in `<external_content ...>` (see
+  // `wrapUntrustedContent`). When the channel can derive whether the bot
+  // was explicitly addressed (Slack `<@bot>` mention, DM, etc.), the wrapper
+  // carries `addressed_to_you="true"` or `="false"` and the model should
+  // treat that attribute as the source of truth. When the attribute is
+  // absent, the channel could not derive the signal and the model falls
+  // back to inferring from prose.
   if (options.channelName && options.channelName !== "vellum") {
     lines.push(
-      `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
+      `response_discretion: Not every message that reaches you requires a reply. The inbound message is wrapped in <external_content ...>; when its addressed_to_you attribute is "true", respond as you normally would. When it is "false", you are seeing the message because you're a participant in the conversation but the user is not directly addressing you — output exactly <no_response/> as your entire reply unless the message is unmistakably a continuation of something you just said (e.g. an answer to a question you asked moments ago). When the attribute is absent, infer from the prose: if the message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output <no_response/>.`,
     );
   }
 

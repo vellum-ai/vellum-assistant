@@ -74,6 +74,9 @@ export function normalizeEmailWebhook(
       content,
       conversationExternalId: conversationId,
       externalMessageId: messageId,
+      // Inbound emails reach the gateway only when the bot's address is in
+      // To/CC; To/CC vs. bcc disambiguation is a future refinement.
+      directlyAddressed: true,
     },
     actor: {
       actorExternalId: from,
