@@ -2197,8 +2197,8 @@ if [ "$CMD" = "run" ]; then
     # third-party app named "Vellum" (e.g. vellum.pub) is also ignored.
     _kill_targets=""
     while IFS= read -r line; do
-        pid=${line%% *}
-        exe_path=${line#* }
+        read -r pid exe_path <<< "$line"
+        [ -n "$pid" ] || continue
         case "$exe_path" in
             */Contents/MacOS/*) ;;
             *) continue ;;
@@ -2218,7 +2218,7 @@ if [ "$CMD" = "run" ]; then
         for i in {1..20}; do
             still_running=false
             while IFS= read -r pid_line; do
-                _pid=${pid_line%% *}
+                read -r _pid _ <<< "$pid_line"
                 kill -0 "$_pid" 2>/dev/null && still_running=true && break
             done <<< "$_kill_targets"
             $still_running || break
@@ -2231,8 +2231,8 @@ if [ "$CMD" = "run" ]; then
             echo "Force-killing remaining instance(s)..."
             survivors=""
             while IFS= read -r line; do
-                pid=${line%% *}
-                exe_path=${line#* }
+                read -r pid exe_path <<< "$line"
+                [ -n "$pid" ] || continue
                 case "$exe_path" in
                     */Contents/MacOS/*) ;;
                     *) continue ;;
@@ -2421,8 +2421,8 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     # a dev build doesn't kill production or vice versa).
     _install_targets=""
     while IFS= read -r line; do
-        pid=${line%% *}
-        exe_path=${line#* }
+        read -r pid exe_path <<< "$line"
+        [ -n "$pid" ] || continue
         case "$exe_path" in
             */Contents/MacOS/*) ;;
             *) continue ;;
