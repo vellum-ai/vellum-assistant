@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import { emitContactChange } from "../contacts/contact-events.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -44,7 +45,6 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
-import { emitContactChange } from "../contacts/contact-events.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
