@@ -6419,7 +6419,7 @@ paths:
     get:
       operationId: identity_intro_get
       summary: Get identity intro text
-      description: Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.
+      description: Returns the identity intro string, preferring workspace prompt files over LLM-generated cache.
       tags:
         - identity
       responses:
