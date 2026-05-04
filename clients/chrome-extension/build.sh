@@ -55,6 +55,10 @@ else
   VELLUM_ENV="$VELLUM_ENVIRONMENT"
 fi
 
+# Preserve the full version string (including prerelease suffix) for
+# `version_name` in the manifest so build provenance is always visible.
+EXT_VERSION_FULL="$EXT_VERSION"
+
 # Chrome manifest requires 1-4 dot-separated integers. Strip any
 # prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
 # builds produce a valid extension zip.
@@ -102,10 +106,12 @@ do_build() {
   cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json" \
     || { echo "❌ Failed to copy manifest."; return 1; }
 
-  jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+  jq --arg v "$EXT_VERSION" --arg vn "$EXT_VERSION_FULL" \
+    '.version = $v | .version_name = $vn' \
+    "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
     && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json" \
     || { echo "❌ Failed to stamp version."; return 1; }
-  echo "  Extension version: $EXT_VERSION"
+  echo "  Extension version: $EXT_VERSION (full: $EXT_VERSION_FULL)"
 
   case "$VELLUM_ENV" in
     production) EXT_NAME="Vellum Assistant" ;;
