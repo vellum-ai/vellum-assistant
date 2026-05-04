@@ -44,6 +44,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { emitContactChange } from "../contacts/contact-events.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -150,6 +151,15 @@ export class AssistantIpcServer {
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
     );
+
+    // General-purpose event notification for gateway→assistant use.
+    // Allows the gateway to trigger in-process assistant events after
+    // owning a write (e.g. contact deletion) without routing through
+    // the assistant runtime.
+    this.methods.set("emit_contact_change", () => {
+      emitContactChange();
+      return null;
+    });
   }
 
   /** Start listening on the Unix domain socket. */

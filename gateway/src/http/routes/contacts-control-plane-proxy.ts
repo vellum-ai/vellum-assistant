@@ -6,6 +6,7 @@
  */
 
 import { proxyForward } from "@vellumai/assistant-client";
+import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -13,7 +14,10 @@ import {
   assistantDbQuery,
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
+import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("contacts-control-plane-proxy");
@@ -76,10 +80,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return forward(req, `/v1/contacts/${contactId}`);
     },
 
-    async handleDeleteContact(
-      _req: Request,
-      contactId: string,
-    ): Promise<Response> {
+    async handleDeleteContact(contactId: string): Promise<Response> {
       const rows = await assistantDbQuery<{ role: string }>(
         "SELECT role FROM contacts WHERE id = ?",
         [contactId],
@@ -99,6 +100,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
       }
       await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+      getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
+      void ipcCallAssistant("emit_contact_change");
       log.info({ contactId }, "delete_contact: deleted");
       return new Response(null, { status: 204 });
     },

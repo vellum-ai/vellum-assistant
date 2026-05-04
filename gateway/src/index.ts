@@ -673,8 +673,8 @@ async function main() {
       path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
       method: "DELETE",
       auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(req, params[0]),
+      handler: (_req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(params[0]),
     },
     {
       path: /^\/v1\/contacts\/([^/]+)$/,
