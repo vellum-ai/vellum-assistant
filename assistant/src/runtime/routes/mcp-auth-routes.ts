@@ -127,7 +127,6 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Kicks off reloadMcpServers() async on the daemon. Returns immediately.",
     tags: ["internal"],
-    requirePolicyEnforcement: true,
     handler: handleMcpReload,
   },
 ];

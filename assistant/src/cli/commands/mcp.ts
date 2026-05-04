@@ -315,12 +315,13 @@ Examples:
       if (!result.ok) {
         log.warn(
           `Could not signal reload: ${result.error}. ` +
-            `Run 'assistant mcp reload' once the daemon is up.`,
+            `Run 'assistant mcp reload' once the assistant is up.`,
+        );
+      } else {
+        log.info(
+          "MCP reload signal sent. The running assistant will reconnect servers shortly.",
         );
       }
-      log.info(
-        "MCP reload signal sent. The running assistant will reconnect servers shortly.",
-      );
     });
 
   mcp
@@ -441,13 +442,14 @@ Examples:
         if (!reloadResult.ok) {
           log.warn(
             `Could not signal reload: ${reloadResult.error}. ` +
-              `Run 'assistant mcp reload' once the daemon is up.`,
+              `Run 'assistant mcp reload' once the assistant is up.`,
+          );
+        } else {
+          log.info(
+            "The running assistant will pick up this change automatically. " +
+              "Or run 'vellum mcp reload' to apply now.",
           );
         }
-        log.info(
-          "The running assistant will pick up this change automatically. " +
-            "Or run 'vellum mcp reload' to apply now.",
-        );
       },
     );
 
@@ -461,8 +463,8 @@ Arguments:
   name   Name of a configured MCP server to authenticate with
 
 Only works with sse or streamable-http transports (stdio servers do not use
-OAuth). Opens a browser for OAuth authorization with the remote server and
-starts a local callback server to receive the authorization code.
+OAuth). Opens a browser for OAuth authorization with the remote server. The
+running assistant handles the OAuth callback and token exchange.
 
 The command waits up to 2.5 minutes for the user to complete the browser-based
 OAuth flow. If the server already has valid cached tokens, the command succeeds
@@ -556,8 +558,7 @@ Examples:
         ipcErrMsg.startsWith("Unknown method:")
       ) {
         log.error(
-          `MCP OAuth requires the assistant daemon to be running. ` +
-            `Start it with: assistant daemon start`,
+          `MCP OAuth requires the assistant to be running. Is it running?`,
         );
       } else {
         log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);

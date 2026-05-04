@@ -652,7 +652,7 @@ describe("assistant mcp auth — IPC path", () => {
     );
   });
 
-  test("IPC start returns ok=false (daemon unavailable) → exits 1 with 'assistant daemon start' hint", async () => {
+  test("IPC start returns ok=false (daemon unavailable) → exits 1 with helpful error", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
@@ -663,10 +663,10 @@ describe("assistant mcp auth — IPC path", () => {
     const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("assistant daemon start");
+    expect(stderr).toContain("Is it running?");
   });
 
-  test("IPC start returns ok=false (Unknown method) → exits 1 with 'assistant daemon start' hint", async () => {
+  test("IPC start returns ok=false (Unknown method) → exits 1 with helpful error", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
@@ -677,7 +677,7 @@ describe("assistant mcp auth — IPC path", () => {
     const { exitCode, stderr } = await runMcp("auth", ["srv"]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("assistant daemon start");
+    expect(stderr).toContain("Is it running?");
   });
 
   test("IPC start returns ok=false with a real daemon error → exits 1 without falling back to loopback", async () => {
