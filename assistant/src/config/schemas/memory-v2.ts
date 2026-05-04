@@ -128,6 +128,26 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Weight on sparse (BM25-style) similarity in the hybrid retrieval score — sparse acts as a discriminator for keyword-rich queries.",
       ),
+    // Adaptive sparse-weighting knobs. Both fields are intentionally
+    // optional with no default — the schema serialiser drops absent
+    // optionals so these stay invisible to operators who never tune them.
+    // The defaults live in `effectiveWeights` (sim.ts).
+    min_sparse_spread: z
+      .number({ error: "memory.v2.min_sparse_spread must be a number" })
+      .min(0, "memory.v2.min_sparse_spread must be >= 0")
+      .max(1, "memory.v2.min_sparse_spread must be <= 1")
+      .optional()
+      .describe(
+        "Adaptive sparse weighting: when the spread (max - min) of normalized sparse scores across the candidate hit set falls below this, sparse contribution collapses to 0. Linear interpolation between this and `full_sparse_spread`. Optional escape hatch — leave unset to use the built-in default.",
+      ),
+    full_sparse_spread: z
+      .number({ error: "memory.v2.full_sparse_spread must be a number" })
+      .min(0, "memory.v2.full_sparse_spread must be >= 0")
+      .max(1, "memory.v2.full_sparse_spread must be <= 1")
+      .optional()
+      .describe(
+        "Adaptive sparse weighting: at or above this spread, sparse weight stays at the configured `sparse_weight`. Optional escape hatch — leave unset to use the built-in default.",
+      ),
     bm25_k1: z
       .number({ error: "memory.v2.bm25_k1 must be a number" })
       .min(0, "memory.v2.bm25_k1 must be >= 0")

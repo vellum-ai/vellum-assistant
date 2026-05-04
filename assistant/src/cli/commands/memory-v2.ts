@@ -96,6 +96,9 @@ function printExplainResult(result: MemoryV2ExplainSimilarityResult): void {
     log.info(
       `maxSparse (used for normalization): ${channel.maxSparse.toFixed(4)}`,
     );
+    log.info(
+      `effective: dw=${channel.effectiveDenseWeight.toFixed(3)} sw=${channel.effectiveSparseWeight.toFixed(3)} (sparseSpread=${channel.sparseSpread.toFixed(3)})`,
+    );
     log.info("");
     log.info(
       "slug".padEnd(48) +

@@ -159,7 +159,8 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
-const { simBatch, simSkillBatch, clamp01 } = await import("../sim.js");
+const { simBatch, simSkillBatch, clamp01, effectiveWeights } =
+  await import("../sim.js");
 const { _resetMemoryV2SkillQdrantForTests } =
   await import("../skill-qdrant.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
@@ -227,6 +228,120 @@ afterEach(resetState);
 // ---------------------------------------------------------------------------
 // clamp01
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// effectiveWeights — adaptive sparse weighting
+// ---------------------------------------------------------------------------
+
+describe("effectiveWeights", () => {
+  // The helper takes a generic config, but only reads
+  // `memory.v2.min_sparse_spread` / `full_sparse_spread`. Build a minimal
+  // shape so test cases can opt into custom thresholds vs the built-in
+  // defaults (0.2 / 0.5).
+  function configWithSpreadOverrides(
+    min?: number,
+    full?: number,
+  ): AssistantConfig {
+    return {
+      memory: { v2: { min_sparse_spread: min, full_sparse_spread: full } },
+    } as unknown as AssistantConfig;
+  }
+  const baseConfig = configWithSpreadOverrides();
+
+  test("returns base weights when sparse weight is zero", () => {
+    const result = effectiveWeights(
+      [{ sparseScore: 1 }, { sparseScore: 2 }],
+      2,
+      1.0,
+      0.0,
+      baseConfig,
+    );
+    expect(result.dense).toBe(1.0);
+    expect(result.sparse).toBe(0);
+  });
+
+  test("returns base weights when fewer than 2 sparse-bearing hits", () => {
+    // Single sparse-bearing hit — spread is undefined.
+    const result = effectiveWeights(
+      [{ sparseScore: 5 }, {}],
+      5,
+      0.7,
+      0.3,
+      baseConfig,
+    );
+    expect(result.dense).toBeCloseTo(0.7);
+    expect(result.sparse).toBeCloseTo(0.3);
+    expect(result.spread).toBe(0);
+  });
+
+  test("collapses sparse weight to 0 when spread is below min_sparse_spread", () => {
+    // Three hits with sparseNorm = {0.95, 0.97, 1.0} → spread 0.05 < 0.2.
+    const hits = [
+      { sparseScore: 9.5 },
+      { sparseScore: 9.7 },
+      { sparseScore: 10 },
+    ];
+    const result = effectiveWeights(hits, 10, 0.7, 0.3, baseConfig);
+    expect(result.spread).toBeCloseTo(0.05, 6);
+    expect(result.sparse).toBeCloseTo(0, 6);
+    // Dense compensates: gets the full sparse weight added back.
+    expect(result.dense).toBeCloseTo(1.0, 6);
+  });
+
+  test("preserves base weights when spread reaches full_sparse_spread", () => {
+    // sparseNorm = {0.5, 1.0} → spread 0.5 === default full threshold.
+    const hits = [{ sparseScore: 5 }, { sparseScore: 10 }];
+    const result = effectiveWeights(hits, 10, 0.7, 0.3, baseConfig);
+    expect(result.spread).toBeCloseTo(0.5, 6);
+    expect(result.sparse).toBeCloseTo(0.3, 6);
+    expect(result.dense).toBeCloseTo(0.7, 6);
+  });
+
+  test("interpolates linearly between min and full thresholds", () => {
+    // sparseNorm = {0.65, 1.0} → spread 0.35; midway between 0.2 and 0.5
+    // → factor = 0.5; effSparse = 0.5 * 0.3 = 0.15; effDense = 0.7 + 0.15.
+    const hits = [{ sparseScore: 6.5 }, { sparseScore: 10 }];
+    const result = effectiveWeights(hits, 10, 0.7, 0.3, baseConfig);
+    expect(result.spread).toBeCloseTo(0.35, 6);
+    expect(result.sparse).toBeCloseTo(0.15, 6);
+    expect(result.dense).toBeCloseTo(0.85, 6);
+  });
+
+  test("config overrides min and full thresholds", () => {
+    // Custom: min=0.0, full=1.0 — spread is now in [0, 1] linearly.
+    const config = configWithSpreadOverrides(0.0, 1.0);
+    const hits = [{ sparseScore: 8 }, { sparseScore: 10 }];
+    const result = effectiveWeights(hits, 10, 0.7, 0.3, config);
+    // spread 0.2; factor = 0.2; effSparse = 0.06.
+    expect(result.spread).toBeCloseTo(0.2, 6);
+    expect(result.sparse).toBeCloseTo(0.06, 6);
+    expect(result.dense).toBeCloseTo(0.94, 6);
+  });
+
+  test("falls back to base weights when full <= min (degenerate config)", () => {
+    const config = configWithSpreadOverrides(0.5, 0.3);
+    const hits = [{ sparseScore: 5 }, { sparseScore: 10 }];
+    const result = effectiveWeights(hits, 10, 0.7, 0.3, config);
+    expect(result.sparse).toBeCloseTo(0.3, 6);
+    expect(result.dense).toBeCloseTo(0.7, 6);
+  });
+
+  test("dense + sparse always equals baseDense + baseSparse", () => {
+    // Property check: total weight is preserved across the spread spectrum
+    // so `fused` stays interpretable as a [0, 1] similarity regardless of
+    // how aggressively sparse is collapsed.
+    const cases = [
+      [{ sparseScore: 1 }, { sparseScore: 1.05 }], // tiny spread
+      [{ sparseScore: 1 }, { sparseScore: 5 }], // mid spread
+      [{ sparseScore: 1 }, { sparseScore: 10 }], // full spread
+    ];
+    for (const hits of cases) {
+      const maxSparse = Math.max(...hits.map((h) => h.sparseScore));
+      const result = effectiveWeights(hits, maxSparse, 0.7, 0.3, baseConfig);
+      expect(result.dense + result.sparse).toBeCloseTo(1.0, 6);
+    }
+  });
+});
 
 describe("clamp01", () => {
   test("passes values already in [0, 1] through unchanged", () => {

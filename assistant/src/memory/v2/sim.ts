@@ -40,6 +40,79 @@ import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 export const clamp01 = clampUnitInterval;
 
 /**
+ * Built-in defaults for adaptive sparse weighting. Live here (not in the
+ * config schema) so operators don't see two new knobs in their config until
+ * they actually want to tune them.
+ *
+ * Below `MIN_SPREAD`, the sparse channel is treated as no-signal (its scores
+ * are uniform across the candidate set, so it can't rank anything) and the
+ * sparse weight collapses to 0. At or above `FULL_SPREAD`, sparse weight
+ * stays at its configured value. Linear interpolation between.
+ */
+const ADAPTIVE_SPARSE_MIN_SPREAD = 0.2;
+const ADAPTIVE_SPARSE_FULL_SPREAD = 0.5;
+
+/**
+ * Per-query effective dense + sparse weights, derived from the configured
+ * base weights and the spread of normalized sparse scores across the hit
+ * set. When the sparse channel can't discriminate (low spread or fewer
+ * than two sparse-bearing candidates), its weight collapses and dense
+ * weight is boosted to compensate so `dense + sparse` still equals
+ * `baseDense + baseSparse` and `fused` stays interpretable as a [0, 1]
+ * similarity.
+ *
+ * Pure function — exported so the diagnostic surface in
+ * `memory-v2-routes.explain-similarity` can show the effective weights and
+ * the measured spread alongside per-channel score statistics.
+ */
+export function effectiveWeights(
+  hits: ReadonlyArray<{ sparseScore?: number }>,
+  maxSparse: number,
+  baseDense: number,
+  baseSparse: number,
+  config: AssistantConfig,
+): { dense: number; sparse: number; spread: number } {
+  // Short-circuit when the channel is already disabled or unscored. Returning
+  // base weights here keeps `fused` numerically identical to today's output
+  // for the no-sparse-signal cases the existing tests assume.
+  if (baseSparse === 0 || maxSparse === 0) {
+    return { dense: baseDense, sparse: baseSparse, spread: 0 };
+  }
+  let min = Infinity;
+  let max = -Infinity;
+  let count = 0;
+  for (const h of hits) {
+    if (h.sparseScore === undefined) continue;
+    const norm = h.sparseScore / maxSparse;
+    if (norm < min) min = norm;
+    if (norm > max) max = norm;
+    count++;
+  }
+  // With < 2 sparse-bearing hits the spread is undefined — fall back to base
+  // weights so single-hit retrievals still surface their sparse contribution
+  // (and the existing fusion-math tests stay green).
+  if (count < 2) {
+    return { dense: baseDense, sparse: baseSparse, spread: 0 };
+  }
+  const spread = max - min;
+
+  const minSpread =
+    config.memory.v2.min_sparse_spread ?? ADAPTIVE_SPARSE_MIN_SPREAD;
+  const fullSpread =
+    config.memory.v2.full_sparse_spread ?? ADAPTIVE_SPARSE_FULL_SPREAD;
+  // Degenerate config (full <= min): no interpolation range. Don't try to
+  // adapt; trust the operator's base weights and report the measured spread
+  // for diagnostics.
+  if (fullSpread <= minSpread) {
+    return { dense: baseDense, sparse: baseSparse, spread };
+  }
+  const factor = clamp01((spread - minSpread) / (fullSpread - minSpread));
+  const sparse = baseSparse * factor;
+  const dense = baseDense + (baseSparse - sparse);
+  return { dense, sparse, spread };
+}
+
+/**
  * Compute hybrid (dense + sparse) similarity scores between a query text and
  * a fixed set of candidate concept-page slugs.
  *
@@ -105,8 +178,15 @@ export async function simBatch(
   }
 
   const maxSparse = computeMaxSparse(hits);
-  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
+  const { dense_weight: baseDense, sparse_weight: baseSparse } =
     config.memory.v2;
+  const { dense: denseWeight, sparse: sparseWeight } = effectiveWeights(
+    hits,
+    maxSparse,
+    baseDense,
+    baseSparse,
+    config,
+  );
 
   const scores = new Map<string, number>();
   for (const hit of hits) {
@@ -183,8 +263,15 @@ export async function simSkillBatch(
   }
 
   const maxSparse = computeMaxSparse(filtered);
-  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
+  const { dense_weight: baseDense, sparse_weight: baseSparse } =
     config.memory.v2;
+  const { dense: denseWeight, sparse: sparseWeight } = effectiveWeights(
+    filtered,
+    maxSparse,
+    baseDense,
+    baseSparse,
+    config,
+  );
 
   const scores = new Map<string, number>();
   for (const hit of filtered) {

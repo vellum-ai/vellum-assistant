@@ -36,6 +36,7 @@ import {
   hybridQueryConceptPages,
   sampleConceptPageDenseVectors,
 } from "../../memory/v2/qdrant.js";
+import { effectiveWeights } from "../../memory/v2/sim.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import {
   generateBm25QueryEmbedding,
@@ -280,6 +281,16 @@ export interface MemoryV2ExplainSimilarityChannel {
   channel: "user" | "assistant" | "now";
   textPreview: string;
   maxSparse: number;
+  /**
+   * Spread (max - min) of normalized sparse scores across this channel's
+   * hits. Drives adaptive sparse weighting — low spread means the sparse
+   * channel can't discriminate, so its weight collapses for this query.
+   */
+  sparseSpread: number;
+  /** Sparse weight after adaptive collapse (≤ the configured base). */
+  effectiveSparseWeight: number;
+  /** Dense weight after adaptive compensation (≥ the configured base). */
+  effectiveDenseWeight: number;
   rows: MemoryV2ExplainSimilarityRow[];
   stats: {
     dense: MemoryV2ExplainSimilarityStats;
@@ -341,13 +352,23 @@ async function scoreChannel(
     }
   }
 
+  // Mirror simBatch's adaptive weighting so the printed `fused` matches what
+  // production retrieval would actually score for this query — otherwise
+  // operators staring at the diagnostic would see different numbers than
+  // the activation pipeline saw.
+  const {
+    dense: effDense,
+    sparse: effSparse,
+    spread: sparseSpread,
+  } = effectiveWeights(hits, maxSparse, denseWeight, sparseWeight, config);
+
   const rows: MemoryV2ExplainSimilarityRow[] = hits.map((hit) => {
     const dense = hit.denseScore ?? 0;
     const sparseNorm =
       hit.sparseScore !== undefined && maxSparse > 0
         ? hit.sparseScore / maxSparse
         : 0;
-    const fusedRaw = denseWeight * dense + sparseWeight * sparseNorm;
+    const fusedRaw = effDense * dense + effSparse * sparseNorm;
     const fused = Math.max(0, Math.min(1, fusedRaw));
     return {
       slug: hit.slug,
@@ -375,6 +396,9 @@ async function scoreChannel(
     channel,
     textPreview: text.length > 120 ? `${text.slice(0, 120)}…` : text,
     maxSparse,
+    sparseSpread,
+    effectiveSparseWeight: effSparse,
+    effectiveDenseWeight: effDense,
     rows,
     stats: {
       dense: summarizeStats(denseValues),
