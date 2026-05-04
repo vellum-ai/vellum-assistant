@@ -18,7 +18,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     publish: async (event: unknown, _options?: unknown) => {
       publishedEvents.push(event);
     },
-    getMostRecentClientByCapability: (cap: string) =>
+    getPreferredClientByCapability: (cap: string, _preference?: unknown) =>
       cap === "host_browser" && mockHasConnection
         ? {
             type: "client",
