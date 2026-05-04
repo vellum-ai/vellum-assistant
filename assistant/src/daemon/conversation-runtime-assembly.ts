@@ -964,7 +964,19 @@ export function buildUnifiedTurnContextBlock(
       lines.push(`addressed_to_bot: ${options.directlyAddressed}`);
     }
     lines.push(
-      `response_discretion: Not every message that reaches you requires a full reply. When the addressed_to_bot field above is "true", you've been explicitly tagged (mention or DM) — engage with the message, but the form of engagement is your call: a text reply when one is warranted, an emoji reaction when a quick acknowledgement is enough (a tag for visibility, an FYI, a thank-you that doesn't need words back), or <no_response/> when the tag genuinely doesn't ask anything of you. When the field is "false", you are seeing the message because you're a participant in the conversation but the user did not tag you — default to <no_response/> unless the message is clearly directed at you anyway: a continuation of something you just said (e.g. an answer to a question you asked moments ago), by-name addressing like "Vex, can you..." or "thanks Vex", or a direct question that only makes sense as one to you. When the field is absent, infer from the prose: if the message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output <no_response/>.`,
+      "response_discretion: Not every message that reaches you requires a full reply." +
+        ' When the addressed_to_bot field above is "true", you\'ve been explicitly tagged (mention or DM) —' +
+        " engage with the message, but the form of engagement is your call:" +
+        " a text reply when one is warranted, an emoji reaction when a quick acknowledgement is enough" +
+        " (a tag for visibility, an FYI, a thank-you that doesn't need words back)," +
+        " or <no_response/> when the tag genuinely doesn't ask anything of you." +
+        ' When the field is "false", you are seeing the message because you\'re a participant in the conversation' +
+        " but the user did not tag you — default to <no_response/> unless the message is clearly directed at you anyway:" +
+        " a continuation of something you just said (e.g. an answer to a question you asked moments ago)," +
+        ' by-name addressing like "Vex, can you..." or "thanks Vex",' +
+        " or a direct question that only makes sense as one to you." +
+        " When the field is absent, infer from the prose: if the message is clearly not directed at you" +
+        " (e.g. people talking among themselves, acknowledgements, reactions), output <no_response/>.",
     );
   }
 

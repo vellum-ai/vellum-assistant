@@ -116,6 +116,7 @@ interface TestConversation {
   };
   persistUserMessage: PersistUserMessageMock;
   setSlackRuntimeContextNotice: NoticeMock;
+  setCurrentTurnDirectlyAddressed: (value: boolean | undefined) => void;
   runAgentLoop: RunAgentLoopMock;
   updateClient: (sender: (...args: unknown[]) => void) => void;
   getCurrentSender: () => ((...args: unknown[]) => void) | undefined;
@@ -218,6 +219,7 @@ function makeConversation(): TestConversation {
       slackNotice = notice;
       noticeCalls.push(notice);
     }),
+    setCurrentTurnDirectlyAddressed: mock(() => {}),
     runAgentLoop: mock(async (..._args: unknown[]) => {
       loopNotices.push(slackNotice);
       await loopDeferred.promise;
