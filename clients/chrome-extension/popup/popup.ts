@@ -827,8 +827,15 @@ sendMessage<{
       assistantAccountEl.textContent = response.session.email;
     }
     applyMainScreenMode();
-    showScreen('main');
-    loadMainScreen();
+    if (response.session && !response.selectedAssistant) {
+      // Signed in but no assistant chosen yet — go straight to the picker
+      // instead of landing on an unhelpful NEEDS ACTION state.
+      showScreen('picker');
+      refreshAssistantPicker();
+    } else {
+      showScreen('main');
+      loadMainScreen();
+    }
   } else {
     showScreen('welcome');
   }
