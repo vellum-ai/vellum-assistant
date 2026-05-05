@@ -1,4 +1,4 @@
-import { lstatSync, unlinkSync } from "node:fs";
+import * as fs from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
@@ -23,7 +23,7 @@ export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
     const indexPath = join(workspaceDir, "skills", "SKILLS.md");
 
     try {
-      const stat = lstatSync(indexPath);
+      const stat = fs.lstatSync(indexPath);
       if (!stat.isFile() && !stat.isSymbolicLink()) {
         log.warn(
           { path: indexPath },
@@ -32,7 +32,7 @@ export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
         return;
       }
 
-      unlinkSync(indexPath);
+      fs.unlinkSync(indexPath);
       log.info({ path: indexPath }, "Removed legacy skills index file");
     } catch (err) {
       if (isNotFoundError(err)) return;
@@ -40,6 +40,7 @@ export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
         { err, path: indexPath },
         "Failed to remove legacy skills index file",
       );
+      throw err;
     }
   },
 
