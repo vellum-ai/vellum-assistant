@@ -2984,6 +2984,7 @@ export async function runAgentLoopImpl(
                   conversationId: ctx.conversationId,
                   userMessageCutoff: userMsg.createdAt,
                   assistantMessageId: state.lastAssistantMessageId,
+                  suppressAppBuild: state.appBuildToolUsedThisRun,
                   broadcastMessage,
                 });
               } catch (err) {

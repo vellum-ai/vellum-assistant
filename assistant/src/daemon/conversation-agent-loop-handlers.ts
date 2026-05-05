@@ -137,6 +137,8 @@ export interface EventHandlerState {
   readonly directiveWarnings: string[];
   readonly toolUseIdToName: Map<string, string>;
   currentTurnToolNames: string[];
+  /** Sticky for the whole run: this turn created/refreshed an app. */
+  appBuildToolUsedThisRun: boolean;
   /** Tracks whether the first text delta has been emitted this turn for activity state transitions. */
   firstTextDeltaEmitted: boolean;
   /** Tracks whether a thinking delta has been emitted this turn for activity state transitions. */
@@ -219,6 +221,7 @@ export function createEventHandlerState(): EventHandlerState {
     directiveWarnings: [],
     toolUseIdToName: new Map(),
     currentTurnToolNames: [],
+    appBuildToolUsedThisRun: false,
     firstTextDeltaEmitted: false,
     firstThinkingDeltaEmitted: false,
     lastCompletedToolName: undefined,
@@ -365,6 +368,9 @@ export function handleToolUse(
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
+  if (event.name === "app_create" || event.name === "app_refresh") {
+    state.appBuildToolUsedThisRun = true;
+  }
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);

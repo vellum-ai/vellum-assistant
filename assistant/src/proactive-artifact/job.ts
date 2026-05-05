@@ -18,7 +18,11 @@ import { v4 as uuid } from "uuid";
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { saveDocument } from "../documents/document-store.js";
-import { addAppConversationId, listApps } from "../memory/app-store.js";
+import {
+  addAppConversationId,
+  listApps,
+  listAppsByConversation,
+} from "../memory/app-store.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { rawAll } from "../memory/raw-query.js";
 import type { BroadcastFn } from "../notifications/adapters/macos.js";
@@ -43,6 +47,7 @@ export async function runProactiveArtifactJob(params: {
   conversationId: string;
   userMessageCutoff: number;
   assistantMessageId: string | undefined;
+  suppressAppBuild?: boolean;
   broadcastMessage: BroadcastFn;
 }): Promise<void> {
   let buildSucceeded = false;
@@ -114,6 +119,22 @@ export async function runProactiveArtifactJob(params: {
     let artifactId: string;
 
     if (artifactType === "app") {
+      const suppressionReason = getAppBuildSuppressionReason({
+        conversationId: params.conversationId,
+        userMessageCutoff: params.userMessageCutoff,
+        suppressAppBuild: params.suppressAppBuild,
+      });
+      if (suppressionReason) {
+        log.info(
+          {
+            conversationId: params.conversationId,
+            artifactTitle,
+            suppressionReason,
+          },
+          "Skipping proactive app build because foreground app work already exists",
+        );
+        return;
+      }
       artifactId = await buildApp({
         artifactTitle,
         artifactDescription,
@@ -199,6 +220,27 @@ export async function runProactiveArtifactJob(params: {
 }
 
 // ── App build ─────────────────────────────────────────────────────────
+
+function getAppBuildSuppressionReason(params: {
+  conversationId: string;
+  userMessageCutoff: number;
+  suppressAppBuild?: boolean;
+}): string | null {
+  if (params.suppressAppBuild) {
+    return "foreground-turn-used-app-tool";
+  }
+
+  const recentApps = listAppsByConversation(params.conversationId).filter(
+    (app) =>
+      app.createdAt >= params.userMessageCutoff ||
+      app.updatedAt >= params.userMessageCutoff,
+  );
+  if (recentApps.length > 0) {
+    return "conversation-has-recent-app-activity";
+  }
+
+  return null;
+}
 
 async function buildApp(params: {
   artifactTitle: string;

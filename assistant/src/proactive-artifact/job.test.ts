@@ -95,11 +95,15 @@ let mockApps: Array<{
   id: string;
   name: string;
   createdAt: number;
+  updatedAt?: number;
+  conversationIds?: string[];
 }> = [];
 let addAppConvCalls: Array<{ appId: string; conversationId: string }> = [];
 
 mock.module("../memory/app-store.js", () => ({
   listApps: () => mockApps,
+  listAppsByConversation: (conversationId: string) =>
+    mockApps.filter((app) => app.conversationIds?.includes(conversationId)),
   addAppConversationId: (appId: string, conversationId: string) => {
     addAppConvCalls.push({ appId, conversationId });
     return true;
@@ -391,6 +395,7 @@ describe("runProactiveArtifactJob", () => {
           id: "app-123",
           name: "Budget Tracker",
           createdAt: buildStartedAt + 100,
+          updatedAt: buildStartedAt + 100,
         },
       ];
 
@@ -520,6 +525,52 @@ describe("runProactiveArtifactJob", () => {
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
       expect(releaseClaimCalls).toBe(1);
+    });
+
+    test("app decision with foreground app tool suppresses background build permanently", async () => {
+      rawAllRows = defaultTranscript;
+      decisionResponse = decisionYesApp;
+
+      await runProactiveArtifactJob({
+        conversationId: "conv-1",
+        userMessageCutoff: 1000,
+        assistantMessageId: "msg-4",
+        suppressAppBuild: true,
+        broadcastMessage: mockBroadcast,
+      });
+
+      expect(bootstrapCalls).toHaveLength(0);
+      expect(processMessageCalls).toHaveLength(0);
+      expect(addMessageCalls).toHaveLength(0);
+      expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(0);
+    });
+
+    test("app decision with recent app activity in source conversation suppresses background build permanently", async () => {
+      rawAllRows = defaultTranscript;
+      decisionResponse = decisionYesApp;
+      mockApps = [
+        {
+          id: "app-main",
+          name: "Budget Tracker",
+          createdAt: 1200,
+          updatedAt: 1300,
+          conversationIds: ["conv-1"],
+        },
+      ];
+
+      await runProactiveArtifactJob({
+        conversationId: "conv-1",
+        userMessageCutoff: 1000,
+        assistantMessageId: "msg-4",
+        broadcastMessage: mockBroadcast,
+      });
+
+      expect(bootstrapCalls).toHaveLength(0);
+      expect(processMessageCalls).toHaveLength(0);
+      expect(addMessageCalls).toHaveLength(0);
+      expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(0);
     });
 
     test("document build - build provider unavailable → releases claim for retry", async () => {

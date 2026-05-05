@@ -172,6 +172,7 @@ let mockConversationRow: Record<string, unknown> = {
   totalEstimatedCost: 0,
   title: null,
 };
+let mockMessageById: Record<string, unknown> | null = null;
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
@@ -192,7 +193,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
-  getMessageById: () => null,
+  getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
 }));
 
@@ -444,6 +445,17 @@ mock.module("../memory/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
 }));
 
+let mockHasProactiveArtifactCompleted = true;
+let mockTryClaimProactiveArtifactTrigger = false;
+const runProactiveArtifactJobMock = mock(
+  async (_params: Record<string, unknown>) => {},
+);
+mock.module("../proactive-artifact/index.js", () => ({
+  hasProactiveArtifactCompleted: () => mockHasProactiveArtifactCompleted,
+  tryClaimProactiveArtifactTrigger: () => mockTryClaimProactiveArtifactTrigger,
+  runProactiveArtifactJob: runProactiveArtifactJobMock,
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import {
@@ -456,7 +468,7 @@ import {
 
 type AgentLoopRun = (
   messages: Message[],
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent) => void | Promise<void>,
   signal?: AbortSignal,
   requestId?: string,
   onCheckpoint?: (
@@ -621,6 +633,10 @@ beforeEach(() => {
     totalEstimatedCost: 0,
     title: null,
   };
+  mockMessageById = null;
+  mockHasProactiveArtifactCompleted = true;
+  mockTryClaimProactiveArtifactTrigger = false;
+  runProactiveArtifactJobMock.mockClear();
   clearStrippedInjectionMetadataForConversationMock.mockClear();
   clearStrippedInjectionMetadataForConversationMock.mockImplementation(
     () => {},
@@ -645,6 +661,92 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+  });
+
+  describe("proactive artifact trigger", () => {
+    test("suppresses proactive app build when the foreground turn used app tools", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        id: "test-conv",
+        conversationType: "standard",
+      };
+      mockMessageById = {
+        id: "user-msg-1",
+        conversationId: "test-conv",
+        createdAt: 1000,
+      };
+      mockHasProactiveArtifactCompleted = false;
+      mockTryClaimProactiveArtifactTrigger = true;
+
+      const agentLoopRun: AgentLoopRun = async (
+        messages,
+        onEvent,
+        _signal,
+        _requestId,
+        onCheckpoint,
+      ) => {
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "I'll build that app." }],
+          },
+        });
+        await onEvent({
+          type: "tool_use",
+          id: "tool-1",
+          name: "app_create",
+          input: { name: "Flow" },
+        });
+        await onEvent({
+          type: "tool_result",
+          toolUseId: "tool-1",
+          content: "{}",
+          isError: false,
+        });
+        await onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: messages,
+        });
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+          },
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "Done." }],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        conversationId: "test-conv",
+        agentLoopRun,
+      });
+      await runAgentLoopImpl(
+        ctx,
+        "build a kanban app",
+        "user-msg-1",
+        () => {},
+        {
+          isUserMessage: true,
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(1);
+      expect(runProactiveArtifactJobMock.mock.calls[0]?.[0]).toMatchObject({
+        conversationId: "test-conv",
+        suppressAppBuild: true,
+      });
     });
   });
 
