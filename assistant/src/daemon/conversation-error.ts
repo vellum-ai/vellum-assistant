@@ -46,8 +46,6 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
   /current plan allows/i,
 ];
 
-const MANAGED_BALANCE_PATTERNS = [/"code"\s*:\s*"insufficient_balance"/i];
-
 const PROVIDER_BILLING_PATTERNS = [
   /credit balance is too low/i,
   /insufficient.*credits?/i,
@@ -278,7 +276,7 @@ function classifyCore(
       };
     }
     if (error.statusCode === 402) {
-      if (isManagedBalanceError(error, message)) {
+      if (isManagedBalanceError(error)) {
         return managedBalanceClassification();
       }
       return providerBillingClassification();
@@ -424,11 +422,8 @@ function isManagedUsageLimitError(error: unknown, message: string): boolean {
   return MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message));
 }
 
-function isManagedBalanceError(error: ProviderError, message: string): boolean {
-  if (getProviderRoutingSource(error.provider) === "managed-proxy") {
-    return true;
-  }
-  return MANAGED_BALANCE_PATTERNS.some((p) => p.test(message));
+function isManagedBalanceError(error: ProviderError): boolean {
+  return getProviderRoutingSource(error.provider) === "managed-proxy";
 }
 
 function isProviderBillingError(message: string): boolean {

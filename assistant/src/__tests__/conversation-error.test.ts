@@ -688,6 +688,23 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
     });
+
+    it("classifies direct OpenRouter insufficient_balance bodies as provider_billing", () => {
+      providerRoutingSources.openrouter = "user-key";
+      const err = new ProviderError(
+        'OpenRouter API error (402): {"code":"insufficient_balance","detail":"Provider account balance exhausted"}',
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("provider");
+      expect(result.userMessage).toContain("Settings");
+    });
   });
 
   describe("debug detail truncation", () => {
