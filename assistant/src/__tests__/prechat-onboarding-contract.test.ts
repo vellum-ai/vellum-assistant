@@ -339,4 +339,142 @@ describe("pre-chat onboarding contract", () => {
       expect(true).toBe(true); // structural acknowledgment
     });
   });
+
+  describe("end-to-end onboarding integration", () => {
+    test("with BOOTSTRAP.md present, onboarding context produces compact markdown with normalized labels", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Bootstrap\n\nWelcome to your first conversation.",
+      );
+
+      const context: OnboardingContext = {
+        tools: ["slack", "notion", "linear"],
+        tasks: ["code-building", "writing", "project-management"],
+        tone: "grounded",
+        userName: "Alice",
+        assistantName: "Pax",
+      };
+
+      const result = buildSystemPrompt({ onboardingContext: context });
+      const dynamic = dynamicBlock(result);
+
+      // Heading is present
+      expect(dynamic).toContain("## First-Run User Context");
+
+      // Normalized labels appear (capitalised tool names, human-readable task descriptions)
+      expect(dynamic).toContain("- Daily tools: Slack, Notion, Linear");
+      expect(dynamic).toContain("- Name: Alice");
+      expect(dynamic).toContain("- Chosen assistant name: Pax");
+      expect(dynamic).toContain("- Preferred initial voice: grounded");
+      // Common work descriptions are normalised from task IDs
+      expect(dynamic).toContain("- Common work:");
+
+      // No raw JSON anywhere in the dynamic block
+      expect(dynamic).not.toContain("```json");
+      expect(dynamic).not.toContain('"tools"');
+      expect(dynamic).not.toContain('"tasks"');
+      expect(dynamic).not.toContain('"tone"');
+      expect(dynamic).not.toContain('"userName"');
+      expect(dynamic).not.toContain('"assistantName"');
+    });
+
+    test("without BOOTSTRAP.md, onboarding context does NOT appear in system prompt", () => {
+      // No BOOTSTRAP.md created — simulates a returning user session
+      const context: OnboardingContext = {
+        tools: ["slack", "figma"],
+        tasks: ["design", "writing"],
+        tone: "warm",
+        userName: "Bob",
+        assistantName: "Kit",
+      };
+
+      const result = buildSystemPrompt({ onboardingContext: context });
+      const dynamic = dynamicBlock(result);
+
+      // Onboarding section must be absent
+      expect(dynamic).not.toContain("## First-Run User Context");
+      expect(dynamic).not.toContain("First-Run Ritual");
+      expect(dynamic).not.toContain("- Daily tools:");
+      expect(dynamic).not.toContain("- Name: Bob");
+      expect(dynamic).not.toContain("- Chosen assistant name:");
+      expect(dynamic).not.toContain("Apply this context quietly.");
+    });
+
+    test("excludeBootstrap suppresses both bootstrap and onboarding sections", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Bootstrap\n\nFirst run instructions.",
+      );
+
+      const context: OnboardingContext = {
+        tools: ["linear"],
+        tasks: ["code-building"],
+        tone: "energetic",
+        userName: "Charlie",
+        assistantName: "Nova",
+      };
+
+      const result = buildSystemPrompt({
+        onboardingContext: context,
+        excludeBootstrap: true,
+      });
+      const dynamic = dynamicBlock(result);
+
+      // Both bootstrap and onboarding must be suppressed
+      expect(dynamic).not.toContain("First-Run Ritual");
+      expect(dynamic).not.toContain("## First-Run User Context");
+      expect(dynamic).not.toContain("- Daily tools:");
+      expect(dynamic).not.toContain("- Name: Charlie");
+      expect(dynamic).not.toContain("Apply this context quietly.");
+    });
+
+    test("userPersona is included independently of onboarding context", () => {
+      // No BOOTSTRAP.md — the durable persona path after bootstrap is deleted
+      const personaContent =
+        "# User Persona\n\nPrefers concise answers. Works in fintech.";
+
+      const result = buildSystemPrompt({
+        userPersona: personaContent,
+        // No onboardingContext — simulates post-onboarding conversation
+      });
+      const dynamic = dynamicBlock(result);
+
+      // Persona content appears in prompt even without bootstrap or onboarding
+      expect(dynamic).toContain("# User Persona");
+      expect(dynamic).toContain("Prefers concise answers. Works in fintech.");
+
+      // No onboarding section should be present
+      expect(dynamic).not.toContain("## First-Run User Context");
+      expect(dynamic).not.toContain("First-Run Ritual");
+    });
+
+    test("userPersona appears alongside onboarding context during first run", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Bootstrap\n\nOnboarding flow.",
+      );
+
+      const personaContent =
+        "# User Persona\n\nEarly-stage startup founder. Likes bullet points.";
+      const context: OnboardingContext = {
+        tools: ["slack"],
+        tasks: ["writing"],
+        tone: "warm",
+        userName: "Dana",
+      };
+
+      const result = buildSystemPrompt({
+        userPersona: personaContent,
+        onboardingContext: context,
+      });
+      const dynamic = dynamicBlock(result);
+
+      // Both persona and onboarding context appear
+      expect(dynamic).toContain("# User Persona");
+      expect(dynamic).toContain("Likes bullet points.");
+      expect(dynamic).toContain("## First-Run User Context");
+      expect(dynamic).toContain("- Name: Dana");
+      expect(dynamic).toContain("- Daily tools: Slack");
+    });
+  });
 });
