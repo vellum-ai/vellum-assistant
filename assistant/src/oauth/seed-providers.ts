@@ -497,6 +497,7 @@ export const PROVIDER_SEED_DATA: Record<
     defaultScopes: ["default"],
     availableScopes: "https://developers.asana.com/docs/oauth-scopes",
     loopbackPort: 17328,
+    managedServiceConfigKey: "asana-oauth",
     injectionTemplates: [
       {
         hostPattern: "app.asana.com",

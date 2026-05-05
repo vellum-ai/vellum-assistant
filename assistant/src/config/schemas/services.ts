@@ -72,6 +72,10 @@ const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const AsanaOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 /**
  * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
  * skill process. Kept narrow: only the values the daemon reads before the
@@ -139,6 +143,9 @@ export const ServicesSchema = z.object({
   ),
   "twitter-oauth": TwitterOAuthServiceSchema.default(
     TwitterOAuthServiceSchema.parse({}),
+  ),
+  "asana-oauth": AsanaOAuthServiceSchema.default(
+    AsanaOAuthServiceSchema.parse({}),
   ),
   meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });

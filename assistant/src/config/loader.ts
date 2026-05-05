@@ -73,6 +73,7 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "linear-oauth": managed,
       "github-oauth": managed,
       "notion-oauth": managed,
+      "asana-oauth": managed,
     },
   };
 }
