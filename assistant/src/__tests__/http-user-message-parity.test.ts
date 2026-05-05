@@ -252,12 +252,24 @@ async function sendMessage(
   content: string,
   conversationObj: import("../daemon/conversation.js").Conversation,
   extra: Record<string, unknown> = {},
+  options: {
+    onGetOrCreateConversation?: (
+      conversationId: string,
+      opts?: Record<string, unknown>,
+    ) => void;
+  } = {},
 ) {
   return callHandler(
     (args) =>
       handleSendMessage(args, {
         sendMessageDeps: {
-          getOrCreateConversation: async () => conversationObj,
+          getOrCreateConversation: async (conversationId, opts) => {
+            options.onGetOrCreateConversation?.(
+              conversationId,
+              opts as Record<string, unknown> | undefined,
+            );
+            return conversationObj;
+          },
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -322,6 +334,100 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     const res = await sendMessage("stop recording", conversation);
 
     expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// CLIENT TIMEZONE — optional HTTP metadata
+// ============================================================================
+describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    listPendingByDestinationMock.mockClear();
+    listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  test("passes canonical clientTimezone through host-proxy transport", async () => {
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+    let capturedOptions: Record<string, unknown> | undefined;
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      { clientTimezone: "america/new_york" },
+      {
+        onGetOrCreateConversation: (_conversationId, opts) => {
+          capturedOptions = opts;
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(capturedOptions).toEqual({
+      transport: {
+        channelId: "vellum",
+        interfaceId: "macos",
+        clientTimezone: "America/New_York",
+      },
+    });
+  });
+
+  test("passes canonical clientTimezone through non-host-proxy transport", async () => {
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+    let capturedOptions: Record<string, unknown> | undefined;
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      { interface: "ios", clientTimezone: "europe/london" },
+      {
+        onGetOrCreateConversation: (_conversationId, opts) => {
+          capturedOptions = opts;
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(capturedOptions).toEqual({
+      transport: {
+        channelId: "vellum",
+        interfaceId: "ios",
+        clientTimezone: "Europe/London",
+      },
+    });
+  });
+
+  test("drops invalid clientTimezone without rejecting the message", async () => {
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+    let capturedOptions: Record<string, unknown> | undefined;
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      { clientTimezone: "not-a-timezone" },
+      {
+        onGetOrCreateConversation: (_conversationId, opts) => {
+          capturedOptions = opts;
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(capturedOptions).toEqual({
+      transport: {
+        channelId: "vellum",
+        interfaceId: "macos",
+      },
+    });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
