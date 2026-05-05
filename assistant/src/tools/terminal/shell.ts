@@ -111,6 +111,15 @@ class ShellTool implements Tool {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
+    const background = input.background === true;
+    if (background && context.diskPressureCleanupModeActive === true) {
+      return {
+        content:
+          "Error: background shell commands are not available during disk pressure cleanup mode.",
+        isError: true,
+      };
+    }
+
     const config = getConfig();
     const shellLockdownActive =
       isCesShellLockdownEnabled(config) &&
@@ -276,7 +285,6 @@ class ShellTool implements Tool {
     // Background mode: spawn and return immediately. The process output is
     // delivered to the conversation as a wake when the process exits.
     // -----------------------------------------------------------------------
-    const background = input.background === true;
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an
       // untracked process when the registry is full.
