@@ -28,8 +28,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 const {
   HostAppControlProxy,
-  _getActiveAppControlConversationId,
-  _resetActiveAppControlConversationId,
+  _getActiveAppControlSession,
+  _resetActiveAppControlSession,
+  _setActiveAppControlSession,
 } = await import("../daemon/host-app-control-proxy.js");
 
 import type { HostAppControlResultPayload } from "../daemon/message-types/host-app-control.js";
@@ -58,11 +59,11 @@ describe("HostAppControlProxy", () => {
     sentMessages.length = 0;
     resolvedInteractionIds.length = 0;
     mockHasClient = false;
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
   });
 
   afterEach(() => {
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
   });
 
   // -------------------------------------------------------------------------
@@ -120,8 +121,10 @@ describe("HostAppControlProxy", () => {
         },
       });
 
-      // Singleton lock acquired by this conversation.
-      expect(_getActiveAppControlConversationId()).toBe("conv-1");
+      // Session lock acquired by this conversation, bound to the started app.
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.editor");
 
       proxy.dispose();
     });
@@ -129,6 +132,22 @@ describe("HostAppControlProxy", () => {
     test("formats execution error with isError=true", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const controller = new AbortController();
+
+      // Acquire a session first so the click below passes the auth gate
+      // and reaches dispatch.
+      const startCtrl = new AbortController();
+      const startPromise = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        startCtrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await startPromise;
+      sentMessages.length = 0;
 
       const resultPromise = proxy.request(
         "app_control_click",
@@ -157,10 +176,10 @@ describe("HostAppControlProxy", () => {
   });
 
   // -------------------------------------------------------------------------
-  // (b) Singleton lock
+  // (b) Session lock
   // -------------------------------------------------------------------------
 
-  describe("singleton lock", () => {
+  describe("session lock", () => {
     test("second conversation's start returns isError naming the holder", async () => {
       const proxy1 = new HostAppControlProxy("conv-1");
       const ctrl1 = new AbortController();
@@ -175,7 +194,7 @@ describe("HostAppControlProxy", () => {
       proxy1.resolve(sent1.requestId as string, payload({ pngBase64: PNG_A }));
       await p1;
 
-      expect(_getActiveAppControlConversationId()).toBe("conv-1");
+      expect(_getActiveAppControlSession()?.conversationId).toBe("conv-1");
 
       // Second conversation tries to start — should be rejected without
       // sending any envelope.
@@ -235,14 +254,33 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
-    test("non-start tools are not gated by the lock", async () => {
-      const proxy = new HostAppControlProxy("conv-2");
+    test("non-start tool with no active session is rejected before dispatch", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
 
-      // Pretend another conversation already owns the session by manually
-      // priming the lock via a successful start in conv-1.
+      const result = await proxy.request(
+        "app_control_type",
+        {
+          tool: "type",
+          app: "com.example.editor",
+          text: "rm -rf ~",
+        },
+        "conv-1",
+        ctrl.signal,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("No app-control session is active");
+      expect(result.content).toContain("app_control_start");
+      expect(sentMessages).toHaveLength(0); // No envelope dispatched
+
+      proxy.dispose();
+    });
+
+    test("non-start tool from non-owning conversation is rejected", async () => {
       const proxyOwner = new HostAppControlProxy("conv-1");
       const startCtrl = new AbortController();
+
       const pStart = proxyOwner.request(
         "app_control_start",
         { tool: "start", app: "com.example.editor" },
@@ -254,15 +292,128 @@ describe("HostAppControlProxy", () => {
         payload({ pngBase64: PNG_A }),
       );
       await pStart;
-
       sentMessages.length = 0;
 
-      // conv-2 issues a non-start tool — proxy must NOT short-circuit on
-      // the lock; the dispatch goes through.
-      const observePromise = proxy.request(
+      // conv-2 tries to observe the app conv-1 owns — must be rejected
+      // before any host dispatch.
+      const proxyOther = new HostAppControlProxy("conv-2");
+      const ctrl = new AbortController();
+      const result = await proxyOther.request(
         "app_control_observe",
         { tool: "observe", app: "com.example.editor" },
         "conv-2",
+        ctrl.signal,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("conv-1");
+      expect(result.content).toContain("currently");
+      expect(sentMessages).toHaveLength(0);
+
+      proxyOwner.dispose();
+      proxyOther.dispose();
+    });
+
+    test("non-start tool with mismatched app is rejected (cross-app bypass)", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const startCtrl = new AbortController();
+
+      // User approves control of the editor.
+      const pStart = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        startCtrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await pStart;
+      sentMessages.length = 0;
+
+      // The model attempts to type into a different app — must be
+      // rejected with an informative error.
+      const ctrl = new AbortController();
+      const result = await proxy.request(
+        "app_control_type",
+        {
+          tool: "type",
+          app: "com.apple.Terminal",
+          text: "rm -rf ~",
+        },
+        "conv-1",
+        ctrl.signal,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("com.example.editor");
+      expect(result.content).toContain("com.apple.Terminal");
+      expect(result.content).toContain("app_control_stop");
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("non-start tool with case-different but otherwise matching app is allowed", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const startCtrl = new AbortController();
+
+      const pStart = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.apple.Safari" },
+        "conv-1",
+        startCtrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await pStart;
+      sentMessages.length = 0;
+
+      // Different casing of the same bundle ID — bundle IDs are
+      // case-insensitive on macOS, so this should pass the gate.
+      const ctrl = new AbortController();
+      const obsPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "COM.APPLE.SAFARI" },
+        "conv-1",
+        ctrl.signal,
+      );
+      expect(sentMessages).toHaveLength(1);
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_B }),
+      );
+      const result = await obsPromise;
+      expect(result.isError).toBe(false);
+
+      proxy.dispose();
+    });
+
+    test("non-start tool from owning conversation with matching app dispatches", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const startCtrl = new AbortController();
+
+      const pStart = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        startCtrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await pStart;
+      sentMessages.length = 0;
+
+      const ctrl = new AbortController();
+      const obsPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "com.example.editor" },
+        "conv-1",
         ctrl.signal,
       );
       expect(sentMessages).toHaveLength(1);
@@ -270,11 +421,10 @@ describe("HostAppControlProxy", () => {
       expect(sent.toolName).toBe("app_control_observe");
 
       proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_B }));
-      const result = await observePromise;
+      const result = await obsPromise;
       expect(result.isError).toBe(false);
 
       proxy.dispose();
-      proxyOwner.dispose();
     });
   });
 
@@ -286,6 +436,10 @@ describe("HostAppControlProxy", () => {
     test("attaches stuck warning after 5 identical observations", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       // First observation establishes the baseline (count = 0).
       const p0 = proxy.request(
@@ -341,6 +495,10 @@ describe("HostAppControlProxy", () => {
     test("resets repeat count when the screenshot hash differs", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       // Establish baseline at PNG_A.
       const p1 = proxy.request(
@@ -391,6 +549,10 @@ describe("HostAppControlProxy", () => {
     test("non-running states do not feed the loop guard", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       // Several observations with state != running (and identical PNGs)
       // should not increment the repeat count.
@@ -435,10 +597,10 @@ describe("HostAppControlProxy", () => {
         payload({ pngBase64: PNG_A }),
       );
       await p1;
-      expect(_getActiveAppControlConversationId()).toBe("conv-1");
+      expect(_getActiveAppControlSession()?.conversationId).toBe("conv-1");
 
       proxy1.dispose();
-      expect(_getActiveAppControlConversationId()).toBeUndefined();
+      expect(_getActiveAppControlSession()).toBeUndefined();
 
       // Now a new conversation can acquire the lock.
       sentMessages.length = 0;
@@ -458,7 +620,7 @@ describe("HostAppControlProxy", () => {
       );
       const result = await p2;
       expect(result.isError).toBe(false);
-      expect(_getActiveAppControlConversationId()).toBe("conv-2");
+      expect(_getActiveAppControlSession()?.conversationId).toBe("conv-2");
 
       proxy2.dispose();
     });
@@ -478,16 +640,16 @@ describe("HostAppControlProxy", () => {
         payload({ pngBase64: PNG_A }),
       );
       await pStart;
-      expect(_getActiveAppControlConversationId()).toBe("conv-1");
+      expect(_getActiveAppControlSession()?.conversationId).toBe("conv-1");
 
       // A different conversation's proxy disposes — the lock should remain
       // with conv-1.
       const proxyOther = new HostAppControlProxy("conv-2");
       proxyOther.dispose();
-      expect(_getActiveAppControlConversationId()).toBe("conv-1");
+      expect(_getActiveAppControlSession()?.conversationId).toBe("conv-1");
 
       proxyOwner.dispose();
-      expect(_getActiveAppControlConversationId()).toBeUndefined();
+      expect(_getActiveAppControlSession()).toBeUndefined();
     });
   });
 
@@ -499,6 +661,10 @@ describe("HostAppControlProxy", () => {
     test("propagates abort and emits cancel envelope", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const controller = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       const resultPromise = proxy.request(
         "app_control_observe",
@@ -557,6 +723,10 @@ describe("HostAppControlProxy", () => {
     test("100 sequential requests dispatch without an artificial limit", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       for (let i = 0; i < 100; i++) {
         const p = proxy.request(

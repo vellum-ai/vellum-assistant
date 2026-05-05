@@ -27,7 +27,6 @@ export interface TaskRun {
   finishedAt: number | null;
   error: string | null;
   principalId: string | null;
-  memoryScopeId: string | null;
   createdAt: number;
 }
 
@@ -109,7 +108,6 @@ export function createTaskRun(taskId: string): TaskRun {
     finishedAt: null,
     error: null,
     principalId: null,
-    memoryScopeId: null,
     createdAt: now,
   };
   db.insert(taskRuns).values(run).run();
@@ -125,7 +123,6 @@ export function updateTaskRun(
       | "conversationId"
       | "error"
       | "principalId"
-      | "memoryScopeId"
       | "startedAt"
       | "finishedAt"
     >

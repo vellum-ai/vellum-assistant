@@ -59,6 +59,7 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
 import { bootstrapConversation } from "../conversation-bootstrap.js";
 import { deleteConversation } from "../conversation-crud.js";
 import {
@@ -240,14 +241,20 @@ function readBufferContent(bufferPath: string): string {
 /**
  * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. Returns
  * `null` on success, or the current holder string (file contents, typically
- * `pid timestamp`) when the file already exists — the holder is surfaced for
- * log diagnostics so operators can identify a stuck lock without re-reading.
+ * `pid timestamp`) when the file already exists and the holder is still alive.
  *
- * Crash recovery: if the prior daemon died with the lock held, the file will
- * still be on disk on the next start. PR 20 keeps the lock simple per the
- * plan instructions; a future iteration can probe liveness via `kill(pid, 0)`
- * the way `snapshot-lock.ts` does. Until then, an operator can clear a
- * stale lock by removing the file.
+ * Stale-lock takeover: if the file exists but its holder PID is not running,
+ * unlink the stale file and retry the create exactly once. This recovers
+ * automatically from a crashed daemon that died with the lock held —
+ * otherwise every subsequent scheduled consolidation would skip with `locked`
+ * indefinitely until an operator manually removed the file.
+ *
+ * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
+ * full rename-aside dance) because only the assistant's jobs worker calls
+ * this lock, and at most one assistant process runs per workspace at any
+ * time. A holder with an unparseable / empty payload is treated as stale —
+ * the only writers ever produce a `<pid> <timestamp>` line, so an
+ * unparseable file is corruption from a partial write that crashed.
  */
 function tryAcquireLock(lockPath: string): string | null {
   // The workspace migration seeds `memory/.v2-state/`, but tests and
@@ -255,9 +262,40 @@ function tryAcquireLock(lockPath: string): string | null {
   // is idempotent, so the call is cheap when the dir already exists.
   mkdirSync(dirname(lockPath), { recursive: true });
 
+  const firstHolder = tryCreate(lockPath);
+  if (firstHolder === null) return null;
+  if (!isHolderStale(firstHolder)) return firstHolder;
+
+  log.info(
+    { lockPath, holder: firstHolder },
+    "consolidation: taking over stale lock (holder not running)",
+  );
+  try {
+    unlinkSync(lockPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      log.warn(
+        { err, lockPath },
+        "consolidation: failed to unlink stale lock; reporting as locked",
+      );
+      return firstHolder;
+    }
+  }
+  // After unlink, the next `wx` create should succeed. If a third party
+  // raced in and re-acquired (vanishingly unlikely with one writer per
+  // workspace), surface their holder string rather than overwriting.
+  return tryCreate(lockPath);
+}
+
+/**
+ * Atomically create the lock file. Returns `null` on success, or the holder
+ * string read from the file when it already exists (`"unknown"` if the read
+ * itself fails). Rethrows any non-EEXIST errno from `openSync`.
+ */
+function tryCreate(lockPath: string): string | null {
   let fd: number;
   try {
-    // `wx` = create-if-not-exists, fail with EEXIST if it does.
     fd = openSync(lockPath, "wx");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
@@ -267,13 +305,10 @@ function tryAcquireLock(lockPath: string): string | null {
       return "unknown";
     }
   }
-
-  // Best-effort PID + timestamp payload so a stale lock can be diagnosed.
-  // The worker only cares that the file exists; the contents are advisory.
   try {
     writeSync(fd, `${process.pid} ${Date.now()}\n`);
   } catch {
-    // best-effort
+    // best-effort — payload is advisory, the file's existence is the lock
   } finally {
     try {
       closeSync(fd);
@@ -282,6 +317,21 @@ function tryAcquireLock(lockPath: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * A holder string is stale when its PID parses to a non-running process.
+ * The payload format is `<pid> <timestamp>` (see `tryCreate`'s write), but
+ * an unparseable / empty / `"unknown"` payload is also treated as stale:
+ * the only writer is `tryCreate` itself, so corruption indicates a partial
+ * write from a crashed prior holder rather than a live writer mid-flush.
+ */
+function isHolderStale(holder: string): boolean {
+  const match = /^\d+/.exec(holder);
+  if (!match) return true;
+  const pid = Number.parseInt(match[0], 10);
+  if (!Number.isFinite(pid) || pid <= 0) return true;
+  return !isProcessAlive(pid);
 }
 
 /**

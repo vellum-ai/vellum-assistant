@@ -106,7 +106,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => undefined,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
-  getConversationMemoryScopeId: () => undefined,
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({

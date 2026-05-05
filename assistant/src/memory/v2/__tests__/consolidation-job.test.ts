@@ -372,25 +372,57 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
   });
 
-  test("a stale lock file blocks a second concurrent invocation", async () => {
-    // Pre-seed a lock file as if a prior run was still in flight. The
-    // simple wx-based lock has no liveness probe, so this also covers
-    // stale-lock-on-disk behavior — operators clear stale locks manually.
+  test("a live lock holder blocks a second concurrent invocation", async () => {
+    // Pre-seed a lock file with the current process's PID so the liveness
+    // probe sees a running holder and the second invocation correctly
+    // reports `locked` rather than taking over.
     mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
-    writeFileSync(lockPath(), "9999 1700000000000\n");
+    writeFileSync(lockPath(), `${process.pid} 1700000000000\n`);
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("locked");
     if (result.kind === "locked") {
-      expect(result.holder).toContain("9999");
+      expect(result.holder).toContain(`${process.pid}`);
     }
     expect(bootstrapCalls).toBe(0);
     expect(wakeCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // The pre-seeded lock must NOT be removed by a contender — only the
-    // owner releases it.
+    // The live holder's lock must NOT be removed by a contender.
     expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
+    // PID 999999 is well outside the typical kernel max_pid range on macOS
+    // and Linux, so kill(pid, 0) reliably returns ESRCH. The takeover path
+    // must unlink the stale file, retry the wx create, and bootstrap the
+    // background conversation as if the lock had been free all along.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), "999999 1700000000000\n");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(bootstrapCalls).toBe(1);
+    expect(wakeCalls).toBe(1);
+    // Lock is released in the finally block after a successful run.
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("an empty / corrupted lock file is treated as stale and taken over", async () => {
+    // A zero-byte file simulates a prior holder that crashed between the
+    // O_EXCL create and the PID write. With only one writer ever, an
+    // unparseable payload is unambiguously corruption, not a live
+    // mid-write — take it over.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), "");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(bootstrapCalls).toBe(1);
+    expect(wakeCalls).toBe(1);
+    expect(existsSync(lockPath())).toBe(false);
   });
 });
 

@@ -151,7 +151,6 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
-      memoryScopeId: ctx.memoryPolicy.scopeId,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,

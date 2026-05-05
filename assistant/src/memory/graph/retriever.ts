@@ -525,7 +525,6 @@ export async function loadContextMemory(
       const results = await searchGraphNodes(
         queryVector,
         maxNodes * 3,
-        [opts.scopeId],
         sparseVector,
       );
       for (const r of results) {
@@ -548,7 +547,6 @@ export async function loadContextMemory(
       const results = await searchGraphNodes(
         userQueryVector,
         maxNodes * 3,
-        [opts.scopeId],
         undefined,
       );
       for (const r of results) {
@@ -1007,9 +1005,7 @@ export async function retrieveForTurn(
           }
           const imgVector = imgResult.vectors[0];
           if (imgVector) {
-            const imgResults = await searchGraphNodes(imgVector, 40, [
-              opts.scopeId,
-            ]);
+            const imgResults = await searchGraphNodes(imgVector, 40);
             for (const r of imgResults) {
               const current = allCandidateIds.get(r.nodeId) ?? 0;
               allCandidateIds.set(r.nodeId, Math.max(current, r.score));
@@ -1097,7 +1093,7 @@ export async function retrieveForTurn(
       queryEmbeddings = embedResults.vectors;
 
       const searchPromises = queryEmbeddings.map((vec) =>
-        searchGraphNodes(vec, 40, [opts.scopeId]),
+        searchGraphNodes(vec, 40),
       );
       const searchResults = await Promise.all(searchPromises);
 

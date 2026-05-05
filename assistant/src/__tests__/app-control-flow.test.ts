@@ -13,8 +13,9 @@
  * differs in two notable ways:
  *  1. Result payloads carry `pngBase64` (not screenshots-as-strings) and
  *     surface as image content blocks with `media_type: "image/png"`.
- *  2. A module-level singleton lock guards `app_control_start` — only one
- *     conversation may hold an active session at a time.
+ *  2. A module-level session lock binds `(conversationId, app)` — only
+ *     one conversation may hold an active session at a time, and non-start
+ *     tools must target the same `app` the user approved at start time.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -87,8 +88,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 const {
   HostAppControlProxy,
-  _getActiveAppControlConversationId,
-  _resetActiveAppControlConversationId,
+  _getActiveAppControlSession,
+  _resetActiveAppControlSession,
+  _setActiveAppControlSession,
 } = await import("../daemon/host-app-control-proxy.js");
 const { ROUTES } = await import("../runtime/routes/host-app-control-routes.js");
 const { surfaceProxyResolver } =
@@ -176,11 +178,11 @@ describe("app-control end-to-end flow", () => {
     pending.clear();
     clearConversations();
     mockHasClient = true;
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
   });
 
   afterEach(() => {
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
     clearConversations();
   });
 
@@ -238,8 +240,10 @@ describe("app-control end-to-end flow", () => {
       },
     });
 
-    // Singleton lock is held by this conversation now.
-    expect(_getActiveAppControlConversationId()).toBe(conversationId);
+    // Session lock is held by this conversation now, bound to the started app.
+    const session = _getActiveAppControlSession();
+    expect(session?.conversationId).toBe(conversationId);
+    expect(session?.app).toBe("com.example.app");
 
     proxy.dispose();
   });
@@ -253,6 +257,12 @@ describe("app-control end-to-end flow", () => {
     const proxy = new HostAppControlProxy(conversationId);
     const ctx = buildContext(proxy, conversationId);
     registerConversation(conversationId, proxy);
+    // Prime a session so observe passes the auth gate. This test exercises
+    // the result-formatting path, not the start flow.
+    _setActiveAppControlSession({
+      conversationId,
+      app: "com.example.app",
+    });
 
     const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
       tool: "observe",
@@ -306,7 +316,7 @@ describe("app-control end-to-end flow", () => {
     });
     await postResult({ state: "running", pngBase64: TINY_PNG_B64 });
     await startPromise;
-    expect(_getActiveAppControlConversationId()).toBe(conversationId);
+    expect(_getActiveAppControlSession()?.conversationId).toBe(conversationId);
 
     // Wrap dispose to verify it was called by the resolver.
     let disposeCalls = 0;
@@ -328,7 +338,7 @@ describe("app-control end-to-end flow", () => {
     expect(sentMessages).toHaveLength(0);
     expect(disposeCalls).toBe(1);
     // Lock released.
-    expect(_getActiveAppControlConversationId()).toBeUndefined();
+    expect(_getActiveAppControlSession()).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------
@@ -347,7 +357,7 @@ describe("app-control end-to-end flow", () => {
     await postResult({ state: "running", pngBase64: TINY_PNG_B64 });
     const resultA = await startA;
     expect(resultA.isError).toBe(false);
-    expect(_getActiveAppControlConversationId()).toBe("conv-a");
+    expect(_getActiveAppControlSession()?.conversationId).toBe("conv-a");
 
     // Second conversation tries to start while conv-a holds the lock.
     sentMessages.length = 0;

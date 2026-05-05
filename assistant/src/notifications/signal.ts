@@ -101,6 +101,10 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description:
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
   },
+  {
+    id: "heartbeat.alert",
+    description: "Heartbeat found something worth surfacing to the guardian",
+  },
 ] as const;
 
 export type NotificationSourceEventName =

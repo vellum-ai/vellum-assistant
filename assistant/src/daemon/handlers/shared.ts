@@ -129,7 +129,6 @@ export interface ConversationCreateOptions {
   isInteractive?: boolean;
   /** Slack-only non-persisted notice injected into the active model turn. */
   slackRuntimeContextNotice?: string;
-  memoryScopeId?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
 

@@ -1001,13 +1001,13 @@ struct ToolCallStepDetailRow: View {
                     Task {
                         do {
                             if let existingRule {
-                                try await Self.trustRuleClient.updateRule(
+                                _ = try await Self.trustRuleClient.updateRule(
                                     id: existingRule.id,
                                     risk: rule.riskLevel,
                                     description: nil
                                 )
                             } else {
-                                try await Self.trustRuleClient.createRule(
+                                _ = try await Self.trustRuleClient.createRule(
                                     tool: rule.toolName,
                                     pattern: rule.pattern,
                                     risk: rule.riskLevel,
@@ -1026,7 +1026,7 @@ struct ToolCallStepDetailRow: View {
                 onSaveAsNew: { rule in
                     Task {
                         do {
-                            try await Self.trustRuleClient.createRule(
+                            _ = try await Self.trustRuleClient.createRule(
                                 tool: rule.toolName,
                                 pattern: rule.pattern,
                                 risk: rule.riskLevel,

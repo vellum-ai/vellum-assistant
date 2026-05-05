@@ -16,7 +16,7 @@
  * the convention established for the sweep prompt.
  */
 
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -27,6 +27,14 @@ const log = getLogger("memory-v2-consolidate-prompt");
 
 /** Sentinel substituted with the cutoff timestamp at runtime. */
 export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
+
+/**
+ * Upper bound for the override file. Real consolidation prompts are kilobytes;
+ * 1 MiB is generous headroom while preventing a `settings.write` principal from
+ * pointing the field at a multi-gigabyte file (or `/dev/zero`-like stream that
+ * `lstat` can't size cap on its own) and exfiltrating it through the wake hint.
+ */
+const MAX_PROMPT_BYTES = 1 * 1024 * 1024;
 
 /**
  * Consolidation prompt — live-mode only. The agent runs as itself (full
@@ -447,6 +455,33 @@ export function resolveConsolidationPrompt(
   const resolvedPath = resolveOverridePath(overridePath);
   let contents: string;
   try {
+    const stat = lstatSync(resolvedPath);
+    if (!stat.isFile()) {
+      log.warn(
+        {
+          configuredPath: overridePath,
+          resolvedPath,
+          reason: "not_regular_file",
+          fallback: "bundled",
+        },
+        "consolidation prompt override is not a regular file; using bundled prompt",
+      );
+      return renderConsolidationPrompt(cutoff);
+    }
+    if (stat.size > MAX_PROMPT_BYTES) {
+      log.warn(
+        {
+          configuredPath: overridePath,
+          resolvedPath,
+          size: stat.size,
+          limit: MAX_PROMPT_BYTES,
+          reason: "oversized_override",
+          fallback: "bundled",
+        },
+        "consolidation prompt override exceeds size limit; using bundled prompt",
+      );
+      return renderConsolidationPrompt(cutoff);
+    }
     contents = readFileSync(resolvedPath, "utf-8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;

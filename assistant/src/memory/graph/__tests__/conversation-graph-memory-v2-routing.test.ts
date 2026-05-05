@@ -232,7 +232,7 @@ function makeMemory(): InstanceType<typeof ConversationGraphMemory> {
   // `initialized = true` skips the context-load branch and the
   // `fetchRecentSummaries` DB read it depends on, isolating the per-turn path
   // for these unit tests. Context-load is covered by its own block below.
-  const m = new ConversationGraphMemory("scope-1", "conv-test-1");
+  const m = new ConversationGraphMemory("conv-test-1");
   (m as unknown as { initialized: boolean }).initialized = true;
   return m;
 }
@@ -409,7 +409,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     // Fresh memory → initialized=false → runContextLoad branch.
-    const memory = new ConversationGraphMemory("scope-1", "conv-test-cl");
+    const memory = new ConversationGraphMemory("conv-test-cl");
     const config = makeConfig(true);
     const messages = makeMessages("first message of the conversation here");
 
@@ -436,7 +436,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
     _setOverridesForTesting({ "memory-v2-enabled": false });
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
-    const memory = new ConversationGraphMemory("scope-1", "conv-test-cl-off");
+    const memory = new ConversationGraphMemory("conv-test-cl-off");
     const config = makeConfig(true);
     const messages = makeMessages("first message of the conversation here");
 

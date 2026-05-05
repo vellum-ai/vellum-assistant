@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -22,7 +23,21 @@ export { API_KEY_PROVIDERS } from "../providers/provider-secret-catalog.js";
 const log = getLogger("config");
 
 let cached: AssistantConfig | null = null;
+let cachedFileSignature: ConfigFileSignature | null = null;
 let loading = false;
+
+type ConfigFileSignature =
+  | {
+      path: string;
+      exists: true;
+      size: number;
+      mtimeMs: number;
+      ctimeMs: number;
+    }
+  | {
+      path: string;
+      exists: false;
+    };
 
 function getConfigPath(): string {
   return getWorkspaceConfigPath();
@@ -30,6 +45,48 @@ function getConfigPath(): string {
 
 function ensureMigratedDataDir(): void {
   ensureDataDir();
+}
+
+function readConfigFileSignature(configPath: string): ConfigFileSignature {
+  const stats = safeStatSync(configPath);
+  if (!stats) {
+    return {
+      path: configPath,
+      exists: false,
+    };
+  }
+
+  return {
+    path: configPath,
+    exists: true,
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+    ctimeMs: stats.ctimeMs,
+  };
+}
+
+function configFileSignaturesEqual(
+  a: ConfigFileSignature,
+  b: ConfigFileSignature,
+): boolean {
+  if (a.path !== b.path || a.exists !== b.exists) return false;
+  if (!a.exists || !b.exists) return true;
+  return (
+    a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
+  );
+}
+
+function getCachedConfigIfFresh(): AssistantConfig | null {
+  if (!cached || !cachedFileSignature) return null;
+
+  const currentSignature = readConfigFileSignature(getConfigPath());
+  if (configFileSignaturesEqual(cachedFileSignature, currentSignature)) {
+    return cached;
+  }
+
+  cached = null;
+  cachedFileSignature = null;
+  return null;
 }
 
 /**
@@ -79,6 +136,7 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "discord-oauth": managed,
       "airtable-oauth": managed,
       "hubspot-oauth": managed,
+      "salesforce-oauth": managed,
     },
   };
 }
@@ -462,6 +520,7 @@ export function mergeDefaultWorkspaceConfig(): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+  invalidateConfigCache();
 
   // Move the temp file into the workspace directory as a permanent record.
   // This prevents re-application on daemon restart (the env var still points
@@ -480,7 +539,8 @@ export function mergeDefaultWorkspaceConfig(): void {
 }
 
 export function loadConfig(): AssistantConfig {
-  if (cached) return cached;
+  const freshCached = getCachedConfigIfFresh();
+  if (freshCached) return freshCached;
 
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning)
   // can trigger loadConfig again. Return defaults to break the cycle
@@ -599,12 +659,14 @@ export function loadConfig(): AssistantConfig {
     }
 
     cached = config;
+    cachedFileSignature = readConfigFileSignature(configPath);
 
     loading = false;
     return config;
   } catch (err) {
     // Loading failed — clear cached so the next call retries
     cached = null;
+    cachedFileSignature = null;
     loading = false;
     throw err;
   }
@@ -638,7 +700,8 @@ export function getConfig(): AssistantConfig {
  * workspace-existence check runs.
  */
 export function getConfigReadOnly(): AssistantConfig {
-  if (cached) return cached;
+  const freshCached = getCachedConfigIfFresh();
+  if (freshCached) return freshCached;
 
   const configPath = getConfigPath();
   let fileConfig: Record<string, unknown> = {};
@@ -655,6 +718,7 @@ export function getConfigReadOnly(): AssistantConfig {
 
 export function invalidateConfigCache(): void {
   cached = null;
+  cachedFileSignature = null;
   loading = false;
 }
 
@@ -692,6 +756,7 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   cached = null; // invalidate cache
+  cachedFileSignature = null;
 }
 
 export function getNestedValue(

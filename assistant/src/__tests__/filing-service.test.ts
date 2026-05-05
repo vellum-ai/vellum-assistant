@@ -342,16 +342,15 @@ describe("FilingService", () => {
       expect(service.nextCompactionAt).toBeNull();
     });
 
-    test("start() schedules timers when only the flag is on", () => {
+    test("start() does not schedule timers when only the flag is on", () => {
       _setOverridesForTesting({ "memory-v2-enabled": true });
       mockConfig.memory.v2.enabled = false;
 
       const service = createService();
       service.start();
 
-      expect(service.nextRunAt).not.toBeNull();
-      expect(service.nextCompactionAt).not.toBeNull();
-      service.stop();
+      expect(service.nextRunAt).toBeNull();
+      expect(service.nextCompactionAt).toBeNull();
     });
 
     test("start() schedules timers when only the config is on", () => {

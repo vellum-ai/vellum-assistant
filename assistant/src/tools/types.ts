@@ -192,8 +192,6 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
-  /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
-  memoryScopeId?: string;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**

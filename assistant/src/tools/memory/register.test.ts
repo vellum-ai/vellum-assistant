@@ -11,8 +11,14 @@ import {
   test,
 } from "bun:test";
 
+import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import type { ToolContext } from "../types.js";
+
+// This test exercises v1 PKB re-index enqueue. The `memory-v2-enabled` flag
+// (registry default `true`) makes the enqueue path skipped — disable it so
+// the v1 PKB index path stays under test.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
@@ -175,7 +181,7 @@ describe("recallTool.execute", () => {
         max_results: 4,
         depth: "deep",
       },
-      makeContext({ memoryScopeId: "scope-filter" }),
+      makeContext(),
     );
 
     expect(result).toEqual({
@@ -196,7 +202,7 @@ describe("recallTool.execute", () => {
 
     const result = await recallTool.execute(
       { query: "fallback search", sources: ["workspace"], depth: "fast" },
-      makeContext({ memoryScopeId: "scope-fallback" }),
+      makeContext(),
     );
 
     expect(result).toEqual({
@@ -205,7 +211,7 @@ describe("recallTool.execute", () => {
     });
   });
 
-  test("propagates tool context and defaults missing memory scope", async () => {
+  test("propagates tool context", async () => {
     const controller = new AbortController();
 
     await recallTool.execute(
@@ -221,7 +227,6 @@ describe("recallTool.execute", () => {
     expect(recallCalls[0]?.context).toEqual({
       workingDir: "/workspace/project",
       conversationId: "conv-context",
-      memoryScopeId: "default",
       config: getConfig(),
       signal: controller.signal,
     });
@@ -275,9 +280,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   test("enqueues re-index jobs for both buffer and daily archive paths", async () => {
     const result = await rememberTool.execute(
       { content: "index me please" },
-      // Passes a non-default per-conversation scopeId to prove the PKB
-      // enqueue ignores it and pins to PKB_WORKSPACE_SCOPE instead.
-      makeContext({ memoryScopeId: "scope-enqueue" }),
+      makeContext(),
     );
     expect(result.isError).toBe(false);
 
@@ -308,7 +311,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   test("does not enqueue when content is empty (write was skipped)", async () => {
     const result = await rememberTool.execute(
       { content: "   " },
-      makeContext({ memoryScopeId: "scope-empty" }),
+      makeContext(),
     );
     expect(result.isError).toBe(true);
     expect(enqueueCalls).toHaveLength(0);
@@ -319,7 +322,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
 
     const result = await rememberTool.execute(
       { content: "enqueue will throw" },
-      makeContext({ memoryScopeId: "scope-throw" }),
+      makeContext(),
     );
 
     // Remember call succeeded despite enqueue throwing for each write.

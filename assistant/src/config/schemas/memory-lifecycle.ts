@@ -149,6 +149,19 @@ export const MemoryCleanupConfigSchema = z
       .describe(
         "Retention period for LLM request/response logs in milliseconds (null keeps forever, 0 prunes immediately)",
       ),
+    traceEventRetentionDays: z
+      .number({
+        error: "memory.cleanup.traceEventRetentionDays must be a number",
+      })
+      .int("memory.cleanup.traceEventRetentionDays must be an integer")
+      .nonnegative(
+        "memory.cleanup.traceEventRetentionDays must be non-negative",
+      )
+      .max(365, "memory.cleanup.traceEventRetentionDays must be <= 365 days")
+      .default(3)
+      .describe(
+        "Number of days to retain trace events before cleanup (0 disables pruning)",
+      ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");
 

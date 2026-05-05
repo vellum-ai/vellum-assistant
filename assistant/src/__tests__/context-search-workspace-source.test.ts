@@ -38,7 +38,6 @@ function makeTempDir(): string {
 function makeContext(workingDir: string): RecallSearchContext {
   return {
     workingDir,
-    memoryScopeId: "scope-123",
     conversationId: "conversation-123",
     config: {} as AssistantConfig,
   };

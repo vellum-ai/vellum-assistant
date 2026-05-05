@@ -65,7 +65,6 @@ function makeContext(
 ): RecallSearchContext {
   return {
     workingDir,
-    memoryScopeId: "scope-123",
     conversationId: "conv-xyz",
     config: {} as AssistantConfig,
     ...(signal ? { signal } : {}),

@@ -73,7 +73,10 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import { readMemoryV2StaticContent } from "../memory/v2/static-context.js";
+import {
+  readMemoryV2StaticContent,
+  shouldLoadMemoryV2Static,
+} from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -106,6 +109,11 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
+import {
+  hasProactiveArtifactCompleted,
+  runProactiveArtifactJob,
+  tryClaimProactiveArtifactTrigger,
+} from "../proactive-artifact/index.js";
 import type {
   ContentBlock,
   Message,
@@ -113,6 +121,7 @@ import type {
 } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -438,7 +447,6 @@ export interface AgentLoopConversationContext {
   /** Timestamp (ms since epoch) until which the circuit breaker is open. */
   compactionCircuitOpenUntil: number | null;
 
-  readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
   readonly graphMemory: ConversationGraphMemory;
 
   currentActiveSurfaceId?: string;
@@ -1330,10 +1338,16 @@ export async function runAgentLoopImpl(
     const pkbActive = currentPkbContent !== null;
 
     // V2 static memory block (essentials/threads/recent/buffer). Same
-    // first-turn / post-compaction cadence as PKB — `readMemoryV2StaticContent`
-    // self-gates on the v2 flag + config, returning null when v2 is off.
-    // Skip the file reads entirely on non-injection turns.
-    const currentMemoryV2Static = shouldInjectNowAndPkb
+    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
+    // also blocks remote-channel non-guardian actors from inducing the
+    // model to recite private memory; `readMemoryV2StaticContent` self-gates
+    // on the v2 flag + config and returns null when v2 is off, so the file
+    // reads are skipped on non-injection turns.
+    const currentMemoryV2Static = shouldLoadMemoryV2Static({
+      shouldInjectNowAndPkb,
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    })
       ? readMemoryV2StaticContent()
       : null;
     const memoryV2Static = currentMemoryV2Static;
@@ -1349,8 +1363,8 @@ export async function runAgentLoopImpl(
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
     // so post-compaction re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
-    // PKB points live under a single workspace sentinel scope, not the
-    // conversation's memoryPolicy.scopeId. See `PKB_WORKSPACE_SCOPE` for why.
+    // PKB points live under a single workspace sentinel scope.
+    // See `PKB_WORKSPACE_SCOPE` for why.
     const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
@@ -2873,6 +2887,41 @@ export async function runAgentLoopImpl(
             { err: feedErr, conversationId: ctx.conversationId },
             "Failed to build home-feed event for background conversation",
           );
+        }
+
+        // Proactive artifact: fire once when the processed turn was the 4th user message.
+        // Only trigger for real user-authored turns (not subagent/system messages).
+        {
+          const paConv = getConversation(ctx.conversationId);
+          if (
+            paConv &&
+            paConv.conversationType === "standard" &&
+            options?.isUserMessage
+          ) {
+            void (async () => {
+              try {
+                if (hasProactiveArtifactCompleted()) return;
+                const userMsg = getMessageById(
+                  userMessageId,
+                  ctx.conversationId,
+                );
+                if (!userMsg) return;
+                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
+                  return;
+                await runProactiveArtifactJob({
+                  conversationId: ctx.conversationId,
+                  userMessageCutoff: userMsg.createdAt,
+                  assistantMessageId: state.lastAssistantMessageId,
+                  broadcastMessage,
+                });
+              } catch (err) {
+                log.warn(
+                  { err, conversationId: ctx.conversationId },
+                  "Proactive artifact trigger failed",
+                );
+              }
+            })();
+          }
         }
       }
     }

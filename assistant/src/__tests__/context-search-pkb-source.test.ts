@@ -173,7 +173,6 @@ function makeContext(
 ): RecallSearchContext {
   return {
     workingDir: "/workspace",
-    memoryScopeId: "active-conversation-scope",
     conversationId: "conv-xyz",
     config: {} as AssistantConfig,
     ...overrides,

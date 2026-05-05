@@ -23,6 +23,7 @@ import { backfillJob } from "./job-handlers/backfill.js";
 import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
+  pruneOldTraceEventsJob,
 } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
@@ -54,6 +55,7 @@ import {
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
   enqueuePruneOldLlmRequestLogsJob,
+  enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
@@ -455,6 +457,9 @@ async function processJob(
     case "prune_old_llm_request_logs":
       pruneOldLlmRequestLogsJob(job, config);
       return;
+    case "prune_old_trace_events":
+      pruneOldTraceEventsJob(job, config);
+      return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
@@ -560,14 +565,20 @@ function maybeEnqueueScheduledCleanupJobs(
     cleanup.llmRequestLogRetentionMs !== null
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
+  const pruneTraceEventsJobId =
+    cleanup.traceEventRetentionDays > 0
+      ? enqueuePruneOldTraceEventsJob(cleanup.traceEventRetentionDays)
+      : null;
   markScheduledCleanupEnqueued(nowMs);
   log.debug(
     {
       pruneConversationsJobId,
       pruneLlmRequestLogsJobId,
+      pruneTraceEventsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
       llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
+      traceEventRetentionDays: cleanup.traceEventRetentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",
   );

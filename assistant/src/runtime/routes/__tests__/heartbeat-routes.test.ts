@@ -90,7 +90,7 @@ describe("setHeartbeatConfig handler", () => {
     // invalidation + getConfig() read picked up the new on-disk state.
     expect(result.success).toBe(true);
     expect(result.enabled).toBe(true);
-    expect(result.intervalMs).toBe(6 * 3_600_000);
+    expect(result.intervalMs).toBe(30 * 60_000);
     expect(result.activeHoursStart).toBe(8);
     expect(result.activeHoursEnd).toBe(22);
   });

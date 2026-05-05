@@ -62,14 +62,12 @@ export class ConversationGraphMemory {
   private initialized = false;
   private needsReload = false;
   private stateRestored = false;
-  private scopeId: string;
   private conversationId: string;
   private lastInjectedBlock: string | null = null;
   private lastInjectedNodeIds: string[] = [];
   private lastInjectedImages: Map<string, ResolvedImage> = new Map();
 
-  constructor(scopeId: string, conversationId: string) {
-    this.scopeId = scopeId;
+  constructor(conversationId: string) {
     this.conversationId = conversationId;
   }
 
@@ -147,7 +145,6 @@ export class ConversationGraphMemory {
       const db = getDb();
       const baseWhere = and(
         eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeId, this.scopeId),
         ne(memorySummaries.scopeKey, this.conversationId),
       );
 
@@ -386,7 +383,7 @@ export class ConversationGraphMemory {
     onEvent: (msg: ServerMessage) => void,
   ) {
     const result = await loadContextMemory({
-      scopeId: this.scopeId,
+      scopeId: "default",
       recentSummaries,
       userQuery,
       config,
@@ -547,7 +544,7 @@ export class ConversationGraphMemory {
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
-      scopeId: this.scopeId,
+      scopeId: "default",
       config,
       tracker: this.tracker,
       signal,

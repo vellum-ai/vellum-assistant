@@ -264,6 +264,20 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "General-purpose LLM inference call site for skill use.",
     domain: "skills",
   },
+  proactiveArtifactDecision: {
+    id: "proactiveArtifactDecision",
+    displayName: "Proactive Artifact Decision",
+    description:
+      "Decides what personalized artifact to build for new users based on conversation context.",
+    domain: "agentLoop",
+  },
+  proactiveArtifactBuild: {
+    id: "proactiveArtifactBuild",
+    displayName: "Proactive Artifact Build",
+    description:
+      "Builds the personalized artifact in a background conversation with tool access.",
+    domain: "agentLoop",
+  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage

@@ -20,6 +20,7 @@ const mockSkipHeartbeatRun = mock(() => true);
 const mockSupersedePendingRun = mock(() => true);
 const mockMarkStaleRunsAsMissed = mock(() => 0);
 const mockMarkStaleRunningAsError = mock(() => 0);
+const mockListHeartbeatRuns = mock(() => []);
 mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: mockInsertPendingHeartbeatRun,
   startHeartbeatRun: mockStartHeartbeatRun,
@@ -28,6 +29,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   supersedePendingRun: mockSupersedePendingRun,
   markStaleRunsAsMissed: mockMarkStaleRunsAsMissed,
   markStaleRunningAsError: mockMarkStaleRunningAsError,
+  listHeartbeatRuns: mockListHeartbeatRuns,
 }));
 
 // ── Feed event mock ───────────────────────────────────────────────
@@ -119,6 +121,14 @@ mock.module("../prompts/persona-resolver.js", () => ({
 const createdConversations: Array<{ title: string; conversationType: string }> =
   [];
 let conversationIdCounter = 0;
+const mockStoredMessages: Array<{
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  metadata: string | null;
+}> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -127,7 +137,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   addMessage: () => ({ id: "mock-msg-id" }),
-  getMessages: () => [],
+  getMessages: () => mockStoredMessages,
   getConversation: () => ({
     id: "conv-1",
     contextSummary: null,
@@ -199,21 +209,36 @@ mock.module("../credential-health/credential-health-service.js", () => ({
 // `notifyUnhealthyCredentials` dynamically imports `emitNotificationSignal`.
 // Track calls so tests can assert which credentials were notified about.
 const emittedNotificationSignals: Array<{
+  sourceEventName?: string;
+  sourceChannel?: string;
   sourceContextId: string;
   dedupeKey: string;
+  attentionHints?: Record<string, unknown>;
   contextPayload: Record<string, unknown>;
+  conversationAffinityHint?: Record<string, string>;
+  conversationMetadata?: Record<string, unknown>;
 }> = [];
 
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (opts: {
+    sourceEventName?: string;
+    sourceChannel?: string;
     sourceContextId: string;
     dedupeKey: string;
+    attentionHints?: Record<string, unknown>;
     contextPayload: Record<string, unknown>;
+    conversationAffinityHint?: Record<string, string>;
+    conversationMetadata?: Record<string, unknown>;
   }) => {
     emittedNotificationSignals.push({
+      sourceEventName: opts.sourceEventName,
+      sourceChannel: opts.sourceChannel,
       sourceContextId: opts.sourceContextId,
       dedupeKey: opts.dedupeKey,
+      attentionHints: opts.attentionHints,
       contextPayload: opts.contextPayload,
+      conversationAffinityHint: opts.conversationAffinityHint,
+      conversationMetadata: opts.conversationMetadata,
     });
   },
 }));
@@ -318,6 +343,7 @@ describe("HeartbeatService", () => {
     alerterCalls = [];
     createdConversations.length = 0;
     conversationIdCounter = 0;
+    mockStoredMessages.length = 0;
     mockGuardianPersona = null;
     mockCredentialHealthReport = null;
     mockCheckAllCredentialsFail = false;
@@ -351,6 +377,8 @@ describe("HeartbeatService", () => {
     mockMarkStaleRunsAsMissed.mockImplementation(() => 0);
     mockMarkStaleRunningAsError.mockClear();
     mockMarkStaleRunningAsError.mockImplementation(() => 0);
+    mockListHeartbeatRuns.mockClear();
+    mockListHeartbeatRuns.mockImplementation(() => []);
     mockEmitFeedEvent.mockClear();
     mockEmitFeedEvent.mockImplementation(() => Promise.resolve());
 
@@ -369,6 +397,10 @@ describe("HeartbeatService", () => {
   function createService(overrides?: {
     processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
+    onConversationCreated?: (info: {
+      conversationId: string;
+      title: string;
+    }) => void;
   }) {
     if (overrides?.processMessage) {
       setTestProcessMessage(overrides.processMessage);
@@ -377,6 +409,7 @@ describe("HeartbeatService", () => {
       alerter: (alert: { type: string; title: string; body: string }) => {
         alerterCalls.push(alert);
       },
+      onConversationCreated: overrides?.onConversationCreated,
       getCurrentHour: overrides?.getCurrentHour,
     });
   }
@@ -719,6 +752,149 @@ describe("HeartbeatService", () => {
       callSite: "heartbeatAgent",
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
     });
+  });
+
+  test("HEARTBEAT_ALERT emits a notification signal and surfaces the conversation", async () => {
+    const conversationCreatedCalls: Array<{
+      conversationId: string;
+      title: string;
+    }> = [];
+    const service = createService({
+      onConversationCreated: (info) => conversationCreatedCalls.push(info),
+      processMessage: async (...args: unknown[]) => {
+        const conversationId = args[0] as string;
+        mockStoredMessages.push({
+          id: "assistant-alert-1",
+          conversationId,
+          role: "assistant",
+          content: JSON.stringify([
+            {
+              type: "text",
+              text: "The first heartbeat found a concrete follow-up for the guardian.\nHEARTBEAT_ALERT",
+            },
+          ]),
+          createdAt: Date.now(),
+          metadata: null,
+        });
+        return { messageId: "user-heartbeat-1" };
+      },
+    });
+
+    await service.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(conversationCreatedCalls).toEqual([
+      { conversationId: "conv-1", title: "Heartbeat" },
+    ]);
+    expect(emittedNotificationSignals).toHaveLength(1);
+    expect(emittedNotificationSignals[0]).toMatchObject({
+      sourceEventName: "heartbeat.alert",
+      sourceChannel: "watcher",
+      sourceContextId: "mock-run-id",
+      dedupeKey: "heartbeat:alert:mock-run-id",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      conversationAffinityHint: { vellum: "conv-1" },
+      conversationMetadata: {
+        source: "heartbeat",
+        groupId: "system:background",
+      },
+    });
+    expect(emittedNotificationSignals[0].contextPayload.summary).toBe(
+      "The first heartbeat found a concrete follow-up for the guardian.",
+    );
+    expect(emittedNotificationSignals[0].contextPayload.messageId).toBe(
+      "assistant-alert-1",
+    );
+    expect(
+      emittedNotificationSignals[0].contextPayload.sourceInterface,
+    ).toBeUndefined();
+  });
+
+  test("HEARTBEAT_OK stays silent", async () => {
+    const conversationCreatedCalls: Array<{
+      conversationId: string;
+      title: string;
+    }> = [];
+    const service = createService({
+      onConversationCreated: (info) => conversationCreatedCalls.push(info),
+      processMessage: async (...args: unknown[]) => {
+        const conversationId = args[0] as string;
+        mockStoredMessages.push({
+          id: "assistant-ok-1",
+          conversationId,
+          role: "assistant",
+          content: JSON.stringify([
+            {
+              type: "text",
+              text: "Everything looks good.\nHEARTBEAT_OK",
+            },
+          ]),
+          createdAt: Date.now(),
+          metadata: null,
+        });
+        return { messageId: "user-heartbeat-1" };
+      },
+    });
+
+    await service.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(conversationCreatedCalls).toHaveLength(0);
+    expect(emittedNotificationSignals).toHaveLength(0);
+    const successFeedCalls = mockEmitFeedEvent.mock.calls.filter(
+      (call: unknown[]) => {
+        const opts = call[0] as { dedupKey?: string };
+        return opts.dedupKey?.startsWith("heartbeat:ok:");
+      },
+    );
+    expect(successFeedCalls).toHaveLength(0);
+  });
+
+  test("HEARTBEAT_OK stays silent when earlier content mentions HEARTBEAT_ALERT", async () => {
+    const conversationCreatedCalls: Array<{
+      conversationId: string;
+      title: string;
+    }> = [];
+    const service = createService({
+      onConversationCreated: (info) => conversationCreatedCalls.push(info),
+      processMessage: async (...args: unknown[]) => {
+        const conversationId = args[0] as string;
+        mockStoredMessages.push({
+          id: "assistant-ok-2",
+          conversationId,
+          role: "assistant",
+          content: JSON.stringify([
+            {
+              type: "thinking",
+              thinking:
+                "I should decide between HEARTBEAT_ALERT and HEARTBEAT_OK.",
+            },
+            {
+              type: "tool_result",
+              content: "Tool output mentions HEARTBEAT_ALERT.",
+            },
+            {
+              type: "text",
+              text: "I considered HEARTBEAT_ALERT, but there is nothing useful to surface.\nHEARTBEAT_OK",
+            },
+          ]),
+          createdAt: Date.now(),
+          metadata: null,
+        });
+        return { messageId: "user-heartbeat-1" };
+      },
+    });
+
+    await service.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(conversationCreatedCalls).toHaveLength(0);
+    expect(emittedNotificationSignals).toHaveLength(0);
   });
 
   test("end-to-end: llm.callSites.heartbeatAgent.speed resolves to 'fast'", async () => {
@@ -1354,20 +1530,38 @@ describe("HeartbeatService", () => {
       });
     });
 
-    test("CAS false suppresses success feed event", async () => {
+    test("CAS false suppresses success surfacing", async () => {
       mockCompleteHeartbeatRun.mockImplementation(() => false);
 
-      const service = createService();
-      await service.runOnce();
-
-      // completeHeartbeatRun returned false, so no feed event should be emitted for success
-      const successCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { dedupKey?: string };
-          return opts.dedupKey?.startsWith("heartbeat:ok:");
+      const conversationCreatedCalls: Array<{
+        conversationId: string;
+        title: string;
+      }> = [];
+      const service = createService({
+        onConversationCreated: (info) => conversationCreatedCalls.push(info),
+        processMessage: async (...args: unknown[]) => {
+          const conversationId = args[0] as string;
+          mockStoredMessages.push({
+            id: "assistant-alert-1",
+            conversationId,
+            role: "assistant",
+            content: JSON.stringify([
+              {
+                type: "text",
+                text: "Something worth surfacing.\nHEARTBEAT_ALERT",
+              },
+            ]),
+            createdAt: Date.now(),
+            metadata: null,
+          });
+          return { messageId: "msg-1" };
         },
-      );
-      expect(successCalls).toHaveLength(0);
+      });
+      await service.runOnce();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(conversationCreatedCalls).toHaveLength(0);
+      expect(emittedNotificationSignals).toHaveLength(0);
     });
 
     test("CAS false suppresses failure alerter and feed event", async () => {

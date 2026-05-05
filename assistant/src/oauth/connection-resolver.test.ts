@@ -62,7 +62,10 @@ mock.module("../platform/client.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { BYOOAuthConnection } from "./byo-connection.js";
-import { resolveOAuthConnection } from "./connection-resolver.js";
+import {
+  resolveEffectiveBaseUrl,
+  resolveOAuthConnection,
+} from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
 // ---------------------------------------------------------------------------
@@ -212,5 +215,67 @@ describe("resolveOAuthConnection", () => {
         clientId: "wrong-client",
       }),
     ).rejects.toThrow(/No active OAuth connection found/);
+  });
+});
+
+describe("resolveEffectiveBaseUrl", () => {
+  const fallback = "https://login.salesforce.com";
+
+  test("uses instance_url from JSON-string metadata for Salesforce", () => {
+    const metadata = JSON.stringify({
+      instance_url: "https://acme.my.salesforce.com",
+      issued_at: "1714000000000",
+    });
+    expect(resolveEffectiveBaseUrl("salesforce", fallback, metadata)).toBe(
+      "https://acme.my.salesforce.com",
+    );
+  });
+
+  test("uses instance_url from already-parsed object metadata", () => {
+    const metadata = { instance_url: "https://na162.salesforce.com" };
+    expect(resolveEffectiveBaseUrl("salesforce", fallback, metadata)).toBe(
+      "https://na162.salesforce.com",
+    );
+  });
+
+  test("falls back to seed baseUrl when metadata is null", () => {
+    expect(resolveEffectiveBaseUrl("salesforce", fallback, null)).toBe(
+      fallback,
+    );
+  });
+
+  test("falls back to seed baseUrl when instance_url is empty string", () => {
+    const metadata = JSON.stringify({ instance_url: "" });
+    expect(resolveEffectiveBaseUrl("salesforce", fallback, metadata)).toBe(
+      fallback,
+    );
+  });
+
+  test("falls back to seed baseUrl when metadata is unparseable JSON", () => {
+    expect(
+      resolveEffectiveBaseUrl("salesforce", fallback, "{ not valid json"),
+    ).toBe(fallback);
+  });
+
+  test("falls back to seed baseUrl when instance_url is the wrong type", () => {
+    const metadata = JSON.stringify({ instance_url: 12345 });
+    expect(resolveEffectiveBaseUrl("salesforce", fallback, metadata)).toBe(
+      fallback,
+    );
+  });
+
+  test("ignores instance_url for non-Salesforce providers", () => {
+    // A different provider whose token response happens to include an
+    // instance_url-shaped field MUST NOT have its baseUrl rewritten.
+    const metadata = JSON.stringify({
+      instance_url: "https://attacker.example.com",
+    });
+    expect(
+      resolveEffectiveBaseUrl(
+        "google",
+        "https://gmail.googleapis.com/gmail/v1/users/me",
+        metadata,
+      ),
+    ).toBe("https://gmail.googleapis.com/gmail/v1/users/me");
   });
 });

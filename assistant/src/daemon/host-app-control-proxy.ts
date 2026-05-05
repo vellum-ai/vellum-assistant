@@ -11,13 +11,22 @@
  * (PNG-hash loop guard) and the result-payload → ToolExecutionResult
  * translation on top.
  *
- * **Singleton lock.** Only one conversation may hold an active app-control
- * session at a time. The lock is module-level (`activeAppControlConversationId`)
- * because a session targets the user's actual desktop application, which
- * is a host-wide resource. The lock is acquired on a successful
- * `app_control_start` and released when the owning proxy's `dispose()`
- * fires. A second conversation that calls `start` while the lock is held
- * receives an `isError: true` tool result naming the holding conversation.
+ * **Session lock.** Only one conversation may hold an active app-control
+ * session at a time, and that session is bound to a specific target app.
+ * The lock is module-level (`activeAppControlSession`) because the session
+ * targets the user's actual desktop application, which is a host-wide
+ * resource. It is acquired on a successful `app_control_start` (storing
+ * `(conversationId, app)`) and released when the owning proxy's
+ * `dispose()` fires.
+ *
+ * `app_control_start` is the only tool that can acquire the lock — the
+ * user's medium-risk approval at start time is the consent boundary. All
+ * other tools (observe / press / combo / sequence / type / click / drag)
+ * require the calling conversation to own an active session targeting the
+ * same `app`; otherwise the call is rejected before any host dispatch.
+ * This prevents prompt-injected tool calls from sending raw input to
+ * arbitrary apps without the user having approved control of that
+ * specific app.
  *
  * **No step cap.** Unlike {@link HostCuProxy} which enforces a per-session
  * step ceiling via `loadConfig().maxStepsPerSession`, app-control sessions
@@ -51,36 +60,111 @@ const REQUEST_TIMEOUT_MS = 60 * 1000;
 const STUCK_REPEAT_THRESHOLD = 4;
 
 // ---------------------------------------------------------------------------
-// Tool name constants
-// ---------------------------------------------------------------------------
-//
-// Kept here (rather than imported from PR 5's tool registrations) so the
-// proxy is independently testable. PR 5 must use these same string values.
-
-const TOOL_START = "app_control_start";
-
-// ---------------------------------------------------------------------------
-// Module-level singleton lock
+// Module-level session lock
 // ---------------------------------------------------------------------------
 
 /**
- * Conversation id that currently owns the active app-control session, or
- * `undefined` if no session is active. Set on a successful
- * `app_control_start`; cleared by the owning proxy's `dispose()`.
+ * Active app-control session: the conversation that owns the lock and the
+ * `app` it was approved against. Set on a successful `app_control_start`;
+ * cleared by the owning proxy's `dispose()`.
+ */
+export interface ActiveAppControlSession {
+  conversationId: string;
+  /**
+   * The exact `app` string the user approved at start time (bundle ID or
+   * process name — preserved as-is). Compared case-insensitively against
+   * the `app` of subsequent non-start tool calls.
+   */
+  app: string;
+}
+
+/**
+ * Currently active session, or `undefined` when no session is held.
  *
  * Exported for test inspection only. Production code paths must not read
  * or mutate this directly — use the proxy methods.
  */
-let activeAppControlConversationId: string | undefined;
+let activeAppControlSession: ActiveAppControlSession | undefined;
 
-/** Test-only helper: read current lock owner. */
-export function _getActiveAppControlConversationId(): string | undefined {
-  return activeAppControlConversationId;
+/** Test-only helper: read current session. */
+export function _getActiveAppControlSession():
+  | ActiveAppControlSession
+  | undefined {
+  return activeAppControlSession;
 }
 
-/** Test-only helper: clear lock between test cases. */
-export function _resetActiveAppControlConversationId(): void {
-  activeAppControlConversationId = undefined;
+/** Test-only helper: clear session between test cases. */
+export function _resetActiveAppControlSession(): void {
+  activeAppControlSession = undefined;
+}
+
+/**
+ * Test-only helper: prime the active session without a full `start` round-trip.
+ * Useful for tests that exercise non-start tool paths and don't need to
+ * verify the start flow itself.
+ */
+export function _setActiveAppControlSession(
+  session: ActiveAppControlSession,
+): void {
+  activeAppControlSession = session;
+}
+
+/**
+ * Validate a non-start tool call against the active session. Returns a
+ * `ToolExecutionResult` (with `isError: true`) when the call should be
+ * rejected; returns `null` when the call is authorized to dispatch.
+ *
+ * `app` matching is case-insensitive (macOS bundle IDs are
+ * case-insensitive in practice) but strict on form: `"Safari"` and
+ * `"com.apple.Safari"` do not match — the user approved a specific string
+ * and substituting a different form requires a new approval.
+ */
+function checkNonStartAuthorization(
+  input: HostAppControlInput,
+  conversationId: string,
+): ToolExecutionResult | null {
+  if (activeAppControlSession == null) {
+    return {
+      content:
+        "No app-control session is active. Call app_control_start to request " +
+        "user approval to control the target app, then retry.",
+      isError: true,
+    };
+  }
+  if (activeAppControlSession.conversationId !== conversationId) {
+    return {
+      content:
+        `Another conversation (${activeAppControlSession.conversationId}) currently ` +
+        `holds the app-control session. Wait for it to finish, or call ` +
+        `app_control_stop from that conversation first.`,
+      isError: true,
+    };
+  }
+  // `app` is required on every non-start variant of HostAppControlInput
+  // except `stop`, and `stop` short-circuits in conversation-surfaces and
+  // does not reach this method in production. A stop reaching here would
+  // be a defensive bug — surface it explicitly rather than dispatch.
+  const requestedApp = (input as { app?: string }).app;
+  if (requestedApp == null) {
+    return {
+      content:
+        "Tool input missing required 'app' field; cannot validate against " +
+        "the active app-control session.",
+      isError: true,
+    };
+  }
+  if (
+    requestedApp.toLowerCase() !== activeAppControlSession.app.toLowerCase()
+  ) {
+    return {
+      content:
+        `Active app-control session targets ${activeAppControlSession.app}; ` +
+        `cannot send actions to ${requestedApp}. Call app_control_stop and ` +
+        `app_control_start to switch apps.`,
+      isError: true,
+    };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +175,7 @@ export class HostAppControlProxy extends HostProxyBase<
   HostAppControlInput,
   HostAppControlResultPayload
 > {
-  /** Conversation that owns this proxy instance. Used by `dispose()` to release the singleton lock only when this proxy is the holder. */
+  /** Conversation that owns this proxy instance. Used by `dispose()` to release the session lock only when this proxy is the holder. */
   private readonly conversationId: string;
 
   /** sha256 hex of the most recent observation's `pngBase64`, or undefined. */
@@ -143,20 +227,28 @@ export class HostAppControlProxy extends HostProxyBase<
       return { content: "Aborted", isError: true };
     }
 
-    // Singleton-lock guard for `start`. Other tools assume a session
-    // already exists and are not gated here.
-    if (toolName === TOOL_START) {
+    // Authorization gate. `start` acquires the session lock (the user's
+    // medium-risk approval is the consent boundary); all other tools must
+    // belong to the active session and target the same `app`. Without this
+    // gate, prompt-injected calls would bypass the start-time approval and
+    // send raw input to arbitrary apps.
+    if (input.tool === "start") {
       if (
-        activeAppControlConversationId != null &&
-        activeAppControlConversationId !== conversationId
+        activeAppControlSession != null &&
+        activeAppControlSession.conversationId !== conversationId
       ) {
         return {
           content:
-            `Another conversation (${activeAppControlConversationId}) currently holds the ` +
+            `Another conversation (${activeAppControlSession.conversationId}) currently holds the ` +
             `app-control session. Wait for it to finish, or call app_control_stop ` +
             `from that conversation first.`,
           isError: true,
         };
+      }
+    } else {
+      const sessionError = checkNonStartAuthorization(input, conversationId);
+      if (sessionError != null) {
+        return sessionError;
       }
     }
 
@@ -167,7 +259,7 @@ export class HostAppControlProxy extends HostProxyBase<
         conversationId,
         signal,
       );
-      return this.handleSuccess(toolName, payload);
+      return this.handleSuccess(input, payload);
     } catch (err) {
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
@@ -192,7 +284,7 @@ export class HostAppControlProxy extends HostProxyBase<
   // ---------------------------------------------------------------------------
 
   private handleSuccess(
-    toolName: string,
+    input: HostAppControlInput,
     payload: HostAppControlResultPayload,
   ): ToolExecutionResult {
     // Update PNG-hash loop tracking only for the "running" state — other
@@ -212,9 +304,13 @@ export class HostAppControlProxy extends HostProxyBase<
       }
     }
 
-    // Acquire the singleton lock on a successful `start`.
-    if (toolName === TOOL_START && payload.state === "running") {
-      activeAppControlConversationId = this.conversationId;
+    // Store the exact `app` form for validation against subsequent
+    // non-start tool calls.
+    if (input.tool === "start" && payload.state === "running") {
+      activeAppControlSession = {
+        conversationId: this.conversationId,
+        app: input.app,
+      };
     }
 
     return this.formatResult(payload, stuck);
@@ -281,13 +377,13 @@ export class HostAppControlProxy extends HostProxyBase<
   // ---------------------------------------------------------------------------
 
   /**
-   * Reject pending requests via the base, then release the singleton lock
+   * Reject pending requests via the base, then release the session lock
    * if this proxy is the holder. Idempotent: safe to call multiple times.
    */
   override dispose(): void {
     super.dispose();
-    if (activeAppControlConversationId === this.conversationId) {
-      activeAppControlConversationId = undefined;
+    if (activeAppControlSession?.conversationId === this.conversationId) {
+      activeAppControlSession = undefined;
     }
   }
 }

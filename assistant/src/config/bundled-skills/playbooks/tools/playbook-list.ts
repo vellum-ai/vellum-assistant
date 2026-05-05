@@ -10,9 +10,9 @@ import type {
 
 export async function executePlaybookList(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const scopeId = context.memoryScopeId ?? "default";
+  const scopeId = "default";
   const channelFilter =
     typeof input.channel === "string" ? input.channel : null;
   const categoryFilter =

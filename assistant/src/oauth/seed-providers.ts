@@ -582,6 +582,60 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["user", "hub_domain"],
   },
 
+  salesforce: {
+    provider: "salesforce",
+    authorizeUrl: "https://login.salesforce.com/services/oauth2/authorize",
+    tokenExchangeUrl: "https://login.salesforce.com/services/oauth2/token",
+    refreshUrl: "https://login.salesforce.com/services/oauth2/token",
+    pingUrl: "https://login.salesforce.com/services/oauth2/userinfo",
+    // baseUrl points at the login domain — correct for the OAuth handshake
+    // and for ``/services/oauth2/userinfo``/``revoke`` calls. REST API calls
+    // to ``/services/data/...`` go to the per-org instance host returned in
+    // the token response as ``instance_url`` and stored on
+    // ``oauth_connection.metadata``. ``connection-resolver.ts`` substitutes
+    // that instance URL when constructing the BYO connection so callers
+    // don't need to override ``baseUrl`` per request.
+    baseUrl: "https://login.salesforce.com",
+    displayLabel: "Salesforce",
+    description: "CRM contacts, leads, and opportunities",
+    dashboardUrl:
+      "https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm&type=5",
+    clientIdPlaceholder: null,
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/salesforce/default.svg",
+    defaultScopes: ["api", "refresh_token", "openid", "email", "profile"],
+    availableScopes:
+      "https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_tokens_scopes.htm",
+    authorizeParams: { prompt: "consent" },
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17336,
+    managedServiceConfigKey: "salesforce-oauth",
+    // Salesforce REST traffic goes to per-org instance hosts like
+    // ``acme.my.salesforce.com`` and ``acme.lightning.force.com``.
+    // ``matchHostPattern`` only treats ``*.<domain>`` as a wildcard match —
+    // bare ``salesforce.com`` would only match the apex. Use wildcards so
+    // ``Authorization: Bearer`` injection actually fires on tenant hosts.
+    injectionTemplates: [
+      {
+        hostPattern: "*.salesforce.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "*.force.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    revokeUrl: "https://login.salesforce.com/services/oauth2/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    appType: "Connected App",
+    identityUrl: "https://login.salesforce.com/services/oauth2/userinfo",
+    identityResponsePaths: ["email", "preferred_username"],
+  },
+
   figma: {
     provider: "figma",
     authorizeUrl: "https://www.figma.com/oauth",

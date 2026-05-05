@@ -12,7 +12,13 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+
+// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
+// (registry default `true`) flips memory routing to v2 — disable it here so
+// the v1 paths under test stay active.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.

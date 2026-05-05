@@ -88,10 +88,7 @@ export async function searchConversationSource(
 
   for (const ftsMatch of ftsMatches) {
     try {
-      rows = mergeConversationRows(
-        rows,
-        searchWithFts(ftsMatch, context.memoryScopeId, queryLimit),
-      );
+      rows = mergeConversationRows(rows, searchWithFts(ftsMatch, queryLimit));
     } catch {
       // Try the next, broader query shape.
     }
@@ -100,7 +97,7 @@ export async function searchConversationSource(
   }
 
   if (rows.length === 0) {
-    rows = searchWithLike(trimmedQuery, context.memoryScopeId, queryLimit);
+    rows = searchWithLike(trimmedQuery, queryLimit);
   }
 
   const sortedRows = rows
@@ -130,7 +127,6 @@ export async function searchConversationSource(
 
 function searchWithFts(
   ftsMatch: string,
-  memoryScopeId: string,
   limit: number,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
@@ -146,14 +142,12 @@ function searchWithFts(
     JOIN messages m ON m.id = messages_fts.message_id
     JOIN conversations c ON c.id = m.conversation_id
     WHERE messages_fts MATCH ?
-      AND c.memory_scope_id = ?
       AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY bm25(messages_fts), m.created_at DESC
     LIMIT ?
     `,
     ftsMatch,
-    memoryScopeId,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     limit,
@@ -162,7 +156,6 @@ function searchWithFts(
 
 function searchWithLike(
   query: string,
-  memoryScopeId: string,
   limit: number,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
@@ -177,14 +170,12 @@ function searchWithLike(
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.content LIKE ? ESCAPE '\\'
-      AND c.memory_scope_id = ?
       AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY m.created_at DESC
     LIMIT ?
     `,
     buildLikePattern(query),
-    memoryScopeId,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     limit,

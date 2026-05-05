@@ -54,7 +54,6 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
-import { deleteOldTraceEvents } from "../memory/trace-event-store.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -62,6 +61,7 @@ import {
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
+import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -1198,22 +1198,6 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Prune trace events older than 7 days to keep the database lean.
-    // Deferred so synchronous cleanup doesn't block the startup path.
-    setTimeout(() => {
-      try {
-        const deletedTraceEvents = deleteOldTraceEvents(7);
-        if (deletedTraceEvents > 0) {
-          log.debug(
-            { deletedTraceEvents },
-            `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
-          );
-        }
-      } catch (err) {
-        log.warn({ err }, "Trace event cleanup failed");
-      }
-    }, 0);
-
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
     workspaceHeartbeat.start();
 
@@ -1235,6 +1219,12 @@ export async function runDaemon(): Promise<void> {
       },
       "Heartbeat service configured",
     );
+
+    try {
+      backfillGuardIfNeeded();
+    } catch (err) {
+      log.warn({ err }, "Proactive artifact backfill failed");
+    }
 
     // Filing yields to the memory v2 consolidation job when the flag is on —
     // both serve the same role (periodic background memory processing) and

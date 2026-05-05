@@ -21,8 +21,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
-  /** Conversation memory policy used to propagate scopeId into ToolContext. */
-  memoryPolicy: { scopeId: string };
   /** True when the conversation has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
   /** When true, the conversation is executing a task run and must not become interactive. */

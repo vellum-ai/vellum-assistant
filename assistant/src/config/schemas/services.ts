@@ -96,6 +96,10 @@ const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const SalesforceOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 /**
  * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
  * skill process. Kept narrow: only the values the daemon reads before the
@@ -181,6 +185,9 @@ export const ServicesSchema = z.object({
   ),
   "hubspot-oauth": HubspotOAuthServiceSchema.default(
     HubspotOAuthServiceSchema.parse({}),
+  ),
+  "salesforce-oauth": SalesforceOAuthServiceSchema.default(
+    SalesforceOAuthServiceSchema.parse({}),
   ),
   meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });

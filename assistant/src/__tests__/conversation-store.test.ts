@@ -19,7 +19,6 @@ import {
   createConversation,
   deleteLastExchange,
   getConversation,
-  getConversationMemoryScopeId,
   getMessages,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
@@ -451,23 +450,6 @@ describe("createConversation with conversation type option", () => {
     const conv = createConversation();
     expect(conv.conversationType).toBe("standard");
     expect(conv.memoryScopeId).toBe("default");
-  });
-});
-
-describe("conversation metadata read helpers", () => {
-  beforeEach(() => {
-    const db = getDb();
-    db.run(`DELETE FROM messages`);
-    db.run(`DELETE FROM conversations`);
-  });
-
-  test("getConversationMemoryScopeId returns default for standard conversation", () => {
-    const conv = createConversation("test");
-    expect(getConversationMemoryScopeId(conv.id)).toBe("default");
-  });
-
-  test("getConversationMemoryScopeId returns default for missing conversation", () => {
-    expect(getConversationMemoryScopeId("nonexistent-id")).toBe("default");
   });
 });
 

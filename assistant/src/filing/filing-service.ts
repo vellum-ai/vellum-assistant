@@ -110,11 +110,8 @@ export class FilingService {
 
   start(): void {
     const fullConfig = getConfig();
-    if (
-      isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig) &&
-      fullConfig.memory.v2.enabled
-    ) {
-      log.info("Filing service disabled — memory v2 is active");
+    if (isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig)) {
+      log.info("Filing service disabled — memory v2 flag is set");
       this._nextRunAt = null;
       this._nextCompactionAt = null;
       return;

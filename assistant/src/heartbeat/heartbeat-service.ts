@@ -7,7 +7,7 @@ import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { getConversation } from "../memory/conversation-crud.js";
+import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -40,6 +40,9 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const HEARTBEAT_ALERT_MARKER = "HEARTBEAT_ALERT";
+const HEARTBEAT_OK_MARKER = "HEARTBEAT_OK";
+const HEARTBEAT_ALERT_SUMMARY_MAX_CHARS = 700;
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -89,6 +92,69 @@ function recordReengagementTimestamp(): void {
     writeFileSync(getReengagementTimestampPath(), Date.now().toString());
   } catch {
     // Best-effort; don't block the heartbeat.
+  }
+}
+
+type HeartbeatDisposition = "alert" | "ok" | "unknown";
+
+function parseHeartbeatDisposition(text: string | null): HeartbeatDisposition {
+  if (!text) return "unknown";
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const lastLine = lines.at(-1);
+  if (lastLine === HEARTBEAT_ALERT_MARKER) return "alert";
+  if (lastLine === HEARTBEAT_OK_MARKER) return "ok";
+  return "unknown";
+}
+
+function stripHeartbeatDispositionMarkers(text: string): string {
+  return text
+    .replace(
+      new RegExp(
+        `(?:\\r?\\n)?\\s*(?:${HEARTBEAT_ALERT_MARKER}|${HEARTBEAT_OK_MARKER})\\s*$`,
+      ),
+      "",
+    )
+    .trim();
+}
+
+function truncateSummary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function buildHeartbeatAlertSummary(text: string | null): string {
+  const summary = text ? stripHeartbeatDispositionMarkers(text) : "";
+  return truncateSummary(
+    summary || "Your assistant found something worth your attention.",
+    HEARTBEAT_ALERT_SUMMARY_MAX_CHARS,
+  );
+}
+
+function extractVisibleTextFromStoredMessageContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (!Array.isArray(parsed)) return "";
+    const texts: string[] = [];
+    for (const block of parsed) {
+      if (
+        block != null &&
+        typeof block === "object" &&
+        "type" in block &&
+        block.type === "text" &&
+        "text" in block &&
+        typeof block.text === "string"
+      ) {
+        texts.push(block.text);
+      }
+    }
+    return texts.join("\n").trim();
+  } catch {
+    return raw;
   }
 }
 
@@ -579,6 +645,65 @@ export class HeartbeatService {
     }
   }
 
+  private getLatestAssistantMessage(
+    conversationId: string,
+  ): { id: string; text: string } | null {
+    try {
+      const messages = getMessages(conversationId);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i]!;
+        if (message.role !== "assistant") continue;
+        return {
+          id: message.id,
+          text: extractVisibleTextFromStoredMessageContent(message.content),
+        };
+      }
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to read heartbeat assistant message",
+      );
+    }
+    return null;
+  }
+
+  private async emitHeartbeatAlertNotification(params: {
+    runId: string;
+    conversationId: string;
+    messageId?: string;
+    conversationTitle: string;
+    summary: string;
+  }): Promise<void> {
+    const { emitNotificationSignal } =
+      await import("../notifications/emit-signal.js");
+
+    await emitNotificationSignal({
+      sourceEventName: "heartbeat.alert",
+      sourceChannel: "watcher",
+      sourceContextId: params.runId,
+      dedupeKey: `heartbeat:alert:${params.runId}`,
+      attentionHints: {
+        requiresAction: true,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        title: "Heartbeat Alert",
+        summary: params.summary,
+        conversationTitle: params.conversationTitle,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+      },
+      routingIntent: "single_channel",
+      conversationAffinityHint: { vellum: params.conversationId },
+      conversationMetadata: {
+        source: "heartbeat",
+        groupId: "system:background",
+      },
+    });
+  }
+
   private async executeRun(runId: string, scheduledFor: number): Promise<void> {
     log.info("Running heartbeat");
 
@@ -608,11 +733,6 @@ export class HeartbeatService {
         systemHint: "Heartbeat",
       });
       conversationId = conversation.id;
-
-      this.deps.onConversationCreated?.({
-        conversationId: conversation.id,
-        title: "Heartbeat",
-      });
 
       await processMessage(conversation.id, prompt, undefined, {
         trustContext: {
@@ -644,20 +764,32 @@ export class HeartbeatService {
           // Best-effort; fall back to generic title.
         }
 
-        const today = new Date().toISOString().split("T")[0];
-        void emitFeedEvent({
-          source: "assistant",
-          title,
-          summary: "Periodic check completed. Tap to see details.",
-          dedupKey: `heartbeat:ok:${today}`,
-          priority: 30,
-        }).catch((err) => {
-          log.warn(
-            { err, conversationId: conversation.id },
-            "Failed to emit heartbeat feed event",
-          );
-        });
+        const assistantMessage = this.getLatestAssistantMessage(
+          conversation.id,
+        );
+        const disposition = parseHeartbeatDisposition(
+          assistantMessage?.text ?? null,
+        );
+        if (disposition === "alert") {
+          this.deps.onConversationCreated?.({
+            conversationId: conversation.id,
+            title,
+          });
+          void this.emitHeartbeatAlertNotification({
+            runId,
+            conversationId: conversation.id,
+            messageId: assistantMessage?.id,
+            conversationTitle: title,
+            summary: buildHeartbeatAlertSummary(assistantMessage?.text ?? null),
+          }).catch((err) => {
+            log.warn(
+              { err, conversationId: conversation.id },
+              "Failed to emit heartbeat alert notification",
+            );
+          });
+        }
 
+        const today = new Date().toISOString().split("T")[0];
         if (latenessMs > LATE_THRESHOLD_MS) {
           const lateMinutes = Math.round(latenessMs / 60_000);
           void emitFeedEvent({
@@ -730,6 +862,9 @@ Do NOT attempt to use tools for these providers — they will fail. Skip any che
     }
 
     prompt += `\n\n<heartbeat-disposition>
+This heartbeat runs frequently. Do not manufacture a report just because it ran.
+If there is nothing genuinely useful, actionable, or interesting to surface, keep the response brief and end with HEARTBEAT_OK.
+If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
 After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)

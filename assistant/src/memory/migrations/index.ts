@@ -200,6 +200,7 @@ export {
   migrateHeartbeatRuns,
 } from "./237-heartbeat-runs.js";
 export { migrateScheduleRetryPolicy } from "./238-schedule-retry-policy.js";
+export { migrateTraceEventsCreatedAtIndex } from "./239-trace-events-created-at-index.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

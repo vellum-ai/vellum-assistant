@@ -69,7 +69,6 @@ mock.module(embeddingBackendModule, () => ({
 type SearchCall = {
   vector: number[];
   limit: number;
-  scopeIds?: string[];
   sparseVector?: { indices: number[]; values: number[] };
 };
 
@@ -81,10 +80,9 @@ mock.module(graphSearchModule, () => ({
   searchGraphNodes: async (
     vector: number[],
     limit: number,
-    scopeIds?: string[],
     sparseVector?: { indices: number[]; values: number[] },
   ) => {
-    searchCalls.push({ vector, limit, scopeIds, sparseVector });
+    searchCalls.push({ vector, limit, sparseVector });
     if (searchShouldThrow) {
       throw new Error("qdrant unavailable");
     }
@@ -205,13 +203,13 @@ describe("searchMemorySource", () => {
     expect(second.lastAccessed).toBe(222);
   });
 
-  test("forwards memory scope and abort signal to graph search dependencies", async () => {
+  test("forwards abort signal to graph search dependencies", async () => {
     const controller = new AbortController();
     searchHits = [];
 
     await searchMemorySource(
       "deployment checklist",
-      makeContext({ memoryScopeId: "scope-abc", signal: controller.signal }),
+      makeContext({ signal: controller.signal }),
       3,
     );
 
@@ -226,7 +224,6 @@ describe("searchMemorySource", () => {
     expect(searchCalls[0]).toMatchObject({
       vector: [0.1, 0.2, 0.3],
       limit: 3,
-      scopeIds: ["scope-abc"],
     });
     expect(searchCalls[0]?.sparseVector?.indices.length).toBeGreaterThan(0);
   });
@@ -389,7 +386,6 @@ function makeContext(
 ): RecallSearchContext {
   return {
     workingDir: "/tmp/example-workspace",
-    memoryScopeId: "scope-default",
     conversationId: "conv-123",
     config: {} as AssistantConfig,
     ...overrides,

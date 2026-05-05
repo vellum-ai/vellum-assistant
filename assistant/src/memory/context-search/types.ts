@@ -24,7 +24,6 @@ export interface RecallEvidence {
 
 export interface RecallSearchContext {
   workingDir: string;
-  memoryScopeId: string;
   conversationId: string;
   config: AssistantConfig;
   signal?: AbortSignal;
