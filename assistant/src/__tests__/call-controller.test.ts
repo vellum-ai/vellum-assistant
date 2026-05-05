@@ -841,6 +841,47 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("END_CALL listen window restores in_progress after clearing pending guardian input", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Let me check. [ASK_GUARDIAN: Is this okay?]");
+        } else if (turnContents.length === 2) {
+          opts.onTextDelta("Never mind, goodbye. [END_CALL]");
+        } else {
+          opts.onTextDelta("I'm still here.");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Can you ask?");
+    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    expect(getCallSession(session.id)!.status).toBe("waiting_on_user");
+
+    await controller.handleCallerUtterance("Actually never mind");
+    expect(controller.getPendingConsultationQuestionId()).toBeNull();
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+    expect(relay.endCalled).toBe(false);
+
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+
+    controller.destroy();
+  });
+
   // ── handleUserAnswer ──────────────────────────────────────────────
 
   test("handleUserAnswer: returns true immediately and fires LLM asynchronously", async () => {

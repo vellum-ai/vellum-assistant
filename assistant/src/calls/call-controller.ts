@@ -1099,14 +1099,17 @@ export class CallController {
   }
 
   private scheduleEndCallAfterListenWindow(): void {
-    this.clearPendingGuardianInputForCallEnd();
-    this.state = "idle";
-    this.currentTurnHandle = null;
-
-    if (this.pendingInstructions.length > 0) {
-      this.flushPendingInstructions();
+    const currentSession = getCallSession(this.callSessionId);
+    if (currentSession && isTerminalState(currentSession.status)) {
+      this.state = "idle";
+      this.currentTurnHandle = null;
       return;
     }
+
+    const clearedPendingGuardianInput =
+      this.clearPendingGuardianInputForCallEnd();
+    this.state = "idle";
+    this.currentTurnHandle = null;
 
     if (this.endCallListenTimer) {
       clearTimeout(this.endCallListenTimer);
@@ -1114,6 +1117,17 @@ export class CallController {
     }
 
     const listenWindowMs = getEndCallListenWindowMs();
+    const callContinues =
+      this.pendingInstructions.length > 0 || listenWindowMs > 0;
+    if (clearedPendingGuardianInput && callContinues) {
+      updateCallSession(this.callSessionId, { status: "in_progress" });
+    }
+
+    if (this.pendingInstructions.length > 0) {
+      this.flushPendingInstructions();
+      return;
+    }
+
     if (listenWindowMs <= 0) {
       this.completeCallFromEndMarker();
       return;
@@ -1132,8 +1146,8 @@ export class CallController {
     this.endCallListenTimer = null;
   }
 
-  private clearPendingGuardianInputForCallEnd(): void {
-    if (!this.pendingGuardianInput) return;
+  private clearPendingGuardianInputForCallEnd(): boolean {
+    if (!this.pendingGuardianInput) return false;
 
     clearTimeout(this.pendingGuardianInput.timer);
 
@@ -1149,6 +1163,7 @@ export class CallController {
     }
 
     this.pendingGuardianInput = null;
+    return true;
   }
 
   private completeCallFromEndMarker(): void {
