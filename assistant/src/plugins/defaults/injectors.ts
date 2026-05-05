@@ -3,7 +3,7 @@
  * drives the per-turn injection sequence consumed by
  * `applyRuntimeInjections`.
  *
- * Each of the eight default injectors reads its per-turn inputs from
+ * Each default injector reads its per-turn inputs from
  * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
@@ -12,6 +12,7 @@
  *
  * | name                     | order | placement               |
  * | ------------------------ | ----- | ----------------------- |
+ * | `disk-pressure-warning`  | 5     | prepend-user-tail       |
  * | `workspace-context`      | 10    | prepend-user-tail       |
  * | `unified-turn-context`   | 20    | prepend-user-tail       |
  * | `pkb-context`            | 30    | after-memory-prefix     |
@@ -45,6 +46,7 @@
 
 import { resolve } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
@@ -74,7 +76,7 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * Fixed order values for the eight default injectors. Exported so tests —
+ * Fixed order values for the default injectors. Exported so tests —
  * and any future integration code — can assert ordering without re-deriving
  * the constants.
  *
@@ -83,6 +85,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * without renumbering the defaults.
  */
 export const DEFAULT_INJECTOR_ORDER = {
+  diskPressureWarning: 5,
   workspaceContext: 10,
   unifiedTurnContext: 20,
   pkbContext: 30,
@@ -97,6 +100,35 @@ export const DEFAULT_INJECTOR_ORDER = {
 function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
   return ctx.injectionInputs ?? {};
 }
+
+export const DISK_PRESSURE_WARNING_PROMPT = `<disk_pressure_warning>
+Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is at least 95% full.
+
+In your first paragraph, warn the user that storage is critically low and that normal work is suspended until space is freed.
+
+Then help the user clean up storage. Prefer safe inspection steps first, such as checking available space and finding large directories. Ask before deleting files or caches unless the user has already clearly approved the specific cleanup action.
+
+Do not work on unrelated tasks until disk usage drops below the critical threshold or the user explicitly overrides the lock. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
+</disk_pressure_warning>`;
+
+function isSafeStorageLimitsEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
+}
+
+const diskPressureWarningInjector: Injector = {
+  name: "disk-pressure-warning",
+  order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    if (!isSafeStorageLimitsEnabled()) return null;
+    const inputs = readInjectionInputs(ctx);
+    if (!inputs.diskPressureContext?.cleanupModeActive) return null;
+    return {
+      id: "disk-pressure-warning",
+      text: DISK_PRESSURE_WARNING_PROMPT,
+      placement: "prepend-user-tail",
+    };
+  },
+};
 
 /**
  * v2 read-side cutover guard. The `pkb-context` injector silences itself
@@ -520,6 +552,7 @@ export const defaultInjectorsPlugin: Plugin = {
     },
   },
   injectors: [
+    diskPressureWarningInjector,
     workspaceContextInjector,
     unifiedTurnContextInjector,
     pkbContextInjector,

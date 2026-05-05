@@ -33,6 +33,7 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
 import type {
+  DiskPressureInjectionContext,
   InjectionBlock,
   InjectionPlacement,
   TurnContext,
@@ -1609,6 +1610,7 @@ export function loadSlackActiveThreadFocusBlock(
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
   "<channel_command_context>",
+  "<disk_pressure_warning>",
   "<channel_turn_context>", // backward-compat: strip legacy separate channel blocks
   "<guardian_context>",
   "<inbound_actor_context>", // backward-compat: strip legacy separate actor blocks
@@ -1872,6 +1874,7 @@ function applyInjectionBlock(
  * plugin-overridable default injectors.
  */
 export interface RuntimeInjectionOptions {
+  diskPressureContext?: DiskPressureInjectionContext | null;
   /**
    * Active dashboard-surface context (read from `<active_workspace>`). Kept
    * on the options bag rather than an injector because it is a
@@ -1990,6 +1993,7 @@ function buildTurnInjectionInputs(
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
+    diskPressureContext: options.diskPressureContext,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
     pkbContext: options.pkbContext,
