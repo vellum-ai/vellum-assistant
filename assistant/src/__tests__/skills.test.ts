@@ -155,12 +155,20 @@ describe("skills catalog loading", () => {
     expect(catalog.map((skill) => skill.id)).toEqual(["alpha", "zeta"]);
   });
 
-  test("treats SKILLS.md as authoritative when present", () => {
-    writeSkill("available", "Available Skill", "Present on disk");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- ../invalid-only\n");
+  test("SKILLS.md does not hide valid skill directories", () => {
+    writeSkill("existing", "Existing Skill", "Listed in stale index");
+    writeSkill(
+      "geo-article-writer",
+      "Geo Article Writer",
+      "Valid skill omitted from stale index",
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- existing\n");
 
     const catalog = loadUserSkillCatalog();
-    expect(catalog).toHaveLength(0);
+    expect(catalog.map((skill) => skill.id)).toEqual([
+      "existing",
+      "geo-article-writer",
+    ]);
   });
 });
 
