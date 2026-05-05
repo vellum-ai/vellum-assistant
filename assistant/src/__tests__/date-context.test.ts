@@ -93,14 +93,17 @@ describe("extractUserTimeZoneFromRecall", () => {
 // ---------------------------------------------------------------------------
 
 describe("UiConfigSchema timezone fields", () => {
-  test("accepts and canonicalizes userTimezone and detectedTimezone", () => {
+  test("accepts IANA canonical identifiers and aliases", () => {
     const result = UiConfigSchema.parse({
       userTimezone: "america/new_york",
-      detectedTimezone: "Asia/Tokyo",
+      detectedTimezone: "US/Eastern",
     });
 
     expect(result.userTimezone).toBe("America/New_York");
-    expect(result.detectedTimezone).toBe("Asia/Tokyo");
+    expect(result.detectedTimezone).toBe("US/Eastern");
+    expect(UiConfigSchema.parse({ userTimezone: "UTC" }).userTimezone).toBe(
+      "UTC",
+    );
   });
 
   test("accepts empty-string clearing sentinels", () => {
@@ -113,7 +116,7 @@ describe("UiConfigSchema timezone fields", () => {
     expect(result.detectedTimezone).toBe("");
   });
 
-  test("rejects invalid non-empty userTimezone and detectedTimezone", () => {
+  test("rejects invalid non-empty userTimezone and detectedTimezone values", () => {
     expect(() =>
       UiConfigSchema.parse({ userTimezone: "not-a-timezone" }),
     ).toThrow("ui.userTimezone must be a valid IANA timezone identifier");
@@ -123,6 +126,17 @@ describe("UiConfigSchema timezone fields", () => {
     expect(() => UiConfigSchema.parse({ userTimezone: "+05:30" })).toThrow(
       "ui.userTimezone must be a valid IANA timezone identifier",
     );
+  });
+
+  test("rejects ambiguous abbreviations and offset strings", () => {
+    for (const value of ["EST", "PST", "UTC+5:30", "GMT-0800", "+05:30"]) {
+      expect(() => UiConfigSchema.parse({ userTimezone: value })).toThrow(
+        "ui.userTimezone must be a valid IANA timezone identifier",
+      );
+      expect(() => UiConfigSchema.parse({ detectedTimezone: value })).toThrow(
+        "ui.detectedTimezone must be a valid IANA timezone identifier",
+      );
+    }
   });
 });
 

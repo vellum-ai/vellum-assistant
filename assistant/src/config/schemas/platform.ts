@@ -1,11 +1,14 @@
 import { z } from "zod";
 
+const IANA_TIMEZONE_IDENTIFIER_RE =
+  /^(?:UTC|[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+)$/;
+
 function canonicalizeIanaTimezone(timezone: string): string | null {
   const trimmed = timezone.trim();
   if (trimmed.length === 0) {
     return "";
   }
-  if (/^[+-]/.test(trimmed) || /^(?:UTC|GMT)[+-]/i.test(trimmed)) {
+  if (!IANA_TIMEZONE_IDENTIFIER_RE.test(trimmed)) {
     return null;
   }
   try {
