@@ -20,6 +20,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
 | `zoomManager` | `ZoomManager` | Window zoom level (`@Observable`) |
 | `settingsStore` | `SettingsStore` | Shared settings state for both SettingsView and SettingsPanel |
+| `diskPressureStatusStore` | `DiskPressureStatusStore` | Safe-storage status, acknowledgement, override, and SSE updates |
 
 ### Main Window State
 
@@ -32,6 +33,14 @@ The main window has three dedicated state objects:
 | `ConversationRestorer` | Plain class with delegate | Daemon conversation restoration (conversation list responses, history hydration) |
 
 `ConversationManager` owns conversation lifecycle. `ConversationRestorer` handles the async daemon communication for restoring conversations on reconnect, delegating state mutations back through the `ConversationRestorerDelegate` protocol for testability.
+
+### Safe Storage Limits UI
+
+The macOS safe-storage UI is active only when the assistant-scoped `safe-storage-limits` flag is enabled. `DiskPressureStatusStore` owns the client-side status snapshot, fetches `/v1/disk-pressure/status` on startup/app activation/active-assistant changes, listens for `disk_pressure_status_changed` SSE events, and clears all UI state when the flag or status is disabled.
+
+When the assistant reports an unacknowledged effective lock, `MainWindowSafeStorageBanner` renders as a blocking acknowledgement surface in both the main window and pop-out thread windows. The guardian can acknowledge and open the workspace cleanup surface, or acknowledge and dismiss the banner. If acknowledgement fails, the store exposes a visible retry message on the banner so the modal does not fail silently.
+
+After acknowledgement, chat surfaces receive `SafeStorageCleanupStatusViewState` and show a persistent cleanup status banner above the composer or in the empty state. The copy must state that background processes and trusted-contact messages remain blocked until enough space is freed by the guardian. `ChatView` disables composer sends while acknowledgement is required, but cleanup-mode chat resumes after acknowledgement.
 
 ### Observation Framework Migration
 
