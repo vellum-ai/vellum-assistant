@@ -83,6 +83,7 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // add_to_index is accepted for compatibility but no longer changes behavior.
   const result = createManagedSkill({
     id: skillId.trim(),
     name: sanitizeFrontmatterValue(name),
@@ -93,7 +94,6 @@ export async function executeScaffoldManagedSkill(
         ? sanitizeFrontmatterValue(input.emoji)
         : undefined,
     overwrite: input.overwrite === true,
-    addToIndex: input.add_to_index !== false,
     includes,
   });
 

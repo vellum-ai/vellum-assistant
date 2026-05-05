@@ -18,6 +18,6 @@ Manage the lifecycle of custom managed skills in `{workspaceDir}/skills`.
 ## Capabilities
 
 - **Scaffold** a new managed skill with YAML frontmatter and markdown body
-- **Delete** an existing managed skill and remove it from the SKILLS.md index
+- **Delete** an existing managed skill directory
 
-Skills created via `scaffold_managed_skill` become available for `skill_load` immediately.
+Skills created via `scaffold_managed_skill` become available for `skill_load` when a valid top-level `SKILL.md` is written under the skill directory.
