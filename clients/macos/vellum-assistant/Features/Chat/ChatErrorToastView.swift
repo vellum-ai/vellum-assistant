@@ -247,6 +247,8 @@ struct CreditsExhaustedBanner: View {
 
 /// Inline banner shown when the user's configured provider reports
 /// account or API-key billing trouble.
+/// This intentionally mirrors the managed credits blocker: there is no manual
+/// dismiss action because the banner clears with the conversation error state.
 struct ProviderBillingBanner: View {
     let onOpenSettings: () -> Void
 
