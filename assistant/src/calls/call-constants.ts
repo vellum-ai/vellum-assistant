@@ -70,5 +70,5 @@ export function getSilenceTimeoutMs(): number {
 }
 
 export function getEndCallListenWindowMs(): number {
-  return 8 * 1000;
+  return 15 * 1000;
 }
