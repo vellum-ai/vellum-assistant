@@ -353,7 +353,8 @@ struct ChatView: View {
             )
             .animation(nil, value: queuedMessages.isEmpty)
 
-            if let error = viewModel.errorManager.conversationError, error.isManagedCreditsExhausted {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .managedCreditsBanner {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     CreditsExhaustedBanner(
                         onAddFunds: { onAddFunds?() }
@@ -363,7 +364,8 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
-            if let error = viewModel.errorManager.conversationError, error.isProviderBilling {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .providerBillingBanner {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     ProviderBillingBanner(
                         onOpenSettings: { onOpenModelsAndServices?() }
@@ -384,7 +386,8 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
-            if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .missingApiKeyBanner {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     MissingApiKeyBanner(
                         onOpenSettings: { onOpenModelsAndServices?() },

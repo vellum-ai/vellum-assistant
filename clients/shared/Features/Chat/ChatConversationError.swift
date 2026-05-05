@@ -95,6 +95,14 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     }
 }
 
+/// Preferred UI surface for a conversation-level error.
+public enum ConversationErrorPresentationSurface: Equatable, Sendable {
+    case managedCreditsBanner
+    case providerBillingBanner
+    case missingApiKeyBanner
+    case generic
+}
+
 /// Typed error state for conversation-level errors from the daemon.
 public struct ConversationError: Equatable {
     public let category: ConversationErrorCategory
@@ -143,6 +151,27 @@ public struct ConversationError: Equatable {
         Self.isProviderBilling(category: category, errorCategory: errorCategory)
     }
 
+    public var presentationSurface: ConversationErrorPresentationSurface {
+        if isManagedCreditsExhausted {
+            return .managedCreditsBanner
+        }
+        if isProviderBilling {
+            return .providerBillingBanner
+        }
+        if isProviderNotConfigured {
+            return .missingApiKeyBanner
+        }
+        return .generic
+    }
+
+    public var shouldSuppressGenericErrorSurface: Bool {
+        presentationSurface != .generic
+    }
+
+    public var shouldCreateInlineErrorMessage: Bool {
+        !shouldSuppressGenericErrorSurface && !isManagedKeyInvalid
+    }
+
     /// Whether this error indicates that no provider is configured for inference.
     public var isProviderNotConfigured: Bool {
         category == .providerNotConfigured
@@ -174,6 +203,6 @@ public struct ConversationError: Equatable {
         if errorCategory?.hasSuffix("provider_billing") == true {
             return true
         }
-        return category == .providerBilling
+        return category == .providerBilling && errorCategory == nil
     }
 }
