@@ -124,9 +124,6 @@ mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => null,
   userMessage: () => ({}),
 }));
-mock.module("../runtime/routes/workspace-utils.js", () => ({
-  isTextMimeType: () => true,
-}));
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => [],
 }));
@@ -136,7 +133,6 @@ mock.module("../skills/catalog-install.js", () => ({
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 mock.module("../memory/graph/capability-seed.js", () => ({
@@ -164,7 +160,6 @@ import { searchSkills } from "../daemon/handlers/skills.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // Tests

@@ -53,14 +53,15 @@ afterEach(() => {
 });
 
 describe("assistant skills uninstall", () => {
-  test("removes skill directory and SKILLS.md entry", () => {
+  test("removes skill directory without editing SKILLS.md", () => {
     /**
      * Tests the happy path for uninstalling a skill.
      */
 
     // GIVEN a skill is installed locally
     installFakeSkill("weather");
-    writeSkillsIndex("- weather\n- vellum-self-knowledge\n");
+    const originalIndex = "- weather\n- vellum-self-knowledge\n";
+    writeSkillsIndex(originalIndex);
 
     // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
@@ -68,12 +69,9 @@ describe("assistant skills uninstall", () => {
     // THEN the skill directory should be removed
     expect(existsSync(join(getSkillsDir(), "weather"))).toBe(false);
 
-    // AND the SKILLS.md entry should be removed
+    // AND SKILLS.md should be left unchanged
     const index = readFileSync(getSkillsIndexPath(), "utf-8");
-    expect(index).not.toContain("weather");
-
-    // AND other skills should remain in the index
-    expect(index).toContain("vellum-self-knowledge");
+    expect(index).toBe(originalIndex);
   });
 
   test("errors when skill is not installed", () => {
@@ -118,7 +116,8 @@ describe("assistant skills uninstall", () => {
     writeFileSync(join(skillDir, "SKILL.md"), "# weather\n");
     writeFileSync(join(skillDir, "scripts", "fetch.sh"), "#!/bin/bash\n");
     writeFileSync(join(skillDir, "scripts", "lib", "utils.sh"), "# utils\n");
-    writeSkillsIndex("- weather\n");
+    const originalIndex = "- weather\n";
+    writeSkillsIndex(originalIndex);
 
     // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
@@ -126,8 +125,8 @@ describe("assistant skills uninstall", () => {
     // THEN the entire skill directory tree should be removed
     expect(existsSync(skillDir)).toBe(false);
 
-    // AND the SKILLS.md entry should be removed
+    // AND SKILLS.md should be left unchanged
     const index = readFileSync(getSkillsIndexPath(), "utf-8");
-    expect(index).not.toContain("weather");
+    expect(index).toBe(originalIndex);
   });
 });

@@ -48,7 +48,6 @@ import {
 import {
   type CatalogSkill,
   installSkillLocally,
-  upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { inferCategory } from "../../skills/category-inference.js";
@@ -68,7 +67,6 @@ import {
 import {
   createManagedSkill,
   deleteManagedSkill,
-  removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
@@ -262,11 +260,10 @@ function saveConfigWithSuppression(raw: Record<string, unknown>): void {
  * in the daemon. Handles catalog reload, auto-enable, broadcast, and memory
  * seeding.
  *
- * SKILLS.md indexing and dependency installation are handled separately:
- * `installSkillLocally` and `installExternalSkill` handle them internally
- * (so both CLI and daemon callers get correct behavior), while the clawhub
- * path handles them inline in `installSkill()` since `clawhubInstall` only
- * runs the clawhub CLI and writes metadata.
+ * Dependency installation is handled by the install path: catalog and
+ * skills.sh installs handle it internally, while the clawhub path handles it
+ * inline in `installSkill()` since `clawhubInstall` only runs the clawhub CLI
+ * and writes metadata.
  *
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
@@ -1044,10 +1041,9 @@ export async function installSkill(spec: {
     if (bundled) {
       // Intentional divergence from postInstallSkill(): bundled skills are
       // shipped with the assistant binary and are already on disk. They skip
-      // SKILLS.md indexing (they're discovered via the bundled catalog, not
-      // the workspace index), dependency installation (deps are pre-bundled),
-      // and catalog reload (the catalog already includes them). Only
-      // auto-enable, broadcast, and seed memories are needed.
+      // dependency installation (deps are pre-bundled) and catalog reload (the
+      // catalog already includes them). Only auto-enable, broadcast, and seed
+      // memories are needed.
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, spec.slug).enabled = true;
@@ -1129,8 +1125,8 @@ export async function installSkill(spec: {
     const rawId = result.skillName ?? spec.slug;
     const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
 
-    // clawhubInstall uses the clawhub CLI which doesn't handle bun install
-    // or SKILLS.md indexing, so we do those here before post-install.
+    // clawhubInstall uses the clawhub CLI which doesn't handle bun install, so
+    // install dependencies here before post-install.
     const skillDir = join(getWorkspaceSkillsDir(), skillId);
     if (existsSync(join(skillDir, "package.json"))) {
       const bunPath = `${homedir()}/.bun/bin`;
@@ -1140,7 +1136,6 @@ export async function installSkill(spec: {
         env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
       });
     }
-    upsertSkillsIndex(skillId);
 
     postInstallSkill(skillId, skillDir);
     return { success: true, skillId };
@@ -1184,11 +1179,6 @@ export async function uninstallSkill(
         return { success: false, error: "Skill not found" };
       }
       rmSync(skillDir, { recursive: true });
-      try {
-        removeSkillsIndexEntry(skillId);
-      } catch {
-        /* best effort */
-      }
       // Best-effort cleanup of capability memory for uninstalled skill
       // (managed path handles this internally via deleteManagedSkill)
       deleteSkillCapabilityNode(skillId);

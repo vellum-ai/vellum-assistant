@@ -96,15 +96,11 @@ mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => null,
   userMessage: () => ({}),
 }));
-mock.module("../runtime/routes/workspace-utils.js", () => ({
-  isTextMimeType: () => true,
-}));
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: mockGetCatalog,
 }));
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: mockInstallSkillLocally,
-  upsertSkillsIndex: () => {},
 }));
 mock.module("../skills/catalog-search.js", () => ({
   filterByQuery: () => [],
@@ -112,7 +108,6 @@ mock.module("../skills/catalog-search.js", () => ({
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 mock.module("../memory/graph/capability-seed.js", () => ({
@@ -141,7 +136,6 @@ import { installSkill } from "../daemon/handlers/skills.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -167,12 +161,10 @@ describe("installSkill routing", () => {
   });
 
   test("install with origin: 'skillssh' and multi-segment slug routes to installExternalSkill", async () => {
-    const result = await installSkill(
-      {
-        slug: "vercel-labs/agent-skills/react-best-practices",
-        origin: "skillssh",
-      },
-    );
+    const result = await installSkill({
+      slug: "vercel-labs/agent-skills/react-best-practices",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(true);
     expect(mockInstallExternalSkill).toHaveBeenCalledTimes(1);
@@ -201,9 +193,7 @@ describe("installSkill routing", () => {
   });
 
   test("install with origin: 'clawhub' routes directly to clawhub without trying skills.sh", async () => {
-    const result = await installSkill(
-      { slug: "my-skill", origin: "clawhub" },
-    );
+    const result = await installSkill({ slug: "my-skill", origin: "clawhub" });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
@@ -211,9 +201,7 @@ describe("installSkill routing", () => {
   });
 
   test("multi-segment slug without explicit origin auto-routes to skills.sh", async () => {
-    const result = await installSkill(
-      { slug: "owner/repo/my-skill" },
-    );
+    const result = await installSkill({ slug: "owner/repo/my-skill" });
 
     expect(result.success).toBe(true);
     expect(mockInstallExternalSkill).toHaveBeenCalledTimes(1);
@@ -231,9 +219,10 @@ describe("installSkill routing", () => {
   test("multi-segment slug with origin: 'clawhub' skips skills.sh and routes to clawhub", async () => {
     // Even though the slug looks like skills.sh format, explicit origin: "clawhub"
     // should override the auto-detection and go to clawhub
-    const result = await installSkill(
-      { slug: "owner/repo/my-skill", origin: "clawhub" },
-    );
+    const result = await installSkill({
+      slug: "owner/repo/my-skill",
+      origin: "clawhub",
+    });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
@@ -251,9 +240,10 @@ describe("installSkill routing", () => {
       },
     ]);
 
-    const result = await installSkill(
-      { slug: "bundled-skill", origin: "skillssh" },
-    );
+    const result = await installSkill({
+      slug: "bundled-skill",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(true);
     // Should have auto-enabled via ensureSkillEntry, not called external install
@@ -266,12 +256,10 @@ describe("installSkill routing", () => {
       new Error("Skill not found in repo"),
     );
 
-    const result = await installSkill(
-      {
-        slug: "owner/repo/nonexistent-skill",
-        origin: "skillssh",
-      },
-    );
+    const result = await installSkill({
+      slug: "owner/repo/nonexistent-skill",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(false);
     if (!result.success) {

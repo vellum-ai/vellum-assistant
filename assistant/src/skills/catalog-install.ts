@@ -1,11 +1,9 @@
 import { execSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -44,12 +42,6 @@ export interface CatalogSkill {
 export interface CatalogManifest {
   version: number;
   skills: CatalogSkill[];
-}
-
-// ─── Path helpers ────────────────────────────────────────────────────────────
-
-function getSkillsIndexPath(): string {
-  return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
 /**
@@ -226,49 +218,6 @@ async function fetchAndExtractSkill(
   }
 }
 
-// ─── SKILLS.md index management ──────────────────────────────────────────────
-
-function atomicWriteFile(filePath: string, content: string): void {
-  const dir = dirname(filePath);
-  mkdirSync(dir, { recursive: true });
-  const tmpPath = join(dir, `.tmp-${randomUUID()}`);
-  writeFileSync(tmpPath, content, "utf-8");
-  renameSync(tmpPath, filePath);
-}
-
-export function upsertSkillsIndex(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  let lines: string[] = [];
-  if (existsSync(indexPath)) {
-    lines = readFileSync(indexPath, "utf-8").split("\n");
-  }
-
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  if (lines.some((line) => pattern.test(line))) return;
-
-  const nonEmpty = lines.filter((l) => l.trim());
-  nonEmpty.push(`- ${id}`);
-  const content = nonEmpty.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
-}
-
-function removeSkillsIndexEntry(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  if (!existsSync(indexPath)) return;
-
-  const lines = readFileSync(indexPath, "utf-8").split("\n");
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  const filtered = lines.filter((line) => !pattern.test(line));
-
-  // If nothing changed, skip the write
-  if (filtered.length === lines.length) return;
-
-  const content = filtered.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
-}
-
 // ─── Install / uninstall ─────────────────────────────────────────────────────
 
 export function uninstallSkillLocally(skillId: string): void {
@@ -279,7 +228,6 @@ export function uninstallSkillLocally(skillId: string): void {
   }
 
   rmSync(skillDir, { recursive: true, force: true });
-  removeSkillsIndexEntry(skillId);
   deleteSkillCapabilityNode(skillId);
 }
 
@@ -329,9 +277,7 @@ export async function installSkillLocally(
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
 
-  // Post-install: install dependencies first, then index the skill.
-  // Running bun install before upsertSkillsIndex ensures we don't index a
-  // skill whose dependencies failed to install.
+  // Post-install: install dependencies before reporting success.
   if (existsSync(join(skillDir, "package.json"))) {
     const bunPath = `${homedir()}/.bun/bin`;
     execSync("bun install", {
@@ -340,7 +286,6 @@ export async function installSkillLocally(
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
     });
   }
-  upsertSkillsIndex(skillId);
 }
 
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
@@ -379,7 +324,12 @@ export async function resolveCatalog(
         const localIds = new Set(local.map((s) => s.id));
         const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
         log.info(
-          { skillId, source: "merged", localCount: local.length, remoteCount: remote.length },
+          {
+            skillId,
+            source: "merged",
+            localCount: local.length,
+            remoteCount: remote.length,
+          },
           "Resolved skills catalog from local+remote merge",
         );
         return merged;
@@ -393,7 +343,10 @@ export async function resolveCatalog(
     }
   }
 
-  log.info({ skillId, source: "remote" }, "Resolved skills catalog from platform API");
+  log.info(
+    { skillId, source: "remote" },
+    "Resolved skills catalog from platform API",
+  );
   return fetchCatalog();
 }
 
@@ -430,16 +383,14 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
-  // If the skill already exists on disk (stale index), re-index it instead
-  // of attempting a fresh install that would fail.
+  // If the skill already exists on disk, reuse it instead of attempting a
+  // fresh install that would fail.
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (existsSync(join(skillDir, "SKILL.md"))) {
-    log.info({ skillId, source: "disk-reindex" }, "Skill already on disk, re-indexing");
-    upsertSkillsIndex(skillId);
+    log.info({ skillId, source: "disk" }, "Skill already on disk");
     return true;
   }
 
-  // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
 
   return true;
