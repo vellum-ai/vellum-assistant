@@ -105,6 +105,11 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import {
+  evaluateDiskPressureNow,
+  startDiskPressureGuard,
+  stopDiskPressureGuard,
+} from "./disk-pressure-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
@@ -125,9 +130,55 @@ import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 
 const log = getLogger("lifecycle");
+let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
+}
+
+function runDeferredDiskPressureStartupSample(): void {
+  diskPressureStartupSampleTimer = null;
+  try {
+    const status = evaluateDiskPressureNow();
+    if (status.error) {
+      log.warn(
+        { error: status.error },
+        "Disk pressure guard sample failed during startup — continuing unlocked",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
+export function startDiskPressureGuardForLifecycle(): void {
+  try {
+    const startedStatus = startDiskPressureGuard();
+    if (!startedStatus.enabled) return;
+    if (!diskPressureStartupSampleTimer) {
+      diskPressureStartupSampleTimer = setTimeout(
+        runDeferredDiskPressureStartupSample,
+        0,
+      );
+      (diskPressureStartupSampleTimer as { unref?: () => void }).unref?.();
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
+export function stopDiskPressureGuardForLifecycle(): void {
+  if (diskPressureStartupSampleTimer) {
+    clearTimeout(diskPressureStartupSampleTimer);
+    diskPressureStartupSampleTimer = null;
+  }
+  stopDiskPressureGuard();
 }
 
 export interface CesStartupResult {
@@ -625,6 +676,7 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+    startDiskPressureGuardForLifecycle();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake
@@ -1271,10 +1323,14 @@ export async function runDaemon(): Promise<void> {
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
-      cleanupPidFile,
+      cleanupPidFile: () => {
+        stopDiskPressureGuardForLifecycle();
+        cleanupPidFile();
+      },
     });
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
+    stopDiskPressureGuardForLifecycle();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }
