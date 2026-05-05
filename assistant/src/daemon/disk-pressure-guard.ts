@@ -2,6 +2,7 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 
@@ -169,6 +170,18 @@ function sampleFailureStatus(error: unknown): DiskPressureStatus {
   };
 }
 
+function cancelTerminalBackgroundToolsForLock(): void {
+  const cancelled = cancelBackgroundTools(
+    (tool) => tool.toolName === "bash" || tool.toolName === "host_bash",
+    "disk_pressure",
+  );
+  if (cancelled.length === 0) return;
+  log.info(
+    { count: cancelled.length, ids: cancelled.map((tool) => tool.id) },
+    "Cancelled background terminal tools during disk pressure lock",
+  );
+}
+
 function rejectTransition(
   reason: Exclude<DiskPressureTransitionResult, { ok: true }>["reason"],
   message: string,
@@ -225,6 +238,10 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
       path: usageInfo.path,
       lastCheckedAt,
     });
+  }
+
+  if (!state.status.locked) {
+    cancelTerminalBackgroundToolsForLock();
   }
 
   const lockId = state.status.locked ? state.status.lockId : nextLockId();

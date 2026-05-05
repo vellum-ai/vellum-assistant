@@ -512,6 +512,7 @@ export interface AgentLoopConversationContext {
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
+  diskPressureCleanupModeActive?: boolean;
   toolsDisabledDepth: number;
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
@@ -748,6 +749,8 @@ export async function runAgentLoopImpl(
     diskPressureDecision.action === "allow-cleanup-mode"
       ? { cleanupModeActive: true }
       : null;
+  ctx.diskPressureCleanupModeActive =
+    diskPressureDecision.action === "allow-cleanup-mode";
 
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
@@ -3098,6 +3101,7 @@ export async function runAgentLoopImpl(
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
+    ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.slackRuntimeContextNotice = undefined;

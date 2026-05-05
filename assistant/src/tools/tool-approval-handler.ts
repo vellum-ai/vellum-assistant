@@ -13,12 +13,13 @@ import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-  ToolLifecycleEvent,
+import {
+  type ExecutionTarget,
+  isDiskPressureCleanupToolName,
+  type Tool,
+  type ToolContext,
+  type ToolExecutionResult,
+  type ToolLifecycleEvent,
 } from "./types.js";
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
@@ -307,6 +308,30 @@ export class ToolApprovalHandler {
         callSessionId: context.callSessionId,
         requesterExternalUserId: context.requesterExternalUserId,
       };
+    }
+
+    if (
+      context.diskPressureCleanupModeActive === true &&
+      !isDiskPressureCleanupToolName(name)
+    ) {
+      const msg = `Tool "${name}" is not available during disk pressure cleanup mode.`;
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: "error",
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: "error",
+        durationMs,
+        errorMessage: msg,
+        isExpected: true,
+        errorCategory: "tool_failure",
+      });
+      return { allowed: false, result: { content: msg, isError: true } };
     }
 
     // Gate tools not active for the current turn
