@@ -52,14 +52,13 @@ describe("scaffold_managed_skill tool", () => {
     );
   });
 
-  test("creates a valid skill discovered from its SKILL.md directory while ignoring legacy inputs", async () => {
+  test("creates a valid skill discovered from its SKILL.md directory", async () => {
     const result = await executeScaffoldManagedSkill(
       {
         skill_id: "test-skill",
         name: "Test Skill",
         description: "A test skill",
         body_markdown: "Do the thing.",
-        add_to_index: false,
       },
       makeContext(),
     );

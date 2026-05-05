@@ -133,13 +133,17 @@ export function verifyAndRecordSkillHash(slug: string): void {
   }
 }
 
-interface ClawhubInstallResult {
-  success: boolean;
-  skillName?: string;
-  skillDir?: string;
-  version?: string;
-  error?: string;
-}
+type ClawhubInstallResult =
+  | {
+      success: true;
+      skillId: string;
+      skillDir: string;
+      version?: string;
+    }
+  | {
+      success: false;
+      error: string;
+    };
 
 interface ClawhubSearchResultItem {
   name: string;
@@ -235,7 +239,7 @@ function hasRootSkillFile(skillDir: string): boolean {
 function findInstalledClawhubSkillDir(
   slug: string,
   projectRoot?: string,
-): { skillName: string; skillDir: string } | null {
+): { skillId: string; skillDir: string } | null {
   const skillsDir = getClawhubSkillsDir(projectRoot);
   const expectedSkillName = getSkillNameFromSlug(slug);
   const candidates = [
@@ -245,7 +249,7 @@ function findInstalledClawhubSkillDir(
 
   for (const candidate of candidates) {
     if (hasRootSkillFile(candidate)) {
-      return { skillName: expectedSkillName, skillDir: candidate };
+      return { skillId: expectedSkillName, skillDir: candidate };
     }
   }
 
@@ -257,8 +261,8 @@ function findInstalledClawhubSkillDir(
   );
   if (stagedSkills.length !== 1) return null;
 
-  const skillName = stagedSkills[0]!.name;
-  return { skillName, skillDir: join(skillsDir, skillName) };
+  const skillId = stagedSkills[0]!.name;
+  return { skillId, skillDir: join(skillsDir, skillId) };
 }
 
 export async function clawhubInstall(
@@ -301,7 +305,7 @@ export async function clawhubInstall(
 
     return {
       success: true,
-      skillName: installed.skillName,
+      skillId: installed.skillId,
       skillDir: installed.skillDir,
     };
   } catch (err) {

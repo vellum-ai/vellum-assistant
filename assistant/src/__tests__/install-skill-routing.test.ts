@@ -22,7 +22,7 @@ const mockClawhubInstall = mock(
   ): Promise<{
     success: boolean;
     error?: string;
-    skillName?: string;
+    skillId?: string;
     skillDir?: string;
   }> => ({ success: true }),
 );
@@ -199,7 +199,7 @@ describe("installSkill routing", () => {
       const skillId = slug.includes("/") ? slug.split("/").pop()! : slug;
       const projectRoot = opts?.projectRoot ?? TEST_SKILLS_DIR;
       const skillDir = stageClawhubSkill(projectRoot, skillId);
-      return { success: true, skillName: skillId, skillDir };
+      return { success: true, skillId, skillDir };
     });
     mockInstallExternalSkill.mockResolvedValue(undefined);
     mockGetCatalog.mockResolvedValue([]);
@@ -261,7 +261,7 @@ Body.
         join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
         slug,
       );
-      return { success: true, skillName: slug, skillDir };
+      return { success: true, skillId: slug, skillDir };
     });
 
     const result = await installSkill({ slug: "some-clawhub-skill" });
@@ -283,7 +283,7 @@ Body.
         join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
         slug,
       );
-      return { success: true, skillName: slug, skillDir };
+      return { success: true, skillId: slug, skillDir };
     });
 
     const result = await installSkill({ slug: "my-skill", origin: "clawhub" });
@@ -296,7 +296,14 @@ Body.
   test("clawhub install fails when the installed skill root is not discoverable", async () => {
     mockClawhubInstall.mockResolvedValue({
       success: true,
-      skillName: "missing-root-skill",
+      skillId: "missing-root-skill",
+      skillDir: join(
+        TEST_SKILLS_DIR,
+        ".install-staging",
+        "project-0",
+        "skills",
+        "missing-root-skill",
+      ),
     });
 
     const result = await installSkill({
@@ -337,7 +344,7 @@ Body.
         join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
         skillId,
       );
-      return { success: true, skillName: skillId, skillDir };
+      return { success: true, skillId, skillDir };
     });
 
     // Even though the slug looks like skills.sh format, explicit origin: "clawhub"

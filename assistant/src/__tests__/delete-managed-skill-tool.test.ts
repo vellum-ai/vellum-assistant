@@ -66,7 +66,7 @@ describe("delete_managed_skill tool", () => {
     );
   });
 
-  test("deletes existing skill while ignoring legacy index inputs", async () => {
+  test("deletes existing skill without modifying the legacy index", async () => {
     createSkill("doomed");
     createSkill("survivor");
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
@@ -76,7 +76,6 @@ describe("delete_managed_skill tool", () => {
     const result = await executeDeleteManagedSkill(
       {
         skill_id: "doomed",
-        remove_from_index: false,
       },
       makeContext(),
     );
