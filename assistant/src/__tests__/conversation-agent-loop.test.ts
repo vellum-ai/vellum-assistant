@@ -698,6 +698,72 @@ describe("session-agent-loop", () => {
         cleanupModeActive: true,
       });
     });
+
+    test("blocks policy-denied turns before runtime injection or model execution", async () => {
+      mockDiskPressureDecision = {
+        action: "block",
+        reason: "trusted-contact",
+      };
+      const events: ServerMessage[] = [];
+      const agentLoopRun = mock(async (_messages: Message[]) => {
+        throw new Error("agent loop should not run");
+      });
+      const activityStates: unknown[][] = [];
+      const traceEvents: unknown[][] = [];
+      const ctx = makeCtx({
+        agentLoopRun: agentLoopRun as AgentLoopRun,
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        traceEmitter: {
+          emit: (...args: unknown[]) => {
+            traceEvents.push(args);
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(agentLoopRun).not.toHaveBeenCalled();
+      expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
+      expect(activityStates).toContainEqual([
+        "idle",
+        "error_terminal",
+        "global",
+        "test-req",
+      ]);
+      expect(traceEvents[0]).toEqual([
+        "request_error",
+        expect.stringContaining("Storage is critically low"),
+        expect.objectContaining({
+          requestId: "test-req",
+          status: "error",
+          attributes: expect.objectContaining({
+            errorCategory: "disk_pressure",
+            errorCode: "DISK_SPACE_CRITICAL",
+            diskPressureReason: "trusted-contact",
+          }),
+        }),
+      ]);
+      expect(events.find((event) => event.type === "error")).toMatchObject({
+        type: "error",
+        conversationId: "test-conv",
+        requestId: "test-req",
+        code: "DISK_SPACE_CRITICAL",
+        category: "disk_pressure",
+        message: expect.stringContaining("trusted contacts"),
+      });
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toMatchObject({
+        type: "conversation_error",
+        conversationId: "test-conv",
+        code: "DISK_SPACE_CRITICAL",
+        retryable: true,
+        errorCategory: "disk_pressure",
+        userMessage: expect.stringContaining("trusted contacts"),
+      });
+    });
   });
 
   describe("tool execution errors via agent loop", () => {

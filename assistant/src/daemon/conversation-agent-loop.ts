@@ -183,7 +183,10 @@ import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
-import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
+import {
+  classifyDiskPressureTurnPolicy,
+  type DiskPressureBlockReason,
+} from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -200,6 +203,8 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
+const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -218,6 +223,15 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
+
+function formatDiskPressureBlockedMessage(
+  reason: DiskPressureBlockReason,
+): string {
+  if (reason === "background") {
+    return "Storage is critically low, so background processes are paused until the guardian frees enough space.";
+  }
+  return "Storage is critically low, so messages from trusted contacts and other remote contacts are paused until the guardian frees enough space.";
+}
 
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────
 //
@@ -715,18 +729,36 @@ export async function runAgentLoopImpl(
     };
   })();
 
+  const isInteractiveResolved =
+    options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+  const diskPressureDecision = classifyDiskPressureTurnPolicy(
+    getDiskPressureStatus(),
+    {
+      conversationType: turnStartConversation?.conversationType ?? null,
+      conversationSource: turnStartConversation?.source ?? null,
+      callSite: turnCallSite,
+      isInteractive: isInteractiveResolved,
+      sourceChannel:
+        ctx.trustContext?.sourceChannel ??
+        capturedTurnChannelContext.userMessageChannel,
+      sourceInterface:
+        ctx.channelCapabilities?.clientOS ??
+        capturedTurnInterfaceContext.userMessageInterface,
+      trustContext: ctx.trustContext
+        ? {
+            sourceChannel: ctx.trustContext.sourceChannel,
+            trustClass: ctx.trustContext.trustClass,
+          }
+        : null,
+    },
+  );
+  const diskPressureContext =
+    diskPressureDecision.action === "allow-cleanup-mode"
+      ? { cleanupModeActive: true }
+      : null;
+
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
-
-  // Ensure workspace git repo is initialized before any tools run.
-  try {
-    const getWorkspaceGitServiceFn =
-      ctx.getWorkspaceGitService ?? getWorkspaceGitService;
-    const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
-    await gitService.ensureInitialized();
-  } catch (err) {
-    rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
-  }
 
   ctx.profiler.startRequest();
   let turnStarted = false;
@@ -744,6 +776,53 @@ export async function runAgentLoopImpl(
   });
 
   try {
+    if (diskPressureDecision.action === "block") {
+      const message = formatDiskPressureBlockedMessage(
+        diskPressureDecision.reason,
+      );
+      rlog.warn(
+        { reason: diskPressureDecision.reason },
+        "Blocked turn during disk pressure cleanup mode",
+      );
+      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.traceEmitter.emit("request_error", message, {
+        requestId: reqId,
+        status: "error",
+        attributes: {
+          errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
+          errorCode: DISK_PRESSURE_ERROR_CODE,
+          diskPressureReason: diskPressureDecision.reason,
+        },
+      });
+      onEvent({
+        type: "error",
+        conversationId: ctx.conversationId,
+        requestId: reqId,
+        code: DISK_PRESSURE_ERROR_CODE,
+        message,
+        category: DISK_PRESSURE_ERROR_CATEGORY,
+      });
+      onEvent({
+        type: "conversation_error",
+        conversationId: ctx.conversationId,
+        code: DISK_PRESSURE_ERROR_CODE,
+        userMessage: message,
+        retryable: true,
+        errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
+      });
+      return;
+    }
+
+    // Ensure workspace git repo is initialized before any tools run.
+    try {
+      const getWorkspaceGitServiceFn =
+        ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+      const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
+      await gitService.ensureInitialized();
+    } catch (err) {
+      rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+    }
+
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
     // response), so internal turns (subagent notifications, lifecycle
@@ -1320,34 +1399,6 @@ export async function runAgentLoopImpl(
     );
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    const isInteractiveResolved =
-      options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-    const diskPressureDecision = classifyDiskPressureTurnPolicy(
-      getDiskPressureStatus(),
-      {
-        conversationType: turnStartConversation?.conversationType ?? null,
-        conversationSource: turnStartConversation?.source ?? null,
-        callSite: turnCallSite,
-        isInteractive: isInteractiveResolved,
-        sourceChannel:
-          ctx.trustContext?.sourceChannel ??
-          capturedTurnChannelContext.userMessageChannel,
-        sourceInterface:
-          ctx.channelCapabilities?.clientOS ??
-          capturedTurnInterfaceContext.userMessageInterface,
-        trustContext: ctx.trustContext
-          ? {
-              sourceChannel: ctx.trustContext.sourceChannel,
-              trustClass: ctx.trustContext.trustClass,
-            }
-          : null,
-      },
-    );
-    const diskPressureContext =
-      diskPressureDecision.action === "allow-cleanup-mode"
-        ? { cleanupModeActive: true }
-        : null;
 
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
