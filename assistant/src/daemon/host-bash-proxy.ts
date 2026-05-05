@@ -13,7 +13,6 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("host-bash-proxy");
 
-
 export class HostBashProxy {
   private static _instance: HostBashProxy | null = null;
 
@@ -62,13 +61,16 @@ export class HostBashProxy {
     },
     conversationId: string,
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       const result = formatShellOutput("", "Aborted", null, false, 0);
       return Promise.resolve(result);
     }
 
-    const capableClients = assistantEventHub.listClientsByCapability("host_bash");
+    const capableClients =
+      assistantEventHub.listClientsByCapability("host_bash");
 
     let resolvedTargetClientId: string | undefined;
 
@@ -82,13 +84,52 @@ export class HostBashProxy {
       }
       resolvedTargetClientId = input.targetClientId;
     } else if (capableClients.length === 1) {
-      // Auto-resolve when exactly one capable client is connected.
-      resolvedTargetClientId = capableClients[0].clientId;
+      // Auto-resolve when exactly one capable client is connected — but only
+      // when its actor principal matches the caller's. This prevents a
+      // same-daemon attacker from getting cross-user execution by relying on
+      // auto-resolve. If the sole client belongs to a different user, fall
+      // through to the untargeted broadcast path.
+      const onlyClient = capableClients[0];
+      if (
+        sourceActorPrincipalId != null &&
+        onlyClient.actorPrincipalId === sourceActorPrincipalId
+      ) {
+        resolvedTargetClientId = onlyClient.clientId;
+      }
     }
     // capableClients.length === 0 or > 1 without explicit target: resolvedTargetClientId
     // stays undefined and falls through to untargeted broadcast — the existing timeout/error
     // path handles the zero-client case, and multi-client ambiguity is enforced at the tool
     // executor layer (not here) once target_client_id is exposed in the tool schema.
+
+    // Targeted requests must be bound to the same authenticated user as the
+    // target client. Fail closed at request time — before pendingInteractions
+    // registration and before broadcast — so a same-daemon caller cannot
+    // execute on another user's connected client.
+    if (resolvedTargetClientId != null) {
+      const targetActorPrincipalId =
+        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
+      if (
+        sourceActorPrincipalId == null ||
+        targetActorPrincipalId == null ||
+        targetActorPrincipalId !== sourceActorPrincipalId
+      ) {
+        log.warn(
+          {
+            sourceActorPrincipalId,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId,
+            op: "host_bash",
+          },
+          "Rejecting targeted host_bash request: source actor does not match target client's actor",
+        );
+        return Promise.resolve({
+          content:
+            "Targeted host_bash requests require the target client to be owned by the same user as the caller.",
+          isError: true,
+        });
+      }
+    }
 
     const requestId = uuid();
 
@@ -108,15 +149,7 @@ export class HostBashProxy {
         const timeoutMessage = resolvedTargetClientId
           ? `Host bash proxy timed out waiting for response from client ${resolvedTargetClientId}`
           : "Host bash proxy timed out waiting for client response";
-        resolve(
-          formatShellOutput(
-            "",
-            timeoutMessage,
-            null,
-            true,
-            timeoutSec,
-          ),
-        );
+        resolve(formatShellOutput("", timeoutMessage, null, true, timeoutSec));
       }, proxyTimeoutSec * 1000);
 
       if (signal) {
@@ -166,8 +199,8 @@ export class HostBashProxy {
             timeout_seconds: input.timeout_seconds,
             targetClientId: resolvedTargetClientId,
             ...(input.env && Object.keys(input.env).length > 0
-                ? { env: input.env }
-                : {}),
+              ? { env: input.env }
+              : {}),
           },
           conversationId,
           { targetClientId: resolvedTargetClientId },
