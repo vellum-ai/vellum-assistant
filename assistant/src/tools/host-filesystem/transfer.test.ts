@@ -305,4 +305,54 @@ describe("host_file_transfer cross-client guards", () => {
     );
     expect(toSandboxCalls.length).toBe(0);
   });
+
+  test("returns 'specified client disconnected' error when targetClientId set but proxy unavailable on web", async () => {
+    const workingDir = makeTempDir();
+    const srcDir = makeTempDir();
+    const srcFile = join(srcDir, "source.txt");
+    writeFileSync(srcFile, "content");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: srcFile,
+        dest_path: "out.txt",
+        direction: "to_sandbox",
+        target_client_id: "abc-123",
+      },
+      makeContext(workingDir, "web"),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'target client "abc-123" is no longer connected',
+    );
+    expect(toSandboxCalls.length).toBe(0);
+  });
+
+  test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: Devin-flagged scope drift fix)", async () => {
+    const workingDir = makeTempDir();
+    const srcDir = makeTempDir();
+    const srcFile = join(srcDir, "source.txt");
+    writeFileSync(srcFile, "content");
+    const destFile = join(workingDir, "stale-target.txt");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: srcFile,
+        dest_path: destFile,
+        direction: "to_sandbox",
+        target_client_id: "stale-mac",
+      },
+      makeContext(workingDir, "macos"),
+    );
+
+    // The disconnected-target guard is scoped to non-host-proxy transports
+    // (!supportsHostProxy). On macos, a stale target_client_id auto-filled
+    // from a prior cross-client turn must be silently ignored and the local
+    // copy must succeed, NOT reject with "target client ... is no longer
+    // connected" or the older "target_client_id was specified but no host
+    // client is available" message.
+    expect(result.isError).toBe(false);
+    expect(existsSync(destFile)).toBe(true);
+  });
 });
