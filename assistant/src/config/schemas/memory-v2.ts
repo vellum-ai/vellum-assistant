@@ -8,11 +8,13 @@ import { z } from "zod";
 const WEIGHT_SUM_TOLERANCE = 0.001;
 
 /**
- * Default cross-encoder model for memory v2 reranking. `BAAI/bge-reranker-v2-m3`
- * is the long-term target but currently lacks a public ONNX export; the
- * `Xenova/bge-reranker-base` (278M, MIT, ONNX-converted) is the working pick.
+ * Default cross-encoder model for memory v2 reranking.
+ * `Alibaba-NLP/gte-reranker-modernbert-base` (149M, Apache-2.0) — 2025
+ * ModernBERT-backbone reranker; smaller, newer, and cleaner-licensed than
+ * the bge family while matching or beating their retrieval-benchmark scores.
+ * Has ONNX exports at the standard `onnx/model.onnx` path.
  */
-const DEFAULT_RERANK_MODEL = "Xenova/bge-reranker-base";
+const DEFAULT_RERANK_MODEL = "Alibaba-NLP/gte-reranker-modernbert-base";
 
 /**
  * Memory v2 (concept-page activation model) configuration.

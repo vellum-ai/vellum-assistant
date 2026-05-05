@@ -30,7 +30,7 @@ describe("MemoryV2ConfigSchema", () => {
         enabled: false,
         top_k: 50,
         alpha: 0.3,
-        model: "Xenova/bge-reranker-base",
+        model: "Alibaba-NLP/gte-reranker-modernbert-base",
       },
     });
   });
