@@ -64,6 +64,7 @@ afterAll(() => {
   mock.restore();
 });
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
   deepMergeOverwrite,
   getConfig,
@@ -432,6 +433,46 @@ describe("loadConfig startup behavior", () => {
     });
     expect(raw.llm.activeProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("non-Anthropic hatch overlay does not activate Anthropic managed profile", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "openai",
+              model: "gpt-5.4",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    seedInferenceProfiles();
+    mergeDefaultWorkspaceConfig();
+    const config = loadConfig();
+    const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
+
+    expect(config.llm.default.provider).toBe("openai");
+    expect(config.llm.default.model).toBe("gpt-5.4");
+    expect(config.llm.activeProfile).toBeUndefined();
+    expect(config.llm.profiles.balanced?.provider).toBeUndefined();
+    expect(mainAgentConfig.provider).toBe("openai");
+    expect(mainAgentConfig.model).toBe("gpt-5.4");
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+    expect(raw.llm.activeProfile).toBeUndefined();
+    expect(raw.llm.profiles.balanced).toEqual({});
   });
 
   test("still quarantines corrupt JSON", () => {
