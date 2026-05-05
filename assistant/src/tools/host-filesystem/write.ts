@@ -1,4 +1,5 @@
 import { supportsHostProxy } from "../../channels/types.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -62,7 +63,8 @@ class HostFileWriteTool implements Tool {
     }
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -82,6 +84,9 @@ class HostFileWriteTool implements Tool {
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostFileProxy.instance.isAvailable()) {
+      const sourceActorPrincipalId =
+        findConversation(context.conversationId)?.trustContext
+          ?.guardianPrincipalId ?? undefined;
       return HostFileProxy.instance.request(
         {
           operation: "write",
@@ -91,6 +96,8 @@ class HostFileWriteTool implements Tool {
         },
         context.conversationId,
         context.signal,
+        targetClientId,
+        sourceActorPrincipalId,
       );
     }
 

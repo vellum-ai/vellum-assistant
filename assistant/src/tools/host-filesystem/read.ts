@@ -1,6 +1,7 @@
 import { extname } from "node:path";
 
 import { supportsHostProxy } from "../../channels/types.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -63,7 +64,8 @@ class HostFileReadTool implements Tool {
     }
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -84,6 +86,9 @@ class HostFileReadTool implements Tool {
     // when a capable client is available (managed/cloud-hosted mode),
     // including image reads that need the host filesystem view.
     if (HostFileProxy.instance.isAvailable()) {
+      const sourceActorPrincipalId =
+        findConversation(context.conversationId)?.trustContext
+          ?.guardianPrincipalId ?? undefined;
       return HostFileProxy.instance.request(
         {
           operation: "read",
@@ -94,6 +99,8 @@ class HostFileReadTool implements Tool {
         },
         context.conversationId,
         context.signal,
+        targetClientId,
+        sourceActorPrincipalId,
       );
     }
 
