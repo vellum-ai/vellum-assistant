@@ -93,7 +93,8 @@ class HostFileTransferTool implements Tool {
     const overwrite = input.overwrite === true;
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -103,7 +104,10 @@ class HostFileTransferTool implements Tool {
       !supportsHostProxy(context.transportInterface) &&
       assistantEventHub.listClientsByCapability("host_file").length > 1
     ) {
-      return { content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`, isError: true };
+      return {
+        content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`,
+        isError: true,
+      };
     }
 
     // Validate that host-side paths are absolute.
@@ -136,7 +140,9 @@ class HostFileTransferTool implements Tool {
 
     let resolvedDestPath = destPath;
     if (direction === "to_sandbox") {
-      const pathCheck = sandboxPolicy(destPath, context.workingDir, { mustExist: false });
+      const pathCheck = sandboxPolicy(destPath, context.workingDir, {
+        mustExist: false,
+      });
       if (!pathCheck.ok) {
         return {
           content: `Invalid destination path: ${pathCheck.error}`,
@@ -158,6 +164,7 @@ class HostFileTransferTool implements Tool {
             targetClientId,
           },
           context.signal,
+          context.sourceActorPrincipalId,
         );
       }
       return HostTransferProxy.instance.requestToSandbox(
@@ -169,6 +176,7 @@ class HostFileTransferTool implements Tool {
           targetClientId,
         },
         context.signal,
+        context.sourceActorPrincipalId,
       );
     }
 
