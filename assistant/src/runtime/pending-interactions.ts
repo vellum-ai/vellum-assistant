@@ -19,7 +19,6 @@
  */
 
 import type { UserDecision } from "../permissions/types.js";
-import type { ToolExecutionResult } from "../tools/types.js";
 
 export interface ConfirmationDetails {
   toolName: string;
@@ -69,16 +68,12 @@ export interface PendingInteraction {
    */
   targetActorPrincipalId?: string;
 
-  // -- RPC lifecycle (host proxies: rpcResolve/rpcReject; prompters: promptResolve/promptReject) --
+  // -- RPC lifecycle (all interaction types) --
 
-  /** Resolve the caller's Promise with a tool execution result (host proxies). */
-  rpcResolve?: (result: ToolExecutionResult) => void;
-  /** Reject the caller's Promise with an error (host proxies). */
+  /** Resolve the caller's Promise. Typed as unknown; callers cast at use sites. */
+  rpcResolve?: (value: unknown) => void;
+  /** Reject the caller's Promise with an error. */
   rpcReject?: (err: Error) => void;
-  /** Resolve the caller's Promise with a prompter result (PermissionPrompter / SecretPrompter). */
-  promptResolve?: (value: unknown) => void;
-  /** Reject the caller's Promise with an error (PermissionPrompter / SecretPrompter). */
-  promptReject?: (err: Error) => void;
   /** Timeout timer. Cleared automatically on resolve(). */
   timer?: ReturnType<typeof setTimeout>;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
@@ -163,10 +158,7 @@ export function removeByConversation(conversationId: string): void {
       interaction.kind !== "host_transfer" &&
       interaction.kind !== "acp_confirmation"
     ) {
-      // Use resolve() instead of pending.delete() so that stored timers are
-      // cleared and abort listeners detached. prompter.dispose() should have
-      // already fired promptReject before this point; resolve() here is a
-      // safety-net to prevent timer leaks if dispose() was skipped.
+      // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId);
     }
   }

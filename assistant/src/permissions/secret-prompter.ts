@@ -45,7 +45,7 @@ export class SecretPrompter {
    * Broadcast a secret_request to all connected clients and wait for a
    * response.
    *
-   * Registers all lifecycle state (promptResolve, promptReject, timer) in
+   * Registers all lifecycle state (rpcResolve, rpcReject, timer) in
    * pendingInteractions before broadcasting — identical to the host proxy
    * and PermissionPrompter pattern.
    *
@@ -82,8 +82,8 @@ export class SecretPrompter {
       pendingInteractions.register(requestId, {
         conversationId: effectiveConversationId,
         kind: "secret",
-        promptResolve: resolve as (value: unknown) => void,
-        promptReject: reject,
+        rpcResolve: resolve as (value: unknown) => void,
+        rpcReject: reject,
         timer,
       });
       this.ownedIds.add(requestId);
@@ -132,7 +132,7 @@ export class SecretPrompter {
     // the prompter owns deregistration so it fires the Promise callback cleanly.
     const interaction = pendingInteractions.resolve(requestId);
     this.ownedIds.delete(requestId);
-    (interaction?.promptResolve as ((v: SecretPromptResult) => void) | undefined)?.(
+    (interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined)?.(
       { value: value ?? null, delivery: delivery ?? "store" },
     );
   }
@@ -141,7 +141,7 @@ export class SecretPrompter {
     for (const requestId of [...this.ownedIds]) {
       const interaction = pendingInteractions.resolve(requestId);
       this.ownedIds.delete(requestId);
-      interaction?.promptReject?.(
+      interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );
     }

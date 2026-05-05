@@ -135,7 +135,7 @@ export class HostBrowserProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_browser",
-        rpcResolve: resolve,
+        rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
         detachAbort,

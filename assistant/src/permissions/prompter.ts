@@ -86,7 +86,7 @@ export class PermissionPrompter {
           "Permission prompt timed out, defaulting to deny",
         );
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
-        (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+        (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
           {
             decision: "deny",
             wasTimeout: true,
@@ -97,7 +97,7 @@ export class PermissionPrompter {
 
       // Register all lifecycle state in pendingInteractions — same pattern as
       // host proxies. The prompter tracks ownership via ownedIds.
-      // Always register unconditionally so promptResolve/promptReject/timer
+      // Always register unconditionally so rpcResolve/rpcReject/timer
       // are reachable by resolveConfirmation, denyAllPending, and the timeout
       // handler even when conversationId is absent. Routes return 404 for
       // interactions with an empty conversationId, which is correct behaviour.
@@ -120,8 +120,8 @@ export class PermissionPrompter {
             })),
             persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
           },
-          promptResolve: resolve as (value: unknown) => void,
-          promptReject: reject,
+          rpcResolve: resolve as (value: unknown) => void,
+          rpcReject: reject,
           timer,
           toolUseId,
         });
@@ -194,11 +194,11 @@ export class PermissionPrompter {
       log.warn({ requestId }, "No pending prompt for confirmation response");
       return;
     }
-    // approval-routes calls pendingInteractions.get() before routing here;
-    // the prompter owns deregistration so it fires the Promise callback cleanly.
+    // The prompter owns deregistration; all callers use get() to peek before
+    // routing to resolveConfirmation, which fires the rpcResolve callback.
     const interaction = pendingInteractions.resolve(requestId);
     this.ownedIds.delete(requestId);
-    (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+    (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
       { decision, selectedPattern, selectedScope, decisionContext },
     );
   }
@@ -212,7 +212,7 @@ export class PermissionPrompter {
     for (const requestId of [...this.ownedIds]) {
       const interaction = pendingInteractions.resolve(requestId);
       this.ownedIds.delete(requestId);
-      (interaction?.promptResolve as ((v: ConfirmResult) => void) | undefined)?.(
+      (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
         {
           decision: "deny",
           wasSystemCancel: true,
@@ -231,7 +231,7 @@ export class PermissionPrompter {
     for (const requestId of [...this.ownedIds]) {
       const interaction = pendingInteractions.resolve(requestId);
       this.ownedIds.delete(requestId);
-      interaction?.promptReject?.(
+      interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );
     }

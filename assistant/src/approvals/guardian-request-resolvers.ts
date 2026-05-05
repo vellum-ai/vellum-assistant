@@ -192,18 +192,15 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       return { ok: false, reason: "pending_interaction_not_found" };
     }
 
-    // Use the already-peeked interaction — resolveConfirmation() owns
-    // deregistration and must fire the promptResolve callback stored in it.
-    const resolved = interaction;
-
     // Map action to the permission system's UserDecision type and notify session.
+    // resolveConfirmation() owns pendingInteractions deregistration.
     const userDecision: UserDecision =
       decision.action === "reject" ? "deny" : "allow";
-    const conversation = findConversation(resolved.conversationId);
+    const conversation = findConversation(interaction.conversationId);
     if (!conversation) {
       return {
         ok: false,
-        reason: `conversation_not_found: ${resolved.conversationId}`,
+        reason: `conversation_not_found: ${interaction.conversationId}`,
       };
     }
     conversation.handleConfirmationResponse(
