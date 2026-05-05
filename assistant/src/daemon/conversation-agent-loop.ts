@@ -106,6 +106,11 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
+import {
+  hasProactiveArtifactCompleted,
+  runProactiveArtifactJob,
+  tryClaimProactiveArtifactTrigger,
+} from "../proactive-artifact/index.js";
 import type {
   ContentBlock,
   Message,
@@ -113,6 +118,7 @@ import type {
 } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -2873,6 +2879,41 @@ export async function runAgentLoopImpl(
             { err: feedErr, conversationId: ctx.conversationId },
             "Failed to build home-feed event for background conversation",
           );
+        }
+
+        // Proactive artifact: fire once when the processed turn was the 4th user message.
+        // Only trigger for real user-authored turns (not subagent/system messages).
+        {
+          const paConv = getConversation(ctx.conversationId);
+          if (
+            paConv &&
+            paConv.conversationType === "standard" &&
+            options?.isUserMessage
+          ) {
+            void (async () => {
+              try {
+                if (hasProactiveArtifactCompleted()) return;
+                const userMsg = getMessageById(
+                  userMessageId,
+                  ctx.conversationId,
+                );
+                if (!userMsg) return;
+                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
+                  return;
+                await runProactiveArtifactJob({
+                  conversationId: ctx.conversationId,
+                  userMessageCutoff: userMsg.createdAt,
+                  assistantMessageId: state.lastAssistantMessageId,
+                  broadcastMessage,
+                });
+              } catch (err) {
+                log.warn(
+                  { err, conversationId: ctx.conversationId },
+                  "Proactive artifact trigger failed",
+                );
+              }
+            })();
+          }
         }
       }
     }
