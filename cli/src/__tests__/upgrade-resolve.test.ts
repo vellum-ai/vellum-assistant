@@ -16,6 +16,7 @@ import { join } from "node:path";
 // ---------------------------------------------------------------------------
 
 const testDir = mkdtempSync(join(tmpdir(), "cli-upgrade-resolve-test-"));
+const savedLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
@@ -228,4 +229,9 @@ afterAll(() => {
   readPlatformTokenMock.mockRestore();
   fetchAssistantByIdFromPlatformMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
+  if (savedLockfileDir === undefined) {
+    delete process.env.VELLUM_LOCKFILE_DIR;
+  } else {
+    process.env.VELLUM_LOCKFILE_DIR = savedLockfileDir;
+  }
 });
