@@ -71,19 +71,30 @@ interface CuResolveCall {
 const cuResolveSpy: CuResolveCall[] = [];
 
 // Controlled conversation map: conversationId → conversation object
-const conversationStore = new Map<string, { hostCuProxy?: { processObservation: (...args: unknown[]) => void } }>();
+const conversationStore = new Map<
+  string,
+  { hostCuProxy?: { processObservation: (...args: unknown[]) => void } }
+>();
 
 mock.module("../daemon/conversation-store.js", () => ({
-  findConversation: (conversationId: string) => conversationStore.get(conversationId),
+  findConversation: (conversationId: string) =>
+    conversationStore.get(conversationId),
+}));
+
+// Controlled actor-principal map: clientId → actorPrincipalId
+const actorPrincipalByClient = new Map<string, string>();
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    getActorPrincipalIdForClient: (clientId: string) =>
+      actorPrincipalByClient.get(clientId),
+  },
 }));
 
 // ── Real imports (after mocks) ──────────────────────────────────────────────
 // Use dynamic import to ensure the mocks above are applied before loading.
 
-import {
-  BadRequestError,
-  ForbiddenError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError, ForbiddenError } from "../runtime/routes/errors.js";
 
 const { ROUTES } = await import("../runtime/routes/host-cu-routes.js");
 
@@ -139,6 +150,7 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
   beforeEach(() => {
     pendingStore.clear();
     conversationStore.clear();
+    actorPrincipalByClient.clear();
     resolvedIds.length = 0;
     cuResolveSpy.length = 0;
     // Default: register a conversation with a hostCuProxy
@@ -151,10 +163,14 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
     test("returns { accepted: true } and resolves the interaction", async () => {
       const requestId = "req-cu-targeted-match";
       registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
 
       const result = await handleHostCuResult({
         body: cuBody(requestId),
-        headers: { "x-vellum-client-id": "client-A" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-1",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
@@ -166,10 +182,14 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
     test("trims whitespace from header before comparing", async () => {
       const requestId = "req-cu-targeted-trim";
       registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
 
       const result = await handleHostCuResult({
         body: cuBody(requestId),
-        headers: { "x-vellum-client-id": "  client-A  " },
+        headers: {
+          "x-vellum-client-id": "  client-A  ",
+          "x-vellum-actor-principal-id": "user-1",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
@@ -183,9 +203,9 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       const requestId = "req-cu-targeted-no-header";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      expect(() =>
-        handleHostCuResult({ body: cuBody(requestId) }),
-      ).toThrow(BadRequestError);
+      expect(() => handleHostCuResult({ body: cuBody(requestId) })).toThrow(
+        BadRequestError,
+      );
     });
 
     test("throws BadRequestError (400) when header is empty string", () => {
@@ -265,6 +285,110 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
+    });
+  });
+
+  // ── 3b. Actor-principal-id (PR 7) — defense-in-depth ──────────────────────
+
+  describe("targeted + actor-principal-id binding", () => {
+    test("accepts when submitting actor matches target client's stored actor", async () => {
+      const requestId = "req-cu-actor-match";
+      registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
+
+      const result = await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(cuResolveSpy).toHaveLength(1);
+      expect(resolvedIds).toContain(requestId);
+    });
+
+    test("throws ForbiddenError (403) when submitting actor does not match target client's actor", () => {
+      const requestId = "req-cu-actor-mismatch";
+      registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
+
+      expect(() =>
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-2",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("interaction NOT consumed on 403 actor mismatch", () => {
+      const requestId = "req-cu-actor-mismatch-stays";
+      registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
+
+      try {
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-2",
+          },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(resolvedIds).not.toContain(requestId);
+      expect(pendingStore.has(requestId)).toBe(true);
+    });
+
+    test("throws ForbiddenError (403) when submitting actor header is missing", () => {
+      const requestId = "req-cu-actor-missing";
+      registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
+
+      expect(() =>
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: { "x-vellum-client-id": "client-A" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("throws ForbiddenError (403) when target client has no stored actor principal id", () => {
+      const requestId = "req-cu-target-no-actor";
+      registerPending(requestId, { targetClientId: "client-A" });
+      // No actorPrincipalByClient entry for client-A.
+
+      expect(() =>
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("throws ForbiddenError (403) when submitting actor header is whitespace only", () => {
+      const requestId = "req-cu-actor-whitespace";
+      registerPending(requestId, { targetClientId: "client-A" });
+      actorPrincipalByClient.set("client-A", "user-1");
+
+      expect(() =>
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "   ",
+          },
+        }),
+      ).toThrow(ForbiddenError);
     });
   });
 
