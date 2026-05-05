@@ -780,6 +780,31 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("delayed END_CALL completion skips side effects when session is already terminal", async () => {
+    mockEndCallListenWindowMs = 25;
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Thank you for calling, goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("That is all, thanks");
+
+    const externalEndedAt = Date.now();
+    updateCallSession(session.id, {
+      status: "completed",
+      endedAt: externalEndedAt,
+    });
+
+    await new Promise((r) => setTimeout(r, 35));
+
+    expect(relay.endCalled).toBe(false);
+    const updatedSession = getCallSession(session.id);
+    expect(updatedSession!.status).toBe("completed");
+    expect(updatedSession!.endedAt).toBe(externalEndedAt);
+
+    controller.destroy();
+  });
+
   test("callee speech during END_CALL listen window cancels pending completion", async () => {
     mockEndCallListenWindowMs = 30;
     const turnContents: string[] = [];

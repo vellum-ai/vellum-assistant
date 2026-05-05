@@ -38,6 +38,7 @@ import {
   registerCallController,
   unregisterCallController,
 } from "./call-state.js";
+import { isTerminalState } from "./call-state-machine.js";
 import {
   createPendingQuestion,
   expirePendingQuestions,
@@ -1154,11 +1155,12 @@ export class CallController {
     if (this.destroyed) return;
 
     const currentSession = getCallSession(this.callSessionId);
-    const shouldNotifyCompletion = currentSession
-      ? currentSession.status !== "completed" &&
-        currentSession.status !== "failed" &&
-        currentSession.status !== "cancelled"
-      : false;
+    if (currentSession && isTerminalState(currentSession.status)) {
+      this.state = "idle";
+      return;
+    }
+
+    const shouldNotifyCompletion = !!currentSession;
 
     this.transport.endSession("Call completed");
     updateCallSession(this.callSessionId, {
