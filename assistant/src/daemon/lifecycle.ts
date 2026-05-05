@@ -130,16 +130,15 @@ import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 
 const log = getLogger("lifecycle");
+let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
 }
 
-export function startDiskPressureGuardForLifecycle(): void {
+function runDeferredDiskPressureStartupSample(): void {
+  diskPressureStartupSampleTimer = null;
   try {
-    const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) return;
-
     const status = evaluateDiskPressureNow();
     if (status.error) {
       log.warn(
@@ -155,7 +154,30 @@ export function startDiskPressureGuardForLifecycle(): void {
   }
 }
 
+export function startDiskPressureGuardForLifecycle(): void {
+  try {
+    const startedStatus = startDiskPressureGuard();
+    if (!startedStatus.enabled) return;
+    if (!diskPressureStartupSampleTimer) {
+      diskPressureStartupSampleTimer = setTimeout(
+        runDeferredDiskPressureStartupSample,
+        0,
+      );
+      (diskPressureStartupSampleTimer as { unref?: () => void }).unref?.();
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
 export function stopDiskPressureGuardForLifecycle(): void {
+  if (diskPressureStartupSampleTimer) {
+    clearTimeout(diskPressureStartupSampleTimer);
+    diskPressureStartupSampleTimer = null;
+  }
   stopDiskPressureGuard();
 }
 

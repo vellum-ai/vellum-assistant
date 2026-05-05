@@ -1,32 +1,51 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { DiskUsageInfo } from "../util/disk-usage.js";
-
-let diskSample: DiskUsageInfo | null = null;
-let diskSampleError: unknown = null;
-let diskSampleCalls = 0;
 const warnCalls: unknown[] = [];
+let guardEnabled = true;
+let startCalls = 0;
+let stopCalls = 0;
+let evaluateCalls = 0;
+let evaluateError: string | null = null;
 
-mock.module("../util/disk-usage.js", () => ({
-  __resetDiskUsageCacheForTests: () => {},
-  getDiskUsageInfo: () => {
-    diskSampleCalls += 1;
-    if (diskSampleError) throw diskSampleError;
-    return diskSample;
-  },
-  parseK8sMemoryBytes: (value: string) => {
-    const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(Mi|Gi|M|G)?$/);
-    if (!match) return null;
-    const amount = Number(match[1]);
-    const unit = match[2] ?? "";
-    const multipliers: Record<string, number> = {
-      "": 1,
-      M: 1e6,
-      G: 1e9,
-      Mi: 1024 ** 2,
-      Gi: 1024 ** 3,
+mock.module("../daemon/disk-pressure-guard.js", () => ({
+  startDiskPressureGuard: () => {
+    startCalls += 1;
+    return {
+      enabled: guardEnabled,
+      state: guardEnabled ? "ok" : "disabled",
+      locked: false,
+      acknowledged: false,
+      overrideActive: false,
+      effectivelyLocked: false,
+      lockId: null,
+      usagePercent: null,
+      thresholdPercent: 95,
+      path: null,
+      lastCheckedAt: null,
+      blockedCapabilities: [],
+      error: null,
     };
-    return Math.round(amount * multipliers[unit]);
+  },
+  stopDiskPressureGuard: () => {
+    stopCalls += 1;
+  },
+  evaluateDiskPressureNow: () => {
+    evaluateCalls += 1;
+    return {
+      enabled: true,
+      state: evaluateError ? "unknown" : "ok",
+      locked: false,
+      acknowledged: false,
+      overrideActive: false,
+      effectivelyLocked: false,
+      lockId: null,
+      usagePercent: evaluateError ? null : 10,
+      thresholdPercent: 95,
+      path: evaluateError ? null : "/workspace",
+      lastCheckedAt: new Date().toISOString(),
+      blockedCapabilities: [],
+      error: evaluateError,
+    };
   },
 }));
 
@@ -42,95 +61,76 @@ mock.module("../util/logger.js", () => ({
   initLogger: () => {},
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
-const {
-  __getDiskPressureGuardTimerForTests,
-  __resetDiskPressureGuardForTests,
-  getDiskPressureStatus,
-} = await import("../daemon/disk-pressure-guard.js");
 const {
   startDiskPressureGuardForLifecycle,
   stopDiskPressureGuardForLifecycle,
 } = await import("../daemon/lifecycle.js");
 
-function setFeatureFlag(enabled: boolean): void {
-  _setOverridesForTesting({ "safe-storage-limits": enabled });
-}
-
-function setDiskUsage(usedMb: number, totalMb = 100): void {
-  diskSample = {
-    path: "/workspace",
-    totalMb,
-    usedMb,
-    freeMb: Math.max(0, totalMb - usedMb),
-  };
-  diskSampleError = null;
+async function flushStartupSample(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 beforeEach(() => {
-  __resetDiskPressureGuardForTests();
-  setFeatureFlag(true);
-  setDiskUsage(10);
-  diskSampleCalls = 0;
+  guardEnabled = true;
+  startCalls = 0;
+  stopCalls = 0;
+  evaluateCalls = 0;
+  evaluateError = null;
   warnCalls.length = 0;
 });
 
 afterEach(() => {
   stopDiskPressureGuardForLifecycle();
-  __resetDiskPressureGuardForTests();
-  _setOverridesForTesting({});
-  diskSample = null;
-  diskSampleError = null;
-  diskSampleCalls = 0;
+  guardEnabled = true;
+  evaluateError = null;
   warnCalls.length = 0;
 });
 
 describe("disk pressure guard lifecycle", () => {
-  test("starts once and immediately evaluates when enabled", () => {
-    startDiskPressureGuardForLifecycle();
-    const firstTimer = __getDiskPressureGuardTimerForTests();
-
-    expect(firstTimer).toBeTruthy();
-    expect(diskSampleCalls).toBe(1);
-    expect(getDiskPressureStatus().state).toBe("ok");
-
+  test("starts once and evaluates off the startup path when enabled", async () => {
     startDiskPressureGuardForLifecycle();
 
-    expect(__getDiskPressureGuardTimerForTests()).toBe(firstTimer);
-    expect(diskSampleCalls).toBe(2);
+    expect(startCalls).toBe(1);
+    expect(evaluateCalls).toBe(0);
+
+    startDiskPressureGuardForLifecycle();
+    expect(startCalls).toBe(2);
+    expect(evaluateCalls).toBe(0);
+
+    await flushStartupSample();
+
+    expect(evaluateCalls).toBe(1);
   });
 
-  test("stays inert when the feature flag is disabled", () => {
-    setFeatureFlag(false);
+  test("stays inert when the feature flag is disabled", async () => {
+    guardEnabled = false;
 
     startDiskPressureGuardForLifecycle();
+    await flushStartupSample();
 
-    expect(__getDiskPressureGuardTimerForTests()).toBeNull();
-    expect(diskSampleCalls).toBe(0);
-    expect(getDiskPressureStatus().state).toBe("disabled");
+    expect(startCalls).toBe(1);
+    expect(evaluateCalls).toBe(0);
   });
 
-  test("logs sample failures and leaves startup unlocked", () => {
-    diskSampleError = new Error("sample failed");
+  test("logs sample failures and leaves startup unlocked", async () => {
+    evaluateError = "sample failed";
 
     expect(() => startDiskPressureGuardForLifecycle()).not.toThrow();
+    expect(evaluateCalls).toBe(0);
 
-    const status = getDiskPressureStatus();
-    expect(status.state).toBe("unknown");
-    expect(status.locked).toBe(false);
-    expect(status.effectivelyLocked).toBe(false);
-    expect(status.error).toBe("sample failed");
-    expect(__getDiskPressureGuardTimerForTests()).toBeTruthy();
+    await flushStartupSample();
+
+    expect(evaluateCalls).toBe(1);
     expect(warnCalls.length).toBe(1);
   });
 
-  test("stop clears the lifecycle timer", () => {
+  test("stop clears pending startup sample and stops the guard", async () => {
     startDiskPressureGuardForLifecycle();
-    expect(__getDiskPressureGuardTimerForTests()).toBeTruthy();
 
     stopDiskPressureGuardForLifecycle();
+    await flushStartupSample();
 
-    expect(__getDiskPressureGuardTimerForTests()).toBeNull();
+    expect(evaluateCalls).toBe(0);
+    expect(stopCalls).toBe(1);
   });
 });
