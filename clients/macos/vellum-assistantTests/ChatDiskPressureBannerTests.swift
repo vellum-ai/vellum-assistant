@@ -1,27 +1,40 @@
 import Foundation
 import Testing
+import VellumAssistantShared
 @testable import VellumAssistantLib
 
-@Suite("Chat disk-pressure banner")
+@Suite("Chat safe-storage cleanup banner")
 struct ChatDiskPressureBannerTests {
     @Test
-    func titleStartsWithDiskEmoji() {
-        #expect(DiskPressureBanner.title == "💾 It looks like you're running out of disk space.")
+    func cleanupStatusRequiresAcknowledgedLockedStatus() {
+        #expect(SafeStorageCleanupStatusViewState(
+            status: Self.status(acknowledged: false),
+            isCleanupModeActive: false
+        ) == nil)
+
+        let state = SafeStorageCleanupStatusViewState(
+            status: Self.status(acknowledged: true),
+            isCleanupModeActive: true
+        )
+
+        #expect(state?.usageText == "Storage is 97% full at /workspace. Critical threshold is 95%.")
+        #expect(state?.blockedCapabilityLabels.contains("Background processes disabled") == true)
+        #expect(state?.blockedCapabilityLabels.contains("Trusted-contact messages blocked") == true)
     }
 
     @Test
-    func subtitleUsesMonitorDisplayPercent() {
-        let alert = DiskPressureAlert(
-            id: "disk-pressure:assistant-123:1",
-            assistantId: "assistant-123",
-            displayPercent: 93
+    func cleanupStatusCopyExplainsBlockedWorkUntilGuardianFreesSpace() {
+        let state = SafeStorageCleanupStatusViewState(
+            status: Self.status(acknowledged: true),
+            isCleanupModeActive: true
         )
 
-        #expect(DiskPressureBanner.subtitle(for: alert) == "Storage is 93% full. Try cleaning up unused data, like logs.")
+        #expect(state?.summaryText.contains("Background processes are disabled until enough space is freed by the guardian.") == true)
+        #expect(state?.summaryText.contains("Messages from trusted contacts are blocked until enough space is freed by the guardian.") == true)
     }
 
     @Test @MainActor
-    func reviewDiskUsageRequestsWorkspaceLanding() {
+    func cleanupActionRequestsWorkspaceLanding() {
         let windowState = MainWindowState()
 
         windowState.showWorkspace()
@@ -30,31 +43,26 @@ struct ChatDiskPressureBannerTests {
         #expect(windowState.pendingIntelligenceTab == "Workspace")
     }
 
-    @Test
-    func dismissingAlertSnoozesOnlyThatAlertForTwentyFourHours() {
-        let userDefaults = UserDefaults(suiteName: "ChatDiskPressureBannerTests-\(UUID().uuidString)")!
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-
-        DiskPressureBannerDismissalStore.dismiss(
-            alertId: "disk-pressure:assistant-123:1",
-            now: now,
-            userDefaults: userDefaults
+    private static func status(
+        acknowledged: Bool,
+        enabled: Bool = true,
+        locked: Bool = true,
+        effectivelyLocked: Bool = true
+    ) -> DiskPressureStatus {
+        DiskPressureStatus(
+            enabled: enabled,
+            state: enabled ? "critical" : "disabled",
+            locked: locked,
+            acknowledged: acknowledged,
+            overrideActive: false,
+            effectivelyLocked: effectivelyLocked,
+            lockId: "disk-pressure-test",
+            usagePercent: 97,
+            thresholdPercent: 95,
+            path: "/workspace",
+            lastCheckedAt: "2026-05-05T12:00:00.000Z",
+            blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+            error: nil
         )
-
-        #expect(DiskPressureBannerDismissalStore.isDismissed(
-            alertId: "disk-pressure:assistant-123:1",
-            now: now.addingTimeInterval(23 * 60 * 60),
-            userDefaults: userDefaults
-        ))
-        #expect(!DiskPressureBannerDismissalStore.isDismissed(
-            alertId: "disk-pressure:assistant-123:2",
-            now: now,
-            userDefaults: userDefaults
-        ))
-        #expect(!DiskPressureBannerDismissalStore.isDismissed(
-            alertId: "disk-pressure:assistant-123:1",
-            now: now.addingTimeInterval(24 * 60 * 60 + 1),
-            userDefaults: userDefaults
-        ))
     }
 }

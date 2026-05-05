@@ -40,6 +40,9 @@ struct ChatEmptyStateView: View {
     var onRemoveStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
     var onCancelConversationStarterPoll: (() -> Void)? = nil
+    var isComposerInteractionEnabled: Bool = true
+    var safeStorageCleanupState: SafeStorageCleanupStatusViewState? = nil
+    var onOpenStorageCleanup: (() -> Void)? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
@@ -168,6 +171,14 @@ struct ChatEmptyStateView: View {
 
     private var composerSection: some View {
         VStack(spacing: VSpacing.sm) {
+            if let safeStorageCleanupState, let onOpenStorageCleanup {
+                SafeStorageCleanupStatusBanner(
+                    state: safeStorageCleanupState,
+                    onOpenStorageCleanup: onOpenStorageCleanup
+                )
+                .padding(.horizontal, VSpacing.lg)
+            }
+
             ComposerView(
                 inputText: $inputText,
                 isSending: isSending,
@@ -196,6 +207,7 @@ struct ChatEmptyStateView: View {
                 assistantConversationId: assistantConversationId,
                 draftThresholdOverride: draftThresholdOverride,
                 onDraftThresholdOverrideChange: onDraftThresholdOverrideChange,
+                isInteractionEnabled: isComposerInteractionEnabled,
                 showThresholdPicker: showThresholdPicker,
                 inferenceProfilePicker: inferenceProfilePicker
             )

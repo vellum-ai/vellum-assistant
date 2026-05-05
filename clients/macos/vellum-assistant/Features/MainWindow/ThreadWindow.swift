@@ -219,8 +219,12 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
-                    diskPressureAlert: AppDelegate.shared?.services.diskPressureStatusStore.alert,
-                    onReviewDiskUsage: {
+                    safeStorageRequiresAcknowledgement: AppDelegate.shared?.services.diskPressureStatusStore.requiresAcknowledgement ?? false,
+                    safeStorageCleanupState: SafeStorageCleanupStatusViewState(
+                        status: AppDelegate.shared?.services.diskPressureStatusStore.status,
+                        isCleanupModeActive: AppDelegate.shared?.services.diskPressureStatusStore.isCleanupModeActive ?? false
+                    ),
+                    onOpenStorageCleanup: {
                         AppDelegate.shared?.showMainWindow()
                         AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
                     },

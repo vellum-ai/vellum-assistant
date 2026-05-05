@@ -71,22 +71,6 @@ final class DiskPressureStatusStore {
         return status.blockedCapabilities
     }
 
-    var alert: DiskPressureAlert? {
-        guard let assistantId = activeAssistantId,
-              let status = activeStatus,
-              status.locked,
-              let usagePercent = status.usagePercent
-        else {
-            return nil
-        }
-
-        return DiskPressureAlert(
-            id: status.lockId ?? "disk-pressure:\(assistantId):status",
-            assistantId: assistantId,
-            displayPercent: Int(usagePercent.rounded())
-        )
-    }
-
     private var activeStatus: DiskPressureStatus? {
         guard featureFlagEnabled("safe-storage-limits"),
               let status,
