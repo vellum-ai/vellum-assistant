@@ -79,6 +79,42 @@ class HostFileWriteTool implements Tool {
       };
     }
 
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    // Without this guard, the request would fall through to local
+    // FileSystemOps below and read the daemon container's filesystem
+    // instead of the user's host machine.
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      !HostFileProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
+    // Guard: explicit targetClientId provided on a non-host-proxy transport
+    // but proxy is unavailable (client disconnected between tool-definition
+    // and tool-execution). Scoped to !supportsHostProxy so macos turns —
+    // where local-fs fallback IS the intended offline behavior — still fall
+    // through if the LLM auto-fills a stale target_client_id from a prior
+    // cross-client turn. On web/iphone, the call must fail loudly rather
+    // than silently target the daemon container's filesystem.
+    if (
+      targetClientId != null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      !HostFileProxy.instance.isAvailable()
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_file\` to see currently connected clients.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostFileProxy.instance.isAvailable()) {

@@ -350,6 +350,29 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
 // Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
 // a capability mapping" is a structural fact — no runtime assertion needed.
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
+/**
+ * Capabilities eligible for cross-client exposure on non-host-proxy
+ * transports (e.g. web, iphone routing to a connected macOS client).
+ * Adding a capability here exposes ALL tools that map to it (per
+ * HOST_TOOL_TO_CAPABILITY) on non-host-proxy transports — the daemon then
+ * routes the actual invocation to the connected capable client via the
+ * proxy's targetClientId path.
+ *
+ * Inclusions:
+ * - host_bash (Phase 1, PR #29322)
+ * - host_file (Phases 2 & 3, PRs #29398 + #29440)
+ *
+ * Exclusions:
+ * - host_browser: chrome-extension is its own executor; web turns don't
+ *   have a CDP target model. Re-evaluate when host browser via macOS
+ *   host proxy ships (PR #27489).
+ * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
+ *   (skill-routed).
+ */
+const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
+  "host_bash",
+  "host_file",
+]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
@@ -384,16 +407,22 @@ export function isToolActiveForContext(
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
-      // Cross-client exception: allow host_bash for non-host-proxy interfaces when
-      // at least one capable client is connected via the event hub.
-      // Only applies to host_bash (not host_file, host_cu, host_browser — Phase 2).
-      // Excludes chrome-extension (security boundary: extension only gets host_browser)
-      // and hasNoClient turns (no interactive approval UI available).
+      // Cross-client exception: allow host tools whose capabilities have
+      // cross-client routing infrastructure (Phases 1–3) to be exposed for
+      // non-host-proxy transports (e.g. "web", "iphone") when at least one
+      // capable client is connected via the event hub. Members of
+      // CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) qualify;
+      // host_browser is intentionally excluded (chrome-extension is its
+      // own executor and web turns don't have a CDP target model).
+      // chrome-extension transport is excluded as a security boundary
+      // (extension only gets host_browser); hasNoClient turns are excluded
+      // (no interactive approval UI available).
       if (
-        capability === "host_bash" &&
+        capability &&
+        CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
         transport !== "chrome-extension" &&
         !ctx.hasNoClient &&
-        assistantEventHub.listClientsByCapability("host_bash").length > 0
+        assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
         return true;
       }
