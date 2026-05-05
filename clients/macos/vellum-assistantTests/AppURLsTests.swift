@@ -171,4 +171,20 @@ final class AppURLsTests: XCTestCase {
         XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
         XCTAssertFalse(result.contains("example.com"))
     }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideHasQuery() {
+        setenv("VELLUM_WEB_URL", "https://example.com?foo=bar", 1)
+        defer { unsetenv("VELLUM_WEB_URL") }
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("?foo=bar"))
+    }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideHasFragment() {
+        setenv("VELLUM_WEB_URL", "https://example.com#section", 1)
+        defer { unsetenv("VELLUM_WEB_URL") }
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("#section"))
+    }
 }
