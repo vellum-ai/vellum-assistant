@@ -74,6 +74,7 @@ import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
+import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
@@ -159,6 +160,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...MCP_AUTH_ROUTES,
+  ...OAUTH_CONNECT_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
