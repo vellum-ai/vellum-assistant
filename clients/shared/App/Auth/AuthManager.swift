@@ -1,8 +1,4 @@
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 import AuthenticationServices
 import Foundation
 import os
@@ -32,7 +28,21 @@ public final class AuthManager {
     public var errorMessage: String?
 
     private let authService = AuthService.shared
-    private static let callbackScheme = "vellum-assistant"
+    /// Read the URL scheme from the bundle's CFBundleURLTypes rather than
+    /// hardcoding it. Each environment gets its own scheme at build time
+    /// (e.g. vellum-assistant-dev, vellum-assistant-staging). Falls back
+    /// to "vellum-assistant" if the plist entry is missing.
+    private static let callbackScheme: String = {
+        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
+              let schemes = urlTypes.first?["CFBundleURLSchemes"] as? [String],
+              let scheme = schemes.first,
+              !scheme.isEmpty,
+              !scheme.contains("$")
+        else {
+            return "vellum-assistant"
+        }
+        return scheme
+    }()
     private var webAuthSession: ASWebAuthenticationSession?
 
     /// Optional hook invoked after a successful authentication (both the fresh
@@ -141,41 +151,62 @@ public final class AuthManager {
         defer { isSubmitting = false }
 
         do {
-            let stateParam = generateRandomString(length: 32)
-            let returnTo = "/accounts/native/callback?state=\(stateParam)"
-            var allowedReturnToChars = CharacterSet.urlQueryAllowed
-            allowedReturnToChars.remove(charactersIn: "?=&+")
-            guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: allowedReturnToChars) else {
+            guard let stateParam = generateRandomString(length: 32) else {
+                throw AuthServiceError.authCallbackFailed("Failed to generate secure random state.")
+            }
+
+            // Build /accounts/native/start?state={state}. The server
+            // determines the callback scheme from settings.ENVIRONMENT
+            // — the client no longer sends it (ATL-454).
+            guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
                 throw AuthServiceError.invalidURL
             }
-            let loginURLString = "\(VellumEnvironment.resolvedWebURL)/account/login?returnTo=\(encodedReturnTo)"
-            guard let loginURL = URL(string: loginURLString) else {
+            startComponents.path = "/accounts/native/start"
+            startComponents.queryItems = [URLQueryItem(name: "state", value: stateParam)]
+
+            guard let loginURL = startComponents.url else {
                 throw AuthServiceError.invalidURL
             }
 
             let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: Self.callbackScheme)
 
             guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                  let sessionToken = components.queryItems?.first(where: { $0.name == "session_token" })?.value,
-                  let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value else {
-                throw AuthServiceError.authCallbackFailed("Missing session token or state in callback.")
+                  let queryItems = components.queryItems else {
+                throw AuthServiceError.authCallbackFailed("Missing callback URL components.")
+            }
+
+            let returnedState = queryItems.first(where: { $0.name == "state" })?.value
+
+            if let authError = queryItems.first(where: { $0.name == "error" })?.value, !authError.isEmpty {
+                throw AuthServiceError.authCallbackFailed("Auth error: \(authError)")
+            }
+
+            guard let returnedState else {
+                throw AuthServiceError.authCallbackFailed("Callback missing state.")
             }
 
             guard returnedState == stateParam else {
-                throw AuthServiceError.authCallbackFailed("Invalid state parameter.")
+                throw AuthServiceError.authCallbackFailed("State mismatch — possible CSRF.")
             }
+
+            guard let code = queryItems.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
+                throw AuthServiceError.authCallbackFailed("Callback missing authorization code.")
+            }
+
+            // Exchange the one-time code for a session token via POST.
+            // The code is short-lived (30 s) and single-use (ATL-454).
+            let sessionToken = try await exchangeCodeForSession(code: code)
 
             await SessionTokenManager.setTokenAsync(sessionToken)
 
-            // Validate the session and populate user state
             let session = try await authService.getSession()
             if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                 state = .authenticated(user)
-                log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                log.info("Login completed via native auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
                 await postAuthenticationHook?()
             } else {
-                log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
+                log.error("Session validation after native auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -184,6 +215,38 @@ public final class AuthManager {
             log.error("Login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             errorMessage = "Unable to sign in. Please try again."
         }
+    }
+
+    /// Exchange a one-time authorization code for a session token.
+    private func exchangeCodeForSession(code: String) async throws -> String {
+        guard var exchangeComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
+            throw AuthServiceError.invalidURL
+        }
+        exchangeComponents.path = "/accounts/native/exchange"
+
+        guard let exchangeURL = exchangeComponents.url else {
+            throw AuthServiceError.invalidURL
+        }
+
+        var request = URLRequest(url: exchangeURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw AuthServiceError.authCallbackFailed("Code exchange failed with status \(statusCode).")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessionToken = json["session_token"] as? String,
+              !sessionToken.isEmpty else {
+            throw AuthServiceError.authCallbackFailed("Code exchange returned invalid response.")
+        }
+
+        return sessionToken
     }
 
     /// Logs out by deleting the server session, clearing local tokens and
@@ -204,9 +267,7 @@ public final class AuthManager {
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        #if os(macOS)
         LockfileAssistant.setActiveAssistantId(nil)
-        #endif
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
@@ -225,9 +286,14 @@ public final class AuthManager {
         }
     }
 
-    private func generateRandomString(length: Int) -> String {
+    /// Generate a cryptographically random base64url string.
+    /// Returns `nil` if the system RNG is unavailable — callers must
+    /// treat this as a fatal condition since the state parameter is the
+    /// sole CSRF defense on the auth callback.
+    private func generateRandomString(length: Int) -> String? {
         var bytes = [UInt8](repeating: 0, count: length)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else { return nil }
         return Data(bytes).base64URLEncodedString()
     }
 
@@ -243,7 +309,11 @@ public final class AuthManager {
                     continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
-            session.prefersEphemeralWebBrowserSession = false
+            // Use an ephemeral (private) session so each auth attempt starts
+            // with a clean cookie jar. Without this, stale WorkOS cookies
+            // from a failed attempt (e.g. signup_closed) persist and cause
+            // an infinite error loop on retry.
+            session.prefersEphemeralWebBrowserSession = true
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.webAuthSession = session
             session.start()
@@ -255,14 +325,7 @@ public final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPres
     public static let shared = WebAuthPresentationContext()
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        #if os(macOS)
         NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
-        #elseif os(iOS)
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first(where: { $0.isKeyWindow }) ?? ASPresentationAnchor()
-        #endif
     }
 }
 

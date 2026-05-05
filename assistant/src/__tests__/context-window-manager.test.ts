@@ -97,6 +97,52 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("forced compaction summarizes when projection fits but real usage exceeds target", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [
+          { type: "text", text: "## Summary\n- forced compaction ran" },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    // Tiny live messages so the projection trivially fits target — without
+    // the fix this would route through the "already fits" skip path.
+    const history: Message[] = [
+      message("user", "u1"),
+      message("assistant", "a1"),
+      message("user", "u2"),
+      message("assistant", "a2"),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      // Simulate a live conversation that's well over target. In production
+      // this happens when synthetic tool_result truncation in the projection
+      // is far more aggressive than what the real messages allow.
+      precomputedEstimate: 50_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(summaryCalls).toBe(1);
+    expect(result.reason).not.toBe(
+      "conversation already fits within the compaction target",
+    );
+    expect(result.compactedMessages).toBeGreaterThan(0);
+  });
+
   test("compacts old turns and keeps recent user turns", async () => {
     let summaryCalls = 0;
     const provider = createProvider(() => {

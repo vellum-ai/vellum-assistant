@@ -64,6 +64,54 @@ describe("tool audit listener", () => {
     expect(records[1].decision).toBe("denied");
   });
 
+  test("redacts known-pattern secrets in tool result content before recording", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // Anthropic key pattern requires 80+ chars after "sk-ant-"
+    const anthropicKey =
+      "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" +
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input: { command: "echo $ANTHROPIC_API_KEY" },
+      workingDir: "/tmp",
+      conversationId: "conv-redact",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 5,
+      result: { content: `key=${anthropicKey}`, isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].result).not.toContain("sk-ant-api03-");
+    expect(records[0].result).toContain("<redacted");
+  });
+
+  test("does not redact non-secret content like UUIDs or hashes", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const safeContent =
+      "file id: 550e8400-e29b-41d4-a716-446655440000, sha: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/data" },
+      workingDir: "/tmp",
+      conversationId: "conv-safe",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 3,
+      result: { content: safeContent, isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].result).toBe(safeContent);
+  });
+
   test("records error events and ignores non-terminal events", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));

@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
 ///
@@ -12,22 +8,6 @@ import UIKit
 /// Token names follow the Figma type system: Category/Size-Weight.
 /// See: Figma → New App → Type (node 2193-4447)
 public enum VFont {
-
-    // MARK: - Compact-width scaling (iPhone)
-
-    /// Scale factor applied to heading-sized fonts on iOS to avoid oversized text on iPhone.
-    private static let compactScale: CGFloat = 0.85
-
-    /// Returns a scaled size on iOS for fonts >= 18pt; smaller sizes pass through unchanged.
-    /// On macOS the base size is always returned unmodified.
-    private static func adaptiveSize(_ base: CGFloat) -> CGFloat {
-        #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return base }
-        return base >= 18 ? round(base * compactScale) : base
-        #else
-        return base
-        #endif
-    }
 
     /// The `wght` OpenType variation axis tag (0x77676874).
     private static let wghtTag: Int = 0x77676874
@@ -51,15 +31,8 @@ public enum VFont {
                 kCTFontVariationAttribute: variations,
             ] as CFDictionary)
         )
-        #if os(macOS)
         let nsFont = variantFont as NSFont
         return Font(nsFont)
-        #elseif os(iOS)
-        let uiFont = variantFont as! UIFont
-        return Font(uiFont)
-        #else
-        return Font.custom("DMSans-Regular", fixedSize: size)
-        #endif
     }
 
     /// Creates a DM Sans font at the given weight and size with the `tnum` OpenType
@@ -86,15 +59,8 @@ public enum VFont {
             kCTFontFeatureSettingsAttribute: openTypeFeatures,
         ] as CFDictionary)
         let variantFont = CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor)
-        #if os(macOS)
         let nsFont = variantFont as NSFont
         return Font(nsFont)
-        #elseif os(iOS)
-        let uiFont = variantFont as! UIFont
-        return Font(uiFont)
-        #else
-        return Font.custom("DMSans-Regular", fixedSize: size)
-        #endif
     }
 
     /// Creates an Instrument Serif font at the given CSS weight and size.
@@ -110,32 +76,25 @@ public enum VFont {
                 kCTFontVariationAttribute: variations,
             ] as CFDictionary)
         )
-        #if os(macOS)
         let nsFont = variantFont as NSFont
         return Font(nsFont)
-        #elseif os(iOS)
-        let uiFont = variantFont as! UIFont
-        return Font(uiFont)
-        #else
-        return Font.custom("InstrumentSerif-Regular", fixedSize: size)
-        #endif
     }
 
     // MARK: - Brand (Figma — Instrument Serif)
 
-    public static let brandMedium = instrumentSerif(weight: 400, size: adaptiveSize(32))
-    public static let brandSmall  = instrumentSerif(weight: 400, size: adaptiveSize(22))
-    public static let brandMini   = instrumentSerif(weight: 400, size: adaptiveSize(16))
+    public static let brandMedium = instrumentSerif(weight: 400, size: 32)
+    public static let brandSmall  = instrumentSerif(weight: 400, size: 22)
+    public static let brandMini   = instrumentSerif(weight: 400, size: 16)
 
     // MARK: - Display
 
-    public static let displayLarge = dmSans(weight: 400, size: adaptiveSize(32))
+    public static let displayLarge = dmSans(weight: 400, size: 32)
 
     // MARK: - Title (Figma)
 
-    public static let titleLarge  = dmSans(weight: 400, size: adaptiveSize(24))
-    public static let titleMedium = dmSans(weight: 400, size: adaptiveSize(20))
-    public static let titleSmall  = dmSans(weight: 500, size: adaptiveSize(16))
+    public static let titleLarge  = dmSans(weight: 400, size: 24)
+    public static let titleMedium = dmSans(weight: 400, size: 20)
+    public static let titleSmall  = dmSans(weight: 500, size: 16)
 
     // MARK: - Body (Figma)
 
@@ -169,11 +128,10 @@ public enum VFont {
     // MARK: - Specialized
 
     public static let cardEmoji       = Font.system(size: 32)
-    public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
+    public static let onboardingEmoji = Font.system(size: 80)
 
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
-    #if os(macOS)
     package struct ChatMarkdownFontSet {
         package let regular: NSFont
         package let bold: NSFont
@@ -332,7 +290,6 @@ public enum VFont {
         }
         return abs(CGFloat(truncating: value) - CGFloat(expected)) < 0.5
     }
-    #endif
 
     // MARK: - Prewarm
 
@@ -364,7 +321,6 @@ public enum VFont {
         _ = chat
 
         // NSFont tokens (macOS only — CoreText-only, no AppKit dependency)
-        #if os(macOS)
         _ = nsChat
         _ = nsBodyMediumDefault
         _ = nsBodyMediumLighter
@@ -372,7 +328,6 @@ public enum VFont {
         _ = nsMono
         _ = nsMonoBold
         _ = nsMonoItalic
-        #endif
     }
 
 }

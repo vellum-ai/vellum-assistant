@@ -132,38 +132,6 @@ function validateRelativePath(path: string): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Initialization & commit
-// ---------------------------------------------------------------------------
-
-/**
- * Eagerly initialize the app git repo so that the "Initial commit" is
- * created before any app files are written. Without this, the first
- * mutation's files get absorbed into WorkspaceGitService's bootstrap
- * commit and the "Create app: ..." commit ends up empty.
- *
- * Safe to call multiple times -- ensureInitialized() is idempotent.
- * Commit app changes to the apps git repository.
- *
- * This is fire-and-forget: errors are logged but never thrown.
- * The caller should not await the returned promise unless it needs
- * to guarantee the commit completed (e.g. in tests).
- */
-export async function commitAppChange(message: string): Promise<void> {
-  try {
-    const appsDir = getAppsDir();
-
-    // Re-check .gitignore rules every call in case the apps dir was
-    // recreated while the process was running.
-    ensureAppGitignoreRules(appsDir);
-
-    const gitService = getWorkspaceGitService(appsDir);
-    await gitService.commitChanges(message);
-  } catch (err) {
-    log.error({ err, message }, "Failed to commit app change");
-  }
-}
-
 /**
  * Commit app changes at turn boundaries.
  *

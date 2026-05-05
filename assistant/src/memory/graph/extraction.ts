@@ -1443,9 +1443,7 @@ async function findCandidateNodes(
       const embedding = await embedWithRetry(config, [searchText]);
       const queryVector = embedding.vectors[0];
       if (queryVector) {
-        const searchResults = await searchGraphNodes(queryVector, 100, [
-          scopeId,
-        ]);
+        const searchResults = await searchGraphNodes(queryVector, 100);
         for (const r of searchResults) allNodeIds.add(r.nodeId);
       }
     } catch (err) {

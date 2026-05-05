@@ -7,7 +7,7 @@ const DEFAULT_MAX_FAILURES = 3;
 const DEFAULT_WINDOW_MS = 5 * 60_000; // 5 minutes
 const MAX_TRACKED_IDENTITIES = 10_000;
 
-export class VerificationRateLimiter {
+class VerificationRateLimiter {
   private failures = new Map<string, number[]>();
   private readonly maxFailures: number;
   private readonly windowMs: number;

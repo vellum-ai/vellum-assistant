@@ -310,18 +310,33 @@ describe("validateBundle", () => {
       is_valid: true,
       errors: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [{ path: "data/db/assistant.db", sha256: "abc", size: 100 }],
-        manifest_sha256: "def",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [
+          { path: "data/db/assistant.db", sha256: "abc", size_bytes: 100 },
+        ],
+        checksum: "def",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
     const config = runtimeConfig({ fetchFn: mockFetch(200, responseBody) });
     const result = await validateBundle(config, sampleFileData);
     expect(result.is_valid).toBe(true);
     if (result.is_valid) {
-      expect(result.manifest.schema_version).toBe("1.0");
-      expect(result.manifest.files).toHaveLength(1);
+      expect(result.manifest.schema_version).toBe(1);
+      expect(result.manifest.contents).toHaveLength(1);
     }
   });
 
@@ -374,7 +389,7 @@ describe("exportBundle", () => {
     const config = runtimeConfig({
       fetchFn: mockFetch(200, archiveBytes, {
         "Content-Disposition": 'attachment; filename="export-2026.vbundle"',
-        "X-Vbundle-Schema-Version": "1.0",
+        "X-Vbundle-Schema-Version": "1",
         "X-Vbundle-Manifest-Sha256": "abc123",
       }),
     });
@@ -384,8 +399,8 @@ describe("exportBundle", () => {
     const runtimeResult = result as ExportRuntimeResult;
     expect(runtimeResult.archive).toBeDefined();
     expect(runtimeResult.filename).toBe("export-2026.vbundle");
-    expect(runtimeResult.schemaVersion).toBe("1.0");
-    expect(runtimeResult.manifestSha256).toBe("abc123");
+    expect(runtimeResult.schemaVersion).toBe(1);
+    expect(runtimeResult.checksum).toBe("abc123");
   });
 
   test("managed — returns job ID for async processing", async () => {
@@ -453,10 +468,23 @@ describe("importPreflight", () => {
       ],
       conflicts: [],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "ghi",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "ghi",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
     };
     const config = runtimeConfig({ fetchFn: mockFetch(200, responseBody) });
@@ -523,10 +551,23 @@ describe("importCommit", () => {
         },
       ],
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: "2026-03-01T00:00:00Z",
-        files: [],
-        manifest_sha256: "def",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "def",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       warnings: [],
     };
@@ -856,10 +897,27 @@ describe("Multi-step flow behavior", () => {
             is_valid: true,
             errors: [],
             manifest: {
-              schema_version: "1.0",
+              schema_version: 1,
+              bundle_id: "00000000-0000-4000-8000-000000000000",
               created_at: "2026-01-01T00:00:00Z",
-              files: [],
-              manifest_sha256: "abc",
+              assistant: {
+                id: "self",
+                name: "Test",
+                runtime_version: "0.0.0-test",
+              },
+              origin: { mode: "self-hosted-local" },
+              compatibility: {
+                min_runtime_version: "0.0.0-test",
+                max_runtime_version: null,
+              },
+              contents: [],
+              checksum: "abc",
+              secrets_redacted: false,
+              export_options: {
+                include_logs: false,
+                include_browser_state: false,
+                include_memory_vectors: false,
+              },
             },
           }),
           { status: 200 },
@@ -880,10 +938,27 @@ describe("Multi-step flow behavior", () => {
             files: [],
             conflicts: [],
             manifest: {
-              schema_version: "1.0",
+              schema_version: 1,
+              bundle_id: "00000000-0000-4000-8000-000000000000",
               created_at: "2026-01-01T00:00:00Z",
-              files: [],
-              manifest_sha256: "abc",
+              assistant: {
+                id: "self",
+                name: "Test",
+                runtime_version: "0.0.0-test",
+              },
+              origin: { mode: "self-hosted-local" },
+              compatibility: {
+                min_runtime_version: "0.0.0-test",
+                max_runtime_version: null,
+              },
+              contents: [],
+              checksum: "abc",
+              secrets_redacted: false,
+              export_options: {
+                include_logs: false,
+                include_browser_state: false,
+                include_memory_vectors: false,
+              },
             },
           }),
           { status: 200 },
@@ -903,10 +978,27 @@ describe("Multi-step flow behavior", () => {
             },
             files: [],
             manifest: {
-              schema_version: "1.0",
+              schema_version: 1,
+              bundle_id: "00000000-0000-4000-8000-000000000000",
               created_at: "2026-01-01T00:00:00Z",
-              files: [],
-              manifest_sha256: "abc",
+              assistant: {
+                id: "self",
+                name: "Test",
+                runtime_version: "0.0.0-test",
+              },
+              origin: { mode: "self-hosted-local" },
+              compatibility: {
+                min_runtime_version: "0.0.0-test",
+                max_runtime_version: null,
+              },
+              contents: [],
+              checksum: "abc",
+              secrets_redacted: false,
+              export_options: {
+                include_logs: false,
+                include_browser_state: false,
+                include_memory_vectors: false,
+              },
             },
             warnings: [],
           }),

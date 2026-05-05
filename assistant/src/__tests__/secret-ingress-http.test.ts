@@ -106,7 +106,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => undefined,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
-  getConversationMemoryScopeId: () => undefined,
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -211,12 +210,9 @@ function makeSendMessageDeps() {
     assistantId: "self",
     trustContext: undefined,
     hasPendingConfirmation: () => false,
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
   } as unknown as import("../daemon/conversation.js").Conversation;
 

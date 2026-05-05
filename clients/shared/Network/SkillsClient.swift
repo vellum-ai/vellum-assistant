@@ -48,7 +48,7 @@ public struct SkillsClient: SkillsClientProtocol {
             if let query, !query.isEmpty { params["q"] = query }
             if let category { params["category"] = category }
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills", params: params.isEmpty ? nil : params, timeout: 10
+                path: "skills", params: params.isEmpty ? nil : params, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchSkillsList failed (HTTP \(response.statusCode))")
@@ -65,7 +65,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func enableSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/enable", timeout: 10
+                path: "skills/\(Self.encodePath(name))/enable", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("enableSkill failed (HTTP \(response.statusCode))")
@@ -84,7 +84,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func disableSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/disable", timeout: 10
+                path: "skills/\(Self.encodePath(name))/disable", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("disableSkill failed (HTTP \(response.statusCode))")
@@ -114,7 +114,7 @@ public struct SkillsClient: SkillsClientProtocol {
             }
 
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/config", json: body, timeout: 10
+                path: "skills/\(Self.encodePath(name))/config", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("configureSkill failed (HTTP \(response.statusCode))")
@@ -136,7 +136,7 @@ public struct SkillsClient: SkillsClientProtocol {
             if let version { body["version"] = version }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/install", json: body, timeout: 120
+                path: "skills/install", json: body, timeout: 120
             )
             guard response.isSuccess else {
                 log.error("installSkill failed (HTTP \(response.statusCode))")
@@ -157,7 +157,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func uninstallSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(name))", timeout: 10
+                path: "skills/\(Self.encodePath(name))", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("uninstallSkill failed (HTTP \(response.statusCode))")
@@ -176,7 +176,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func updateSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/update", timeout: 10
+                path: "skills/\(Self.encodePath(name))/update", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateSkill failed (HTTP \(response.statusCode))")
@@ -195,7 +195,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func checkSkillUpdates() async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/check-updates", timeout: 10
+                path: "skills/check-updates", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("checkSkillUpdates failed (HTTP \(response.statusCode))")
@@ -214,7 +214,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func searchSkills(query: String) async -> SkillSearchResult? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills/search",
+                path: "skills/search",
                 params: ["q": query],
                 timeout: 10
             )
@@ -239,7 +239,7 @@ public struct SkillsClient: SkillsClientProtocol {
         do {
             let body: [String: Any] = ["sourceText": sourceText]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/draft", json: body, timeout: 30
+                path: "skills/draft", json: body, timeout: 30
             )
             guard response.isSuccess else {
                 log.error("draftSkill failed (HTTP \(response.statusCode))")
@@ -265,7 +265,7 @@ public struct SkillsClient: SkillsClientProtocol {
             if let overwrite { body["overwrite"] = overwrite }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills", json: body, timeout: 10
+                path: "skills", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("createSkill failed (HTTP \(response.statusCode))")
@@ -284,7 +284,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(skillId))", timeout: 10
+                path: "skills/\(Self.encodePath(skillId))", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchSkillDetail failed (HTTP \(response.statusCode))")
@@ -311,7 +311,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(skillId))/files", timeout: 15
+                path: "skills/\(Self.encodePath(skillId))/files", timeout: 15
             )
             guard response.isSuccess else {
                 log.error("fetchSkillFiles failed (HTTP \(response.statusCode))")
@@ -331,7 +331,7 @@ public struct SkillsClient: SkillsClientProtocol {
     public func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(skillId))/files/content",
+                path: "skills/\(Self.encodePath(skillId))/files/content",
                 params: ["path": path],
                 timeout: 15
             )

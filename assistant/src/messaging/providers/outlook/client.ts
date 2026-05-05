@@ -162,23 +162,6 @@ export async function listMessages(
   );
 }
 
-/** Get a single message by ID. */
-export async function getMessage(
-  connection: OAuthConnection,
-  messageId: string,
-  select?: string,
-): Promise<OutlookMessage> {
-  const query: Record<string, string> = {};
-  if (select) query["$select"] = select;
-
-  return request<OutlookMessage>(
-    connection,
-    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
-    undefined,
-    Object.keys(query).length > 0 ? query : undefined,
-  );
-}
-
 /** Search messages using Microsoft Graph KQL syntax. */
 export async function searchMessages(
   connection: OAuthConnection,
@@ -278,38 +261,6 @@ export async function markMessageRead(
   );
 }
 
-/** Patch arbitrary fields on a message (e.g. to update recipients on a draft). */
-export async function patchMessage(
-  connection: OAuthConnection,
-  messageId: string,
-  fields: Record<string, unknown>,
-): Promise<OutlookMessage> {
-  return request<OutlookMessage>(
-    connection,
-    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(fields),
-    },
-  );
-}
-
-/** Move a message to a different folder (e.g. for archiving). */
-export async function moveMessage(
-  connection: OAuthConnection,
-  messageId: string,
-  destinationFolderId: string,
-): Promise<OutlookMessage> {
-  return request<OutlookMessage>(
-    connection,
-    `/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
-    {
-      method: "POST",
-      body: JSON.stringify({ destinationId: destinationFolderId }),
-    },
-  );
-}
-
 /** Create a draft message in the user's Drafts folder. */
 export async function createDraft(
   connection: OAuthConnection,
@@ -389,30 +340,6 @@ export async function createForwardDraft(
 }
 
 /** Max concurrent individual getMessage requests for batch fetching. */
-const BATCH_CONCURRENCY = 5;
-
-/** Fetch multiple messages with concurrency limiting. */
-export async function batchGetMessages(
-  connection: OAuthConnection,
-  messageIds: string[],
-  select?: string,
-): Promise<OutlookMessage[]> {
-  if (messageIds.length === 0) return [];
-
-  if (messageIds.length === 1) {
-    return [await getMessage(connection, messageIds[0], select)];
-  }
-
-  const results: OutlookMessage[] = [];
-  for (let i = 0; i < messageIds.length; i += BATCH_CONCURRENCY) {
-    const wave = messageIds.slice(i, i + BATCH_CONCURRENCY);
-    const waveResults = await Promise.all(
-      wave.map((id) => getMessage(connection, id, select)),
-    );
-    results.push(...waveResults);
-  }
-  return results;
-}
 
 /** List attachments on a message. */
 export async function listAttachments(

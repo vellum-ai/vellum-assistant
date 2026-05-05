@@ -42,7 +42,7 @@ public struct DefaultHomeStateClient: HomeStateClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/home/state", timeout: 10
+                path: "home/state", timeout: 10
             )
         } catch {
             log.error("fetchRelationshipState transport error: \(error.localizedDescription)")

@@ -22,10 +22,12 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
+  getConfig,
+  invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { LLMConfigFragment } from "../../config/schemas/llm.js";
+import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
@@ -44,12 +46,24 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
-import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
+import {
+  CONFIG_RELOAD_DEBOUNCE_MS,
+  log,
+} from "../../daemon/handlers/shared.js";
+import {
+  getAssistantMessageIdsInTurn,
+  getConversation,
+  getMessageById,
+} from "../../memory/conversation-crud.js";
+import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import {
   getRequestLogById,
   getRequestLogsByMessageId,
 } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { initializeProviders } from "../../providers/registry.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
@@ -77,6 +91,8 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
+import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
   "model",
@@ -93,6 +109,36 @@ function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function mergeInferenceProfileContextWindow(
+  existingProfile: Record<string, unknown>,
+  fragment: Record<string, unknown>,
+  nextProfile: Record<string, unknown>,
+): void {
+  const existingContextWindow =
+    asMutablePlainObject(existingProfile.contextWindow) ?? {};
+  const nextContextWindow: Record<string, unknown> = {
+    ...existingContextWindow,
+  };
+
+  delete nextContextWindow.maxInputTokens;
+
+  if (Object.hasOwn(fragment, "contextWindow")) {
+    const fragmentContextWindow = asMutablePlainObject(fragment.contextWindow);
+    if (
+      fragmentContextWindow &&
+      Object.hasOwn(fragmentContextWindow, "maxInputTokens")
+    ) {
+      nextContextWindow.maxInputTokens = fragmentContextWindow.maxInputTokens;
+    }
+  }
+
+  if (Object.keys(nextContextWindow).length === 0) {
+    delete nextProfile.contextWindow;
+  } else {
+    nextProfile.contextWindow = nextContextWindow;
+  }
 }
 
 function replaceInferenceProfileConfig(
@@ -113,7 +159,14 @@ function replaceInferenceProfileConfig(
   for (const key of INFERENCE_PROFILE_UI_KEYS) {
     delete nextProfile[key];
   }
-  profiles[name] = { ...nextProfile, ...fragment };
+  const fragmentTopLevel = { ...fragment };
+  delete fragmentTopLevel.contextWindow;
+  profiles[name] = { ...nextProfile, ...fragmentTopLevel };
+  mergeInferenceProfileContextWindow(
+    existingProfile,
+    fragment,
+    profiles[name] as Record<string, unknown>,
+  );
 }
 
 function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
@@ -268,7 +321,24 @@ function handleGetConfig() {
   }
 }
 
-function handlePatchConfig({ body }: RouteHandlerArgs) {
+function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
+  const llm = asMutablePlainObject(body.llm);
+  if (!llm) return;
+  if ("profiles" in llm && llm.profiles === null) {
+    throw new BadRequestError(
+      "Cannot null llm.profiles — managed profiles would be deleted.",
+    );
+  }
+  const profiles = asMutablePlainObject(llm.profiles);
+  if (!profiles) return;
+  for (const name of Object.keys(profiles)) {
+    if (profiles[name] === null && MANAGED_PROFILE_NAMES.has(name)) {
+      throw new BadRequestError(`Cannot delete managed profile "${name}".`);
+    }
+  }
+}
+
+async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
     typeof body !== "object" ||
@@ -277,15 +347,53 @@ function handlePatchConfig({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
+  rejectManagedProfileDeletion(body as Record<string, unknown>);
+
+  const raw = loadRawConfig();
+  const patch = body as Record<string, unknown>;
+  deepMergeOverwrite(raw, patch);
+
+  // Suppress the file-watcher callback for the duration of the debounce
+  // window. Without this, the ConfigWatcher detects the config.json write
+  // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
+  // second time — starting with providers.clear() which races with the
+  // explicit reinit below. The watcher also fires onConversationEvict(),
+  // which would evict all cached conversations on every PATCH. Mirror the
+  // suppress/reset pattern used in setModel (config-model.ts).
+  const configWatcher = getConfigWatcher();
+  const wasSuppressed = configWatcher.suppressConfigReload;
+  configWatcher.suppressConfigReload = true;
   try {
-    const raw = loadRawConfig();
-    deepMergeOverwrite(raw, body);
     saveRawConfig(raw);
-    return { ok: true };
   } catch (err) {
+    configWatcher.suppressConfigReload = wasSuppressed;
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to patch config: ${message}`);
   }
+  configWatcher.timers.schedule(
+    "__suppress_reset__",
+    () => {
+      configWatcher.suppressConfigReload = false;
+    },
+    CONFIG_RELOAD_DEBOUNCE_MS,
+  );
+
+  clearEmbeddingBackendCache();
+  invalidateConfigCache();
+  // Reinitialize providers so the live registry reflects the new config
+  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
+  // a provider reinit failure doesn't mask the successful config save.
+  // Only advance the config fingerprint on success — if reinit failed, leave
+  // it stale so the watcher can detect the saved config on the next event
+  // and retry provider initialization.
+  try {
+    await initializeProviders(getConfig());
+    configWatcher.updateFingerprint();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, `handlePatchConfig: provider reinit failed: ${message}`);
+  }
+  return { ok: true };
 }
 
 function handleReplaceInferenceProfile({
@@ -299,7 +407,12 @@ function handleReplaceInferenceProfile({
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
   }
-  const parsed = LLMConfigFragment.safeParse(body);
+  if (MANAGED_PROFILE_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Cannot edit managed profile "${name}". Duplicate it to create a custom profile.`,
+    );
+  }
+  const parsed = ProfileEntry.safeParse(body);
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
@@ -351,6 +464,26 @@ function handleGetMessageContent({
   return result;
 }
 
+const CONVERSATION_KINDS = [
+  "user",
+  "background",
+  "background_memory_consolidation",
+  "scheduled",
+] as const;
+type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+
+function resolveConversationKind(
+  source: string,
+  conversationType: string,
+): ConversationKind {
+  if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
+    return "background_memory_consolidation";
+  }
+  if (conversationType === "background") return "background";
+  if (conversationType === "scheduled") return "scheduled";
+  return "user";
+}
+
 function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
@@ -359,8 +492,19 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const logs = getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
+  const memoryV2Activation =
+    getMemoryV2ActivationLogByMessageIds(turnMessageIds);
+  const message = getMessageById(messageId);
+  const conversation = message ? getConversation(message.conversationId) : null;
+  const conversationKind: ConversationKind = conversation
+    ? resolveConversationKind(
+        conversation.source,
+        conversation.conversationType,
+      )
+    : "user";
   return {
     messageId,
+    conversationKind,
     logs: logs.map((log) => {
       let requestPayload: unknown;
       try {
@@ -392,6 +536,7 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
       };
     }),
     memoryRecall: memoryRecallLog ?? null,
+    memoryV2Activation: memoryV2Activation ?? null,
   };
 }
 
@@ -598,8 +743,10 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseBody: z.object({
       messageId: z.string(),
+      conversationKind: z.enum(CONVERSATION_KINDS),
       logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough(),
+      memoryRecall: z.object({}).passthrough().nullable(),
+      memoryV2Activation: z.object({}).passthrough().nullable(),
     }),
     handler: handleGetLlmContext,
   },

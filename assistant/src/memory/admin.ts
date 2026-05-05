@@ -6,7 +6,6 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { deleteMemoryCheckpoint } from "./checkpoints.js";
 import { runDeterministicRecallSearch } from "./context-search/search.js";
 import type { RecallEvidence } from "./context-search/types.js";
-import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import {
@@ -32,7 +31,7 @@ import {
 
 const log = getLogger("memory-admin");
 
-export interface MemorySystemStatus {
+interface MemorySystemStatus {
   enabled: boolean;
   degraded: boolean;
   reason: string | null;
@@ -47,7 +46,7 @@ export interface MemorySystemStatus {
   jobs: Record<string, number>;
 }
 
-export interface AdminMemoryQueryResult {
+interface AdminMemoryQueryResult {
   results: Array<{
     id: string;
     content: string;
@@ -106,7 +105,6 @@ export async function queryMemory(
     { query, sources: ["memory", "conversations", "pkb"] },
     {
       workingDir: getWorkspaceDir(),
-      memoryScopeId: getConversationMemoryScopeId(conversationId) ?? "default",
       conversationId,
       config,
     },
@@ -148,7 +146,7 @@ function readNumericMetadata(
 
 // ── Short segment cleanup ─────────────────────────────────────────────
 
-export interface CleanupShortSegmentsResult {
+interface CleanupShortSegmentsResult {
   removed: number;
   failed: number;
   dryRunCount?: number;
@@ -216,7 +214,7 @@ export async function compactLongMemoryNodes(
 
 // ── Re-extraction ──────────────────────────────────────────────────────
 
-export interface ReextractTarget {
+interface ReextractTarget {
   conversationId: string;
   title: string | null;
   messageCount: number;
@@ -312,11 +310,9 @@ export function requestReextract(targets: ReextractTarget[]): {
       )
       .run();
 
-    // Resolve scope and enqueue re-extraction
-    const scopeId = getConversationMemoryScopeId(conversationId);
     const jobId = enqueueMemoryJob("graph_extract", {
       conversationId,
-      scopeId,
+      scopeId: "default",
     });
     jobIds.push(jobId);
 

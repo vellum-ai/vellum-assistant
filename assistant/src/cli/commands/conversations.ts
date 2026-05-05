@@ -15,10 +15,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import { getDb } from "../../memory/db-connection.js";
-import {
-  selectEmbeddingBackend,
-  SPARSE_EMBEDDING_VERSION,
-} from "../../memory/embedding-backend.js";
+import { selectEmbeddingBackend } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
   initQdrantClient,
@@ -307,7 +304,7 @@ Examples:
       const qdrantUrl = resolveQdrantUrl(config);
       const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
         : undefined;
       const qdrant = initQdrantClient({
         url: qdrantUrl,

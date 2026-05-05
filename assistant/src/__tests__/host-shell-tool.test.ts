@@ -32,20 +32,14 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: true,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
 };
-
-// Track whether wrapCommand was ever called — host_bash must never invoke it
-let wrapCommandCallCount = 0;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -59,10 +53,23 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (...args: unknown[]) => {
-    wrapCommandCallCount++;
-    return { command: "bash", args: ["-c", "--", args[0]], sandboxed: false };
+// Mock the host-bash-proxy singleton so proxy delegation tests can control it.
+let mockProxyAvailable = false;
+let mockProxyRequestFn: (
+  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string>; targetClientId?: string },
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-bash-proxy.js", () => ({
+  HostBashProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockProxyAvailable,
+        request: mockProxyRequestFn,
+      };
+    },
   },
 }));
 
@@ -83,6 +90,8 @@ afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  mockProxyAvailable = false;
+  mockProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_bash tool", () => {
@@ -125,8 +134,6 @@ describe("host_bash tool", () => {
   });
 
   test("does not route through sandbox wrapCommand", async () => {
-    wrapCommandCallCount = 0;
-
     const dir = mkdtempSync(join(tmpdir(), "host-shell-nosandbox-"));
     testDirs.push(dir);
 
@@ -140,8 +147,6 @@ describe("host_bash tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content.trim()).toBe("isolation-test");
-    // The sandbox wrapCommand must never be called for host_bash
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("spawns plain bash without sandbox-exec or bwrap", async () => {
@@ -236,7 +241,6 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     const result = await hostShellTool.execute(
       {
@@ -247,7 +251,6 @@ describe("host_bash — baseline: no sandbox isolation", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(wrapCommandCallCount).toBe(0);
     expect(spawnCalls[0].command).toBe("bash");
   });
 });
@@ -273,12 +276,13 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(schemaProps).not.toHaveProperty("credential_ids");
   });
 
-  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity, background)", () => {
+  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity, background, target_client_id)", () => {
     const propertyNames = Object.keys(schemaProps).sort();
     expect(propertyNames).toEqual([
       "activity",
       "background",
       "command",
+      "target_client_id",
       "timeout_seconds",
       "working_dir",
     ]);
@@ -289,7 +293,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     // Pass network_mode as if the model hallucinated the parameter —
     // host_bash must ignore it and run the command normally.
@@ -308,7 +311,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with proxied-mode input
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("execute ignores credential_ids even if supplied in input", async () => {
@@ -316,7 +318,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    wrapCommandCallCount = 0;
 
     const result = await hostShellTool.execute(
       {
@@ -332,7 +333,6 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with credential inputs
-    expect(wrapCommandCallCount).toBe(0);
   });
 
   test("tool name is host_bash (not bash)", () => {
@@ -721,52 +721,36 @@ describe("host_bash — proxy delegation", () => {
     }
   }
 
-  function makeMockProxy(result: ToolExecutionResult) {
+  function setupMockProxy(result: ToolExecutionResult) {
     const calls: Array<{
       input: {
         command: string;
         working_dir?: string;
         timeout_seconds?: number;
         env?: Record<string, string>;
+        targetClientId?: string;
       };
       conversationId: string;
     }> = [];
 
-    return {
-      proxy: {
-        isAvailable: () => true,
-        request: async (
-          input: {
-            command: string;
-            working_dir?: string;
-            timeout_seconds?: number;
-            env?: Record<string, string>;
-          },
-          conversationId: string,
-          _signal?: AbortSignal,
-        ) => {
-          calls.push({ input, conversationId });
-          return result;
-        },
-        updateSender: () => {},
-        dispose: () => {},
-        resolve: () => {},
-        hasPendingRequest: () => false,
-      },
-      calls,
+    mockProxyAvailable = true;
+    mockProxyRequestFn = async (input, conversationId) => {
+      calls.push({ input, conversationId });
+      return result;
     };
+
+    return calls;
   }
 
-  test("delegates to proxy when hostBashProxy is available", async () => {
+  test("delegates to proxy when proxy is available", async () => {
     const proxyResult: ToolExecutionResult = {
       content: "proxied output",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     spawnCalls.length = 0;
@@ -790,11 +774,10 @@ describe("host_bash — proxy delegation", () => {
       content: "proxied",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     const result = await hostShellTool.execute({ command: "echo \0evil" }, ctx);
@@ -810,11 +793,10 @@ describe("host_bash — proxy delegation", () => {
       content: "proxied",
       isError: false,
     };
-    const { proxy, calls } = makeMockProxy(proxyResult);
+    const calls = setupMockProxy(proxyResult);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
     const result = await hostShellTool.execute(
@@ -828,24 +810,12 @@ describe("host_bash — proxy delegation", () => {
   });
 
   test("falls back to local execution when proxy is not available", async () => {
-    const unavailableProxy = {
-      isAvailable: () => false,
-      request: async () => {
-        throw new Error("should not be called");
-      },
-      updateSender: () => {},
-      dispose: () => {},
-      resolve: () => {},
-      hasPendingRequest: () => false,
-    };
-
+    // mockProxyAvailable defaults to false, so isAvailable() returns false
     const dir = mkdtempSync(join(tmpdir(), "host-shell-proxy-fallback-"));
     testDirs.push(dir);
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy:
-        unavailableProxy as unknown as ToolContext["hostBashProxy"],
     };
 
     spawnCalls.length = 0;
@@ -858,6 +828,22 @@ describe("host_bash — proxy delegation", () => {
     expect(result.content.trim()).toBe("local-fallback");
     // Should have spawned locally
     expect(spawnCalls.length).toBe(1);
+  });
+
+  test("returns error when explicit targetClientId is set but proxy is unavailable (client disconnected)", async () => {
+    // mockProxyAvailable defaults to false — simulates client disconnecting
+    // after tool definitions were built (targetClientId already resolved).
+    spawnCalls.length = 0;
+    const result = await hostShellTool.execute(
+      { command: "echo should-not-run", target_client_id: "client-mac-abc123" },
+      { ...makeContext(), transportInterface: "web" },
+    );
+
+    // Must error, NOT fall through to local spawn
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("client-mac-abc123");
+    expect(result.content).toContain("no longer connected");
+    expect(spawnCalls.length).toBe(0);
   });
 
   test("falls back to local execution when no proxy is set", async () => {
@@ -894,12 +880,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "trusted_contact", // untrusted actor
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(
@@ -930,12 +915,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(
@@ -969,12 +953,11 @@ describe("host_bash — proxy delegation", () => {
         content: "proxied",
         isError: false,
       };
-      const { proxy, calls } = makeMockProxy(proxyResult);
+      const calls = setupMockProxy(proxyResult);
 
       const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
-        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
       };
 
       const result = await hostShellTool.execute(

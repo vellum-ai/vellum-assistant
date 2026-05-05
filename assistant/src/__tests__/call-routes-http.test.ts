@@ -77,8 +77,6 @@ mock.module("../calls/twilio-config.js", () => ({
     accountSid: "AC_test",
     authToken: "test_token",
     phoneNumber: assistantId === "asst-alpha" ? "+15550009999" : "+15550001111",
-    webhookBaseUrl: "https://test.example.com",
-    wssBaseUrl: "wss://test.example.com",
   }),
 }));
 

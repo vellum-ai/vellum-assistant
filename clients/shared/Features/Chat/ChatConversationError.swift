@@ -4,6 +4,7 @@ import Foundation
 public enum ConversationErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
+    case managedUsageLimit
     case providerOverloaded
     case providerApi
     case providerBilling
@@ -24,6 +25,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .providerNetwork
         case .providerRateLimit:
             self = .rateLimit
+        case .managedUsageLimit:
+            self = .managedUsageLimit
         case .providerOverloaded:
             self = .providerOverloaded
         case .providerApi:
@@ -60,6 +63,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Check your internet connection, then click Retry."
         case .rateLimit:
             return "Wait 30–60 seconds, then click Retry."
+        case .managedUsageLimit:
+            return "This is a Vellum-managed usage limit. Wait for it to reset or switch to your API key in Settings."
         case .providerOverloaded:
             return "This is usually temporary — click Retry in a moment."
         case .providerApi:

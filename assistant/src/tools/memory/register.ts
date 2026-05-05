@@ -34,7 +34,7 @@ class RememberTool implements Tool {
     const result = handleRemember(
       typedInput,
       context.conversationId,
-      context.memoryScopeId ?? "default",
+      "default",
       getConfig(),
     );
     return {
@@ -73,7 +73,6 @@ class RecallTool implements Tool {
     const result = await runAgenticRecall(input as unknown as RecallInput, {
       workingDir: context.workingDir,
       conversationId: context.conversationId,
-      memoryScopeId: context.memoryScopeId ?? "default",
       config,
       signal: context.signal,
     });

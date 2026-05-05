@@ -47,6 +47,13 @@ const SuggestRequestSchema = z.object({
     )
     .optional(),
   intent: z.enum(["auto_approve", "escalate"]),
+  existingRule: z
+    .object({
+      id: z.string(),
+      pattern: z.string(),
+      risk: z.string(),
+    })
+    .optional(),
 });
 
 /**

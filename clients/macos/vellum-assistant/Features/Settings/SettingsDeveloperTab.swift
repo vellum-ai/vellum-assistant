@@ -29,6 +29,8 @@ struct SettingsDeveloperTab: View {
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
     @State private var platformUuid: String?
+    @State private var machineId: String?
+    @State private var machineIdTask: Task<Void, Never>?
 
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
@@ -251,6 +253,10 @@ struct SettingsDeveloperTab: View {
                         }
                     }
 
+                if let machineId, !machineId.isEmpty {
+                    infoRow(label: "Machine ID", value: machineId, mono: true)
+                }
+
                 let home = assistant.home
                 homeRow(home: home)
             }
@@ -389,7 +395,7 @@ struct SettingsDeveloperTab: View {
     private func fetchHealthz() async {
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
@@ -459,6 +465,8 @@ struct SettingsDeveloperTab: View {
     private func resolvePlatformUuid() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
             platformUuid = nil
+            machineIdTask?.cancel()
+            machineId = nil
             return
         }
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
@@ -470,6 +478,24 @@ struct SettingsDeveloperTab: View {
             userId: userId,
             credentialStorage: FileCredentialStorage()
         )
+        fetchMachineId(orgId: orgId)
+    }
+
+    private func fetchMachineId(orgId: String?) {
+        machineIdTask?.cancel()
+        machineId = nil
+        guard let orgId, let platformId = platformUuid else { return }
+        machineIdTask = Task {
+            do {
+                let result = try await AuthService.shared.getAssistant(id: platformId, organizationId: orgId)
+                try Task.checkCancellation()
+                if case .found(let assistant) = result {
+                    machineId = assistant.machine_id
+                }
+            } catch {
+                // Cancelled, network failure, decode error — best-effort dev info.
+            }
+        }
     }
 
     // MARK: - Switch Assistant
@@ -642,7 +668,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "assistants/\(selectedAssistantId)/restart")
+        _ = try? await GatewayHTTPClient.post(path: "restart")
     }
 
     private func performLocalRestart() async {
@@ -825,7 +851,7 @@ struct SettingsDeveloperTab: View {
         let body: [String: String] = ["type": "credential", "name": "vellum:assistant_api_key"]
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/secrets", json: body, timeout: 10
+                path: "secrets", json: body, timeout: 10
             )
             if response.isSuccess || response.statusCode == 404 {
                 // Clear the locally-cached credential so the key is not

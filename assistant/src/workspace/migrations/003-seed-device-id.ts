@@ -45,7 +45,7 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
 
     // b. Read the lockfile to find an existing installationId.
     //    The lockfile is always under the user's home directory, never under
-    //    BASE_DATA_DIR. Check both the current and legacy filenames.
+    //    Check both the current and legacy filenames.
     const home = homedir();
     const lockCandidates = [
       join(home, ".vellum.lock.json"),

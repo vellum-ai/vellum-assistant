@@ -2,6 +2,7 @@ import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import type { ExecutionTarget } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -16,6 +17,8 @@ interface PendingPrompt {
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
+    wasTimeout?: boolean;
+    wasSystemCancel?: boolean;
   }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -71,15 +74,44 @@ export class PermissionPrompter {
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
+    wasTimeout?: boolean;
+    wasSystemCancel?: boolean;
+    wasAbort?: boolean;
   }> {
-    if (signal?.aborted) return { decision: "deny" };
+    if (signal?.aborted) return { decision: "deny", wasAbort: true };
 
     const requestId = uuid();
+
+    // Self-register in pendingInteractions so /v1/confirm can route the
+    // response to this conversation without going through broadcastMessage.
+    if (conversationId) {
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName,
+          input: redactSensitiveFields(input),
+          riskLevel,
+          executionTarget,
+          allowlistOptions: allowlistOptions.map((o) => ({
+            label: o.label,
+            description: o.description,
+            pattern: o.pattern,
+          })),
+          scopeOptions: scopeOptions.map((o) => ({
+            label: o.label,
+            scope: o.scope,
+          })),
+          persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
+        },
+      });
+    }
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, toolName },
           "Permission prompt timed out, defaulting to deny",
@@ -87,6 +119,7 @@ export class PermissionPrompter {
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
         resolve({
           decision: "deny",
+          wasTimeout: true,
           decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
         });
       }, timeoutMs);
@@ -103,7 +136,8 @@ export class PermissionPrompter {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            resolve({ decision: "deny" });
+            pendingInteractions.resolve(requestId);
+            resolve({ decision: "deny", wasAbort: true });
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
@@ -168,6 +202,9 @@ export class PermissionPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    // Idempotent — approval-routes already calls pendingInteractions.resolve()
+    // before routing here, but we call it defensively for non-route paths.
+    pendingInteractions.resolve(requestId);
     pending.resolve({
       decision,
       selectedPattern,
@@ -185,8 +222,10 @@ export class PermissionPrompter {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      pendingInteractions.resolve(requestId);
       pending.resolve({
         decision: "deny",
+        wasSystemCancel: true,
         decisionContext:
           "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
       });
@@ -198,8 +237,9 @@ export class PermissionPrompter {
   }
 
   dispose(): void {
-    for (const [, pending] of this.pending) {
+    for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
+      pendingInteractions.resolve(requestId);
       pending.reject(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );

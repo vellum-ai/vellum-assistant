@@ -9,6 +9,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Map conversationId → mock session so findConversation returns the right mock.
+const conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => conversationMocks.get(id),
+}));
+
 import type { Conversation } from "../daemon/conversation.js";
 import type {
   ApprovalDecisionResult,
@@ -49,9 +55,9 @@ function registerPendingConfirmation(
     handleConfirmationResponse: mock(() => {}),
     ensureActorScopedHistory: async () => {},
   } as unknown as Conversation;
+  conversationMocks.set(conversationId, mockSession);
 
   pendingInteractions.register(requestId, {
-    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {
@@ -206,6 +212,7 @@ describe("buildApprovalUIMetadata", () => {
 describe("handleChannelDecision", () => {
   beforeEach(() => {
     pendingInteractions.clear();
+    conversationMocks.clear();
   });
 
   test("returns applied: false when no pending interactions exist", () => {
@@ -221,7 +228,7 @@ describe("handleChannelDecision", () => {
 
   test('approves once via session.handleConfirmationResponse with "allow"', () => {
     registerPendingConfirmation("req-1", "conv-1", "shell");
-    const interaction = pendingInteractions.get("req-1");
+    const mockConv = conversationMocks.get("conv-1") as Conversation;
     const decision: ApprovalDecisionResult = {
       action: "approve_once",
       source: "plain_text",
@@ -230,14 +237,15 @@ describe("handleChannelDecision", () => {
     const result = handleChannelDecision("conv-1", decision);
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-1");
-    expect(
-      interaction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-1", "allow");
+    expect(mockConv.handleConfirmationResponse).toHaveBeenCalledWith(
+      "req-1",
+      "allow",
+    );
   });
 
   test('rejects via session.handleConfirmationResponse with "deny"', () => {
     registerPendingConfirmation("req-1", "conv-1", "shell");
-    const interaction = pendingInteractions.get("req-1");
+    const mockConv = conversationMocks.get("conv-1") as Conversation;
     const decision: ApprovalDecisionResult = {
       action: "reject",
       source: "telegram_button",
@@ -246,16 +254,17 @@ describe("handleChannelDecision", () => {
     const result = handleChannelDecision("conv-1", decision);
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-1");
-    expect(
-      interaction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-1", "deny");
+    expect(mockConv.handleConfirmationResponse).toHaveBeenCalledWith(
+      "req-1",
+      "deny",
+    );
   });
 
   test("uses decision.requestId to target the matching pending interaction", () => {
     registerPendingConfirmation("req-older", "conv-1", "shell");
+    const olderMock = conversationMocks.get("conv-1") as Conversation;
     registerPendingConfirmation("req-newer", "conv-1", "browser");
-    const newerInteraction = pendingInteractions.get("req-newer");
-    const olderInteraction = pendingInteractions.get("req-older");
+    const newerMock = conversationMocks.get("conv-1") as Conversation;
     const decision: ApprovalDecisionResult = {
       action: "approve_once",
       source: "telegram_button",
@@ -265,12 +274,11 @@ describe("handleChannelDecision", () => {
     const result = handleChannelDecision("conv-1", decision);
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-newer");
-    expect(
-      newerInteraction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-newer", "allow");
-    expect(
-      olderInteraction!.conversation!.handleConfirmationResponse,
-    ).not.toHaveBeenCalled();
+    expect(newerMock.handleConfirmationResponse).toHaveBeenCalledWith(
+      "req-newer",
+      "allow",
+    );
+    expect(olderMock.handleConfirmationResponse).not.toHaveBeenCalled();
   });
 
   test("returns applied: false when decision.requestId does not match a pending interaction", () => {

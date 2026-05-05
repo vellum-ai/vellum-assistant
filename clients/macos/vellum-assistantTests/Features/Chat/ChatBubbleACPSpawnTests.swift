@@ -16,6 +16,8 @@ import XCTest
 final class ChatBubbleACPSpawnTests: XCTestCase {
     private var layoutConfigBackup: Data?
     private var layoutConfigExisted = false
+    private var codingAgentsPanelOverrideExisted = false
+    private var codingAgentsPanelOverrideValue = false
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -24,9 +26,24 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         if layoutConfigExisted {
             layoutConfigBackup = try Data(contentsOf: url)
         }
+        let defaultsKey = Self.codingAgentsPanelDefaultsKey()
+        codingAgentsPanelOverrideExisted = SharedUserDefaults.standard.object(forKey: defaultsKey) != nil
+        codingAgentsPanelOverrideValue = SharedUserDefaults.standard.bool(forKey: defaultsKey)
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: true)
     }
 
     override func tearDownWithError() throws {
+        if codingAgentsPanelOverrideExisted {
+            MacOSClientFeatureFlagManager.shared.setOverride(
+                CodingAgentsPanelFeatureFlag.key,
+                enabled: codingAgentsPanelOverrideValue
+            )
+        } else {
+            MacOSClientFeatureFlagManager.shared.removeOverride(CodingAgentsPanelFeatureFlag.key)
+        }
+        codingAgentsPanelOverrideExisted = false
+        codingAgentsPanelOverrideValue = false
+
         let url = Self.layoutConfigURL()
         if layoutConfigExisted, let data = layoutConfigBackup {
             try data.write(to: url, options: .atomic)
@@ -49,6 +66,10 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         return appSupport
             .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("layout-config.json")
+    }
+
+    private static func codingAgentsPanelDefaultsKey() -> String {
+        "MacOSFeatureFlag.codingagentspanel"
     }
 
     // MARK: - extractAcpSessionId
@@ -119,6 +140,43 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: #"{"acpSessionId":null}"#))
     }
 
+    func test_acpSessionIdToOpen_isNilWhenCodingAgentsPanelFlagDisabled() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: false)
+        let toolCall = ToolCallData(
+            toolName: "acp_spawn",
+            inputSummary: "spawn",
+            result: #"{"acpSessionId":"acp-disabled"}"#,
+            isComplete: true
+        )
+        let row = ToolCallStepDetailRow(
+            toolCall: toolCall,
+            phase: .complete,
+            isDetailExpanded: .constant(false)
+        )
+
+        XCTAssertNil(
+            row.acpSessionIdToOpen,
+            "Disabled panel flag must force acp_spawn rows through the ordinary expandable tool-row path"
+        )
+    }
+
+    func test_acpSessionIdToOpen_returnsIdWhenCodingAgentsPanelFlagEnabled() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: true)
+        let toolCall = ToolCallData(
+            toolName: "acp_spawn",
+            inputSummary: "spawn",
+            result: #"{"acpSessionId":"acp-enabled"}"#,
+            isComplete: true
+        )
+        let row = ToolCallStepDetailRow(
+            toolCall: toolCall,
+            phase: .complete,
+            isDetailExpanded: .constant(false)
+        )
+
+        XCTAssertEqual(row.acpSessionIdToOpen, "acp-enabled")
+    }
+
     // MARK: - applyACPSessionDeepLink
 
     /// End-to-end of the deep-link side effects: the right slot flips to
@@ -177,6 +235,29 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         )
 
         XCTAssertEqual(windowState.layoutConfig.right.width, 512)
+    }
+
+    func test_applyACPSessionDeepLink_isNoOpWhenCodingAgentsPanelFlagDisabled() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: false)
+        let windowState = MainWindowState()
+        windowState.layoutConfig.right = SlotConfig(content: .empty, width: 512, visible: false)
+        let store = ACPSessionStore()
+
+        ToolCallStepDetailRow.applyACPSessionDeepLink(
+            id: "acp-disabled",
+            windowState: windowState,
+            store: store
+        )
+
+        XCTAssertEqual(
+            windowState.layoutConfig.right,
+            SlotConfig(content: .empty, width: 512, visible: false),
+            "Disabled panel flag must not mutate persisted right-slot layout"
+        )
+        XCTAssertNil(
+            store.selectedSessionId,
+            "Disabled panel flag must not select a session for the hidden panel"
+        )
     }
 
     /// Either the window state or the store being nil must short-circuit

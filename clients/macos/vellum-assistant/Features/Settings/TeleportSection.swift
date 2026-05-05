@@ -10,6 +10,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Telep
 private enum TeleportDestination {
     case docker
     case platform
+    case local
 
     var displayLabel: String {
         switch self {
@@ -17,6 +18,8 @@ private enum TeleportDestination {
             return "Move to Docker"
         case .platform:
             return "Move to Cloud (Platform)"
+        case .local:
+            return "Move to Local"
         }
     }
 
@@ -26,6 +29,8 @@ private enum TeleportDestination {
             return "Run your assistant in a Docker container on this Mac."
         case .platform:
             return "Run your assistant in the cloud, managed by the Vellum platform."
+        case .local:
+            return "Run your assistant locally on this Mac."
         }
     }
 }
@@ -46,6 +51,7 @@ private enum TeleportError: LocalizedError {
     case notSignedIn
     case exportFailed(statusCode: Int)
     case exportTimedOut
+    case exportJobFailed(message: String)
     case importFailed(message: String)
     case managedEntryNotFound
     case localAssistantNotFound
@@ -53,6 +59,7 @@ private enum TeleportError: LocalizedError {
     case noOrganizations
     case multipleOrganizations
     case existingPlatformAssistant(id: String)
+    case versionMismatch(message: String)
 
     var errorDescription: String? {
         switch self {
@@ -64,6 +71,8 @@ private enum TeleportError: LocalizedError {
             return "Export failed (HTTP \(statusCode))"
         case .exportTimedOut:
             return "Export timed out"
+        case .exportJobFailed(let message):
+            return "Export failed: \(message)"
         case .importFailed(let message):
             return "Import failed: \(message)"
         case .managedEntryNotFound:
@@ -78,6 +87,8 @@ private enum TeleportError: LocalizedError {
             return "Multiple organizations found — please select one in account settings first"
         case .existingPlatformAssistant(let id):
             return "You already have a platform assistant '\(id)'. Retire it first, then retry the teleport."
+        case .versionMismatch(let message):
+            return message
         }
     }
 }
@@ -104,7 +115,9 @@ struct TeleportSection: View {
 
     var body: some View {
         Group {
-            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
+            if assistant.isRemote && !assistant.isDocker && !assistant.isManaged {
+                // Out of scope: remote-but-not-docker-not-managed assistants
+                // (e.g. apple-container) — leave teleport hidden for now.
                 EmptyView()
             } else {
                 teleportContent
@@ -172,7 +185,9 @@ struct TeleportSection: View {
 
     @ViewBuilder
     private var destinationPicker: some View {
-        if assistant.cloud.lowercased() == "local" || assistant.isDocker {
+        if assistant.isManaged {
+            destinationButton(for: .local)
+        } else if assistant.cloud.lowercased() == "local" || assistant.isDocker {
             destinationButton(for: .platform)
         }
     }
@@ -276,7 +291,7 @@ struct TeleportSection: View {
                     do {
                         let response = try await GatewayHTTPClient.withAssistant(oldId) {
                             try await GatewayHTTPClient.delete(
-                                path: "assistants/{assistantId}/retire",
+                                path: "retire",
                                 timeout: 30
                             )
                         }
@@ -334,6 +349,8 @@ struct TeleportSection: View {
                 try await teleportLocalToDocker()
             case (true, .platform):
                 try await teleportDockerToPlatform()
+            case (_, .local) where assistant.isManaged:
+                try await teleportPlatformToLocal()
             default:
                 throw TeleportError.invalidURL
             }
@@ -368,20 +385,15 @@ struct TeleportSection: View {
             throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
         }
 
-        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let bundleKey: String?
-        do {
-            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
-            bundleKey = uploadInfo.bundleKey
-        } catch let error as PlatformMigrationClient.PlatformMigrationError {
-            if case .signedUrlsNotAvailable = error {
-                bundleKey = nil
-            } else {
-                throw error
-            }
-        }
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
+        try await PlatformMigrationClient.uploadToSignedUrl(
+            uploadInfo.uploadUrl,
+            bundleData: bundleData,
+            onProgress: { self.transferProgress = $0 }
+        )
+        let bundleKey = uploadInfo.bundleKey
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
         transferProgress = nil
@@ -424,7 +436,7 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+        try await importBundleToManaged(bundleKey: bundleKey)
 
         // Step 5b — Inject client-resolvable vellum identity fields that
         // Django's post-hatch provisioning doesn't cover (org id, user id).
@@ -503,7 +515,8 @@ struct TeleportSection: View {
                 path: "migrations/import",
                 body: bundleData,
                 contentType: "application/octet-stream",
-                timeout: 3600
+                timeout: 3600,
+                unprefixed: true
             )
         }
         guard importResponse.isSuccess else {
@@ -548,20 +561,15 @@ struct TeleportSection: View {
             throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
         }
 
-        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        // Step 3 — Upload to GCS via signed URL
         phase = .transferring(step: "Uploading data to cloud...")
-        let bundleKey: String?
-        do {
-            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
-            bundleKey = uploadInfo.bundleKey
-        } catch let error as PlatformMigrationClient.PlatformMigrationError {
-            if case .signedUrlsNotAvailable = error {
-                bundleKey = nil
-            } else {
-                throw error
-            }
-        }
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
+        try await PlatformMigrationClient.uploadToSignedUrl(
+            uploadInfo.uploadUrl,
+            bundleData: bundleData,
+            onProgress: { self.transferProgress = $0 }
+        )
+        let bundleKey = uploadInfo.bundleKey
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
         transferProgress = nil
@@ -603,7 +611,7 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+        try await importBundleToManaged(bundleKey: bundleKey)
 
         // Step 5b — Inject client-resolvable vellum identity fields that
         // Django's post-hatch provisioning doesn't cover (org id, user id).
@@ -625,6 +633,177 @@ struct TeleportSection: View {
         phase = .verifying
     }
 
+    // MARK: - Platform -> Local
+
+    private func teleportPlatformToLocal() async throws {
+        // Step 1 — Request a signed upload URL so the platform runtime
+        // has a GCS slot to stream the export bundle into.
+        phase = .transferring(step: "Preparing export...")
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
+
+        // Step 2 — Tell the platform runtime to export to that signed URL.
+        // The export is async — runtime returns 202 + job_id, then uploads
+        // the bundle to GCS in the background.
+        phase = .transferring(step: "Exporting cloud data...")
+        let exportResponse = try await GatewayHTTPClient.withAssistant(assistant.assistantId) {
+            try await GatewayHTTPClient.post(
+                path: "migrations/export-to-gcs",
+                json: ["upload_url": uploadInfo.uploadUrl],
+                timeout: 3600
+            )
+        }
+        guard exportResponse.isSuccess || exportResponse.statusCode == 202 else {
+            throw TeleportError.exportFailed(statusCode: exportResponse.statusCode)
+        }
+        guard let exportJson = (try? JSONSerialization.jsonObject(with: exportResponse.data)) as? [String: Any],
+              let exportJobId = exportJson["job_id"] as? String else {
+            throw TeleportError.exportFailed(statusCode: exportResponse.statusCode)
+        }
+
+        // Step 3 — Poll the platform job-status endpoint until the export
+        // job completes.
+        try await pollExportJob(jobId: exportJobId)
+
+        // Step 4 — Resolve the target local runtime version for the
+        // version-compat gate. Use the bundled app's short version string;
+        // on macOS the local runtime is bundled with the app, so the app
+        // version is the runtime version that will perform the import.
+        let targetRuntimeVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+
+        // Step 5 — Request a signed download URL from the platform. The
+        // platform validates the bundle's compat range against the target
+        // runtime version and rejects with 422 + version_mismatch if there's
+        // no overlap.
+        phase = .transferring(step: "Preparing import...")
+        let downloadUrl: String
+        do {
+            downloadUrl = try await PlatformMigrationClient.requestSignedDownloadUrl(
+                bundleKey: uploadInfo.bundleKey,
+                targetRuntimeVersion: targetRuntimeVersion
+            )
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .versionMismatch = error {
+                throw TeleportError.versionMismatch(message: error.localizedDescription)
+            }
+            throw error
+        }
+
+        // Step 6 — Download the bundle bytes from GCS.
+        phase = .transferring(step: "Downloading data...")
+        let bundleData = try await PlatformMigrationClient.downloadFromSignedUrl(
+            downloadUrl,
+            onProgress: { self.transferProgress = $0 }
+        )
+        transferProgress = nil
+
+        // Step 7 — Resolve or hatch a local assistant.
+        // `LockfileAssistant.loadAll()` already sorts newest-first by hatchedAt,
+        // so `first(where:)` picks the most recently hatched local — the one
+        // the user is most likely to consider "their" local assistant.
+        phase = .transferring(step: "Preparing local assistant...")
+        var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
+        if localAssistant == nil {
+            let config = VellumCli.RemoteHatchConfig(remote: "local")
+            try await AppDelegate.shared?.vellumCli.runRemoteHatch(config: config) { _ in }
+            localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
+        } else {
+            // Wake existing local assistant in case it's sleeping
+            try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
+        }
+        guard let resolvedLocal = localAssistant else {
+            throw TeleportError.localAssistantNotFound
+        }
+
+        // Step 8 — Wait for the local gateway to be reachable (up to 30s).
+        phase = .transferring(step: "Waiting for local assistant...")
+        for i in 0..<30 {
+            if await HealthCheckClient.isReachable(for: resolvedLocal, timeout: 1) {
+                break
+            }
+            if i == 29 {
+                throw TeleportError.localAssistantNotFound
+            }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        // Step 9 — Bootstrap an actor token against the local gateway and
+        // swap it in for the import. Save and restore the original so the
+        // managed assistant keeps working during the verification phase.
+        phase = .transferring(step: "Authenticating with local assistant...")
+        let originalActorToken = ActorTokenManager.getToken()
+        let actorToken = try await bootstrapActorToken(targetAssistantId: resolvedLocal.assistantId)
+        ActorTokenManager.setToken(actorToken)
+        defer {
+            if let originalActorToken {
+                ActorTokenManager.setToken(originalActorToken)
+            } else {
+                ActorTokenManager.deleteToken()
+            }
+        }
+
+        // Step 10 — Import the bundle bytes to the local assistant.
+        phase = .transferring(step: "Importing data...")
+        let importResponse = try await GatewayHTTPClient.withAssistant(resolvedLocal.assistantId) {
+            try await GatewayHTTPClient.post(
+                path: "migrations/import",
+                body: bundleData,
+                contentType: "application/octet-stream",
+                timeout: 3600,
+                unprefixed: true
+            )
+        }
+        guard importResponse.isSuccess else {
+            throw TeleportError.importFailed(message: "HTTP \(importResponse.statusCode)")
+        }
+        if let importJson = try? JSONSerialization.jsonObject(with: importResponse.data) as? [String: Any],
+           let success = importJson["success"] as? Bool, !success {
+            let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
+            throw TeleportError.importFailed(message: errorMsg)
+        }
+
+        // Step 11 — Hand off to the verification banner. `confirmAndSwitch`
+        // already retires the managed assistant via the existing
+        // `original.isManaged` branch, so no new retire logic here.
+        targetAssistant = resolvedLocal
+        transferTask = nil
+        phase = .verifying
+    }
+
+    /// Polls the platform's job-status endpoint for an export job until it
+    /// reports `complete` or `failed`. Mirrors the polling block in
+    /// `importBundleToManaged` (5s interval, 60min timeout, 5xx-only retry).
+    private func pollExportJob(jobId: String) async throws {
+        let pollInterval: UInt64 = 5_000_000_000
+        let timeout: TimeInterval = 3600
+        let start = Date()
+
+        while Date().timeIntervalSince(start) < timeout {
+            try await Task.sleep(nanoseconds: pollInterval)
+
+            let status: PlatformMigrationClient.JobStatus
+            do {
+                status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as PlatformMigrationClient.PlatformMigrationError {
+                if case .requestFailed(let statusCode, _) = error, (500..<600).contains(statusCode) {
+                    continue
+                }
+                throw error
+            } catch {
+                continue
+            }
+
+            if status.status == "complete" {
+                return
+            }
+            if status.status == "failed" {
+                throw TeleportError.exportJobFailed(message: status.error ?? "Export job failed")
+            }
+        }
+        throw TeleportError.exportTimedOut
+    }
+
     // MARK: - Helpers
 
     /// Resolves and validates the organization ID, mirroring the logic in
@@ -632,7 +811,7 @@ struct TeleportSection: View {
     ///
     /// Always fetches orgs from the API and validates any persisted value.
     /// Persists the resolved org ID to UserDefaults so downstream callers
-    /// (e.g. `PlatformMigrationClient.requestUploadUrl()`) can read it.
+    /// (e.g. `PlatformMigrationClient.requestSignedUploadUrl()`) can read it.
     private func resolveOrganizationId() async throws -> String {
         let orgs = try await AuthService.shared.getOrganizations()
         let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
@@ -668,12 +847,14 @@ struct TeleportSection: View {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
                 timeout: 3600,
+                unprefixed: true,
                 onProgress: onProgress
             )
         } else {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 3600
+                timeout: 3600,
+                unprefixed: true
             )
         }
         guard response.isSuccess else {
@@ -682,22 +863,12 @@ struct TeleportSection: View {
         return response.data
     }
 
-    /// Imports a `.vbundle` archive into the managed assistant.
+    /// Imports a `.vbundle` archive into the managed assistant via GCS.
     ///
-    /// If `bundleKey` is non-nil, triggers import from GCS (the bundle was already uploaded
-    /// via a signed URL). Otherwise, falls back to inline import by sending the raw bundle
-    /// data directly to the platform.
-    ///
-    /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data, bundleKey: String?) async throws {
-        let statusCode: Int
-        let data: Data
-
-        if let bundleKey {
-            (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: bundleKey)
-        } else {
-            (statusCode, data) = try await PlatformMigrationClient.importInline(bundleData: bundleData)
-        }
+    /// The bundle must already have been uploaded via a signed URL upstream. All endpoints
+    /// are org-scoped, so no `connectedAssistantId` swap is needed.
+    private func importBundleToManaged(bundleKey: String) async throws {
+        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: bundleKey)
 
         guard (200..<300).contains(statusCode) else {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -721,9 +892,9 @@ struct TeleportSection: View {
             while Date().timeIntervalSince(start) < timeout {
                 try await Task.sleep(nanoseconds: pollInterval)
 
-                let status: PlatformMigrationClient.ImportJobStatus
+                let status: PlatformMigrationClient.JobStatus
                 do {
-                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                    status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {
@@ -760,7 +931,7 @@ struct TeleportSection: View {
     /// endpoint. Uses the process-local assistant override to route requests to the
     /// target assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(targetAssistantId: String) async throws -> String {
-        let deviceId = PairingQRCodeSheet.computeHostId()
+        let deviceId = HostIdComputer.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
         return try await GatewayHTTPClient.withAssistant(targetAssistantId) {
@@ -769,7 +940,7 @@ struct TeleportSection: View {
                 try Task.checkCancellation()
 
                 if let response = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/guardian/init",
+                    path: "guardian/init",
                     json: body,
                     timeout: 15
                 ), response.isSuccess,

@@ -4,12 +4,6 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 ---
 
-## iOS Target
-
-This repository also includes a fully functional iOS app target. See [clients/ios/README.md](../ios/README.md) for build instructions, connection modes, testing, and configuration.
-
----
-
 ## Managed Mode
 
 The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local daemon.
@@ -341,7 +335,7 @@ Use Component Gallery as the visual verification surface for UI components. Do n
    # Or from the repo root:
    open clients/Package.swift
    ```
-   This opens the Swift package in Xcode. The Package.swift lives in the `clients/` directory and contains both macOS and iOS targets.
+   This opens the Swift package in Xcode. The `Package.swift` lives in the `clients/` directory and declares the macOS targets (`VellumAssistantShared`, `VellumAssistantLib`, `vellum-assistant`).
 
 2. Xcode will open and start resolving dependencies (you'll see a spinner in the top status bar). Wait for it to finish — this only takes a few seconds.
 

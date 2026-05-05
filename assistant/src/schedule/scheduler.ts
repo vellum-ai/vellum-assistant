@@ -1,4 +1,8 @@
-import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
@@ -9,40 +13,26 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
+import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
 import {
   claimDueSchedules,
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
-  failOneShot,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  resetRetryCount,
   retryOneShot,
   type RoutingIntent,
+  type ScheduleJob,
+  scheduleRetry,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
 
-export interface ScheduleMessageOptions {
-  trustClass?: "guardian" | "trusted_contact" | "unknown";
-  taskRunId?: string;
-  /**
-   * Optional LLM call-site identifier propagated to the per-call provider
-   * config. Schedule and sequence callers will start passing their own call-site
-   * (e.g. for a future scheduled-agent profile) once PRs 7-11 migrate them off
-   * the default `mainAgent` route.
-   */
-  callSite?: LLMCallSite;
-}
-
-export type ScheduleMessageProcessor = (
-  conversationId: string,
-  message: string,
-  options?: ScheduleMessageOptions,
-) => Promise<unknown>;
-
-export type ScheduleNotifyModeNotifier = (payload: {
+import type { ScheduleMessageProcessor } from "./scheduler-types.js";
+type ScheduleNotifyModeNotifier = (payload: {
   id: string;
   label: string;
   message: string;
@@ -50,7 +40,7 @@ export type ScheduleNotifyModeNotifier = (payload: {
   routingHints: Record<string, unknown>;
 }) => void | Promise<void>;
 
-export type ScheduleConversationCreatedNotifier = (info: {
+type ScheduleConversationCreatedNotifier = (info: {
   conversationId: string;
   scheduleJobId: string;
   title: string;
@@ -77,6 +67,37 @@ const WAKE_MAX_RETRIES = 20;
  * scheduler tick indefinitely. Mirrors the heartbeat/filing budgets.
  */
 const SCHEDULE_TALK_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Apply retry policy on schedule-execution failure. Retries are scheduled by
+ * `applyRetryDecision`; once retries are exhausted, the `emitAlert` callback
+ * fires an `activity.failed` notification so the user sees that a job
+ * permanently failed rather than just silently disappearing.
+ */
+function handleExecutionFailure(params: {
+  job: ScheduleJob;
+  errorMsg: string;
+  isOneShot: boolean;
+}): void {
+  const decision = decideRetry(params.job);
+  applyRetryDecision({
+    job: params.job,
+    isOneShot: params.isOneShot,
+    errorMsg: params.errorMsg,
+    decision,
+    scheduleRetry,
+    failOneShotPermanently,
+    resetRetryCount,
+    emitAlert: (_title, _summary, dedupKey) =>
+      emitScheduleActivityFailed({
+        jobId: params.job.id,
+        jobName: params.job.name,
+        errorMessage: params.errorMsg,
+        dedupKey,
+      }),
+    log,
+  });
+}
 
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
@@ -126,7 +147,7 @@ export function startScheduler(
   };
 }
 
-async function runScheduleOnce(
+export async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
@@ -134,6 +155,20 @@ async function runScheduleOnce(
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("scheduler")) {
+      log.warn(
+        {
+          source: "schedule",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Schedule tick skipped during disk pressure cleanup mode",
+      );
+    }
+    return 0;
+  }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
   const jobs = claimDueSchedules(now);
@@ -155,6 +190,8 @@ async function runScheduleOnce(
           routingHints: job.routingHints,
         });
         if (isOneShot) {
+          const successRunId = createScheduleRun(job.id, `notify-ok:${job.id}`);
+          completeScheduleRun(successRunId, { status: "ok" });
           completeOneShot(job.id);
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
@@ -167,15 +204,10 @@ async function runScheduleOnce(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Schedule notification failed",
         );
-        if (isOneShot) {
-          failOneShot(job.id);
-        } else {
-          // Track recurring notify-mode failures via a schedule run so the
-          // occurrence isn't silently lost and lastStatus/retryCount update.
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          const runId = createScheduleRun(job.id, `notify-error:${job.id}`);
-          completeScheduleRun(runId, { status: "error", error: errorMsg });
-        }
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorRunId = createScheduleRun(job.id, `notify-error:${job.id}`);
+        completeScheduleRun(errorRunId, { status: "error", error: errorMsg });
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
@@ -206,7 +238,9 @@ async function runScheduleOnce(
         if (result.exitCode === 0) {
           if (isOneShot) completeOneShot(job.id);
         } else {
-          if (isOneShot) failOneShot(job.id);
+          const errorMsg =
+            result.stderr || "Script exited with non-zero status";
+          handleExecutionFailure({ job, errorMsg, isOneShot });
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -215,7 +249,7 @@ async function runScheduleOnce(
           "Script schedule execution failed",
         );
         completeScheduleRun(runId, { status: "error", error: errorMsg });
-        if (isOneShot) failOneShot(job.id);
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
@@ -293,13 +327,26 @@ async function runScheduleOnce(
           continue;
         }
 
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) {
+          const successRunId = createScheduleRun(job.id, `wake-ok:${job.id}`);
+          completeScheduleRun(successRunId, { status: "ok" });
+          completeOneShot(job.id);
+        }
       } catch (err) {
         log.warn(
           { err, jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Wake schedule execution failed",
         );
-        if (isOneShot) failOneShot(job.id);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const wakeErrorRunId = createScheduleRun(
+          job.id,
+          `wake-error:${job.id}`,
+        );
+        completeScheduleRun(wakeErrorRunId, {
+          status: "error",
+          error: errorMsg,
+        });
+        handleExecutionFailure({ job, errorMsg, isOneShot });
       }
       processed += 1;
       continue;
@@ -358,11 +405,15 @@ async function runScheduleOnce(
             status: "error",
             error: errorMessage,
           });
-          if (isOneShot) failOneShot(job.id);
           emitTaskActivityFailed({
             taskId,
             conversationId: result.conversationId,
             errorMessage,
+          });
+          handleExecutionFailure({
+            job,
+            errorMsg: errorMessage,
+            isOneShot,
           });
         } else {
           completeScheduleRun(runId, { status: "ok" });
@@ -400,11 +451,15 @@ async function runScheduleOnce(
         });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
-        if (isOneShot) failOneShot(job.id);
         emitTaskActivityFailed({
           taskId,
           conversationId: fallbackConversation.id,
           errorMessage: message,
+        });
+        handleExecutionFailure({
+          job,
+          errorMsg: message,
+          isOneShot,
         });
       }
       continue;
@@ -521,7 +576,11 @@ async function runScheduleOnce(
           : "Schedule execution failed",
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
-      if (isOneShot) failOneShot(job.id);
+      handleExecutionFailure({
+        job,
+        errorMsg: errorMsg ?? "Schedule run failed",
+        isOneShot,
+      });
 
       // Only skip invalidation when the conversation was *actually* reused,
       // i.e. it contains prior successful context worth preserving. When
@@ -602,6 +661,46 @@ function emitTaskActivityFailed(args: {
         conversationId: args.conversationId,
       },
       "Failed to emit activity.failed notification for scheduled task",
+    );
+  });
+}
+
+/**
+ * Emit an `activity.failed` notification for a schedule whose retries have
+ * been exhausted. Distinct from `emitTaskActivityFailed` (which fires per
+ * failed task run) — this one fires once when the retry policy has given
+ * up, so the dedupeKey caller is the per-attempt key passed in by
+ * `applyRetryDecision` (already includes the job id and a timestamp).
+ */
+function emitScheduleActivityFailed(args: {
+  jobId: string;
+  jobName: string;
+  errorMessage: string;
+  dedupKey: string;
+}): void {
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.jobId,
+    sourceEventName: "activity.failed",
+    dedupeKey: args.dedupKey,
+    contextPayload: {
+      jobName: `schedule:${args.jobName}`,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        jobId: args.jobId,
+      },
+      "Failed to emit activity.failed notification for exhausted schedule",
     );
   });
 }

@@ -2,7 +2,7 @@
  * Identity and health endpoint handlers.
  */
 
-import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
@@ -12,79 +12,21 @@ import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import {
-  getWorkspaceDir,
-  getWorkspacePromptPath,
-} from "../../util/platform.js";
+  getDiskUsageInfo,
+  parseK8sMemoryBytes,
+} from "../../util/disk-usage.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
+import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { NotFoundError } from "./errors.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
-interface DiskSpaceInfo {
-  path: string;
-  totalMb: number;
-  usedMb: number;
-  freeMb: number;
-}
-
-function getDiskSpaceInfo(): DiskSpaceInfo | null {
-  try {
-    const wsDir = getWorkspaceDir();
-    const diskPath = existsSync(wsDir) ? wsDir : "/";
-    const stats = statfsSync(diskPath);
-    const totalBytes = stats.bsize * stats.blocks;
-    const freeBytes = stats.bsize * stats.bavail;
-    const bytesToMb = (b: number) =>
-      Math.round((b / (1024 * 1024)) * 100) / 100;
-    return {
-      path: diskPath,
-      totalMb: bytesToMb(totalBytes),
-      usedMb: bytesToMb(totalBytes - freeBytes),
-      freeMb: bytesToMb(freeBytes),
-    };
-  } catch {
-    return null;
-  }
-}
-
 interface MemoryInfo {
   currentMb: number;
   maxMb: number;
-}
-
-/**
- * Parse a Kubernetes-style memory string (e.g. "3Gi", "512Mi", "1G") into bytes.
- * Returns null if the value is not a recognized format.
- */
-function parseK8sMemoryBytes(value: string): number | null {
-  const match = value
-    .trim()
-    .match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E|m)?$/);
-  if (!match) return null;
-  const num = parseFloat(match[1]);
-  const unit = match[2] ?? "";
-  const multipliers: Record<string, number> = {
-    "": 1,
-    m: 1e-3,
-    k: 1e3,
-    M: 1e6,
-    G: 1e9,
-    T: 1e12,
-    P: 1e15,
-    E: 1e18,
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-    Ei: 1024 ** 6,
-  };
-  const mult = multipliers[unit];
-  if (mult === undefined) return null;
-  const bytes = Math.round(num * mult);
-  return bytes > 0 ? bytes : null;
 }
 
 /**
@@ -385,7 +327,7 @@ function getDetailedHealth() {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
-    disk: getDiskSpaceInfo(),
+    disk: getDiskUsageInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
@@ -416,13 +358,7 @@ function getIdentity() {
 
   const version = APP_VERSION;
 
-  let createdAt: string | undefined;
-  try {
-    const stats = statSync(identityPath);
-    createdAt = stats.birthtime.toISOString();
-  } catch {
-    // ignore
-  }
+  const createdAt = resolveIdentityCreatedAt(identityPath);
 
   return {
     name: fields.name ?? "",
@@ -435,10 +371,18 @@ function getIdentity() {
   };
 }
 
+function resolveIdentityCreatedAt(identityPath: string): string | undefined {
+  return resolveHatchedAtReadOnly(identityPath);
+}
+
 function getIdentityIntro() {
-  const soulIntro = readSoulIdentityIntro();
-  if (soulIntro) {
-    return { text: soulIntro };
+  const identityPath = getWorkspacePromptPath("IDENTITY.md");
+  if (existsSync(identityPath)) {
+    const content = readFileSync(identityPath, "utf-8");
+    const fields = parseIdentityFields(content);
+    if (fields.name) {
+      return { text: `Hi, I'm ${fields.name}!` };
+    }
   }
 
   const cached = getCachedIntro();
@@ -446,37 +390,6 @@ function getIdentityIntro() {
     throw new NotFoundError("No cached identity intro available");
   }
   return { text: cached.text };
-}
-
-// ---------------------------------------------------------------------------
-// Identity intro cache
-// ---------------------------------------------------------------------------
-
-/**
- * Parse the `## Identity Intro` section from SOUL.md.
- * Returns the first non-empty line under that heading, or null.
- */
-function readSoulIdentityIntro(): string | null {
-  try {
-    const soulPath = getWorkspacePromptPath("SOUL.md");
-    if (!existsSync(soulPath)) return null;
-    const content = readFileSync(soulPath, "utf-8");
-
-    let inSection = false;
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (/^#+\s/.test(trimmed)) {
-        inSection = trimmed.toLowerCase().includes("identity intro");
-        continue;
-      }
-      if (inSection && trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  } catch {
-    // Fall through to cache/fallback
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -575,7 +488,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity intro text",
     description:
-      "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
+      "Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to LLM-generated cache.",
     tags: ["identity"],
     responseBody: z.object({
       text: z.string(),

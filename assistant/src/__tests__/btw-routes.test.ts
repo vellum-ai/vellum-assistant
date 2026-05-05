@@ -73,13 +73,16 @@ mock.module("../prompts/persona-resolver.js", () => ({
 
 mock.module("../runtime/routes/identity-intro-cache.js", () => ({
   getCachedIntro: () => null,
+  readWorkspaceIdentityIntro: () => null,
   setCachedIntro: () => {},
   computeIdentityContentHash: () => "test-hash",
 }));
 
 // Mock getOrCreateConversation from conversation-store so the handler
 // never touches DaemonServer.
-const mockGetOrCreateConversation = mock(async (_id: string) => makeMockSession());
+const mockGetOrCreateConversation = mock(async (_id: string) =>
+  makeMockSession(),
+);
 
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: mockGetOrCreateConversation,
@@ -114,7 +117,10 @@ import type {
   SendMessageOptions,
 } from "../providers/types.js";
 import { ROUTES } from "../runtime/routes/btw-routes.js";
-import { BadRequestError, ServiceUnavailableError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 // ---------------------------------------------------------------------------
@@ -199,7 +205,8 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
     chunks.push(value);
   }
   return new TextDecoder().decode(
-    new Uint8Array(chunks.reduce((a, c) => a + c.length, 0)).buffer.byteLength === 0
+    new Uint8Array(chunks.reduce((a, c) => a + c.length, 0)).buffer
+      .byteLength === 0
       ? new Uint8Array(0)
       : Buffer.concat(chunks),
   );
@@ -415,6 +422,8 @@ describe("POST /v1/btw", () => {
     });
     await readStream(result as ReadableStream<Uint8Array>);
 
-    expect(mockGetOrCreateConversation).toHaveBeenCalledWith("existing-conv-id");
+    expect(mockGetOrCreateConversation).toHaveBeenCalledWith(
+      "existing-conv-id",
+    );
   });
 });

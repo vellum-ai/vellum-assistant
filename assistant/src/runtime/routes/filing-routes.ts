@@ -1,16 +1,26 @@
 /**
  * Route handlers for filing management.
+ *
+ * `available` reflects whether the filing service is the active background
+ * memory job for this instance. When the `memory-v2-enabled` flag is on,
+ * filing yields to the consolidation job (see consolidation-routes.ts) and
+ * returns `available: false` so the UI can hide the row.
  */
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { FilingService } from "../../filing/filing-service.js";
 import { getLogger } from "../../util/logger.js";
-import { InternalError } from "./errors.js";
+import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("filing-routes");
+
+function isFilingAvailable(): boolean {
+  return !isAssistantFeatureFlagEnabled("memory-v2-enabled", getConfig());
+}
 
 // ---------------------------------------------------------------------------
 // Shared ROUTES
@@ -27,6 +37,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Return the current filing schedule configuration.",
     tags: ["filing"],
     responseBody: z.object({
+      available: z.boolean(),
       enabled: z.boolean(),
       intervalMs: z.number(),
       activeHoursStart: z.number().nullable(),
@@ -39,6 +50,7 @@ export const ROUTES: RouteDefinition[] = [
       const config = getConfig().filing;
       const svc = FilingService.getInstance();
       return {
+        available: isFilingAvailable(),
         enabled: config.enabled,
         intervalMs: config.intervalMs,
         activeHoursStart: config.activeHoursStart ?? null,
@@ -63,6 +75,11 @@ export const ROUTES: RouteDefinition[] = [
       ran: z.boolean().describe("Whether the filing actually ran"),
     }),
     handler: async (_args: RouteHandlerArgs) => {
+      if (!isFilingAvailable()) {
+        throw new BadRequestError(
+          "Filing is not the active background memory job (memory v2 is enabled)",
+        );
+      }
       const svc = FilingService.getInstance();
       if (!svc) {
         throw new InternalError("Filing service not available");

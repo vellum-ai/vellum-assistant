@@ -1,6 +1,13 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 import { buildSchema } from "../schema.js";
 
 /** A route extracted from source: path + optional HTTP method. */
@@ -8,6 +15,14 @@ interface ExtractedRoute {
   path: string;
   method: string | null; // null means "any method"
 }
+
+const ROUTE_PATH_CONSTANTS: Record<string, string> = {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+};
 
 /**
  * Extracts route paths from the gateway index.ts source code.
@@ -40,6 +55,17 @@ function extractRoutesFromSource(): ExtractedRoute[] {
       continue;
     }
 
+    // Match shared path constants: `path: SOME_WEBHOOK_PATH`
+    const constantMatch = line.match(/path:\s*([A-Z0-9_]+)\b/);
+    const constantPath = constantMatch
+      ? ROUTE_PATH_CONSTANTS[constantMatch[1]]
+      : undefined;
+    if (constantPath) {
+      const method = findMethodNearPath(lines, i);
+      routes.push({ path: constantPath, method });
+      continue;
+    }
+
     // Match regex paths: `path: /^\/v1\/contacts\/([^/]+)$/`
     const regexMatch = line.match(/path:\s*\/\^(.*?)\$\//);
     if (regexMatch) {
@@ -56,6 +82,20 @@ function extractRoutesFromSource(): ExtractedRoute[] {
     if (preRouterMatch && !seenPreRouterPaths.has(preRouterMatch[1])) {
       seenPreRouterPaths.add(preRouterMatch[1]);
       routes.push({ path: preRouterMatch[1], method: null });
+    }
+
+    const preRouterConstantMatch = line.match(
+      /url\.pathname\s*===\s*([A-Z0-9_]+)\b/,
+    );
+    const preRouterConstantPath = preRouterConstantMatch
+      ? ROUTE_PATH_CONSTANTS[preRouterConstantMatch[1]]
+      : undefined;
+    if (
+      preRouterConstantPath &&
+      !seenPreRouterPaths.has(preRouterConstantPath)
+    ) {
+      seenPreRouterPaths.add(preRouterConstantPath);
+      routes.push({ path: preRouterConstantPath, method: null });
     }
   }
 
@@ -125,14 +165,10 @@ function regexToOpenApiPath(escaped: string): string | null {
 // ── Routes that are intentionally undocumented in the OpenAPI schema ──
 // Each entry must have a comment explaining why it's excluded.
 const EXCLUDED_FROM_SCHEMA = new Set([
-  // Browser relay WebSocket upgrade — handled pre-router, not a REST endpoint
-  "/v1/browser-relay",
-
-  // Browser extension pairing — localhost-only, no external consumers
-  "/v1/browser-extension-pair",
-
   // Runtime proxy catch-all — documented as /{path} in the schema
   "catch-all",
+  // Loopback-only pairing endpoint — not part of the public gateway API
+  "/v1/pair",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

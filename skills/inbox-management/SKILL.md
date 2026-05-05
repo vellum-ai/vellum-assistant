@@ -233,5 +233,6 @@ Capture every correction — add protected senders to safe-list immediately.
 ## Integration
 
 - **Run `inbox-cleanup` first.** Management assumes the backlog is drained.
+- **Auto-filters bridge the gap.** Cleanup Phase 6 runs `gmail-auto-filters.ts generate` to propose Gmail filters for safe categories (no-reply, calendar, sketchy TLDs, confirmed newsletters). The user confirms before any filter is created. These filters prevent re-accumulation immediately — management Step 1 handles only what slips through.
 - **Shared safe-list and blocklist** via `gmail-prefs.ts`.
-- **Filters from cleanup** reduce management's workload — fewer messages hit the inbox at all.
+- **Filter dedup is automatic.** If auto-filters already cover a category, management's archive queries for that category will return fewer (or zero) results. No coordination needed.

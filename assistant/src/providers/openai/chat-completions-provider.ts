@@ -139,6 +139,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
+    const usageAttributionHeaders = configObj?.usageAttributionHeaders as
+      | Record<string, string>
+      | undefined;
 
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
@@ -196,6 +199,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
       try {
         const stream = await this.client.chat.completions.create(params, {
           signal: timeoutSignal,
+          ...(usageAttributionHeaders
+            ? { headers: usageAttributionHeaders }
+            : {}),
         });
 
         for await (const chunk of stream) {

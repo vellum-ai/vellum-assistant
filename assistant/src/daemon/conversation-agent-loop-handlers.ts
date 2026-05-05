@@ -26,6 +26,7 @@ import {
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   type SlackMessageMetadata,
@@ -42,6 +43,7 @@ import type {
 } from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -135,6 +137,8 @@ export interface EventHandlerState {
   readonly directiveWarnings: string[];
   readonly toolUseIdToName: Map<string, string>;
   currentTurnToolNames: string[];
+  /** Sticky for the whole run: this turn created/refreshed an app. */
+  appBuildToolUsedThisRun: boolean;
   /** Tracks whether the first text delta has been emitted this turn for activity state transitions. */
   firstTextDeltaEmitted: boolean;
   /** Tracks whether a thinking delta has been emitted this turn for activity state transitions. */
@@ -158,7 +162,15 @@ export interface EventHandlerState {
   /** Stores risk metadata keyed by tool_use_id (populated in handleToolResult). */
   readonly toolRiskOutcomes: Map<
     string,
-    { riskLevel: string; riskReason?: string; autoApproved: boolean }
+    {
+      riskLevel: string;
+      riskReason?: string;
+      autoApproved: boolean;
+      matchedTrustRuleId?: string;
+      approvalMode?: string;
+      approvalReason?: string;
+      riskThreshold?: string;
+    }
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
@@ -209,6 +221,7 @@ export function createEventHandlerState(): EventHandlerState {
     directiveWarnings: [],
     toolUseIdToName: new Map(),
     currentTurnToolNames: [],
+    appBuildToolUsedThisRun: false,
     firstTextDeltaEmitted: false,
     firstThinkingDeltaEmitted: false,
     lastCompletedToolName: undefined,
@@ -224,20 +237,31 @@ export function createEventHandlerState(): EventHandlerState {
 
 // ── Shared Helper ────────────────────────────────────────────────────
 
+// providerNameOverride should be supplied when the caller already knows the
+// resolved provider name (e.g. handleUsage, which has event.actualProvider).
+// When called during streaming (text_delta / thinking_delta) the override is
+// omitted and provider.name is used — the CallSiteRoutingProvider getter
+// returns the active transport name during sendMessage, so they agree.
+// Passing the override from handleUsage guarantees started/finished never
+// disagree even for tool-call-only responses where text_delta never fires
+// (and therefore the started event would otherwise fall back here *after*
+// the AsyncLocalStorage context in CallSiteRoutingProvider has already exited).
 function emitLlmCallStartedIfNeeded(
   state: EventHandlerState,
   deps: EventHandlerDeps,
+  providerNameOverride?: string,
 ): void {
   if (state.llmCallStartedEmitted) return;
   state.llmCallStartedEmitted = true;
+  const providerName = providerNameOverride ?? deps.ctx.provider.name;
   deps.ctx.traceEmitter.emit(
     "llm_call_started",
-    `LLM call to ${deps.ctx.provider.name}`,
+    `LLM call to ${providerName}`,
     {
       requestId: deps.reqId,
       status: "info",
       attributes: {
-        provider: deps.ctx.provider.name,
+        provider: providerName,
         model: state.model || "unknown",
       },
     },
@@ -344,6 +368,9 @@ export function handleToolUse(
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
+  if (event.name === "app_create" || event.name === "app_refresh") {
+    state.appBuildToolUsedThisRun = true;
+  }
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
@@ -523,6 +550,10 @@ export function handleToolResult(
       riskLevel: event.riskLevel,
       riskReason: event.riskReason,
       autoApproved: !state.toolConfirmationOutcomes.has(event.toolUseId),
+      matchedTrustRuleId: event.matchedTrustRuleId,
+      approvalMode: event.approvalMode,
+      approvalReason: event.approvalReason,
+      riskThreshold: event.riskThreshold,
     });
   }
 
@@ -599,9 +630,13 @@ export function handleToolResult(
     toolUseId: event.toolUseId,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
+    matchedTrustRuleId: event.matchedTrustRuleId,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
     riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
+    approvalMode: event.approvalMode,
+    approvalReason: event.approvalReason,
+    riskThreshold: event.riskThreshold,
   });
 }
 
@@ -654,6 +689,11 @@ function annotatePersistedAssistantMessage(
         rec._riskLevel = risk.riskLevel;
         if (risk.riskReason) rec._riskReason = risk.riskReason;
         rec._autoApproved = risk.autoApproved;
+        if (risk.matchedTrustRuleId)
+          rec._matchedTrustRuleId = risk.matchedTrustRuleId;
+        if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
+        if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
+        if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;
         modified = true;
       }
     }
@@ -771,10 +811,16 @@ export async function handleMessageComplete(
       ([toolUseId, result]) => ({
         type: "tool_result",
         tool_use_id: toolUseId,
-        content: result.content,
+        content: redactSecrets(result.content),
         is_error: result.isError,
         ...(result.contentBlocks
-          ? { contentBlocks: result.contentBlocks }
+          ? {
+              contentBlocks: result.contentBlocks.map((block) =>
+                block.type === "text"
+                  ? { ...block, text: redactSecrets(block.text) }
+                  : block,
+              ),
+            }
           : {}),
       }),
     );
@@ -896,6 +942,17 @@ export async function handleMessageComplete(
       );
     }
   }
+  // Redact known-pattern secrets from assistant text blocks before they are
+  // written to durable storage. Non-text blocks (images, UI surfaces) pass
+  // through unchanged. The live model history retains the original values.
+  const contentForPersistence = contentWithSurfaces.map((block) => {
+    if (block.type === "text") {
+      const tb = block as Extract<ContentBlock, { type: "text" }>;
+      return { ...tb, text: redactSecrets(tb.text) };
+    }
+    return block;
+  });
+
   // Route the assistant-message persistence through the `persistence`
   // pipeline. No `syncToDisk` here — the orchestrator separately invokes
   // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
@@ -908,7 +965,7 @@ export async function handleMessageComplete(
       op: "add",
       conversationId: deps.ctx.conversationId,
       role: "assistant",
-      content: JSON.stringify(contentWithSurfaces),
+      content: JSON.stringify(contentForPersistence),
       metadata: assistantChannelMetadata,
     },
     buildHandlerTurnContext(deps),
@@ -935,6 +992,18 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill message_id on memory recall log (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryV2ActivationMessageId(
+      deps.ctx.conversationId,
+      assistantMsg.id,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill memory v2 activation log messageId (non-fatal)",
     );
   }
 
@@ -1019,7 +1088,9 @@ function handleUsage(
     }
   }
 
-  emitLlmCallStartedIfNeeded(state, deps);
+  // Pass providerName so that if text_delta never fired (tool-call-only
+  // responses), the started event uses the same resolved name as finished.
+  emitLlmCallStartedIfNeeded(state, deps, providerName);
 
   deps.ctx.traceEmitter.emit(
     "llm_call_finished",

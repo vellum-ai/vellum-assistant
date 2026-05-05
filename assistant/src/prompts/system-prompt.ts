@@ -4,14 +4,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
-import type { AssistantConfig } from "../config/schema.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -22,9 +19,21 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
+import { normalizeOnboardingContext } from "./normalize-onboarding.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
+
+const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
+  grounded:
+    "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
+  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements. Warmth comes through in how you engage, not in hedging about yourself. Never say you're new, running on instinct, or still figuring yourself out.",
+  energetic:
+    "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
+  poetic:
+    "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
+};
 
 const log = getLogger("system-prompt");
 
@@ -147,22 +156,7 @@ export function ensurePromptFiles(): void {
     const convDir = getConversationsDir();
     try {
       if (existsSync(convDir) && readdirSync(convDir).length > 0) {
-        unlinkSync(bootstrapCleanup);
-        log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
-
-        // Also clean up the reference file
-        const refCleanup = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
-        if (existsSync(refCleanup)) {
-          try {
-            unlinkSync(refCleanup);
-            log.info("Auto-deleted stale BOOTSTRAP-REFERENCE.md");
-          } catch (err) {
-            log.warn(
-              { err },
-              "Failed to auto-delete stale BOOTSTRAP-REFERENCE.md",
-            );
-          }
-        }
+        cleanupBootstrapFiles("prior conversations exist");
       }
     } catch (err) {
       log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
@@ -300,15 +294,21 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // until onboarding completes.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
 
-  if (identity && !identityIsTemplate) {
-    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-    // the model doesn't treat unresolved fields as prompts to ask the user.
-    const cleanedIdentity = identity
-      .split("\n")
-      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-      .join("\n");
-    if (cleanedIdentity.trim()) {
-      dynamicParts.push(cleanedIdentity);
+  if (identity && (!identityIsTemplate || includeBootstrap)) {
+    if (identityIsTemplate) {
+      // During bootstrap the model needs to see the template structure
+      // so it can produce a valid file_write with the right fields.
+      dynamicParts.push(identity);
+    } else {
+      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+      // the model doesn't treat unresolved fields as prompts to ask the user.
+      const cleanedIdentity = identity
+        .split("\n")
+        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+        .join("\n");
+      if (cleanedIdentity.trim()) {
+        dynamicParts.push(cleanedIdentity);
+      }
     }
   }
   if (soul) dynamicParts.push(soul);
@@ -320,21 +320,41 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       "{{USER_PERSONA_FILE}}",
       `${userSlug}.md`,
     );
+    let bootstrapContent = bootstrapWithSlug;
+    const voiceBlock = options?.onboardingContext?.tone
+      ? BOOTSTRAP_VOICE_BLOCKS[options.onboardingContext.tone]
+      : undefined;
+    if (voiceBlock) {
+      bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
+    }
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrapWithSlug,
+        bootstrapContent,
     );
 
     if (options?.onboardingContext) {
-      dynamicParts.push(
-        "## Pre-chat Onboarding Context\n\n" +
-          "The user completed the native pre-chat onboarding. Here is their context:\n\n" +
-          "```json\n" +
-          JSON.stringify(options.onboardingContext, null, 2) +
-          "\n```\n\n" +
-          "Use this to personalize your opener and skip redundant discovery.",
+      const n = normalizeOnboardingContext(options.onboardingContext);
+      const lines: string[] = [
+        "## First-Run User Context",
+        "",
+        "The user completed setup before this conversation.",
+        "",
+        "Known context:",
+      ];
+      if (n.preferredName) lines.push(`- Name: ${n.preferredName}`);
+      if (n.commonWork.length)
+        lines.push(`- Common work: ${n.commonWork.join("; ")}`);
+      if (n.dailyTools.length)
+        lines.push(`- Daily tools: ${n.dailyTools.join(", ")}`);
+      if (n.assistantName)
+        lines.push(`- Chosen assistant name: ${n.assistantName}`);
+      if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
+      lines.push(
+        "",
+        "Apply this context quietly. Do not recap it as a list unless the user asks.",
       );
+      dynamicParts.push(lines.join("\n"));
     }
   }
   // Configuration section removed — workspace files are self-describing,
@@ -344,49 +364,12 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const integrationSection = buildIntegrationSection();
   if (integrationSection) dynamicParts.push(integrationSection);
 
-  const memoryV2Section = buildMemoryV2Section();
-  if (memoryV2Section) dynamicParts.push(memoryV2Section);
-
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
-}
-
-/**
- * When the `memory-v2-enabled` feature flag is on, autoload the four
- * top-level memory files into the dynamic suffix so the model always sees
- * the freshest activation/recall context. Each file is wrapped in a
- * Markdown header so the structure is explicit. Empty/missing files are
- * skipped so the prompt stays terse on a fresh workspace.
- */
-function buildMemoryV2Section(): string | null {
-  let config: AssistantConfig;
-  try {
-    config = loadConfig();
-  } catch {
-    return null;
-  }
-  if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
-    return null;
-  }
-
-  const blocks = [
-    ["## Essentials", "memory/essentials.md"],
-    ["## Threads", "memory/threads.md"],
-    ["## Recent", "memory/recent.md"],
-    ["## Buffer", "memory/buffer.md"],
-  ] as const;
-
-  const sections: string[] = [];
-  for (const [heading, file] of blocks) {
-    const content = readPromptFile(getWorkspacePromptPath(file));
-    if (!content) continue;
-    sections.push(`${heading}\n\n${content}`);
-  }
-  return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
 function buildAttachmentSection(): string {
@@ -554,7 +537,7 @@ export function isTemplateContent(
   }
 }
 
-function readPromptFile(path: string): string | null {
+export function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
 
   try {

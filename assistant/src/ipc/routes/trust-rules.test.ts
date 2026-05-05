@@ -3,9 +3,6 @@
  *
  * Covers:
  * - trust_rules_list: no params, tool filter, include_all, origin filter
- * - trust_rules_create: correct POST URL and JSON body
- * - trust_rules_update: PATCH URL, partial body, throws when id missing
- * - trust_rules_remove: DELETE URL, throws when id missing
  * - error path: non-OK gateway response surfaces body .error message
  */
 
@@ -108,98 +105,6 @@ describe("trustRuleRoutes", () => {
       expect(capturedFetchCalls[0].url).toBe(
         "http://localhost:7822/v1/trust-rules?origin=user_defined",
       );
-    });
-  });
-
-  describe("trust_rules_create", () => {
-    test("POSTs to /v1/trust-rules with correct JSON body", async () => {
-      mockFetchResponse = {
-        ok: true,
-        status: 201,
-        json: async () => ({ rule: { id: "rule-1" } }),
-      };
-
-      const route = findRoute("trust_rules_create");
-      await route.handler({ body: {
-        tool: "bash",
-        pattern: "rm -rf *",
-        risk: "high",
-        description: "Dangerous remove",
-      } });
-
-      expect(capturedFetchCalls).toHaveLength(1);
-      const call = capturedFetchCalls[0];
-      expect(call.url).toBe("http://localhost:7822/v1/trust-rules");
-      expect(call.init?.method).toBe("POST");
-      expect((call.init?.headers as Record<string, string>)["Content-Type"]).toBe(
-        "application/json",
-      );
-      const body = JSON.parse(call.init?.body as string) as Record<
-        string,
-        unknown
-      >;
-      expect(body).toEqual({
-        tool: "bash",
-        pattern: "rm -rf *",
-        risk: "high",
-        description: "Dangerous remove",
-      });
-    });
-  });
-
-  describe("trust_rules_update", () => {
-    test("PATCHes /v1/trust-rules/abc-123", async () => {
-      const route = findRoute("trust_rules_update");
-      await route.handler({ body: { id: "abc-123", risk: "low", description: "Safe" } });
-
-      expect(capturedFetchCalls).toHaveLength(1);
-      const call = capturedFetchCalls[0];
-      expect(call.url).toBe("http://localhost:7822/v1/trust-rules/abc-123");
-      expect(call.init?.method).toBe("PATCH");
-    });
-
-    test("body contains only fields present in params (partial update)", async () => {
-      const route = findRoute("trust_rules_update");
-      await route.handler({ body: { id: "abc-123", risk: "low" } });
-
-      const body = JSON.parse(
-        capturedFetchCalls[0].init?.body as string,
-      ) as Record<string, unknown>;
-      expect(body.risk).toBe("low");
-      expect("description" in body).toBe(false);
-    });
-
-    test("throws when id is missing", async () => {
-      const route = findRoute("trust_rules_update");
-      await expect(
-        route.handler({ body: { risk: "low" } }),
-      ).rejects.toThrow("id is required");
-    });
-
-    test("throws when id is empty string", async () => {
-      const route = findRoute("trust_rules_update");
-      await expect(
-        route.handler({ body: { id: "", risk: "low" } }),
-      ).rejects.toThrow("id is required");
-    });
-  });
-
-  describe("trust_rules_remove", () => {
-    test("DELETEs /v1/trust-rules/abc-123", async () => {
-      const route = findRoute("trust_rules_remove");
-      await route.handler({ body: { id: "abc-123" } });
-
-      expect(capturedFetchCalls).toHaveLength(1);
-      const call = capturedFetchCalls[0];
-      expect(call.url).toBe("http://localhost:7822/v1/trust-rules/abc-123");
-      expect(call.init?.method).toBe("DELETE");
-    });
-
-    test("throws when id is missing", async () => {
-      const route = findRoute("trust_rules_remove");
-      await expect(
-        route.handler({ body: {} }),
-      ).rejects.toThrow("id is required");
     });
   });
 

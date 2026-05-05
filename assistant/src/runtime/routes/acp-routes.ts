@@ -7,15 +7,13 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  broadcastToAllClients,
-  getAcpSessionManager,
-} from "../../acp/index.js";
+import { getAcpSessionManager } from "../../acp/index.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
 import {
   BadRequestError,
@@ -91,15 +89,13 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   );
 
   const manager = getAcpSessionManager();
-  const sendToVellum =
-    broadcastToAllClients ?? ((_msg: unknown) => log.warn("No broadcast fn set"));
   const { acpSessionId, protocolSessionId } = await manager.spawn(
     agent,
     resolved.agent,
     task,
     cwd,
     conversationId,
-    sendToVellum,
+    broadcastMessage,
   );
 
   log.info({ acpSessionId, protocolSessionId, agent }, "ACP spawn succeeded");

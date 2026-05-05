@@ -71,15 +71,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Per-Call-Site LLM Overrides
 
-    /// Catalog of every LLM call site, merged with whatever overrides the
-    /// user has configured under `llm.callSites.<id>` in the workspace
-    /// config. Order matches `CallSiteCatalog.all` so the UI renders a
-    /// stable list grouped by `CallSiteDomain`.
-    ///
-    /// Seeded from the static catalog so the picker has every row available
-    /// before the first daemon fetch completes. Replaced by
-    /// `loadCallSiteOverrides(config:)` once the daemon reports the
-    /// authoritative config.
+    /// Catalog of every LLM call site from the runtime API, merged with
+    /// whatever overrides the user has configured under `llm.callSites.<id>`
+    /// in the workspace config. Order matches `CallSiteCatalog.all` so the
+    /// UI renders a stable list grouped by `CallSiteDomain`.
     @Published var callSiteOverrides: [CallSiteOverride] = CallSiteCatalog.all
 
     // MARK: - Inference Profiles
@@ -386,7 +381,6 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
-    private let pairingClient: PairingClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -447,6 +441,7 @@ public final class SettingsStore: ObservableObject {
     deinit {
         trustRulesObservationTask?.cancel()
         modelInfoObservationTask?.cancel()
+        callSiteCatalogRefreshTask?.cancel()
     }
 
     init(
@@ -455,7 +450,6 @@ public final class SettingsStore: ObservableObject {
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
-        pairingClient: PairingClientProtocol = PairingClient(),
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
@@ -466,7 +460,6 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
-        self.pairingClient = pairingClient
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -790,6 +783,7 @@ public final class SettingsStore: ObservableObject {
         // mutations, so without this the store would stay at init
         // defaults until the user edits config.json.
         refreshDaemonConfig()
+        refreshCallSiteCatalog()
 
         // Refresh config on daemon (re)connect so config-dependent state
         // recovers after the daemon restarts or after a network blip.
@@ -797,6 +791,7 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshDaemonConfig()
+                self?.refreshCallSiteCatalog(force: true)
             }
             .store(in: &cancellables)
 
@@ -1326,7 +1321,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.post(path: "secrets", body: bodyData)
+            }
         }
     }
 
@@ -1338,7 +1335,9 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.withAssistant(assistantId) {
+                try await GatewayHTTPClient.delete(path: "secrets", body: bodyData)
+            }
         }
         return true
     }
@@ -1370,11 +1369,11 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard let assistantId = cachedAssistantId else { return }
+        guard cachedAssistantId != nil else { return }
         Task {
             do {
                 let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.statusCode == 200, let config {
@@ -1407,7 +1406,7 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1419,7 +1418,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     body: bodyData,
                     timeout: 10
                 )
@@ -1459,14 +1458,14 @@ public final class SettingsStore: ObservableObject {
     func clearSlackChannelConfig() {
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             slackChannelSaveInProgress = false
             return
         }
         Task {
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    path: "integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.isSuccess {
@@ -1503,12 +1502,12 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             twilioError = "No connected assistant"
             return
         }
 
-        let gatewayPath = "assistants/\(assistantId)/\(path)"
+        let gatewayPath = path
         let bodyData: Data?
         if let body {
             bodyData = try? JSONSerialization.data(withJSONObject: body)
@@ -2235,14 +2234,14 @@ public final class SettingsStore: ObservableObject {
     /// Fetches provider routing sources from the daemon debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
-        guard let assistantId = cachedAssistantId else {
+        guard cachedAssistantId != nil else {
             providerRoutingSources = [:]
             return
         }
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "assistants/\(assistantId)/debug",
+                    path: "debug",
                     timeout: 10
                 )
                 guard response.isSuccess else { return }
@@ -2406,7 +2405,7 @@ public final class SettingsStore: ObservableObject {
             do {
                 let (decoded, response): (OAuthProvidersListResponse?, _) =
                     try await GatewayHTTPClient.get(
-                        path: "assistants/{assistantId}/oauth/providers",
+                        path: "oauth/providers",
                         params: ["supports_managed_mode": "true"],
                         timeout: 10
                     )
@@ -2811,7 +2810,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/oauth/apps",
+                    path: "oauth/apps",
                     params: ["provider_key": providerKey],
                     timeout: 10
                 )
@@ -2844,7 +2843,7 @@ public final class SettingsStore: ObservableObject {
     func fetchYourOwnOAuthConnections(appId: String) async {
         do {
             let (decoded, response): (YourOwnOAuthConnectionsResponse?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/oauth/apps/\(appId)/connections",
+                path: "oauth/apps/\(appId)/connections",
                 timeout: 10
             )
             if response.isSuccess, let decoded {
@@ -2865,7 +2864,7 @@ public final class SettingsStore: ObservableObject {
         let secretKey = "client" + "_secret"
         body[secretKey] = clientSecret
         do {
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
             if response.isSuccess {
                 self.fetchYourOwnOAuthApps(providerKey: providerKey)
             } else {
@@ -2887,7 +2886,7 @@ public final class SettingsStore: ObservableObject {
     func deleteYourOwnOAuthApp(id: String, providerKey: String) async {
         yourOwnOAuthError[providerKey] = nil
         do {
-            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/apps/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
             if response.isSuccess {
                 self.yourOwnOAuthApps[providerKey]?.removeAll { $0.id == id }
                 self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
@@ -2911,7 +2910,7 @@ public final class SettingsStore: ObservableObject {
         let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         do {
-            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/connections/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
             if response.isSuccess {
                 await self.fetchYourOwnOAuthConnections(appId: appId)
             } else {
@@ -2942,7 +2941,7 @@ public final class SettingsStore: ObservableObject {
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         Task {
             do {
-                let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
                 guard response.isSuccess else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -3180,6 +3179,7 @@ public final class SettingsStore: ObservableObject {
     func loadCallSiteOverrides(config: [String: Any]) {
         let llm = config["llm"] as? [String: Any]
         let callSitesRaw = (llm?["callSites"] as? [String: Any]) ?? [:]
+        latestCallSitesRaw = callSitesRaw
         var byId: [String: (provider: String?, model: String?, profile: String?)] = [:]
         for (id, raw) in callSitesRaw {
             guard CallSiteCatalog.validIds.contains(id),
@@ -3408,6 +3408,10 @@ public final class SettingsStore: ObservableObject {
         /// affordance.
         case blockedByCallSites([String])
 
+        /// Deletion blocked because the profile is managed (source ==
+        /// "managed"). Managed profiles are read-only.
+        case blockedByManaged
+
         /// Reference checks passed but the daemon PATCH failed — typically
         /// a transient connectivity issue. The caller should surface a
         /// retry affordance; the next config sync will reconcile the
@@ -3418,19 +3422,21 @@ public final class SettingsStore: ObservableObject {
     /// Deletes a profile under `llm.profiles.<name>` after verifying no
     /// references remain. References checked: the global
     /// `llm.activeProfile` pointer and every per-row entry in
-    /// `callSiteOverrides`. When references exist, returns the
-    /// corresponding `.blockedBy*` variant so the caller can guide the
-    /// user through clearing them. Otherwise issues a PATCH with
-    /// `NSNull()` at the profile key, which the daemon's deep-merge
-    /// treats as deletion.
+    /// `callSiteOverrides`, with a raw-config fallback for call sites the
+    /// runtime catalog has not loaded yet. When references exist, returns
+    /// the corresponding `.blockedBy*` variant so the caller can guide the
+    /// user through clearing them. Otherwise issues a PATCH with `NSNull()`
+    /// at the profile key, which the daemon's deep-merge treats as
+    /// deletion.
     @discardableResult
     func deleteProfile(name: String) async -> DeleteProfileResult {
+        if profiles.first(where: { $0.name == name })?.isManaged == true {
+            return .blockedByManaged
+        }
         if activeProfile == name {
             return .blockedByActive(activeProfile)
         }
-        let conflictingCallSites = callSiteOverrides
-            .filter { $0.profile == name }
-            .map(\.id)
+        let conflictingCallSites = callSiteIdsReferencingProfile(name)
         if !conflictingCallSites.isEmpty {
             return .blockedByCallSites(conflictingCallSites)
         }
@@ -4238,64 +4244,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Approved Devices
-
-    @Published var approvedDevices: [ApprovedDevicesListResponseMessage.Device] = []
-
-    func refreshApprovedDevices() {
-        Task {
-            do {
-                let devices = try await pairingClient.fetchApprovedDevices()
-                self.approvedDevices = devices
-            } catch {
-                // Fetch failed — preserve existing local state
-            }
-        }
-    }
-
-    func removeApprovedDevice(hashedDeviceId: String) {
-        let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
-        approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-        Task {
-            do {
-                let success = try await pairingClient.removeApprovedDevice(hashedDeviceId: hashedDeviceId)
-                if !success {
-                    self.approvedDevices.append(contentsOf: removed)
-                }
-            } catch {
-                // Request failed — restore optimistically removed devices
-                self.approvedDevices.append(contentsOf: removed)
-            }
-        }
-    }
-
-    func clearAllApprovedDevices() {
-        Task {
-            do {
-                let success = try await pairingClient.clearApprovedDevices()
-                if success {
-                    self.approvedDevices = []
-                }
-            } catch {
-                // Request failed — don't clear local state
-            }
-        }
-    }
-
-    // MARK: - iOS Pairing
-
-    /// Gateway URL for iOS pairing.
-    var resolvedIosGatewayUrl: String {
-        ingressPublicBaseUrl
-    }
-
-    /// LAN pairing URL for the gateway, or nil if no LAN IP available.
-    var lanPairingUrl: String? {
-        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        let connectedId = cachedAssistantId
-        return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
-    }
-
     // MARK: - User Timezone Actions
 
     /// Saves a user timezone override under `ui.userTimezone`.
@@ -4468,12 +4416,55 @@ public final class SettingsStore: ObservableObject {
     /// applied state when startup, reconnect, and configChanged triggers
     /// fire in quick succession.
     private var configRefreshTask: Task<Void, Never>?
+    private var callSiteCatalogRefreshTask: Task<Void, Never>?
+    private var latestDaemonConfig: [String: Any]?
+    private var latestCallSitesRaw: [String: Any] = [:]
 
     /// Cancels any in-flight config refresh and spawns a fresh one.
     private func refreshDaemonConfig() {
         configRefreshTask?.cancel()
         configRefreshTask = Task { @MainActor [weak self] in
             await self?.loadConfigFromDaemon()
+        }
+    }
+
+    private func refreshCallSiteCatalog(force: Bool = false) {
+        callSiteCatalogRefreshTask?.cancel()
+        callSiteCatalogRefreshTask = Task { @MainActor [weak self] in
+            await self?.ensureCallSiteCatalogLoaded(force: force)
+        }
+    }
+
+    /// Loads the runtime-owned call-site metadata catalog and reapplies the
+    /// latest daemon config so persisted overrides are merged into the newly
+    /// fetched display metadata.
+    func ensureCallSiteCatalogLoaded(force: Bool = false) async {
+        // Snapshot before the async fetch so we know whether the catalog was
+        // already populated. When `force` is false and the catalog is already
+        // loaded, `ensureLoaded` returns immediately without hitting the
+        // network — in that case we must NOT call `loadCallSiteOverrides`
+        // below, because `latestDaemonConfig` may still be the pre-save
+        // snapshot and would revert any optimistic state written by a
+        // concurrent `setCallSiteOverrides` call.
+        let wasAlreadyLoaded = !force && CallSiteCatalog.shared.isLoaded
+        let loaded: Bool
+        if force {
+            loaded = await CallSiteCatalog.shared.reload(using: settingsClient)
+        } else {
+            loaded = await CallSiteCatalog.shared.ensureLoaded(using: settingsClient)
+        }
+        guard loaded else { return }
+
+        // Only re-merge overrides when the catalog was actually (re)fetched.
+        // Skipping when already loaded preserves optimistic state that
+        // `applyDaemonConfig` will reconcile once the next `configChanged`
+        // refresh completes.
+        guard !wasAlreadyLoaded else { return }
+
+        if let latestDaemonConfig {
+            loadCallSiteOverrides(config: latestDaemonConfig)
+        } else if callSiteOverrides.isEmpty {
+            callSiteOverrides = CallSiteCatalog.all
         }
     }
 
@@ -4489,6 +4480,8 @@ public final class SettingsStore: ObservableObject {
     /// Applies a daemon-fetched workspace config to all config-dependent
     /// published properties.
     private func applyDaemonConfig(_ config: [String: Any]) {
+        latestDaemonConfig = config
+
         let mediaSettings = Self.loadMediaEmbedSettings(config: config)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
@@ -4546,6 +4539,32 @@ public final class SettingsStore: ObservableObject {
         if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
+    }
+
+    private func callSiteIdsReferencingProfile(_ profileName: String) -> [String] {
+        var ids: [String] = []
+        var seen = Set<String>()
+
+        func append(_ id: String) {
+            guard seen.insert(id).inserted else { return }
+            ids.append(id)
+        }
+
+        for override in callSiteOverrides where override.profile == profileName {
+            append(override.id)
+        }
+
+        let renderedCallSiteIds = Set(callSiteOverrides.map(\.id))
+        for id in latestCallSitesRaw.keys.sorted() {
+            guard !renderedCallSiteIds.contains(id) else { continue }
+            guard let entry = latestCallSitesRaw[id] as? [String: Any],
+                  let profile = entry["profile"] as? String,
+                  !profile.isEmpty,
+                  profile == profileName else { continue }
+            append(id)
+        }
+
+        return ids
     }
 
     private static func loadUserTimezone(config: [String: Any]) -> String? {

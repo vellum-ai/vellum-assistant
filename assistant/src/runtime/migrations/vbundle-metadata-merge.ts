@@ -117,7 +117,7 @@ export function mergeMetadataPreservingVellum(
 }
 
 /** @internal For direct use by tests. */
-export const _internal = {
+const _internal = {
   VELLUM_SERVICE,
   parseMetadata,
   extractVellumRecords,

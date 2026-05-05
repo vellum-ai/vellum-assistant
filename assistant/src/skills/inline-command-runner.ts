@@ -24,7 +24,6 @@
 import { spawn } from "node:child_process";
 
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
-import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("inline-command-runner");
@@ -105,12 +104,7 @@ export async function runInlineCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxOutputChars ?? MAX_OUTPUT_CHARS;
 
-  // Sandbox is disabled — the assistant runs in Docker or platform-managed
-  // environments where the container provides isolation. The networkMode
-  // option is a no-op when sandbox is disabled (wrapCommand returns a plain
-  // bash invocation); network isolation is handled at the container level.
-  const sandboxConfig = { enabled: false } as const;
-  const wrapped = wrapCommand(command, workingDir, sandboxConfig);
+  const wrapped = { command: "bash", args: ["-c", "--", command] };
 
   // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
   // workspace dir, and data dir since inline commands have no business calling

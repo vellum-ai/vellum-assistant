@@ -415,7 +415,7 @@ data: {"id":"...","assistantId":"self","conversationId":"conv_xxx","emittedAt":"
 
 ```
 
-Keep-alive heartbeat comments are emitted every 30 seconds to prevent proxy timeouts:
+Keep-alive heartbeat comments are emitted every 7 seconds to prevent proxy timeouts:
 
 ```
 : heartbeat

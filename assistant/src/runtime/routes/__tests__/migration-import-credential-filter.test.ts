@@ -51,16 +51,29 @@ function makeTarEntry(data: string): VBundleTarEntry {
 
 function makeManifest(paths: string[]): ManifestType {
   return {
-    schema_version: "1.0.0",
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
     created_at: new Date().toISOString(),
-    source: "test",
-    manifest_sha256: "test",
-    files: paths.map((path) => ({
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents: paths.map((path) => ({
       path,
-      size: 0,
+      size_bytes: 0,
       sha256: "test",
     })),
-  } as ManifestType;
+    checksum:
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  } as unknown as ManifestType;
 }
 
 /**

@@ -11,6 +11,7 @@ export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
   defaultAssistantId: string | undefined;
   gatewayInternalBaseUrl: string;
+  velayBaseUrl?: string;
   logFile: LogFileConfig;
   maxAttachmentBytes: Record<
     "telegram" | "slack" | "whatsapp" | "default",
@@ -23,7 +24,6 @@ export type GatewayConfig = {
   routingEntries: RoutingEntry[];
   runtimeInitialBackoffMs: number;
   runtimeMaxRetries: number;
-  runtimeProxyEnabled: boolean;
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
@@ -93,6 +93,7 @@ export function loadConfig(): GatewayConfig {
   const assistantRuntimeBaseUrl = `http://${assistantHost}:${runtimePort}`;
 
   const gatewayInternalBaseUrl = `http://127.0.0.1:${port}`;
+  const velayBaseUrl = process.env.VELAY_BASE_URL?.trim() || undefined;
 
   // Read operational settings from workspace config (Docker) or env vars (CLI).
   const wsConfig = readWorkspaceConfig();
@@ -101,10 +102,6 @@ export function loadConfig(): GatewayConfig {
   // Env vars take precedence over workspace config values. This allows the
   // CLI to pass gateway settings directly via the process environment instead
   // of writing to the workspace config file.
-  const runtimeProxyEnabled =
-    process.env.RUNTIME_PROXY_ENABLED === "true" ||
-    gw.runtimeProxyEnabled === true ||
-    gw.runtimeProxyEnabled === "true";
   const runtimeProxyRequireAuth =
     process.env.RUNTIME_PROXY_REQUIRE_AUTH !== undefined
       ? process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false"
@@ -147,8 +144,8 @@ export function loadConfig(): GatewayConfig {
       routingEntryCount: routingEntries.length,
       unmappedPolicy,
       hasDefaultAssistant: !!defaultAssistantId,
+      hasVelayBaseUrl: !!velayBaseUrl,
       port,
-      runtimeProxyEnabled,
       runtimeProxyRequireAuth,
       trustProxy: false,
     },
@@ -159,6 +156,7 @@ export function loadConfig(): GatewayConfig {
     assistantRuntimeBaseUrl,
     defaultAssistantId,
     gatewayInternalBaseUrl,
+    velayBaseUrl,
     logFile,
     maxAttachmentBytes: {
       telegram: 20 * 1024 * 1024, // Telegram Bot API getFile (download) limit
@@ -173,7 +171,6 @@ export function loadConfig(): GatewayConfig {
     routingEntries,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyEnabled,
     runtimeProxyRequireAuth,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,

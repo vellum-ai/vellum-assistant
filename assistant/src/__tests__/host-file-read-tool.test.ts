@@ -1,9 +1,30 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { HostFileInput } from "../daemon/host-file-proxy.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+
+// Mock HostFileProxy singleton so proxy delegation tests can control it.
+let mockFileProxyAvailable = false;
+let mockFileProxyRequestFn: (
+  input: HostFileInput,
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-file-proxy.js", () => ({
+  HostFileProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockFileProxyAvailable,
+        request: mockFileProxyRequestFn,
+      };
+    },
+  },
+}));
+
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -27,6 +48,8 @@ afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  mockFileProxyAvailable = false;
+  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
 });
 
 // Minimal valid JPEG: FF D8 FF E0 header
@@ -172,28 +195,26 @@ describe("host_file_read image support", () => {
       conversationId: string;
       signal?: AbortSignal;
     }> = [];
+    mockFileProxyAvailable = true;
+    mockFileProxyRequestFn = async (input, conversationId, signal) => {
+      requests.push({ input, conversationId, signal });
+      return {
+        content: "Image loaded: /host/screenshot.png",
+        isError: false,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: PNG_HEADER.toString("base64"),
+            },
+          },
+        ],
+      };
+    };
     const proxyContext: ToolContext = {
       ...makeContext(),
-      hostFileProxy: {
-        isAvailable: () => true,
-        request: async (input, conversationId, signal) => {
-          requests.push({ input, conversationId, signal });
-          return {
-            content: "Image loaded: /host/screenshot.png",
-            isError: false,
-            contentBlocks: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: "image/png",
-                  data: PNG_HEADER.toString("base64"),
-                },
-              },
-            ],
-          };
-        },
-      } as ToolContext["hostFileProxy"],
     };
 
     const result = await hostFileReadTool.execute(
@@ -282,5 +303,22 @@ describe("host_file_read image support", () => {
     expect(result.content).toContain("1  hello world");
     expect(result.content).toContain("2  second line");
     expect((result as any).contentBlocks).toBeUndefined();
+  });
+
+  test("passes target_client_id to HostFileProxy.instance.request", async () => {
+    const capturedInputs: HostFileInput[] = [];
+    mockFileProxyAvailable = true;
+    mockFileProxyRequestFn = async (input) => {
+      capturedInputs.push(input);
+      return { content: "proxied", isError: false };
+    };
+
+    await hostFileReadTool.execute(
+      { path: "/host/notes.txt", target_client_id: "client-x" },
+      makeContext(),
+    );
+
+    expect(capturedInputs).toHaveLength(1);
+    expect(capturedInputs[0].targetClientId).toBe("client-x");
   });
 });

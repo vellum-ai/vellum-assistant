@@ -1,10 +1,12 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
- * Manages three screens:
+ * Manages five screens:
  * 1. Welcome — sign in with Vellum or connect to self-hosted
  * 2. Assistant Picker — choose which cloud assistant to connect to
- * 3. Main — connection status, settings
+ * 3. Main — connection status, activity card, settings
+ * 4. Activity — list of browser operations (one row per request/response pair)
+ * 5. Detail — request/response tabs for a single operation
  *
  * The popup determines the initial screen by asking the worker for
  * the current session state. If a session or self-hosted mode is
@@ -12,12 +14,11 @@
  */
 
 import type { AssistantAuthProfile } from '../background/assistant-auth-profile.js';
+import type { OperationEntry } from '../background/event-log.js';
 import {
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
-  shouldExpandTroubleshooting,
-  hasTroubleshootingControls,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
   type ConnectionPhase,
@@ -54,13 +55,45 @@ function sendMessage<T>(
 const screenWelcome = document.getElementById('screen-welcome') as HTMLDivElement;
 const screenPicker = document.getElementById('screen-picker') as HTMLDivElement;
 const screenMain = document.getElementById('screen-main') as HTMLDivElement;
+const screenActivity = document.getElementById('screen-activity') as HTMLDivElement;
+const screenDetail = document.getElementById('screen-detail') as HTMLDivElement;
 
-type ScreenId = 'welcome' | 'picker' | 'main';
+// ── Manifest-driven branding ────────────────────────────────────────
+// Read the extension name and icon paths from the manifest so the popup
+// automatically reflects the current environment without hardcoding.
+
+const manifest = chrome.runtime.getManifest();
+const manifestIcons = manifest.icons as Record<string, string> | undefined;
+// Manifest icon paths are extension-root-relative (e.g. "icons/local/icon48.png").
+// The popup HTML lives at popup/popup.html, so setting img.src to the raw manifest
+// path would resolve relative to popup/ and 404. Use chrome.runtime.getURL() to
+// produce absolute chrome-extension:// URLs that resolve correctly from any context.
+const icon48Url = manifestIcons?.['48'] ? chrome.runtime.getURL(manifestIcons['48']) : '';
+const icon128Url = manifestIcons?.['128'] ? chrome.runtime.getURL(manifestIcons['128']) : '';
+const extensionName = typeof manifest.name === 'string' ? manifest.name : 'Vellum Assistant';
+
+// Welcome logo
+const welcomeLogo = document.querySelector<HTMLImageElement>('.welcome-logo');
+if (welcomeLogo && icon128Url) welcomeLogo.src = icon128Url;
+
+// Welcome title
+const welcomeTitle = document.querySelector<HTMLHeadingElement>('.welcome-title');
+if (welcomeTitle) welcomeTitle.textContent = extensionName;
+
+// All 48px env icons (assistant avatar, etc.)
+const envIcons = document.querySelectorAll<HTMLImageElement>('.env-icon-48');
+for (let i = 0; i < envIcons.length; i++) {
+  if (icon48Url) envIcons[i]!.src = icon48Url;
+}
+
+type ScreenId = 'welcome' | 'picker' | 'main' | 'activity' | 'detail';
 
 function showScreen(id: ScreenId): void {
   screenWelcome.style.display = id === 'welcome' ? 'block' : 'none';
   screenPicker.style.display = id === 'picker' ? 'block' : 'none';
   screenMain.style.display = id === 'main' ? 'block' : 'none';
+  screenActivity.style.display = id === 'activity' ? 'block' : 'none';
+  screenDetail.style.display = id === 'detail' ? 'block' : 'none';
 }
 
 /** Show the assistants-fetch error state on the main screen. */
@@ -100,12 +133,6 @@ const localStatus = document.getElementById('local-status') as HTMLParagraphElem
 const troubleshootSection = document.getElementById(
   'troubleshoot-section',
 ) as HTMLDivElement;
-const troubleshootToggle = document.getElementById(
-  'troubleshoot-toggle',
-) as HTMLButtonElement;
-const troubleshootBody = document.getElementById(
-  'troubleshoot-body',
-) as HTMLDivElement;
 
 const gatewayUrlInput = document.getElementById(
   'gateway-url-input',
@@ -125,6 +152,28 @@ const assistantAccountEl = document.getElementById('assistant-account') as HTMLP
 
 // Session actions
 const sessionActions = document.getElementById('session-actions') as HTMLDivElement;
+
+// Activity card
+const activityCard = document.getElementById('activity-card') as HTMLDivElement;
+const activityCount = document.getElementById('activity-count') as HTMLSpanElement;
+
+// ── DOM references (Activity screen) ────────────────────────────────
+
+const activityBack = document.getElementById('activity-back') as HTMLButtonElement;
+const activityListEl = document.getElementById('activity-list') as HTMLDivElement;
+const activityEmpty = document.getElementById('activity-empty') as HTMLParagraphElement;
+
+// ── DOM references (Detail screen) ──────────────────────────────────
+
+const detailBack = document.getElementById('detail-back') as HTMLButtonElement;
+const detailOperationName = document.getElementById('detail-operation-name') as HTMLParagraphElement;
+const detailMeta = document.getElementById('detail-meta') as HTMLParagraphElement;
+const detailTabRequest = document.getElementById('detail-tab-request') as HTMLButtonElement;
+const detailTabResponse = document.getElementById('detail-tab-response') as HTMLButtonElement;
+const detailPanelRequest = document.getElementById('detail-panel-request') as HTMLDivElement;
+const detailPanelResponse = document.getElementById('detail-panel-response') as HTMLDivElement;
+const detailRequestContent = document.getElementById('detail-request-content') as HTMLPreElement;
+const detailResponseContent = document.getElementById('detail-response-content') as HTMLPreElement;
 
 // ── DOM references (Welcome screen) ─────────────────────────────────
 
@@ -146,6 +195,9 @@ let currentDebugDetails: string | null = null;
 
 /** Tracks whether the user has an established mode (self-hosted or cloud). */
 let currentMode: 'self-hosted' | 'cloud' | null = null;
+
+/** Cached operations for the activity list. */
+let cachedOperations: OperationEntry[] = [];
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -227,14 +279,9 @@ function updateHealthDisplay(
   // Setup message
   setSetupMessage(phase);
 
-  // Troubleshoot section
-  if (shouldExpandTroubleshooting(health)) {
-    troubleshootBody.style.display = 'block';
-    troubleshootToggle.setAttribute('aria-expanded', 'true');
-  }
-
-  // Show/hide troubleshoot controls
-  if (hasTroubleshootingControls(currentAuthProfile)) {
+  // Reconnect button: show only when self-hosted + paired + connection failing.
+  const isFailure = health === 'error' || health === 'auth_required' || health === 'reconnecting';
+  if (currentMode === 'self-hosted' && isFailure) {
     troubleshootSection.style.display = 'block';
   } else {
     troubleshootSection.style.display = 'none';
@@ -243,16 +290,38 @@ function updateHealthDisplay(
 
 // ── Main screen mode-specific visibility ────────────────────────────
 
-function applyMainScreenMode(): void {
+function applyMainScreenMode(paired?: boolean): void {
+  const signOutBtn = document.getElementById('btn-sign-out') as HTMLButtonElement;
   if (currentMode === 'cloud') {
     selfHostedSettings.style.display = 'none';
+    troubleshootSection.style.display = 'none';
     assistantInfo.style.display = 'flex';
+    connectionAreaEl.style.display = 'block';
     sessionActions.style.display = 'flex';
+    activityCard.style.display = 'flex';
+    signOutBtn.textContent = 'Sign out';
   } else {
     // self-hosted
-    selfHostedSettings.style.display = 'block';
     assistantInfo.style.display = 'none';
-    sessionActions.style.display = 'none';
+    if (paired) {
+      // Already paired — show connected state, hide URL input.
+      // Reconnect button visibility is driven by updateHealthDisplay.
+      selfHostedSettings.style.display = 'none';
+      connectionAreaEl.style.display = 'block';
+      troubleshootSection.style.display = 'none';
+      sessionActions.style.display = 'flex';
+      activityCard.style.display = 'flex';
+      signOutBtn.textContent = 'Disconnect';
+    } else {
+      // Not yet paired — show URL input and a back button,
+      // hide connection status and activity card
+      selfHostedSettings.style.display = 'block';
+      connectionAreaEl.style.display = 'none';
+      troubleshootSection.style.display = 'none';
+      sessionActions.style.display = 'flex';
+      activityCard.style.display = 'none';
+      signOutBtn.textContent = 'Back';
+    }
   }
 }
 
@@ -266,42 +335,54 @@ function loadGatewayUrl(): void {
   });
 }
 
-gatewayUrlSave?.addEventListener('click', () => {
+/**
+ * Save the gateway URL, pair with the gateway, and connect. Used by both
+ * the Pair button and the Re-pair button. On success, transitions to the
+ * connected main screen. On failure, shows the error inline once.
+ */
+function pairAndConnect(): void {
   const url = gatewayUrlInput.value.trim();
   if (!url) return;
   gatewayUrlSave.disabled = true;
-  gatewayUrlSave.textContent = 'Saving\u2026';
-  sendMessage(
-    { type: 'gateway-url-set', gatewayUrl: url },
-    () => {
-      gatewayUrlSave.disabled = false;
-      gatewayUrlSave.textContent = 'Save';
-    },
-  );
-});
+  gatewayUrlSave.textContent = 'Pairing\u2026';
+  localStatus.style.display = 'none';
 
-// Also save on Enter key in the URL input
+  // Step 1: save the URL
+  sendMessage({ type: 'gateway-url-set', gatewayUrl: url }, () => {
+    // Step 2: pair with the gateway
+    sendMessage<{ ok: boolean; error?: string }>(
+      { type: 'self-hosted-pair' },
+      (response) => {
+        if (response?.ok) {
+          // Step 3: connect
+          sendMessage({ type: 'connect' }, () => {});
+          // Transition to the paired/connected state
+          applyMainScreenMode(true);
+          gatewayUrlSave.disabled = false;
+          gatewayUrlSave.textContent = 'Pair';
+          refreshStatus();
+          startStatusPoll();
+        } else {
+          gatewayUrlSave.disabled = false;
+          gatewayUrlSave.textContent = 'Pair';
+          localStatus.textContent = response?.error ?? 'Pairing failed';
+          localStatus.style.display = 'block';
+        }
+      },
+    );
+  });
+}
+
+gatewayUrlSave?.addEventListener('click', pairAndConnect);
+
+// Also pair on Enter key in the URL input
 gatewayUrlInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    gatewayUrlSave?.click();
+    pairAndConnect();
   }
 });
 
-// ── Re-pair button ──────────────────────────────────────────────────
-
-btnPairLocal?.addEventListener('click', () => {
-  localStatus.textContent = 'Pairing\u2026';
-  sendMessage<{ ok: boolean; error?: string }>(
-    { type: 'self-hosted-pair' },
-    (response) => {
-      if (response?.ok) {
-        localStatus.textContent = 'Paired successfully';
-      } else {
-        localStatus.textContent = `Pair failed: ${response?.error ?? 'unknown error'}`;
-      }
-    },
-  );
-});
+// (Re-pair button handler is registered below after pairAndConnect is defined.)
 
 // ── Copy debug details ──────────────────────────────────────────────
 
@@ -320,10 +401,156 @@ copyDebugDetailsButton?.addEventListener('click', async () => {
 
 // ── Troubleshoot toggle ─────────────────────────────────────────────
 
-troubleshootToggle?.addEventListener('click', () => {
-  const isExpanded = troubleshootToggle.getAttribute('aria-expanded') === 'true';
-  troubleshootToggle.setAttribute('aria-expanded', String(!isExpanded));
-  troubleshootBody.style.display = isExpanded ? 'none' : 'block';
+// Re-pair button: same flow as initial pair
+btnPairLocal?.addEventListener('click', pairAndConnect);
+
+// ── Activity card → Activity screen ─────────────────────────────────
+
+activityCard?.addEventListener('click', () => {
+  refreshOperations(() => {
+    showScreen('activity');
+  });
+});
+
+activityBack?.addEventListener('click', () => {
+  showScreen('main');
+});
+
+// ── Operations ──────────────────────────────────────────────────────
+
+function refreshOperations(callback?: () => void): void {
+  sendMessage<{ ok: boolean; operations: OperationEntry[] }>(
+    { type: 'get-operations' },
+    (response) => {
+      if (!response?.ok) {
+        callback?.();
+        return;
+      }
+      cachedOperations = response.operations;
+      renderActivityList();
+      callback?.();
+    },
+  );
+}
+
+function refreshActivityCount(): void {
+  sendMessage<{ ok: boolean; operations: OperationEntry[] }>(
+    { type: 'get-operations' },
+    (response) => {
+      if (!response?.ok) return;
+      cachedOperations = response.operations;
+      activityCount.textContent = String(response.operations.length);
+    },
+  );
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function renderActivityList(): void {
+  // Clear existing rows
+  const existingRows = activityListEl.querySelectorAll('.activity-row');
+  existingRows.forEach((r) => r.remove());
+
+  if (cachedOperations.length === 0) {
+    activityEmpty.style.display = 'block';
+    return;
+  }
+  activityEmpty.style.display = 'none';
+
+  // Render newest first
+  for (let i = cachedOperations.length - 1; i >= 0; i--) {
+    const op = cachedOperations[i]!;
+    const row = document.createElement('div');
+    row.className = 'activity-row';
+    row.dataset.operationId = String(op.id);
+
+    const iconClass = op.respondedAt
+      ? op.isError ? 'error' : 'success'
+      : 'pending';
+    const iconSymbol = op.respondedAt
+      ? op.isError ? '✗' : '✓'
+      : '⋯';
+
+    const durationText = op.durationMs != null
+      ? ` · ${formatDuration(op.durationMs)}`
+      : '';
+
+    row.innerHTML = [
+      `<div class="activity-row-icon ${iconClass}">${iconSymbol}</div>`,
+      `<div class="activity-row-body">`,
+      `  <p class="activity-row-name">${escapeHtml(op.operationName)}</p>`,
+      `  <p class="activity-row-meta">${escapeHtml(formatTime(op.requestedAt))}${durationText}</p>`,
+      `</div>`,
+      `<svg class="activity-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">`,
+      `  <path d="M4 2L8 6L4 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `</svg>`,
+    ].join('');
+
+    row.addEventListener('click', () => showOperationDetail(op));
+    activityListEl.appendChild(row);
+  }
+}
+
+// ── Operation detail ────────────────────────────────────────────────
+
+function showOperationDetail(op: OperationEntry): void {
+  detailOperationName.textContent = op.operationName;
+
+  const parts: string[] = [formatTime(op.requestedAt)];
+  if (op.durationMs != null) {
+    parts.push(formatDuration(op.durationMs));
+  }
+  if (op.isError) {
+    parts.push('Error');
+  }
+  detailMeta.textContent = parts.join(' · ');
+
+  // Request content
+  if (op.request) {
+    detailRequestContent.textContent = JSON.stringify(op.request, null, 2);
+  } else {
+    detailRequestContent.textContent = 'No request data available';
+  }
+
+  // Response content
+  if (op.responseContent) {
+    try {
+      const parsed = JSON.parse(op.responseContent);
+      detailResponseContent.textContent = JSON.stringify(parsed, null, 2);
+    } catch {
+      detailResponseContent.textContent = op.responseContent;
+    }
+  } else if (op.respondedAt) {
+    detailResponseContent.textContent = 'Empty response';
+  } else {
+    detailResponseContent.textContent = 'Awaiting response…';
+  }
+
+  // Reset to request tab
+  switchDetailTab('request');
+  showScreen('detail');
+}
+
+function switchDetailTab(tab: 'request' | 'response'): void {
+  detailTabRequest.className = `detail-tab${tab === 'request' ? ' active' : ''}`;
+  detailTabResponse.className = `detail-tab${tab === 'response' ? ' active' : ''}`;
+  detailPanelRequest.style.display = tab === 'request' ? 'block' : 'none';
+  detailPanelResponse.style.display = tab === 'response' ? 'block' : 'none';
+}
+
+detailTabRequest?.addEventListener('click', () => switchDetailTab('request'));
+detailTabResponse?.addEventListener('click', () => switchDetailTab('response'));
+
+detailBack?.addEventListener('click', () => {
+  showScreen('activity');
 });
 
 // ── Welcome screen handlers ─────────────────────────────────────────
@@ -396,7 +623,9 @@ btnSelfHosted?.addEventListener('click', () => {
   sendMessage({ type: 'set-mode', mode: 'self-hosted' }, () => {});
   applyMainScreenMode();
   showScreen('main');
-  loadMainScreen();
+  // Don't auto-connect — show the gateway URL input and let the user
+  // click Pair to initiate the connection.
+  loadGatewayUrl();
 });
 
 // ── Picker screen handlers ──────────────────────────────────────────
@@ -449,7 +678,7 @@ function renderAssistantList(
     row.className = 'assistant-row';
     row.innerHTML = `
       <div class="assistant-row-icon">
-        <img src="../icons/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
+        <img src="${escapeHtml(icon48Url)}" alt="" width="16" height="16" style="border-radius:3px;" />
       </div>
       <span class="assistant-row-name">${escapeHtml(a.name)}</span>
       <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -475,11 +704,18 @@ function selectAssistant(id: string, name: string, email?: string): void {
 // ── Sign out ────────────────────────────────────────────────────────
 
 document.getElementById('btn-sign-out')?.addEventListener('click', () => {
-  sendMessage({ type: 'cloud-logout' }, () => {
-    currentMode = null;
-    hideAssistantsError();
-    showScreen('welcome');
-  });
+  if (currentMode === 'self-hosted') {
+    sendMessage({ type: 'self-hosted-disconnect' }, () => {
+      currentMode = null;
+      showScreen('welcome');
+    });
+  } else {
+    sendMessage({ type: 'cloud-logout' }, () => {
+      currentMode = null;
+      hideAssistantsError();
+      showScreen('welcome');
+    });
+  }
 });
 
 document.getElementById('btn-retry-assistants')?.addEventListener('click', () => {
@@ -525,6 +761,7 @@ function loadMainScreen(): void {
   // the connection lifecycle without a manual toggle.
   sendMessage({ type: 'connect' }, () => {});
   refreshStatus();
+  refreshActivityCount();
   startStatusPoll();
 }
 
@@ -534,6 +771,8 @@ function refreshStatus(): void {
     currentAuthProfile = response.authProfile;
     updateHealthDisplay(response.health, response.healthDetail);
   });
+  // Update activity count on each status poll too
+  refreshActivityCount();
 }
 
 function startStatusPoll(): void {
@@ -559,6 +798,7 @@ sendMessage<{
   mode: 'self-hosted' | 'cloud' | null;
   session?: { email: string } | null;
   selectedAssistant?: { id: string; name: string } | null;
+  selfHostedPaired?: boolean;
 }>({ type: 'get-session' }, (response) => {
   if (!response?.ok) {
     showScreen('welcome');
@@ -567,9 +807,17 @@ sendMessage<{
 
   if (response.mode === 'self-hosted') {
     currentMode = 'self-hosted';
-    applyMainScreenMode();
+    const paired = response.selfHostedPaired === true;
+    applyMainScreenMode(paired);
     showScreen('main');
-    loadMainScreen();
+    if (paired) {
+      // Already paired — auto-connect and show status
+      loadMainScreen();
+    } else {
+      // Not yet paired — just load the gateway URL input,
+      // don't auto-connect (avoid "Failed to fetch" before pairing)
+      loadGatewayUrl();
+    }
   } else if (response.mode === 'cloud') {
     currentMode = 'cloud';
     if (response.selectedAssistant) {
@@ -579,8 +827,15 @@ sendMessage<{
       assistantAccountEl.textContent = response.session.email;
     }
     applyMainScreenMode();
-    showScreen('main');
-    loadMainScreen();
+    if (response.session && !response.selectedAssistant) {
+      // Signed in but no assistant chosen yet — go straight to the picker
+      // instead of landing on an unhelpful NEEDS ACTION state.
+      showScreen('picker');
+      refreshAssistantPicker();
+    } else {
+      showScreen('main');
+      loadMainScreen();
+    }
   } else {
     showScreen('welcome');
   }

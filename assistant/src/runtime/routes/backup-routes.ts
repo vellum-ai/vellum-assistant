@@ -26,17 +26,11 @@ import { dirname, sep } from "node:path";
 
 import { z } from "zod";
 
-import { readBackupKey } from "../../backup/backup-key.js";
-import {
-  type BackupRunResult,
-  createSnapshotNow,
-} from "../../backup/backup-worker.js";
 import {
   listSnapshotsInDir,
   type SnapshotEntry,
 } from "../../backup/list-snapshots.js";
 import {
-  getBackupKeyPath,
   getLocalBackupsDir,
   resolveOffsiteDestinations,
 } from "../../backup/paths.js";
@@ -47,7 +41,7 @@ import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";
-import { BadRequestError, ConflictError, RouteError } from "./errors.js";
+import { BadRequestError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("backup-routes");
@@ -115,23 +109,16 @@ async function validateSnapshotPath(rawPath: unknown): Promise<string> {
 }
 
 /**
- * Load the backup decryption key iff the target snapshot is encrypted.
- * Returns null for plaintext bundles. Throws BadRequestError when an
- * encrypted bundle is supplied but no key file exists.
+ * Reject encrypted snapshots — decryption has moved to the gateway (ATL-397).
+ * The assistant daemon no longer has access to the backup key.
  */
-async function loadKeyIfEncrypted(
-  snapshotPath: string,
-): Promise<Buffer | null> {
-  if (!snapshotPath.endsWith(".vbundle.enc")) {
-    return null;
-  }
-  const key = await readBackupKey(getBackupKeyPath());
-  if (key == null) {
+function rejectIfEncrypted(snapshotPath: string): void {
+  if (snapshotPath.endsWith(".vbundle.enc")) {
     throw new BadRequestError(
-      "Encrypted snapshot requires a backup key, but backup.key is missing",
+      "Encrypted snapshot restore/verify must go through the gateway, " +
+        "which owns the backup key. Use the gateway's backup endpoints instead.",
     );
   }
-  return key;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,24 +176,17 @@ export async function handleBackupList(): Promise<BackupListResponse> {
   return { local, offsite, offsiteEnabled, nextRunAt };
 }
 
-export async function handleBackupCreate(): Promise<BackupRunResult> {
-  try {
-    const config = getConfig();
-    return await createSnapshotNow(config.backup, new Date());
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.startsWith("snapshot in progress")) {
-      throw new ConflictError("A snapshot is already in progress");
-    }
-    log.error({ err }, "Manual backup snapshot failed");
-    throw new RouteError(message, "INTERNAL_ERROR", 500);
-  }
+export async function handleBackupCreate(): Promise<never> {
+  throw new BadRequestError(
+    "Backup snapshot creation has moved to the gateway. " +
+      "Use the gateway's POST /v1/backups/create endpoint instead.",
+  );
 }
 
 export async function handleBackupRestore({ body }: RouteHandlerArgs) {
   const path = body?.path;
   const snapshotPath = await validateSnapshotPath(path);
-  const key = await loadKeyIfEncrypted(snapshotPath);
+  rejectIfEncrypted(snapshotPath);
 
   try {
     const pathResolver = new DefaultPathResolver(
@@ -215,7 +195,6 @@ export async function handleBackupRestore({ body }: RouteHandlerArgs) {
     );
 
     const result = await restoreFromSnapshot(snapshotPath, {
-      key: key ?? undefined,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
     });
@@ -239,12 +218,10 @@ export async function handleBackupRestore({ body }: RouteHandlerArgs) {
 export async function handleBackupVerify({ body }: RouteHandlerArgs) {
   const path = body?.path;
   const snapshotPath = await validateSnapshotPath(path);
-  const key = await loadKeyIfEncrypted(snapshotPath);
+  rejectIfEncrypted(snapshotPath);
 
   try {
-    return await verifySnapshot(snapshotPath, {
-      key: key ?? undefined,
-    });
+    return await verifySnapshot(snapshotPath);
   } catch (err) {
     log.error({ err, snapshotPath }, "Snapshot verification failed");
     throw new RouteError(

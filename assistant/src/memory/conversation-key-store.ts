@@ -7,19 +7,14 @@
  * first contact.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
-
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getLogger } from "../util/logger.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema.js";
-
-const log = getLogger("conversation-key-store");
 
 /** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
 let firstConversationSeen = false;
@@ -204,15 +199,7 @@ export function getOrCreateConversation(
     // for its entire duration. Any subsequent conversation means
     // onboarding is over.
     if (firstConversationSeen) {
-      const bp = getWorkspacePromptPath("BOOTSTRAP.md");
-      if (existsSync(bp)) {
-        try {
-          unlinkSync(bp);
-          log.info("Deleted BOOTSTRAP.md — onboarding conversation ended");
-        } catch {
-          // Best-effort
-        }
-      }
+      cleanupBootstrapFiles("new conversation created after onboarding");
     }
     firstConversationSeen = true;
 

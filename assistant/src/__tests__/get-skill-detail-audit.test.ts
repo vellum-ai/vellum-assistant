@@ -188,12 +188,7 @@ import { getSkill } from "../daemon/handlers/skills.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as Parameters<typeof getSkill>[1];
+
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -245,7 +240,7 @@ describe("getSkill — skillssh audit enrichment", () => {
       },
     });
 
-    const result = await getSkill("acme/tools/lint", dummyCtx);
+    const result = await getSkill("acme/tools/lint");
 
     // Should succeed
     expect("skill" in result).toBe(true);
@@ -303,7 +298,7 @@ describe("getSkill — skillssh audit enrichment", () => {
       new Error("audit service unavailable"),
     );
 
-    const result = await getSkill("org/repo/my-tool", dummyCtx);
+    const result = await getSkill("org/repo/my-tool");
 
     // Should still succeed — audit failure is non-fatal
     expect("skill" in result).toBe(true);

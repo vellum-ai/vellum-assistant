@@ -2,16 +2,55 @@
  * In-process pub/sub hub for assistant events.
  *
  * Provides subscribe / publish primitives used by the daemon send paths
- * and the SSE route. No runtime route or daemon integration is wired here.
+ * and the SSE route.
+ *
+ * Subscribers are typed via a discriminated union:
+ *   - **ClientEntry** — an SSE-connected client (macos, chrome-extension, …)
+ *     with identity, capabilities, and timestamps.
+ *   - **ProcessEntry** — an in-process consumer (future: file-append logger).
+ *
+ * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+
+// ---------------------------------------------------------------------------
+// Message type → capability inference
+// ---------------------------------------------------------------------------
+
+const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
+  host_bash: "host_bash",
+  host_file: "host_file",
+  host_transfer: "host_file", // transfers piggyback on host_file capability
+  host_cu: "host_cu",
+  host_browser: "host_browser",
+  host_app_control: "host_app_control",
+};
+
+/**
+ * Infer the {@link HostProxyCapability} a message should be targeted at based
+ * on its `type` field.  Returns `undefined` for message types that are not
+ * host-proxy messages (i.e. they should broadcast to all subscribers).
+ */
+export function capabilityForMessageType(
+  type: string,
+): HostProxyCapability | undefined {
+  const stem = type.replace(/_(request|cancel)$/, "");
+  return HOST_PREFIX_TO_CAPABILITY[stem];
+}
+import { appendEventToStream } from "../signals/event-stream.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+
+const log = getLogger("assistant-event-hub");
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-/** Predicate that determines whether a subscriber wants a given event. */
+/** Filter that determines which events a subscriber receives. */
 export type AssistantEventFilter = {
-  /** When set, restrict delivery to this conversation. */
+  /** When set, restrict delivery to events for this conversation. */
   conversationId?: string;
 };
 
@@ -26,24 +65,68 @@ export interface AssistantEventSubscription {
   readonly active: boolean;
 }
 
-// ── Hub ───────────────────────────────────────────────────────────────────────
+// ── Subscriber entries (discriminated union) ─────────────────────────────────
 
-interface SubscriberEntry {
+interface BaseSubscriberEntry {
   filter: AssistantEventFilter;
   callback: AssistantEventCallback;
   active: boolean;
-  /** Called by the hub when this entry is evicted to make room for a new subscriber. */
-  onEvict?: () => void;
+  onEvict: () => void;
+  connectedAt: Date;
+  lastActiveAt: Date;
 }
+
+interface ClientEntry extends BaseSubscriberEntry {
+  type: "client";
+  clientId: string;
+  interfaceId: InterfaceId;
+  capabilities: HostProxyCapability[];
+  machineName?: string;
+  /**
+   * The verified actor principal id (canonical user identity, parsed from JWT
+   * `sub`) of the user that opened this SSE connection, when available.
+   *
+   * Populated from `AuthContext.actorPrincipalId` at SSE subscription time.
+   * Used by host proxies to gate cross-client targeted execution to the same
+   * authenticated user identity. May be `undefined` for legacy or
+   * service-token connections that have no principal.
+   */
+  actorPrincipalId?: string;
+}
+
+interface ProcessEntry extends BaseSubscriberEntry {
+  type: "process";
+}
+
+type SubscriberEntry = ClientEntry | ProcessEntry;
+
+/** Distributive Omit that preserves union discrimination. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt` and defaults `filter`/`onEvict`. */
+type SubscriberInput = DistributiveOmit<
+  SubscriberEntry,
+  "active" | "connectedAt" | "lastActiveAt" | "filter" | "onEvict"
+> & {
+  filter?: AssistantEventFilter;
+  onEvict?: () => void;
+};
+
+// ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
  * Lightweight pub/sub hub for `AssistantEvent` messages.
  *
- * Filtering is applied at subscription level — subscribers receive only
- * events that match their `conversationId` (when specified).
+ * Filtering is applied at subscription level:
+ *   - `conversationId`: scoped events match subscribers with same conversationId
+ *     or no conversationId filter (broadcast to all).
+ *   - `targetCapability` (on publish): targeted events only reach subscribers
+ *     whose capabilities include the target. Untargeted events fan out to all.
  *
- * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection lives in the SSE route.
+ * Client connections register as subscribers with metadata and are queryable
+ * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
@@ -56,26 +139,48 @@ export class AssistantEventHub {
   /**
    * Register a subscriber that will be called for each matching event.
    *
+   * **Client deduplication:** When a client subscriber is registered with a
+   * `clientId` that already exists, all stale entries for that clientId are
+   * disposed first. This prevents subscriber stacking when clients reconnect
+   * (e.g. Chrome extension reload, SSE token refresh) before the old
+   * connection's abort signal fires.
+   *
    * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
    * subscriber is evicted to make room: its `onEvict` callback is invoked (so
    * it can close its SSE stream) and its entry is removed from the hub.
-   *
-   * The only case that throws is when `maxSubscribers` is 0 — there is nothing
-   * to evict and no room to add.
-   *
-   * @param options.onEvict  Called if this subscriber is later evicted by a newer one.
-   * @returns A subscription handle. Call `dispose()` to unsubscribe.
    */
-  subscribe(
-    filter: AssistantEventFilter,
-    callback: AssistantEventCallback,
-    options?: { onEvict?: () => void },
-  ): AssistantEventSubscription {
+  subscribe(subscriber: SubscriberInput): AssistantEventSubscription {
+    // Deduplicate: dispose stale subscribers for the same clientId.
+    if (subscriber.type === "client") {
+      const stale: SubscriberEntry[] = [];
+      for (const existing of this.subscribers) {
+        if (
+          existing.type === "client" &&
+          existing.clientId === subscriber.clientId
+        ) {
+          stale.push(existing);
+        }
+      }
+      for (const entry of stale) {
+        entry.active = false;
+        this.subscribers.delete(entry);
+        try {
+          entry.onEvict();
+        } catch {
+          /* ignore eviction callback errors */
+        }
+      }
+      if (stale.length > 0) {
+        log.info(
+          { clientId: subscriber.clientId, count: stale.length },
+          "disposed stale subscribers for reconnecting client",
+        );
+      }
+    }
+
     if (this.subscribers.size >= this.maxSubscribers) {
-      // Evict the oldest subscriber (Sets maintain insertion order).
       const [oldest] = this.subscribers;
       if (!oldest) {
-        // maxSubscribers is 0 — nothing to evict, nothing to add.
         throw new RangeError(
           `AssistantEventHub: subscriber cap reached (${this.maxSubscribers})`,
         );
@@ -83,17 +188,35 @@ export class AssistantEventHub {
       oldest.active = false;
       this.subscribers.delete(oldest);
       try {
-        oldest.onEvict?.();
+        oldest.onEvict();
       } catch {
         /* ignore eviction callback errors */
       }
     }
+
+    const now = new Date();
     const entry: SubscriberEntry = {
-      filter,
-      callback,
+      ...subscriber,
+      filter: subscriber.filter ?? {},
+      onEvict: subscriber.onEvict ?? (() => {}),
       active: true,
-      onEvict: options?.onEvict,
-    };
+      connectedAt: now,
+      lastActiveAt: now,
+    } as SubscriberEntry;
+
+    if (entry.type === "client") {
+      log.info(
+        {
+          clientId: entry.clientId,
+          interfaceId: entry.interfaceId,
+          capabilities: entry.capabilities,
+        },
+        "subscriber registered (client)",
+      );
+    } else {
+      log.info("subscriber registered (process)");
+    }
+
     this.subscribers.add(entry);
 
     return {
@@ -101,6 +224,17 @@ export class AssistantEventHub {
         if (entry.active) {
           entry.active = false;
           this.subscribers.delete(entry);
+          if (entry.type === "client") {
+            log.info(
+              {
+                clientId: entry.clientId,
+                interfaceId: entry.interfaceId,
+              },
+              "subscriber unregistered (client)",
+            );
+          } else {
+            log.info("subscriber unregistered (process)");
+          }
         }
       },
       get active() {
@@ -113,30 +247,70 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
-   * - if `filter.conversationId` is set, `event.conversationId` must equal it
+   * - if `targetClientId` is set, deliver only to the subscriber with that
+   *   clientId, bypassing the conversation-id filter entirely (the web-origin
+   *   event's conversationId differs from the macOS client's subscribed
+   *   conversation).
+   * - if `filter.conversationId` is set (and `targetClientId` is not), the
+   *   `event.conversationId` must equal it
+   * - if `targetCapability` is set, only subscribers whose capabilities include
+   *   it receive the event; untargeted events go to all
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
-   * delivery to remaining subscribers. All callbacks (sync and async) are
-   * awaited and their errors collected; any errors are re-thrown together
-   * as an `AggregateError` after all callbacks have been invoked.
-   *
-   * Subscribers are snapshotted at the start of each publish call so that
-   * callbacks adding new subscriptions do not receive the in-flight event.
+   * delivery to remaining subscribers.
    */
-  async publish(event: AssistantEvent): Promise<void> {
+  async publish(
+    event: AssistantEvent,
+    options?: {
+      targetCapability?: HostProxyCapability;
+      targetClientId?: string;
+    },
+  ): Promise<void> {
+    if (event.conversationId) {
+      try {
+        appendEventToStream(event.conversationId, event);
+      } catch {
+        // Best-effort; file I/O failures must not block subscriber fanout.
+      }
+    }
+
+    const targetCapability = options?.targetCapability;
+    const targetClientId = options?.targetClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
-      // System events (no conversationId) match all subscribers; scoped events
-      // must match the subscriber's conversationId filter when present.
-      if (
-        event.conversationId != null &&
-        entry.filter.conversationId != null &&
-        entry.filter.conversationId !== event.conversationId
-      )
-        continue;
+
+      if (targetClientId != null) {
+        // Targeted: bypass conversation filter, deliver only to the named client.
+        if (entry.type !== "client" || entry.clientId !== targetClientId)
+          continue;
+        if (
+          targetCapability != null &&
+          !entry.capabilities.includes(targetCapability)
+        )
+          continue;
+      } else {
+        // Untargeted: existing conversation-scoped + capability logic.
+        if (
+          event.conversationId != null &&
+          entry.filter.conversationId != null &&
+          entry.filter.conversationId !== event.conversationId
+        )
+          continue;
+
+        // Capability targeting: targeted events only go to subscribers that
+        // declare the required capability.
+        if (targetCapability != null) {
+          if (
+            entry.type !== "client" ||
+            !entry.capabilities.includes(targetCapability)
+          )
+            continue;
+        }
+      }
+
       try {
         await entry.callback(event);
       } catch (err) {
@@ -150,6 +324,34 @@ export class AssistantEventHub {
         "One or more assistant-event subscribers threw",
       );
     }
+  }
+
+  /**
+   * Return the active client subscriber with the given clientId, or
+   * `undefined` if no such subscriber exists.
+   */
+  getClientById(clientId: string): ClientEntry | undefined {
+    for (const entry of this.subscribers) {
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      )
+        return entry;
+    }
+    return undefined;
+  }
+
+  /**
+   * Return the verified actor principal id captured at SSE subscription time
+   * for the given client, or `undefined` if the client is unknown or
+   * connected without a principal (e.g. legacy/service tokens).
+   *
+   * Used by host proxies to bind cross-client targeted execution to the same
+   * authenticated user identity that opened the target client's SSE stream.
+   */
+  getActorPrincipalIdForClient(clientId: string): string | undefined {
+    return this.getClientById(clientId)?.actorPrincipalId;
   }
 
   /**
@@ -173,6 +375,132 @@ export class AssistantEventHub {
     return false;
   }
 
+  // ── Client queries ──────────────────────────────────────────────────────────
+
+  private clientEntries(): ClientEntry[] {
+    const clients: ClientEntry[] = [];
+    for (const entry of this.subscribers) {
+      if (entry.active && entry.type === "client") {
+        clients.push(entry);
+      }
+    }
+    return clients.sort(
+      (a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+    );
+  }
+
+  /**
+   * Return all active client subscribers, sorted by `lastActiveAt` descending.
+   */
+  listClients(): ClientEntry[] {
+    return this.clientEntries();
+  }
+
+  /**
+   * Return all client subscribers that support the given capability,
+   * sorted by `lastActiveAt` descending.
+   */
+  listClientsByCapability(capability: HostProxyCapability): ClientEntry[] {
+    return this.clientEntries().filter((c) =>
+      c.capabilities.includes(capability),
+    );
+  }
+
+  /**
+   * Return the most recently active client that supports the given
+   * capability, or `undefined` if none exists.
+   */
+  getMostRecentClientByCapability(
+    capability: HostProxyCapability,
+  ): ClientEntry | undefined {
+    return this.listClientsByCapability(capability)[0];
+  }
+
+  /**
+   * Return the best client for the given capability using an explicit
+   * interface preference order. Among clients that support `capability`,
+   * the one whose `interfaceId` appears earliest in `interfacePreference`
+   * wins. Within the same interface tier, `lastActiveAt` is the tiebreaker
+   * (most recent first). Clients not in the preference list are considered last.
+   *
+   * Used by {@link HostBrowserProxy} to prefer the Chrome Extension
+   * (`chrome-extension`) over the macOS SSE bridge (`macos`) when both are
+   * connected, so `chrome.debugger` is used ahead of the localhost:9222 path.
+   */
+  getPreferredClientByCapability(
+    capability: HostProxyCapability,
+    interfacePreference: InterfaceId[],
+  ): ClientEntry | undefined {
+    const clients = this.listClientsByCapability(capability);
+    if (clients.length === 0) return undefined;
+    // listClientsByCapability returns clients sorted by lastActiveAt desc
+    // (most recent first). A stable sort by preference index preserves that
+    // ordering within each interface tier.
+    return clients.sort((a, b) => {
+      const ai = interfacePreference.indexOf(a.interfaceId);
+      const bi = interfacePreference.indexOf(b.interfaceId);
+      const ea = ai === -1 ? interfacePreference.length : ai;
+      const eb = bi === -1 ? interfacePreference.length : bi;
+      return ea - eb;
+    })[0];
+  }
+
+  /**
+   * Return all client subscribers with the given interface type,
+   * sorted by `lastActiveAt` descending.
+   */
+  listClientsByInterface(interfaceId: InterfaceId): ClientEntry[] {
+    return this.clientEntries().filter((c) => c.interfaceId === interfaceId);
+  }
+
+  /**
+   * Touch a client subscriber — update `lastActiveAt`. Used by heartbeat.
+   */
+  touchClient(clientId: string): void {
+    const now = new Date();
+    for (const entry of this.subscribers) {
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        entry.lastActiveAt = now;
+      }
+    }
+  }
+
+  /**
+   * Force-disconnect a client by disposing all subscribers for the given
+   * `clientId`. Returns the number of disposed entries.
+   *
+   * Used by `assistant clients disconnect <clientId>` to forcibly remove
+   * stale or unwanted client connections.
+   */
+  disposeClient(clientId: string): number {
+    const targets: SubscriberEntry[] = [];
+    for (const entry of this.subscribers) {
+      if (entry.type === "client" && entry.clientId === clientId) {
+        targets.push(entry);
+      }
+    }
+    for (const entry of targets) {
+      entry.active = false;
+      this.subscribers.delete(entry);
+      try {
+        entry.onEvict();
+      } catch {
+        /* ignore eviction callback errors */
+      }
+    }
+    if (targets.length > 0) {
+      log.info(
+        { clientId, count: targets.length },
+        "force-disposed client subscribers",
+      );
+    }
+    return targets.length;
+  }
+
   /** Number of currently active subscribers (useful for tests and caps). */
   subscriberCount(): number {
     return this.subscribers.size;
@@ -192,3 +520,175 @@ export class AssistantEventHub {
  * Import and use this in daemon send paths and the SSE route.
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
+
+// ── Convenience: ServerMessage → AssistantEvent publish ───────────────────────
+
+/**
+ * Promise chain that serializes publishes so subscribers always observe
+ * events in send order.
+ */
+let _hubChain = Promise.resolve();
+
+/**
+ * Wraps a `ServerMessage` in an `AssistantEvent` envelope and publishes it
+ * to the process-level hub.
+ *
+ * When `conversationId` is omitted, it is auto-extracted from the message
+ * payload (if present).
+ *
+ * Target capability is inferred automatically from the message type — callers
+ * never need to specify it.  Host-proxy messages (`host_bash_*`,
+ * `host_file_*`, `host_transfer_*`, `host_cu_*`, `host_browser_*`) are routed
+ * only to subscribers that declare the matching capability; all other messages
+ * broadcast to every subscriber.
+ *
+ * This is the primary entrypoint for emitting events — handlers, routes, and
+ * services should call this directly instead of threading a broadcast callback.
+ */
+export function broadcastMessage(
+  msg: ServerMessage,
+  conversationId?: string,
+  options?: { targetClientId?: string },
+): void {
+  const resolvedConversationId = conversationId ?? extractConversationId(msg);
+  const targetClientId = options?.targetClientId;
+
+  // Confirmation-request side effects: canonical guardian request creation.
+  // The home-feed `activity.failed` notification side-effect lives in the
+  // notifications pipeline now, so we no longer emit a feed event here.
+  if (msg.type === "confirmation_request" && resolvedConversationId) {
+    void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
+  }
+
+  // `conversation_list_invalidated` is a list-level system event — publish
+  // it unscoped so every subscriber refreshes its sidebar.
+  const scopedConversationId =
+    msg.type === "conversation_list_invalidated"
+      ? undefined
+      : resolvedConversationId;
+  const event = buildAssistantEvent(msg, scopedConversationId);
+  const targetCapability = capabilityForMessageType(msg.type);
+  const publishOptions =
+    targetCapability != null || targetClientId != null
+      ? { targetCapability, targetClientId }
+      : undefined;
+  _hubChain = _hubChain
+    .then(() => assistantEventHub.publish(event, publishOptions))
+    .then(() => {
+      // When a conversation title changes, also broadcast an unscoped
+      // `conversation_list_invalidated` so every connected client's sidebar
+      // refreshes — not just the client viewing this conversation.
+      if (msg.type === "conversation_title_updated") {
+        return assistantEventHub
+          .publish(
+            buildAssistantEvent({
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          )
+          .catch((err: unknown) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated after title update",
+            );
+          });
+      }
+    })
+    .catch((err: unknown) => {
+      log.warn({ err }, "assistant-events hub subscriber threw during publish");
+    });
+}
+
+function extractConversationId(msg: ServerMessage): string | undefined {
+  const record = msg as unknown as Record<string, unknown>;
+  if ("conversationId" in msg && typeof record.conversationId === "string") {
+    return record.conversationId as string;
+  }
+  return undefined;
+}
+
+// ── Canonical guardian request ────────────────────────────────────────────────
+
+function resolveCanonicalRequestSourceType(
+  sourceChannel: string,
+): "desktop" | "channel" | "voice" {
+  if (sourceChannel === "phone") return "voice";
+  if (sourceChannel === "vellum") return "desktop";
+  return "channel";
+}
+
+
+/**
+ * Lazily load heavy dependencies and create a canonical guardian request +
+ * bridge for a confirmation_request message. Called fire-and-forget from
+ * broadcastMessage.
+ */
+async function createCanonicalRequestForConfirmation(
+  msg: ServerMessage & { type: "confirmation_request" },
+  conversationId: string,
+): Promise<void> {
+  try {
+    const [
+      { findConversation },
+      { createCanonicalGuardianRequest, generateCanonicalRequestCode },
+      { redactSecrets },
+      { summarizeToolInput },
+      { DAEMON_INTERNAL_ASSISTANT_ID },
+      { bridgeConfirmationRequestToGuardian },
+    ] = await Promise.all([
+      import("../daemon/conversation-store.js"),
+      import("../memory/canonical-guardian-store.js"),
+      import("../security/secret-scanner.js"),
+      import("../tools/tool-input-summary.js"),
+      import("./assistant-scope.js"),
+      import("./confirmation-request-guardian-bridge.js"),
+    ]);
+
+    const conversation = findConversation(conversationId);
+    const trustContext = conversation?.trustContext;
+    const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+    const inputRecord = msg.input as Record<string, unknown>;
+    const activityRaw =
+      (typeof inputRecord.activity === "string"
+        ? inputRecord.activity
+        : undefined) ??
+      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
+    const canonicalRequest = createCanonicalGuardianRequest({
+      id: msg.requestId,
+      kind: "tool_approval",
+      sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+      sourceChannel,
+      conversationId,
+      requesterExternalUserId: trustContext?.requesterExternalUserId,
+      requesterChatId: trustContext?.requesterChatId,
+      guardianExternalUserId: trustContext?.guardianExternalUserId,
+      guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
+      toolName: msg.toolName,
+      commandPreview:
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined,
+      riskLevel: msg.riskLevel,
+      activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
+      executionTarget: msg.executionTarget,
+      status: "pending",
+      requestCode: generateCanonicalRequestCode(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    if (trustContext && conversation) {
+      bridgeConfirmationRequestToGuardian({
+        canonicalRequest,
+        trustContext,
+        conversationId,
+        toolName: msg.toolName,
+        assistantId: conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      });
+    }
+  } catch (err) {
+    log.debug(
+      { err, conversationId },
+      "Failed to create canonical request from broadcast",
+    );
+  }
+}
+

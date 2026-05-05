@@ -1278,17 +1278,17 @@ describe("getMeetBotInstanceHash", () => {
     expect(hash).toBe(getMeetBotInstanceHash());
   });
 
-  test("changes when BASE_DATA_DIR changes (per-instance scoping)", () => {
-    const prev = process.env.BASE_DATA_DIR;
+  test("changes when VELLUM_WORKSPACE_DIR changes (per-instance scoping)", () => {
+    const prev = process.env.VELLUM_WORKSPACE_DIR;
     try {
-      process.env.BASE_DATA_DIR = "/tmp/instance-one";
+      process.env.VELLUM_WORKSPACE_DIR = "/tmp/instance-one/workspace";
       const hashOne = getMeetBotInstanceHash();
-      process.env.BASE_DATA_DIR = "/tmp/instance-two";
+      process.env.VELLUM_WORKSPACE_DIR = "/tmp/instance-two/workspace";
       const hashTwo = getMeetBotInstanceHash();
       expect(hashOne).not.toBe(hashTwo);
     } finally {
-      if (prev === undefined) delete process.env.BASE_DATA_DIR;
-      else process.env.BASE_DATA_DIR = prev;
+      if (prev === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
+      else process.env.VELLUM_WORKSPACE_DIR = prev;
     }
   });
 });

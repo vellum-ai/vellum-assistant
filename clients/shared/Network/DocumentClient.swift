@@ -8,6 +8,7 @@ public protocol DocumentClientProtocol {
     func fetchList(conversationId: String?) async -> DocumentListResponse?
     func fetchDocument(surfaceId: String) async -> DocumentLoadResponse?
     func saveDocument(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) async -> DocumentSaveResponse?
+    func exportDocumentPDF(surfaceId: String) async -> Data?
 }
 
 /// Gateway-backed implementation of ``DocumentClientProtocol``.
@@ -20,7 +21,7 @@ public struct DocumentClient: DocumentClientProtocol {
             if let conversationId { params["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/documents",
+                path: "documents",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -52,7 +53,7 @@ public struct DocumentClient: DocumentClientProtocol {
     public func fetchDocument(surfaceId: String) async -> DocumentLoadResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/documents/\(surfaceId)", timeout: 10
+                path: "documents/\(surfaceId)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchDocument failed (HTTP \(response.statusCode))")
@@ -87,7 +88,7 @@ public struct DocumentClient: DocumentClientProtocol {
                 "wordCount": wordCount,
             ]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/documents", json: body, timeout: 10
+                path: "documents", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("saveDocument failed (HTTP \(response.statusCode))")
@@ -102,6 +103,23 @@ public struct DocumentClient: DocumentClientProtocol {
             )
         } catch {
             log.error("saveDocument error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func exportDocumentPDF(surfaceId: String) async -> Data? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/documents/\(surfaceId)/pdf",
+                timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("exportDocumentPDF failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return response.data
+        } catch {
+            log.error("exportDocumentPDF error: \(error.localizedDescription)")
             return nil
         }
     }

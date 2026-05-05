@@ -15,6 +15,96 @@ extension ChatBubble {
             || message.toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
+    /// Builds an ordered list of `ProgressExpandedItem`s that folds thinking
+    /// content into the progress card alongside tool calls.
+    ///
+    /// Returns `nil` when no thinking content should be folded — preserving
+    /// the default tool-calls-only rendering path in `AssistantProgressView`.
+    ///
+    /// Two thinking sources are considered:
+    /// 1. **Structured `thinkingSegments`** referenced by `contentOrder`
+    ///    `.thinking(i)` entries.
+    /// 2. **Inline `<thinking>` XML tags** embedded in `message.text`.
+    var expandedItemsForProgressCard: [ProgressExpandedItem]? {
+        let showThinking = MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks")
+        guard showThinking else { return nil }
+
+        // --- Source 1: Structured thinking segments from contentOrder ---
+        let hasStructuredThinking = message.contentOrder.contains { ref in
+            if case .thinking = ref { return true }
+            return false
+        }
+
+        if hasStructuredThinking {
+            var items: [ProgressExpandedItem] = []
+            let lastThinkingIndex = message.contentOrder.lastIndex { ref in
+                if case .thinking = ref { return true }
+                return false
+            }
+            for (orderIdx, ref) in message.contentOrder.enumerated() {
+                switch ref {
+                case .thinking(let i):
+                    guard i < message.thinkingSegments.count else { continue }
+                    let content = message.thinkingSegments[i]
+                    guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let key = "\(message.id.uuidString)-th\(i)"
+                    let isLast = orderIdx == lastThinkingIndex
+                    let hasToolAfter = isLast && message.contentOrder.suffix(from: orderIdx + 1).contains {
+                        if case .toolCall = $0 { return true }; return false
+                    }
+                    let streaming = message.isStreaming && isLast && !hasToolAfter
+                    items.append(.thinking(content: content, expansionKey: key, isStreaming: streaming))
+                case .toolCall(let i):
+                    guard i < message.toolCalls.count else { continue }
+                    items.append(.toolCall(message.toolCalls[i]))
+                default:
+                    break
+                }
+            }
+            // Only return if we actually produced thinking items
+            let hasThinkingItems = items.contains { item in
+                if case .thinking = item { return true }
+                return false
+            }
+            return hasThinkingItems ? items : nil
+        }
+
+        // --- Source 2: Inline <thinking> tags in message.text ---
+        guard containsInlineThinkingTag(message.text),
+              !message.toolCalls.isEmpty else {
+            return nil
+        }
+
+        let chunks = parseInlineThinkingTags(message.text)
+        let thinkingChunks: [(offset: Int, content: String)] = chunks.enumerated().compactMap { (idx, chunk) in
+            if case .thinking(let body) = chunk { return (idx, body) }
+            return nil
+        }
+
+        guard !thinkingChunks.isEmpty else { return nil }
+
+        var items: [ProgressExpandedItem] = []
+
+        // Determine if the last chunk overall is a thinking chunk (for isStreaming)
+        let lastChunkIsThinking: Bool = {
+            guard let last = chunks.last else { return false }
+            if case .thinking = last { return true }
+            return false
+        }()
+
+        for (i, tc) in thinkingChunks.enumerated() {
+            let key = "\(message.id.uuidString)-th\(i)"
+            let isLast = (i == thinkingChunks.count - 1) && lastChunkIsThinking
+            items.append(.thinking(content: tc.content, expansionKey: key, isStreaming: message.isStreaming && isLast))
+        }
+
+        for toolCall in message.toolCalls {
+            items.append(.toolCall(toolCall))
+        }
+
+        return items
+    }
+
     @ViewBuilder
     var trailingStatus: some View {
         let inlineToolProgressRenderedInContent = shouldRenderToolProgressInline
@@ -46,6 +136,7 @@ extension ChatBubble {
                     streamingCodePreview: message.streamingCodePreview,
                     streamingCodeToolName: message.streamingCodeToolName,
                     decidedConfirmations: effectiveConfirmations,
+                    expandedItems: expandedItemsForProgressCard,
                     onRehydrate: onRehydrate,
                     onConfirmationAllow: onConfirmationAllow,
                     onConfirmationDeny: onConfirmationDeny,

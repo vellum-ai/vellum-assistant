@@ -1,7 +1,7 @@
 import { getConfig } from "../config/loader.js";
 import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message } from "../providers/types.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { CommitContext } from "./commit-message-provider.js";
 import { DefaultCommitMessageProvider } from "./commit-message-provider.js";
@@ -134,7 +134,7 @@ class ProviderCommitMessageGenerator {
       );
       const keyChecks = await Promise.all(
         candidates.map(async (name) => {
-          const value = await getSecureKeyAsync(name);
+          const value = await getProviderKeyAsync(name);
           return typeof value === "string" && value.length > 0;
         }),
       );
@@ -157,7 +157,7 @@ class ProviderCommitMessageGenerator {
 
     // Step 2b: API key preflight for the configured provider (skip keyless).
     if (!KEYLESS_PROVIDERS.has(providerName)) {
-      const providerApiKey = await getSecureKeyAsync(providerName);
+      const providerApiKey = await getProviderKeyAsync(providerName);
       if (!providerApiKey) {
         log.debug(
           {

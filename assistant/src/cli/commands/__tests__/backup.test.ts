@@ -9,7 +9,6 @@
  * or via a commander program (for end-to-end arg parsing).
  */
 
-import { Readable } from "node:stream";
 import {
   afterEach,
   beforeEach,
@@ -130,8 +129,8 @@ let mockDaemonRunning = false;
 const recoveryCallOrder: string[] = [];
 
 /** Number of times each recovery helper was invoked. */
-let mockResetDbCalls = 0;
-let mockInvalidateConfigCacheCalls = 0;
+let _mockResetDbCalls = 0;
+let _mockInvalidateConfigCacheCalls = 0;
 
 /** Log calls captured by the mocked logger. */
 let mockLogInfo: string[] = [];
@@ -167,7 +166,7 @@ mock.module("../../../config/loader.js", () => ({
     backup: getComputedBackupConfig(),
   }),
   invalidateConfigCache: () => {
-    mockInvalidateConfigCacheCalls += 1;
+    _mockInvalidateConfigCacheCalls += 1;
     recoveryCallOrder.push("invalidateConfigCache");
   },
 }));
@@ -178,7 +177,7 @@ mock.module("../../../daemon/daemon-control.js", () => ({
 
 mock.module("../../../memory/db-connection.js", () => ({
   resetDb: () => {
-    mockResetDbCalls += 1;
+    _mockResetDbCalls += 1;
     recoveryCallOrder.push("resetDb");
   },
 }));
@@ -323,9 +322,6 @@ const {
   handleDestinationsList,
   handleStatus,
   handleList,
-  handleCreate,
-  handleVerify,
-  handleRestore,
   registerBackupCommand,
 } = backupMod;
 
@@ -342,8 +338,8 @@ beforeEach(() => {
   mockLogError = [];
   mockCreateShouldThrow = null;
   mockDaemonRunning = false;
-  mockResetDbCalls = 0;
-  mockInvalidateConfigCacheCalls = 0;
+  _mockResetDbCalls = 0;
+  _mockInvalidateConfigCacheCalls = 0;
   recoveryCallOrder.length = 0;
   process.exitCode = 0;
   mockVerifyResult = { valid: true };
@@ -766,273 +762,6 @@ describe("handleList", () => {
 
 // ---------------------------------------------------------------------------
 // create
-// ---------------------------------------------------------------------------
-
-describe("handleCreate", () => {
-  test("renders successful snapshot result with empty offsite", async () => {
-    await handleCreate();
-    const out = mockLogInfo.join("\n");
-    expect(out).toContain("Created snapshot:");
-    expect(out).toContain("backup-20260411-093000.vbundle");
-    expect(out).toContain("offsite: (none)");
-  });
-
-  test("renders per-destination outcome mix (ok, skipped, error)", async () => {
-    mockCreateSnapshotResult = {
-      ...mockCreateSnapshotResult,
-      offsite: [
-        {
-          destination: { path: "/ok", encrypt: true },
-          entry: {
-            path: "/ok/f.vbundle.enc",
-            filename: "f.vbundle.enc",
-            createdAt: new Date(),
-            sizeBytes: 100,
-            encrypted: true,
-          },
-        },
-        {
-          destination: { path: "/skipped", encrypt: true },
-          entry: null,
-          skipped: "parent-missing",
-        },
-        {
-          destination: { path: "/broken", encrypt: false },
-          entry: null,
-          error: "disk full",
-        },
-      ],
-    };
-    await handleCreate();
-    const out = mockLogInfo.join("\n");
-    expect(out).toContain("ok       /ok");
-    expect(out).toContain("skipped  /skipped");
-    expect(out).toContain("error    /broken");
-    expect(out).toContain("disk full");
-  });
-
-  test("concurrency error prints clear message", async () => {
-    mockCreateShouldThrow = new Error("snapshot in progress");
-    await handleCreate();
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) =>
-        m.toLowerCase().includes("already running"),
-      ),
-    ).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// verify
-// ---------------------------------------------------------------------------
-
-describe("handleVerify", () => {
-  test("returns valid result from verifySnapshot", async () => {
-    mockVerifyResult = {
-      valid: true,
-      manifest: {
-        schema_version: "1.0.0",
-        created_at: "2026-04-11T09:30:00Z",
-        source: "backup-worker",
-        files: [],
-        manifest_sha256: "abc",
-      },
-    };
-    await handleVerify("/tmp/local/backup.vbundle");
-    const out = mockLogInfo.join("\n");
-    expect(out).toContain("OK:");
-    expect(out).toContain("1.0.0");
-    expect(process.exitCode).toBe(0);
-  });
-
-  test("propagates invalid result with error details", async () => {
-    mockVerifyResult = { valid: false, error: "bad checksum" };
-    await handleVerify("/tmp/local/backup.vbundle");
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("Invalid:")),
-    ).toBe(true);
-    expect(
-      mockLogError.some((m) => m.includes("bad checksum")),
-    ).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// restore
-// ---------------------------------------------------------------------------
-
-/**
- * Replace `process.stdin` with a readable stream that emits the given line.
- * `readline.createInterface` consumes this as a single line so prompt-based
- * confirmation tests stay deterministic.
- */
-function stubStdin(input: string): () => void {
-  const original = process.stdin;
-  const stream = Readable.from([input + "\n"]) as NodeJS.ReadableStream;
-  Object.defineProperty(process, "stdin", {
-    value: stream,
-    writable: true,
-    configurable: true,
-  });
-  return () => {
-    Object.defineProperty(process, "stdin", {
-      value: original,
-      writable: true,
-      configurable: true,
-    });
-  };
-}
-
-describe("handleRestore", () => {
-  test("--yes flag bypasses confirmation and calls restoreFromSnapshot", async () => {
-    await handleRestore({
-      path: "/tmp/local/backup-20260411-093000.vbundle",
-      yes: true,
-    });
-    expect(process.exitCode).toBe(0);
-    const out = mockLogInfo.join("\n");
-    expect(out).toContain("Restored from");
-    expect(out).toContain("files restored: 42");
-  });
-
-  test("without --yes and 'n' answer aborts", async () => {
-    const restore = stubStdin("n");
-    try {
-      await handleRestore({
-        path: "/tmp/local/backup-20260411-093000.vbundle",
-      });
-    } finally {
-      restore();
-    }
-    expect(process.exitCode).toBe(0);
-    const out = mockLogInfo.join("\n");
-    expect(out).toContain("Restore cancelled");
-  });
-
-  test("without --path and without --latest errors", async () => {
-    await handleRestore({});
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("--path")),
-    ).toBe(true);
-  });
-
-  test("both --path and --latest errors", async () => {
-    await handleRestore({
-      path: "/tmp/x.vbundle",
-      latest: true,
-      yes: true,
-    });
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("Cannot combine")),
-    ).toBe(true);
-  });
-
-  test("--latest with no local snapshots errors", async () => {
-    mockSnapshots["/tmp/local"] = [];
-    await handleRestore({ latest: true, yes: true });
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("No local snapshots")),
-    ).toBe(true);
-  });
-
-  test("--latest picks newest local snapshot", async () => {
-    mockSnapshots["/tmp/local"] = [
-      {
-        path: "/tmp/local/newest.vbundle",
-        filename: "newest.vbundle",
-        createdAt: new Date("2026-04-11T12:00:00Z"),
-        sizeBytes: 1024,
-        encrypted: false,
-      },
-      {
-        path: "/tmp/local/older.vbundle",
-        filename: "older.vbundle",
-        createdAt: new Date("2026-04-10T12:00:00Z"),
-        sizeBytes: 1024,
-        encrypted: false,
-      },
-    ];
-    await handleRestore({ latest: true, yes: true });
-    expect(process.exitCode).toBe(0);
-    expect(mockLogInfo.some((m) => m.includes("newest.vbundle"))).toBe(
-      true,
-    );
-  });
-
-  test("refuses to run while the assistant is running (no --force)", async () => {
-    // Safety gate: the CLI must refuse to restore against a live assistant
-    // unless --force is passed. Restoring under a running assistant is
-    // dangerous — the open SQLite handle, cached config, and cached trust
-    // rules all contradict the on-disk state after the bundle is written.
-    mockDaemonRunning = true;
-
-    await handleRestore({
-      path: "/tmp/local/backup-20260411-093000.vbundle",
-      yes: true,
-    });
-
-    expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) =>
-        m.toLowerCase().includes("assistant is running"),
-      ),
-    ).toBe(true);
-    // restoreFromSnapshot must not have been called — the safety gate
-    // bails before reaching the recovery sequence.
-    expect(mockResetDbCalls).toBe(0);
-    expect(recoveryCallOrder).toEqual([]);
-  });
-
-  test("--force overrides the daemon-running refusal and still runs recovery sequence", async () => {
-    mockDaemonRunning = true;
-
-    await handleRestore({
-      path: "/tmp/local/backup-20260411-093000.vbundle",
-      yes: true,
-      force: true,
-    });
-
-    expect(process.exitCode).toBe(0);
-    // Recovery sequence must still run even with --force — the flag only
-    // overrides the running-assistant refusal, not the DB reset or cache
-    // invalidation.
-    expect(mockResetDbCalls).toBe(1);
-    expect(mockInvalidateConfigCacheCalls).toBe(1);
-    expect(recoveryCallOrder).toEqual([
-      "resetDb",
-      "restoreFromSnapshot",
-      "invalidateConfigCache",    ]);
-  });
-
-  test("successful restore runs resetDb, restore, then cache invalidation in order", async () => {
-    // Regression test for the restore-corrupts-daemon-state gap. The CLI
-    // handler must mirror the HTTP handler's recovery sequence so an
-    // in-process CLI invocation leaves the shared runtime in a consistent
-    // state.
-    mockDaemonRunning = false;
-
-    await handleRestore({
-      path: "/tmp/local/backup-20260411-093000.vbundle",
-      yes: true,
-    });
-
-    expect(process.exitCode).toBe(0);
-    expect(mockResetDbCalls).toBe(1);
-    expect(mockInvalidateConfigCacheCalls).toBe(1);
-    expect(recoveryCallOrder).toEqual([
-      "resetDb",
-      "restoreFromSnapshot",
-      "invalidateConfigCache",    ]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// End-to-end: via Commander program
 // ---------------------------------------------------------------------------
 
 async function runProgram(

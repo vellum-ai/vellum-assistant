@@ -2,8 +2,8 @@
 #
 # staging-release.sh — Build a staging release DMG and upload it to a Mac mini.
 #
-# Runs `./build.sh release` with BUNDLE_DISPLAY_NAME="Vellum (Staging)" so
-# that "(Staging)" appears in the About Vellum modal, then packages the
+# Runs `./build.sh release` with BUNDLE_DISPLAY_NAME="Vellum Staging" so
+# that "Staging" appears in the app name, then packages the
 # resulting .app into a DMG, SCPs it to a Mac mini, and installs the app
 # into /Applications.
 #
@@ -140,7 +140,7 @@ MACOS_BUILD_DIR="$SCRIPT_DIR/../clients/macos"
 # 1. Build the staging release
 # ---------------------------------------------------------------------------
 
-export BUNDLE_DISPLAY_NAME="Vellum (Staging)"
+export BUNDLE_DISPLAY_NAME="Vellum Staging"
 export COMMIT_SHA="${COMMIT_SHA:-$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "")}"
 
 if [ "$INTEL_BUILD" = true ]; then
@@ -195,7 +195,7 @@ if command -v create-dmg &>/dev/null; then
   fi
 
   create-dmg \
-    --volname "Vellum (Staging)" \
+    --volname "Vellum Staging" \
     "${DMG_BG_ARGS[@]}" \
     --window-pos 200 120 \
     --window-size 660 400 \
@@ -218,7 +218,7 @@ if command -v create-dmg &>/dev/null; then
   }
 else
   echo "(create-dmg not found, using hdiutil -- install via 'brew install create-dmg' for nicer DMGs)"
-  hdiutil create -volname "Vellum (Staging)" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+  hdiutil create -volname "Vellum Staging" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
 fi
 
 echo "DMG created: $DMG_PATH"
@@ -273,7 +273,7 @@ if [ "$LOCAL_INSTALL" = true ]; then
   echo "Installing into /Applications locally..."
 
   # Kill running staging instance if any
-  pkill -x "Vellum (Staging)" 2>/dev/null || true
+  pkill -x "Vellum Staging" 2>/dev/null || true
   sleep 1
 
   # Mount, copy to /Applications, unmount
@@ -283,8 +283,8 @@ if [ "$LOCAL_INSTALL" = true ]; then
     exit 1
   fi
 
-  rm -rf "/Applications/Vellum (Staging).app"
-  cp -R "$MOUNT_POINT/Vellum (Staging).app" "/Applications/Vellum (Staging).app"
+  rm -rf "/Applications/Vellum Staging.app"
+  cp -R "$MOUNT_POINT/Vellum Staging.app" "/Applications/Vellum Staging.app"
   hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
 
   echo "Done! Staging app installed to /Applications locally"
@@ -300,7 +300,7 @@ set -euo pipefail
 DMG="/tmp/vellum-assistant-staging.dmg"
 
 # Kill running staging instance if any
-pkill -x "Vellum (Staging)" 2>/dev/null || true
+pkill -x "Vellum Staging" 2>/dev/null || true
 sleep 1
 
 # Mount, copy to /Applications, unmount
@@ -310,12 +310,12 @@ if [ -z "$MOUNT_POINT" ]; then
   exit 1
 fi
 
-rm -rf "/Applications/Vellum (Staging).app"
-cp -R "$MOUNT_POINT/Vellum (Staging).app" "/Applications/Vellum (Staging).app"
+rm -rf "/Applications/Vellum Staging.app"
+cp -R "$MOUNT_POINT/Vellum Staging.app" "/Applications/Vellum Staging.app"
 hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
 rm -f "$DMG"
 
-echo "Installed: /Applications/Vellum (Staging).app"
+echo "Installed: /Applications/Vellum Staging.app"
 REMOTE_SCRIPT
 
   echo "Done! Staging app installed to /Applications on ${SCP_HOST}"

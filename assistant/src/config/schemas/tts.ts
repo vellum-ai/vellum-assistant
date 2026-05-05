@@ -220,7 +220,7 @@ export const TtsXaiProviderConfigSchema = z
 
 export type TtsXaiProviderConfig = z.infer<typeof TtsXaiProviderConfigSchema>;
 
-export const TtsProvidersSchema = z.object({
+const TtsProvidersSchema = z.object({
   elevenlabs: TtsElevenLabsProviderConfigSchema.default(
     TtsElevenLabsProviderConfigSchema.parse({}),
   ),

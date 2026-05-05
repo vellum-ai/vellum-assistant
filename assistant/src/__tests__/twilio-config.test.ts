@@ -20,11 +20,6 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => mockLoadConfigResult,
 }));
 
-mock.module("../inbound/public-ingress-urls.js", () => ({
-  getPublicBaseUrl: () => "https://test.example.com",
-  getTwilioRelayUrl: () => "wss://test.example.com/twilio/relay",
-}));
-
 import { getTwilioConfig } from "../calls/twilio-config.js";
 import { credentialKey } from "../security/credential-key.js";
 
@@ -36,7 +31,7 @@ describe("twilio-config", () => {
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        phoneNumber: "+15551234567",
+        phoneNumber: "+15550123",
       },
     };
   });
@@ -45,14 +40,12 @@ describe("twilio-config", () => {
     const config = await getTwilioConfig();
     expect(config.accountSid).toBe("AC_test_sid");
     expect(config.authToken).toBe("test_auth_token");
-    expect(config.phoneNumber).toBe("+15551234567");
-    expect(config.webhookBaseUrl).toBe("https://test.example.com");
-    expect(config.wssBaseUrl).toBe("wss://test.example.com/twilio/relay");
+    expect(config.phoneNumber).toBe("+15550123");
   });
 
   test("throws ConfigError when account SID is missing", async () => {
     mockLoadConfigResult = {
-      twilio: { accountSid: "", phoneNumber: "+15551234567" },
+      twilio: { accountSid: "", phoneNumber: "+15550123" },
     };
     expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
@@ -61,12 +54,6 @@ describe("twilio-config", () => {
 
   test("throws ConfigError when auth token is missing", async () => {
     mockSecureKeys = {};
-    mockLoadConfigResult = {
-      twilio: {
-        accountSid: "AC_test_sid",
-        phoneNumber: "+15551234567",
-      },
-    };
     expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
     );

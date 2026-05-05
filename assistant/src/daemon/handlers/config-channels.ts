@@ -12,6 +12,7 @@ import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   type ChannelReadinessService,
@@ -49,7 +50,7 @@ import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
 } from "../message-protocol.js";
-import { log, type SendContext } from "./shared.js";
+import { log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the `type` discriminant) --
 
@@ -522,14 +523,13 @@ export async function verifyTrustedContact(
 
 export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
-  ctx: SendContext,
 ): Promise<void> {
   const channel = msg.channel ?? "telegram";
 
   try {
     if (msg.action === "create_session") {
       if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
-        ctx.send({
+        broadcastMessage({
           type: "channel_verification_session_response",
           success: false,
           error: "contactChannelId is required for trusted_contact purpose",
@@ -540,7 +540,7 @@ export async function handleChannelVerificationSession(
           msg.contactChannelId!,
           DAEMON_INTERNAL_ASSISTANT_ID,
         );
-        ctx.send({
+        broadcastMessage({
           type: "channel_verification_session_response",
           ...result,
         });
@@ -556,7 +556,7 @@ export async function handleChannelVerificationSession(
           deliverVerificationSlack(userId, text, aid);
         }
         const { _pendingSlackDm: _, ...publicResult } = result;
-        ctx.send({
+        broadcastMessage({
           type: "channel_verification_session_response",
           ...publicResult,
         });
@@ -566,28 +566,28 @@ export async function handleChannelVerificationSession(
           msg.rebind,
           msg.conversationId,
         );
-        ctx.send({
+        broadcastMessage({
           type: "channel_verification_session_response",
           ...result,
         });
       }
     } else if (msg.action === "status") {
       const result = getVerificationStatus(channel);
-      ctx.send({
+      broadcastMessage({
         type: "channel_verification_session_response",
         ...result,
       });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
       revokePendingSessions(channel);
-      ctx.send({
+      broadcastMessage({
         type: "channel_verification_session_response",
         success: true,
         channel,
       });
     } else if (msg.action === "revoke") {
       const result = revokeVerificationForChannel(channel);
-      ctx.send({
+      broadcastMessage({
         type: "channel_verification_session_response",
         ...result,
       });
@@ -601,12 +601,12 @@ export async function handleChannelVerificationSession(
         deliverVerificationSlack(userId, text, aid);
       }
       const { _pendingSlackDm: _, ...publicResult } = result;
-      ctx.send({
+      broadcastMessage({
         type: "channel_verification_session_response",
         ...publicResult,
       });
     } else {
-      ctx.send({
+      broadcastMessage({
         type: "channel_verification_session_response",
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
@@ -616,7 +616,7 @@ export async function handleChannelVerificationSession(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle channel verification session");
-    ctx.send({
+    broadcastMessage({
       type: "channel_verification_session_response",
       success: false,
       error: message,

@@ -30,13 +30,20 @@ struct RuleEditorModal: View {
     let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     /// Optional LLM-generated suggestion used to pre-populate selections.
     let suggestion: TrustRuleSuggestion?
+    /// Existing trust rule that matched this tool call. Non-nil means edit mode.
+    var existingRule: TrustRule? = nil
     let onSave: (SavedRule) -> Void
+    /// Called in edit mode when the user wants to save a narrower pattern as a new rule.
+    var onSaveAsNew: ((SavedRule) -> Void)? = nil
     let onDismiss: () -> Void
 
     @State private var selectedPatternIndex: Int = 1 // Start from first generalization (skip exact match at index 0)
     @State private var selectedRiskLevel: String = "medium"
     @State private var isSaving: Bool = false
     @State private var selectedDirectoryScopeIndex: Int = -1  // -1 = "Everywhere" (default)
+    /// Set to true once the user manually changes the risk picker or pattern selection.
+    /// Prevents a late-arriving LLM suggestion from silently overwriting their choice.
+    @State private var hasUserInteracted: Bool = false
 
     /// Generalized pattern options.
     /// If scopeOptions has multiple elements, skip the exact match at index 0.
@@ -48,6 +55,13 @@ struct RuleEditorModal: View {
     /// Whether we're showing a single wildcard option (not skipping index 0)
     private var isSingleOption: Bool {
         scopeOptions.count == 1
+    }
+
+    /// In edit mode, generalized options excluding the existing rule's own pattern.
+    /// Prevents offering a "Save As New" option that would duplicate the existing rule.
+    private var narrowerOptions: [ScopeOptionItem] {
+        guard let existing = existingRule else { return generalizedOptions }
+        return generalizedOptions.filter { $0.pattern != existing.pattern }
     }
 
     /// Whether the options look like a pipeline decomposition (all "program *" patterns).
@@ -77,7 +91,7 @@ struct RuleEditorModal: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text("Create Trust Rule")
+                Text(existingRule != nil ? "Edit Trust Rule" : "Create Trust Rule")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
                 Spacer(minLength: 0)
@@ -106,34 +120,82 @@ struct RuleEditorModal: View {
         .onAppear {
             applySuggestionOrDefaults()
         }
+        .onChange(of: suggestion?.pattern) { _, _ in
+            // Re-apply when LLM suggestion arrives after modal opened in loading state
+            applySuggestionOrDefaults()
+        }
     }
 
     // MARK: - Suggestion / Default Application
 
+    /// Whether the Save As New button should be visible.
+    private var showSaveAsNew: Bool {
+        guard onSaveAsNew != nil, existingRule != nil else { return false }
+        return !narrowerOptions.isEmpty
+    }
+
     private func applySuggestionOrDefaults() {
-        if let suggestion {
-            // Risk level from suggestion
-            selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
-
-            // Pattern: find the matching scope option index.
-            // In multi-option mode the UI hides index 0 (exact match), so skip
-            // it to avoid an invisible selection that silently persists.
-            if let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
-               (matchIndex > 0 || isSingleOption) {
-                selectedPatternIndex = matchIndex
-            } else if isSingleOption {
-                selectedPatternIndex = 0
+        if let existingRule {
+            // Edit mode: pre-fill risk from existing rule, not from LLM suggestion.
+            // Skip if user has already made a choice — a late-arriving suggestion
+            // should not silently overwrite their selection.
+            if !hasUserInteracted {
+                selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
             }
+            if !hasUserInteracted {
+                // Default to the first narrower option so the selection isn't stale
+                // or pointing at the existing rule's own pattern.
+                if let firstNarrower = narrowerOptions.first,
+                   let idx = scopeOptions.firstIndex(where: { $0.pattern == firstNarrower.pattern }) {
+                    selectedPatternIndex = idx
+                } else if isSingleOption {
+                    selectedPatternIndex = 0
+                }
+            }
+            if let suggestion, !hasUserInteracted {
+                // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
+                if !suggestion.pattern.isEmpty,
+                   suggestion.pattern != existingRule.pattern,
+                   let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
+                   matchIndex > 0 || isSingleOption {
+                    selectedPatternIndex = matchIndex
+                }
+                // Directory scope: match suggestion scope to options
+                if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
+                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                    if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
+                        selectedDirectoryScopeIndex = matchIndex
+                    }
+                }
+            }
+        } else if let suggestion {
+            // Create mode with suggestion
+            if !hasUserInteracted {
+                selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
 
-            // Directory scope: match suggestion scope to options
-            if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
-                let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
-                if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
-                    selectedDirectoryScopeIndex = matchIndex
+                // Pattern: find the matching scope option index.
+                // In multi-option mode the UI hides index 0 (exact match), so skip
+                // it to avoid an invisible selection that silently persists.
+                if let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
+                   (matchIndex > 0 || isSingleOption) {
+                    selectedPatternIndex = matchIndex
+                } else if isSingleOption {
+                    selectedPatternIndex = 0
+                }
+
+                // Directory scope: match suggestion scope to options
+                if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
+                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                    if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
+                        selectedDirectoryScopeIndex = matchIndex
+                    }
                 }
             }
         } else {
-            selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
+            // Create mode without suggestion
+            if !hasUserInteracted {
+                selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
+            }
             if isSingleOption {
                 selectedPatternIndex = 0
             }
@@ -174,7 +236,42 @@ struct RuleEditorModal: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityAddTraits(.isHeader)
 
-            if isPipelineDecomposition {
+            if let existingRule {
+                // Edit mode: show existing rule pattern as read-only
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.lock, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(existingRule.pattern)
+                        .font(VFont.bodyMediumDefault.monospaced())
+                        .foregroundStyle(VColor.contentSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+                .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                )
+
+                // Narrower scope options for Save As New
+                if showSaveAsNew {
+                    Text("Or narrow the scope:")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .accessibilityAddTraits(.isHeader)
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(narrowerOptions, id: \.id) { option in
+                            if let scopeIdx = scopeOptions.firstIndex(where: { $0.pattern == option.pattern }) {
+                                patternRow(option: option, index: isSingleOption ? scopeIdx : scopeIdx - 1)
+                            }
+                        }
+                    }
+                }
+            } else if isPipelineDecomposition {
                 // Pipeline decomposition: show first option as static label
                 HStack {
                     Text(generalizedOptions[0].label)
@@ -213,6 +310,7 @@ struct RuleEditorModal: View {
         let targetIndex = isSingleOption ? index : index + 1
         Button {
             selectedPatternIndex = targetIndex
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(selectedPatternIndex == targetIndex ? .circleDot : .circle, size: 14)
@@ -259,6 +357,7 @@ struct RuleEditorModal: View {
     private func directoryScopeRow(label: String, index: Int) -> some View {
         Button {
             selectedDirectoryScopeIndex = index
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(selectedDirectoryScopeIndex == index ? .circleDot : .circle, size: 14)
@@ -294,6 +393,21 @@ struct RuleEditorModal: View {
                 riskLevelButton(label: "High", value: "high", color: VColor.systemNegativeStrong)
             }
 
+            // In edit mode, show LLM suggestion as annotation when it differs from current selection
+            if let existingRule,
+               let suggestion,
+               !suggestion.risk.isEmpty,
+               suggestion.risk.lowercased() != existingRule.risk.lowercased() {
+                HStack(spacing: VSpacing.xxs) {
+                    Text("Suggested:")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(suggestion.risk.prefix(1).uppercased() + suggestion.risk.dropFirst())
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+
             if !riskLevelHint.isEmpty {
                 Text(riskLevelHint)
                     .font(VFont.labelDefault)
@@ -306,6 +420,7 @@ struct RuleEditorModal: View {
     private func riskLevelButton(label: String, value: String, color: Color) -> some View {
         Button {
             selectedRiskLevel = value
+            hasUserInteracted = true
         } label: {
             HStack(spacing: VSpacing.xs) {
                 Circle()
@@ -338,33 +453,72 @@ struct RuleEditorModal: View {
 
     // MARK: - Save Button
 
+    private func resolvedScope() -> String {
+        let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+        if selectedDirectoryScopeIndex >= 0, selectedDirectoryScopeIndex < filtered.count {
+            return filtered[selectedDirectoryScopeIndex].scope
+        }
+        return "everywhere"
+    }
+
     @ViewBuilder
     private var saveSection: some View {
         HStack {
-            Spacer(minLength: 0)
-            VButton(
-                label: "Save Rule",
-                style: .primary,
-                isDisabled: isSaving || scopeOptions.isEmpty || selectedPatternIndex >= scopeOptions.count
-            ) {
-                guard !isSaving, !scopeOptions.isEmpty, selectedPatternIndex < scopeOptions.count else { return }
-                isSaving = true
-                let selectedOption = scopeOptions[selectedPatternIndex]
-                let scope: String = {
-                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
-                    if selectedDirectoryScopeIndex >= 0, selectedDirectoryScopeIndex < filtered.count {
-                        return filtered[selectedDirectoryScopeIndex].scope
+            if let existingRule {
+                // Edit mode: Save (updates existing rule) + optional Save As New
+                if showSaveAsNew, let onSaveAsNew {
+                    VButton(
+                        label: "Save As New",
+                        style: .outlined,
+                        isDisabled: isSaving || selectedPatternIndex >= scopeOptions.count
+                    ) {
+                        guard !isSaving, selectedPatternIndex < scopeOptions.count else { return }
+                        isSaving = true
+                        let selectedOption = scopeOptions[selectedPatternIndex]
+                        onSaveAsNew(SavedRule(
+                            toolName: toolName,
+                            pattern: selectedOption.pattern,
+                            riskLevel: selectedRiskLevel,
+                            scope: resolvedScope()
+                        ))
+                        onDismiss()
                     }
-                    return "everywhere"
-                }()
-                let rule = SavedRule(
-                    toolName: toolName,
-                    pattern: selectedOption.pattern,
-                    riskLevel: selectedRiskLevel,
-                    scope: scope
-                )
-                onSave(rule)
-                onDismiss()
+                }
+                Spacer(minLength: 0)
+                VButton(
+                    label: "Save",
+                    style: .primary,
+                    isDisabled: isSaving
+                ) {
+                    guard !isSaving else { return }
+                    isSaving = true
+                    onSave(SavedRule(
+                        toolName: toolName,
+                        pattern: existingRule.pattern,
+                        riskLevel: selectedRiskLevel,
+                        scope: "everywhere"
+                    ))
+                    onDismiss()
+                }
+            } else {
+                // Create mode
+                Spacer(minLength: 0)
+                VButton(
+                    label: "Save Rule",
+                    style: .primary,
+                    isDisabled: isSaving || scopeOptions.isEmpty || selectedPatternIndex >= scopeOptions.count
+                ) {
+                    guard !isSaving, !scopeOptions.isEmpty, selectedPatternIndex < scopeOptions.count else { return }
+                    isSaving = true
+                    let selectedOption = scopeOptions[selectedPatternIndex]
+                    onSave(SavedRule(
+                        toolName: toolName,
+                        pattern: selectedOption.pattern,
+                        riskLevel: selectedRiskLevel,
+                        scope: resolvedScope()
+                    ))
+                    onDismiss()
+                }
             }
         }
     }

@@ -5,6 +5,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsBillingTab: View {
     var authManager: AuthManager
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     @State private var summary: BillingSummaryResponse?
     @State private var isLoading: Bool = true
@@ -18,15 +19,22 @@ struct SettingsBillingTab: View {
     private var effectiveAmount: String {
         topUpAmounts.contains(selectedAmount) ? selectedAmount : topUpAmounts.first ?? ""
     }
+
+    var isProPlanAdjustEnabled: Bool {
+        assistantFeatureFlagStore.isEnabled("pro-plan-adjust")
+    }
+
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
-    @State private var isReferralCodesEnabled: Bool = false
     @State private var showEarnCreditsModal: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             balanceCard
+            if isProPlanAdjustEnabled {
+                adjustPlanCard
+            }
             if isLoading {
                 addFundsSkeleton
             } else if !topUpAmounts.isEmpty {
@@ -37,7 +45,6 @@ struct SettingsBillingTab: View {
             EarnCreditsModal()
         }
         .task {
-            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
@@ -48,13 +55,6 @@ struct SettingsBillingTab: View {
             }
         }
         .background(WindowReader(window: $hostWindow))
-        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-            if let key = notification.userInfo?["key"] as? String,
-               key == "referral-codes",
-               let enabled = notification.userInfo?["enabled"] as? Bool {
-                isReferralCodesEnabled = enabled
-            }
-        }
     }
 
     // MARK: - Balance Card
@@ -63,15 +63,13 @@ struct SettingsBillingTab: View {
         SettingsCard(
             title: "Credit Balance",
             accessory: {
-                if isReferralCodesEnabled {
-                    VButton(
-                        label: "Earn credits",
-                        leftIcon: VIcon.gift.rawValue,
-                        style: .outlined,
-                        size: .compact
-                    ) {
-                        showEarnCreditsModal = true
-                    }
+                VButton(
+                    label: "Earn credits",
+                    leftIcon: VIcon.gift.rawValue,
+                    style: .outlined,
+                    size: .compact
+                ) {
+                    showEarnCreditsModal = true
                 }
             }
         ) {
@@ -171,6 +169,19 @@ struct SettingsBillingTab: View {
         }
     }
 
+    // MARK: - Adjust Plan Card
+
+    private var adjustPlanCard: some View {
+        SettingsCard(title: "Adjust Plan") {
+            VButton(
+                label: "Adjust Plan",
+                style: .primary
+            ) {
+                NSWorkspace.shared.open(AppURLs.billingSettings)
+            }
+        }
+    }
+
     // MARK: - Add Credits Skeleton
 
     private var addFundsSkeleton: some View {
@@ -250,12 +261,22 @@ struct SettingsBillingTab: View {
                 .frame(maxWidth: 200)
             }
 
-            VButton(
-                label: isProcessingTopUp ? "Processing..." : "Add credits",
-                style: .primary,
-                isDisabled: isProcessingTopUp
-            ) {
-                Task { await handleTopUp() }
+            HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: isProcessingTopUp ? "Processing..." : "Add credits",
+                    style: .primary,
+                    isDisabled: isProcessingTopUp
+                ) {
+                    Task { await handleTopUp() }
+                }
+                if isProPlanAdjustEnabled {
+                    VButton(
+                        label: "Configure Auto Top Ups",
+                        style: .outlined
+                    ) {
+                        NSWorkspace.shared.open(AppURLs.billingSettings)
+                    }
+                }
             }
 
             if let topUpError {
@@ -361,8 +382,13 @@ extension SettingsBillingTab {
     /// without going through the `loadSummary()` async path. Used by
     /// `SettingsBillingTabSubtitleTests` to exercise `addCreditsSubtitleAttributed`
     /// against a known billing summary fixture.
-    init(authManager: AuthManager, initialSummary: BillingSummaryResponse?) {
+    init(
+        authManager: AuthManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore,
+        initialSummary: BillingSummaryResponse?
+    ) {
         self.authManager = authManager
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self._summary = State(initialValue: initialSummary)
     }
 }

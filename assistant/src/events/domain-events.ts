@@ -21,14 +21,6 @@ export interface ToolDomainEvents {
     riskLevel: string;
     decidedAtMs: number;
   };
-  "tool.secret.detected": {
-    conversationId: string;
-    requestId?: string;
-    toolName: string;
-    action: "redact" | "warn" | "block" | "prompt";
-    matches: Array<{ type: string; redactedValue: string }>;
-    detectedAtMs: number;
-  };
   "tool.execution.finished": {
     conversationId: string;
     requestId?: string;

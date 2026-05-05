@@ -52,6 +52,8 @@ function pathError(
       return Err.pathNotAbsolute(path);
     case "out_of_bounds":
       return { code: "PATH_OUT_OF_BOUNDS", message: detail, path };
+    case "denied":
+      return { code: "PATH_OUT_OF_BOUNDS", message: detail, path };
   }
 }
 

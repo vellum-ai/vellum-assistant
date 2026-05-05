@@ -1,8 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -103,7 +109,15 @@ export class FilingService {
   }
 
   start(): void {
-    const config = getConfig().filing;
+    const fullConfig = getConfig();
+    if (isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig)) {
+      log.info("Filing service disabled — memory v2 flag is set");
+      this._nextRunAt = null;
+      this._nextCompactionAt = null;
+      return;
+    }
+
+    const config = fullConfig.filing;
 
     if (config.enabled && !this.timer) {
       log.info({ intervalMs: config.intervalMs }, "Filing service started");
@@ -178,6 +192,10 @@ export class FilingService {
     const config = getConfig().filing;
     if (!force && !config.enabled) return false;
 
+    if (!force && this.shouldSkipForDiskPressure("filing")) {
+      return false;
+    }
+
     if (
       !force &&
       !this.isWithinActiveHoursNow(
@@ -219,6 +237,10 @@ export class FilingService {
   }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().filing;
     if (!force && !config.compactionEnabled) return false;
+
+    if (!force && this.shouldSkipForDiskPressure("compaction")) {
+      return false;
+    }
 
     if (
       !force &&
@@ -264,6 +286,21 @@ export class FilingService {
 
   private scheduleNextCompactionRun(intervalMs: number): void {
     this._nextCompactionAt = Date.now() + intervalMs;
+  }
+
+  private shouldSkipForDiskPressure(source: "filing" | "compaction"): boolean {
+    const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+    if (diskPressureGate.action === "allow") return false;
+    if (shouldLogDiskPressureBackgroundSkip(`filing-service:${source}`)) {
+      log.warn(
+        {
+          source,
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Filing service skipped during disk pressure cleanup mode",
+      );
+    }
+    return true;
   }
 
   private hasBufferContent(): boolean {

@@ -3,13 +3,7 @@ import Foundation
 import ImageIO
 import os
 import UniformTypeIdentifiers
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatAttachmentManager")
 
@@ -160,7 +154,6 @@ public final class ChatAttachmentManager {
     }
 
     public func addAttachmentFromPasteboard() {
-        #if os(macOS)
         let pasteboard = NSPasteboard.general
 
         // Prefer file URLs — preserves the original filename
@@ -178,15 +171,6 @@ public final class ChatAttachmentManager {
             return
         }
         addAttachment(imageData: imageData, filename: "Pasted Image.png")
-        #elseif os(iOS)
-        let pasteboard = UIPasteboard.general
-        guard let image = pasteboard.image, let imageData = image.pngData() else {
-            return
-        }
-        addAttachment(imageData: imageData, filename: "Pasted Image.png")
-        #else
-        #error("Unsupported platform")
-        #endif
     }
 
     /// Add an attachment from raw image data (e.g. drag-and-drop, pasteboard).
@@ -373,13 +357,7 @@ public final class ChatAttachmentManager {
         case .failure(let error):
             return .failure(error)
         case .success(let processed):
-            #if os(macOS)
             let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
             return .success(ChatAttachment(
                 id: processed.id,
                 filename: processed.filename,
@@ -473,13 +451,7 @@ public final class ChatAttachmentManager {
         case .failure(let error):
             return .failure(error)
         case .success(let processed):
-            #if os(macOS)
             let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
             return .success(ChatAttachment(
                 id: processed.id,
                 filename: processed.filename,
@@ -500,16 +472,12 @@ public final class ChatAttachmentManager {
     /// The returned path is `<workspaceDir>/data/attachments` which falls inside
     /// the assistant's upload allowlist.
     nonisolated private static func resolveWorkspaceStagingDir() -> String? {
-        #if os(macOS)
         guard let activeId = LockfileAssistant.loadActiveAssistantId(),
               let assistant = LockfileAssistant.loadByName(activeId),
               let workspaceDir = assistant.workspaceDir else {
             return nil
         }
         return (workspaceDir as NSString).appendingPathComponent("data/attachments")
-        #else
-        return nil
-        #endif
     }
 
     // MARK: - Thread-safe ImageIO helpers

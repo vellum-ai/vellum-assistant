@@ -4,22 +4,20 @@ import VellumAssistantShared
 /// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
-/// - **Managed + logged in**: Provider picker (managed-capable only),
-///   Active Profile picker, Manage Profiles button, Save button
+/// - **Managed + logged in**: Active Profile picker, Manage Profiles button,
+///   Save button
 /// - **Managed + not logged in**: Empty state prompting login
-/// - **Your Own**: Provider picker (all), API key field, Active Profile picker,
-///   Manage Profiles button, Save + Reset buttons
+/// - **Your Own**: API keys section, Active Profile picker, Manage Profiles
+///   button, Save button
 ///
 /// Active Model is no longer chosen on this card — it lives inside an
 /// inference profile. The profile dropdown writes through
 /// `store.setActiveProfile(_:)` on selection change; Save persists Provider
-/// and API key only.
+/// only.
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
-    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var authManager: AuthManager
-    @Binding var apiKeyText: String
     var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
@@ -30,14 +28,6 @@ struct InferenceServiceCard: View {
     @State private var draftProvider: String = "anthropic"
     /// Snapshot of the provider at card appear — used to detect provider changes.
     @State private var initialProvider: String = ""
-    /// Guards against provider-change side-effects during initial load.
-    @State private var didInitialSync = false
-    /// Set `true` right before an external store sync updates `draftProvider`,
-    /// so `onChange(of: draftProvider)` can distinguish daemon-driven updates
-    /// from user-initiated picks and skip the API-key reset.
-    @State private var isSyncingProviderFromStore = false
-    /// Whether the current provider has a stored API key (fetched per-component).
-    @State private var providerHasKey = false
     /// Whether the read-only per-call-site overrides sheet is presented.
     @State private var showOverridesSheet = false
     /// Whether the inference profiles management sheet is presented.
@@ -59,21 +49,32 @@ struct InferenceServiceCard: View {
     /// subsequent dropdown pick can cancel it and avoid an out-of-order
     /// PATCH landing the older selection last.
     @State private var activeProfileTask: Task<Void, Never>?
-
-    // MARK: - Provider Helpers
-
-    private var effectiveProvider: String {
-        draftProvider
-    }
-
-    private var providerDisplayName: String {
-        store.dynamicProviderDisplayName(effectiveProvider)
-    }
+    /// Whether the API keys management sheet is presented.
+    @State private var showAPIKeysSheet = false
+    /// Per-provider key-exists status. Loaded async on appear and refreshed
+    /// after the API keys sheet is dismissed.
+    /// Tri-state key status per provider: `true` = key present, `false` = key absent,
+    /// `nil` = not yet loaded or fetch failed. `nil` is treated as "unknown" so a
+    /// transient daemon error never triggers the auto-reset to managed mode.
+    @State private var providerKeyStatuses: [String: Bool?] = [:]
+    /// Monotonically increasing counter bumped every time the API keys
+    /// sheet is dismissed. Drives `.task(id:)` to re-fetch key statuses
+    /// without a manual onChange handler.
+    @State private var apiKeysRefreshToken: Int = 0
 
     // MARK: - Computed State
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
+    }
+
+    /// True when the user has at least one usable provider — either a keyless
+    /// provider (e.g. Ollama) exists in the catalog, or a key-required
+    /// provider has a configured API key.
+    private var hasUsableProvider: Bool {
+        let hasKeylessProvider = store.providerCatalog.contains { $0.apiKeyPlaceholder == nil }
+        let hasConfiguredKey = providerKeyStatuses.values.contains(where: { $0 == true })
+        return hasKeylessProvider || hasConfiguredKey
     }
 
     /// True when changing inference mode/provider would invalidate the current
@@ -117,31 +118,27 @@ struct InferenceServiceCard: View {
             return false
         }
         let modeChanged = draftMode != store.inferenceMode
-        let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let providerChanged = draftProvider != initialProvider
-        return modeChanged || hasNewKey || providerChanged
+        return modeChanged || providerChanged
     }
 
     var body: some View {
         ServiceModeCard(
-            title: "Inference",
-            subtitle: draftMode == "managed"
-                ? "Configure which model to use to power your assistant"
-                : "Configure which LLM provider and model to use to power your assistant",
+            title: "Language Model",
+            subtitle: "Configure the LLMs that power your assistant",
             draftMode: $draftMode,
             managedContent: {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        managedProviderPicker
-                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
-                            activeProfilePicker
-                            manageProfilesButton
+                        activeProfilePicker
+                        secondaryActionsRow
+                        if hasChanges {
+                            ServiceCardActions(
+                                hasChanges: true,
+                                isSaving: false,
+                                onSave: { save() }
+                            )
                         }
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: store.apiKeySaving,
-                            onSave: { save() }
-                        )
                     }
                 } else {
                     managedLoginPrompt
@@ -149,40 +146,24 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    providerPicker
-
-                    // API Key field
-                    apiKeyField
-
-                    // Active profile picker + Manage Profiles button
-                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
+                    if hasUsableProvider {
+                        apiKeysSection
                         activeProfilePicker
-                        manageProfilesButton
+                        secondaryActionsRow
+                        if hasChanges {
+                            ServiceCardActions(
+                                hasChanges: true,
+                                isSaving: false,
+                                onSave: { save() }
+                            )
+                        }
+                    } else {
+                        apiKeysEmptyState
                     }
-
-                    // Action buttons
-                    ServiceCardActions(
-                        hasChanges: hasChanges,
-                        isSaving: store.apiKeySaving,
-                        onSave: { save() },
-                        savingLabel: "Validating...",
-                        onReset: {
-                            store.clearAPIKeyForProvider(effectiveProvider)
-                            providerHasKey = false
-                            apiKeyText = ""
-                        },
-                        showReset: providerHasKey
-                    )
                 }
             },
             footer: {
-                // Per-call-site overrides badge — only visible when the user has
-                // at least one override configured. Tapping opens the overrides
-                // sheet.
-                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true,
-                   store.overridesCount > 0 {
-                    overridesBadge
-                }
+                EmptyView()
             }
         )
         .sheet(isPresented: $showOverridesSheet) {
@@ -191,23 +172,37 @@ struct InferenceServiceCard: View {
         .sheet(isPresented: $showProfilesSheet) {
             InferenceProfilesSheet(store: store, isPresented: $showProfilesSheet)
         }
+        .sheet(isPresented: $showAPIKeysSheet) {
+            APIKeysSheet(store: store, isPresented: $showAPIKeysSheet, showToast: showToast)
+        }
+        .onChange(of: showAPIKeysSheet) { _, isShowing in
+            // Refresh key statuses when the sheet is dismissed so the card
+            // summary reflects any keys added or removed in the sheet.
+            if !isShowing {
+                apiKeysRefreshToken += 1
+            }
+        }
+        .task(id: apiKeysRefreshToken) {
+            await loadProviderKeyStatuses()
+            guard !Task.isCancelled else { return }
+            let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
+            let isManagedCapable = store.isManagedCapable(draftProvider)
+            // Flatten Bool?? → Bool? so nil-valued entries (fetch error) compare
+            // as truly unknown rather than as a present-but-nil outer optional.
+            // A [String: Bool?] subscript returns Bool?? where .some(.none) means
+            // "key exists in dict, value is nil" — `?? nil` collapses that to nil.
+            let flatStatus = providerKeyStatuses[draftProvider] ?? nil
+            let keyStatusKnown = flatStatus != nil
+            let hasConfiguredKey = flatStatus == true
+            if isLoggedIn && draftMode == "your-own" && isManagedCapable && requiresKey && keyStatusKnown && !hasConfiguredKey {
+                draftMode = "managed"
+                store.setInferenceMode("managed")
+            }
+        }
         .onAppear {
             draftMode = store.inferenceMode
-            // Mirror the store-sync pattern used in
-            // onChange(of: store.selectedInferenceProvider): flag the pending
-            // mutation BEFORE assigning draftProvider so the deferred
-            // onChange(of: draftProvider) callback (which SwiftUI runs after
-            // this closure returns) skips the API-key reset. Without this,
-            // any user whose saved provider differs from the @State default
-            // "anthropic" sees apiKeyText cleared right after onAppear settles.
-            let alreadyEqualProvider = draftProvider == store.selectedInferenceProvider
-            isSyncingProviderFromStore = true
             draftProvider = store.selectedInferenceProvider
-            if alreadyEqualProvider {
-                isSyncingProviderFromStore = false
-            }
             initialProvider = store.selectedInferenceProvider
-            didInitialSync = true
 
             // If the user is not authenticated and the persisted mode is
             // "managed", reset the draft so the UI shows "your-own".
@@ -222,21 +217,9 @@ struct InferenceServiceCard: View {
                 }
             }
 
-            // Symmetric case: if the user is authenticated and the mode is
-            // still the default "your-own", switch to "managed" so signed-in
-            // users get managed inference out of the box — but only when the
-            // provider is managed-capable, requires an API key, and the user
-            // hasn't configured one. Providers like Ollama that don't use keys
-            // (apiKeyPlaceholder is nil) or non-managed providers (fireworks,
-            // openrouter) are left alone since the user intentionally set up
-            // that provider.
-            let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-            let providerIsManagedCapable = store.isManagedCapable(draftProvider)
-            if isLoggedIn && draftMode == "your-own" && providerIsManagedCapable && providerRequiresKey && !hasLocalKey {
-                draftMode = "managed"
-                store.setInferenceMode("managed")
-            }
+            // The task(id: apiKeysRefreshToken) block handles the "logged-in +
+            // your-own + no key configured" auto-reset using daemon-sourced
+            // key statuses. The task fires automatically on initial appearance.
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),
@@ -260,16 +243,9 @@ struct InferenceServiceCard: View {
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
             } else if isAuthenticated && store.inferenceMode == "your-own" {
-                // When a user signs in and has no BYO key for a managed-capable,
-                // key-based provider, default to managed. Keyless providers
-                // (e.g. Ollama) and non-managed providers are left in your-own mode.
-                let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-                let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-                let isManagedCapable = store.isManagedCapable(draftProvider)
-                if isManagedCapable && requiresKey && !hasLocalKey {
-                    draftMode = "managed"
-                    store.setInferenceMode("managed")
-                }
+                // Trigger the task to re-fetch daemon-sourced key statuses and
+                // apply the auto-reset check with accurate data.
+                apiKeysRefreshToken += 1
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in
@@ -284,33 +260,9 @@ struct InferenceServiceCard: View {
             }
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
-            // Sync draft & baseline when the daemon reports a provider
-            // update. Flag the update so onChange(of: draftProvider) skips
-            // the API-key reset that is only appropriate for user picks.
-            let alreadyEqual = draftProvider == newValue
-            isSyncingProviderFromStore = true
+            // Sync draft & baseline when the daemon reports a provider update.
             draftProvider = newValue
-            // If draftProvider already held this value, SwiftUI's
-            // onChange(of: draftProvider) won't fire (it only fires on
-            // actual value transitions), so clear the flag immediately
-            // to prevent the next user-initiated change from being
-            // misclassified as a store sync.
-            if alreadyEqual {
-                isSyncingProviderFromStore = false
-            }
             initialProvider = newValue
-        }
-        .onChange(of: draftProvider) { _, _ in
-            // Clear any unsaved API key text on user-initiated provider
-            // changes — it belongs to the previous provider's context.
-            // External store syncs set isSyncingProviderFromStore before
-            // mutating draftProvider; clear the flag and skip.
-            if isSyncingProviderFromStore {
-                isSyncingProviderFromStore = false
-                return
-            }
-            guard didInitialSync else { return }
-            apiKeyText = ""
         }
         .onChange(of: draftMode) { _, newMode in
             if newMode == "managed" {
@@ -320,9 +272,6 @@ struct InferenceServiceCard: View {
                     draftProvider = "anthropic"
                 }
             }
-        }
-        .task(id: effectiveProvider) {
-            providerHasKey = await APIKeyManager.hasKey(for: effectiveProvider)
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
@@ -349,34 +298,34 @@ struct InferenceServiceCard: View {
                 pendingOverrideOldProviderName = ""
             }
         } message: {
-            Text(
-                "\(pendingOverrideClears.count) task(s) are pinned to "
-                    + "\(pendingOverrideOldProviderName). Keep them as-is, or "
-                    + "update them to follow the new default?"
-            )
+            let msg = "\(pendingOverrideClears.count) task(s) are pinned to \(pendingOverrideOldProviderName). Keep them as-is, or update them to follow the new default?"
+            Text(msg)
         }
     }
 
-    // MARK: - Per-Call-Site Overrides Badge
+    // MARK: - Secondary Actions Row
 
-    /// Compact link-styled label that surfaces the count of explicit per-task
-    /// overrides and opens the read-only overrides sheet on tap. Hidden by
-    /// the parent when `store.overridesCount == 0`.
-    private var overridesBadge: some View {
-        Button {
-            showOverridesSheet = true
-        } label: {
-            Text(
-                "\(store.overridesCount) per-task override"
-                    + (store.overridesCount == 1 ? "" : "s")
-            )
-            .font(VFont.bodySmallDefault)
-            .foregroundStyle(.secondary)
-            .underline()
+    /// Consolidated row of ghost-styled buttons for managing API keys,
+    /// profiles, and per-task overrides. Shown in both Managed and Your Own
+    /// modes.
+    private var secondaryActionsRow: some View {
+        let overridesLabel = store.overridesCount > 0
+            ? "\(store.overridesCount) Override\(store.overridesCount == 1 ? "" : "s")"
+            : "Overrides"
+
+        return HStack(spacing: VSpacing.sm) {
+            if draftMode == "your-own" {
+                VButton(label: "API Keys", style: .ghost, size: .compact) {
+                    showAPIKeysSheet = true
+                }
+            }
+            VButton(label: "Profiles", style: .ghost, size: .compact) {
+                showProfilesSheet = true
+            }
+            VButton(label: overridesLabel, style: .ghost, size: .compact) {
+                showOverridesSheet = true
+            }
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityLabel("View per-task model overrides")
     }
 
     // MARK: - Managed Login Prompt
@@ -402,53 +351,60 @@ struct InferenceServiceCard: View {
         }
     }
 
-    // MARK: - Provider Picker
+    // MARK: - Multi-Provider API Keys Section
 
-    private var providerPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Provider")
+    /// Compact summary of configured provider API keys, shown in "Your Own"
+    /// mode when at least one key exists. Shows provider chips only — the
+    /// "API Keys" action button lives in the consolidated `secondaryActionsRow`.
+    private var apiKeysSection: some View {
+        let configuredProviders = store.providerCatalog
+            .filter { $0.apiKeyPlaceholder != nil && (providerKeyStatuses[$0.id] ?? nil) == true }
+
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("API Keys")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
-            VDropdown(
-                placeholder: "Select a provider\u{2026}",
-                selection: $draftProvider,
-                options: store.dynamicProviderIds.map { provider in
-                    (label: store.dynamicProviderDisplayName(provider), value: provider)
+
+            HStack(spacing: VSpacing.sm) {
+                ForEach(configuredProviders, id: \.id) { provider in
+                    VTag(provider.displayName, color: VColor.systemPositiveStrong, icon: .check)
                 }
-            )
+            }
         }
     }
 
-    /// Provider picker filtered to managed-capable providers, shown in managed mode.
-    private var managedProviderPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Provider")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            VDropdown(
-                placeholder: "Select a provider\u{2026}",
-                selection: $draftProvider,
-                options: store.managedCapableProviders.map { entry in
-                    (label: entry.displayName, value: entry.id)
-                }
-            )
+    /// Friendly empty state shown when no provider API keys have been
+    /// configured yet. Replaces the profile picker and overrides controls
+    /// since they can't do anything without credentials.
+    private var apiKeysEmptyState: some View {
+        VStack(spacing: VSpacing.md) {
+            VIconView(.keyRound, size: 28)
+                .foregroundStyle(VColor.contentTertiary)
+
+            VStack(spacing: VSpacing.xs) {
+                Text("Bring your own keys")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("Add API keys for the LLM providers you want to use.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VButton(label: "Add API Keys", style: .primary) {
+                showAPIKeysSheet = true
+            }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.lg)
     }
 
-    // MARK: - API Key Field
-
-    private var apiKeyField: some View {
-        APIKeyTextField(
-            label: "\(providerDisplayName) API Key",
-            hasKey: providerHasKey,
-            text: $apiKeyText,
-            emptyPlaceholder: {
-                if let p = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !p.isEmpty { return p }
-                return "Enter your API key"
-            }(),
-            errorMessage: store.apiKeySaveError
-        )
-        .disabled(store.apiKeySaving)
+    /// Fetches the key-exists status for every key-required provider.
+    private func loadProviderKeyStatuses() async {
+        for provider in store.providerCatalog where provider.apiKeyPlaceholder != nil {
+            providerKeyStatuses[provider.id] = await APIKeyManager.keyStatus(for: provider.id)
+        }
     }
 
     // MARK: - Active Profile Picker
@@ -478,20 +434,14 @@ struct InferenceServiceCard: View {
 
     private var activeProfilePicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Active Profile")
+            Text("Default Profile")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a profile\u{2026}",
                 selection: activeProfileBinding,
-                options: store.profiles.map { (label: $0.name, value: $0.name) }
+                options: store.profiles.map { (label: $0.displayName, value: $0.name) }
             )
-        }
-    }
-
-    private var manageProfilesButton: some View {
-        VButton(label: "Manage Profiles\u{2026}", style: .ghost) {
-            showProfilesSheet = true
         }
     }
 
@@ -521,28 +471,19 @@ struct InferenceServiceCard: View {
                 $0.provider == initialProvider
             }
             if !overridesPinnedToOldProvider.isEmpty {
-                let profilesEnabled = assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
-                if profilesEnabled {
-                    // Show the confirmation dialog so the user can choose
-                    // to keep or reset overrides pinned to the old provider.
-                    pendingOverrideClears = overridesPinnedToOldProvider
-                    pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
-                    showOverrideConfirmation = true
-                    return
-                } else {
-                    // When inference-profiles is off the overrides UI is
-                    // hidden, so silently clear stale overrides to prevent
-                    // invisible provider/model mismatches for affected tasks.
-                    performSaveCore(clearingOverrides: overridesPinnedToOldProvider)
-                    return
-                }
+                // Show the confirmation dialog so the user can choose
+                // to keep or reset overrides pinned to the old provider.
+                pendingOverrideClears = overridesPinnedToOldProvider
+                pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
+                showOverrideConfirmation = true
+                return
             }
         }
 
         performSaveCore(clearingOverrides: [])
     }
 
-    /// Persists the staged inference settings (mode, provider, API key).
+    /// Persists the staged inference settings (mode, provider).
     /// Active Model is no longer written from here — the active profile owns
     /// model selection.
     ///
@@ -584,20 +525,6 @@ struct InferenceServiceCard: View {
         let providerChanged = persistProvider != initialProvider || modeChanged
         if providerChanged {
             initialProvider = draftProvider
-        }
-
-        // Persist API key if entered and in your-own mode.
-        // saveAPIKey / saveInferenceAPIKey is async (validates with the provider before storing).
-        // The key text is kept until validation succeeds so the user can retry.
-        let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if draftMode == "your-own" && !trimmedKey.isEmpty {
-            let keyTextBinding = $apiKeyText
-            let displayName = providerDisplayName
-            store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: { [self] in
-                providerHasKey = true
-                keyTextBinding.wrappedValue = ""
-                showToast("\(displayName) API key saved", .success)
-            })
         }
 
         // Persist provider in a single PATCH when it changed (or when the

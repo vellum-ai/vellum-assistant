@@ -561,6 +561,52 @@ describe("GET /v1/suggestion", () => {
     expect(options?.config?.callSite).toBe("conversationStarters");
   });
 
+  test("disables thinking and zeros effort to avoid Anthropic temp/thinking 400", async () => {
+    // Regression guard: this call hardcodes `temperature: 0.7` for response
+    // variety. Anthropic 400s on `temperature` ≠ 1 whenever thinking is
+    // enabled or in adaptive mode, so any user profile that resolves
+    // thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.) would fail
+    // unless we explicitly opt out of thinking on this call site.
+    //
+    // Pinning `thinking: { type: "disabled" }` and `effort: "none"` ensures
+    // the call works on every profile shape. A 60-token reply chip doesn't
+    // benefit from extended thinking anyway.
+    const provider = makeMockProvider("Quick reply");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-thinking",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello!" }]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(args, deps);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const options = callArgs[3] as
+      | {
+          config?: {
+            temperature?: number;
+            thinking?: { type?: string };
+            effort?: string;
+          };
+        }
+      | undefined;
+    expect(options?.config?.temperature).toBe(0.7);
+    expect(options?.config?.thinking).toEqual({ type: "disabled" });
+    expect(options?.config?.effort).toBe("none");
+  });
+
   test("does not send an assistant-role prefill message", async () => {
     // Regression guard: Anthropic rejects assistant-message prefill
     // whenever the request triggers extended thinking (e.g. Opus 4.x at

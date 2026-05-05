@@ -904,11 +904,13 @@ extension AppDelegate {
         )
     }
 
-    /// Hatch a new managed assistant against the platform and persist it to
-    /// the lockfile. The organization id is read from UserDefaults —
-    /// matching the path the onboarding flow and TeleportSection use. There
-    /// is no centralized constant for this key yet; see TeleportSection for
-    /// the other call site that reads it directly.
+    /// Hatch a new managed assistant against the platform in explicit create
+    /// mode and persist it to the lockfile. A 200 response is accepted here
+    /// because create mode uses it to dedupe an in-flight hatch.
+    /// After persisting, immediately switches to the assistant.
+    /// The organization id is read from UserDefaults — matching the path the
+    /// onboarding flow and TeleportSection use. There is no centralized constant
+    /// for this key yet; see TeleportSection for the other call site that reads it directly.
     private func hatchAndPersistManagedAssistant(name: String) async throws {
         guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
               !organizationId.isEmpty else {
@@ -916,13 +918,22 @@ extension AppDelegate {
         }
         let result = try await AuthService.shared.hatchAssistant(
             organizationId: organizationId,
-            name: name
+            name: name,
+            mode: .create
         )
         let platformAssistant: PlatformAssistant
+        let shouldBackfillName: Bool
         switch result {
-        case .reusedExisting(let assistant), .createdNew(let assistant):
+        case .createdNew(let assistant):
             platformAssistant = assistant
+            shouldBackfillName = true
+        case .reusedExisting(let assistant):
+            // In create mode, 200 means the platform deduped an in-flight
+            // hatch. Treat it as success and switch to that assistant.
+            platformAssistant = assistant
+            shouldBackfillName = false
         }
+
         let success = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
             runtimeUrl: VellumEnvironment.resolvedPlatformURL,
@@ -932,15 +943,28 @@ extension AppDelegate {
             throw AssistantSwitcherError.lockfilePersistenceFailed
         }
 
-        Task {
-            try? await AuthService.shared.updateAssistant(
-                id: platformAssistant.id,
-                organizationId: organizationId,
-                name: name
-            )
+        if shouldBackfillName {
+            Task {
+                try? await AuthService.shared.updateAssistant(
+                    id: platformAssistant.id,
+                    organizationId: organizationId,
+                    name: name
+                )
+            }
         }
 
-        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
+        IdentityInfo.seedCache(
+            name: platformAssistant.name ?? name,
+            forAssistantId: platformAssistant.id
+        )
+
+        guard let target = LockfileAssistant.loadByName(platformAssistant.id) else {
+            throw AssistantSwitcherError.lockfilePersistenceFailed
+        }
+        performSwitchAssistant(
+            to: target,
+            managedAuthenticationAlreadyVerified: true
+        )
     }
 
     /// Retire an assistant requested from the switcher. Today the switcher

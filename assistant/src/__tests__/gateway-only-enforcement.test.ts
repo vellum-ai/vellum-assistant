@@ -43,7 +43,6 @@ mock.module("../config/loader.js", () => ({
     calls: {
       enabled: true,
       provider: "twilio",
-      webhookBaseUrl: "https://test.example.com",
       maxDurationSeconds: 3600,
       userConsultTimeoutSeconds: 120,
       disclosure: { enabled: false, text: "" },

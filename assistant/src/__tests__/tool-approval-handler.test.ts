@@ -518,7 +518,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     }
   });
 
-  test("trusted contact bypasses tool grants for sandboxed side-effect tools", async () => {
+  test("trusted contact requires grant for sandboxed side-effect tools", async () => {
     const result = await handler.checkPreExecutionGates(
       "bash",
       { command: "echo hello" },
@@ -529,12 +529,11 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       emitLifecycleEvent,
     );
 
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
     expect(events.filter((e) => e.type === "permission_denied")).toHaveLength(
-      0,
+      1,
     );
   });
-
 });
 
 afterAll(() => {

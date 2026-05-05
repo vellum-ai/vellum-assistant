@@ -1,10 +1,10 @@
 import { getOllamaBaseUrlEnv } from "../config/env.js";
-import type {
-  EmbeddingBackend,
-  EmbeddingInput,
-  EmbeddingRequestOptions,
-} from "./embedding-backend.js";
-import { normalizeEmbeddingInput } from "./embedding-types.js";
+import {
+  type EmbeddingBackend,
+  type EmbeddingInput,
+  type EmbeddingRequestOptions,
+  normalizeEmbeddingInput,
+} from "./embedding-types.js";
 
 interface OllamaEmbeddingsResponse {
   data?: Array<{ embedding: number[] }>;

@@ -1,8 +1,65 @@
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class MainWindowStateNavigationHistoryTests: XCTestCase {
+    private var layoutConfigBackup: Data?
+    private var layoutConfigExisted = false
+    private var codingAgentsPanelOverrideExisted = false
+    private var codingAgentsPanelOverrideValue = false
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let url = Self.layoutConfigURL()
+        layoutConfigExisted = FileManager.default.fileExists(atPath: url.path)
+        if layoutConfigExisted {
+            layoutConfigBackup = try Data(contentsOf: url)
+        }
+        let defaultsKey = Self.codingAgentsPanelDefaultsKey()
+        codingAgentsPanelOverrideExisted = SharedUserDefaults.standard.object(forKey: defaultsKey) != nil
+        codingAgentsPanelOverrideValue = SharedUserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    override func tearDownWithError() throws {
+        if codingAgentsPanelOverrideExisted {
+            MacOSClientFeatureFlagManager.shared.setOverride(
+                CodingAgentsPanelFeatureFlag.key,
+                enabled: codingAgentsPanelOverrideValue
+            )
+        } else {
+            MacOSClientFeatureFlagManager.shared.removeOverride(CodingAgentsPanelFeatureFlag.key)
+        }
+        codingAgentsPanelOverrideExisted = false
+        codingAgentsPanelOverrideValue = false
+
+        let url = Self.layoutConfigURL()
+        if layoutConfigExisted, let data = layoutConfigBackup {
+            try data.write(to: url, options: .atomic)
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+        layoutConfigBackup = nil
+        layoutConfigExisted = false
+        try super.tearDownWithError()
+    }
+
+    /// Mirrors `LayoutConfigStore.configURL` — keep this in sync if the
+    /// production path changes. Hard-coded so tests do not reach into the
+    /// production enum's `private` static.
+    private static func layoutConfigURL() -> URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        return appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("layout-config.json")
+    }
+
+    private static func codingAgentsPanelDefaultsKey() -> String {
+        "MacOSFeatureFlag.codingagentspanel"
+    }
 
     func testBackForwardAcrossConversationPanelApp() {
         let state = MainWindowState()
@@ -161,5 +218,107 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.inspectorMessageId)
         XCTAssertEqual(state.selection, .conversation(convId))
         XCTAssertEqual(state.navigationHistory.backStack, backStackBefore)
+    }
+
+    func testHideRightSlotForACPSessionsPreservesSelection() {
+        let state = MainWindowState()
+        let conversationId = UUID()
+        state.selection = .conversation(conversationId)
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.acpSessions),
+            width: 512,
+            visible: true
+        )
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.selection, .conversation(conversationId))
+        XCTAssertEqual(state.layoutConfig.right.content, .native(.acpSessions))
+        XCTAssertEqual(state.layoutConfig.right.width, 512)
+        XCTAssertFalse(state.layoutConfig.right.visible)
+        XCTAssertFalse(LayoutConfigStore.load().right.visible)
+    }
+
+    func testHideRightSlotForACPSessionsDoesNotPopBackStack() {
+        let state = MainWindowState()
+        let conversationId = UUID()
+        state.selection = .conversation(conversationId)
+        state.selection = .panel(.settings)
+        let backStackBefore = state.navigationHistory.backStack
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.acpSessions),
+            width: 400,
+            visible: true
+        )
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.navigationHistory.backStack, backStackBefore)
+        XCTAssertEqual(state.selection, .panel(.settings))
+    }
+
+    func testHideRightSlotMismatchedPanelLeavesRightSlotUnchanged() {
+        let state = MainWindowState()
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.settings),
+            width: 360,
+            visible: true
+        )
+        let rightSlotBefore = state.layoutConfig.right
+
+        state.hideRightSlot(.acpSessions)
+
+        XCTAssertEqual(state.layoutConfig.right, rightSlotBefore)
+    }
+
+    func testCodingAgentsToolbarVisibilityFollowsClientFlag() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: false)
+        XCTAssertFalse(TopBarView.isCodingAgentsButtonVisible)
+
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: true)
+        XCTAssertTrue(TopBarView.isCodingAgentsButtonVisible)
+    }
+
+    func testDisabledCodingAgentsRightSlotIsDetectedForCleanup() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: false)
+        let staleRightSlot = SlotConfig(
+            content: .native(.acpSessions),
+            width: 512,
+            visible: true
+        )
+
+        XCTAssertTrue(
+            MainWindowView.isDisabledACPSessionsRightSlot(staleRightSlot),
+            "Disabled flag plus persisted visible ACP right slot must trigger cleanup"
+        )
+    }
+
+    func testEnabledCodingAgentsRightSlotIsNotTreatedAsStale() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: true)
+        let rightSlot = SlotConfig(
+            content: .native(.acpSessions),
+            width: 512,
+            visible: true
+        )
+
+        XCTAssertFalse(MainWindowView.isDisabledACPSessionsRightSlot(rightSlot))
+    }
+
+    func testStaleCodingAgentsRightSlotCleanupPreservesContentAndWidth() {
+        MacOSClientFeatureFlagManager.shared.setOverride(CodingAgentsPanelFeatureFlag.key, enabled: false)
+        let state = MainWindowState()
+        state.layoutConfig.right = SlotConfig(
+            content: .native(.acpSessions),
+            width: 512,
+            visible: true
+        )
+
+        if MainWindowView.isDisabledACPSessionsRightSlot(state.layoutConfig.right) {
+            state.hideRightSlot(.acpSessions)
+        }
+
+        XCTAssertEqual(state.layoutConfig.right.content, .native(.acpSessions))
+        XCTAssertEqual(state.layoutConfig.right.width, 512)
+        XCTAssertFalse(state.layoutConfig.right.visible)
     }
 }

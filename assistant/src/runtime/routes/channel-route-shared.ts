@@ -119,39 +119,13 @@ export function buildGuardianDenyContext(
   return `Permission denied for "${toolName}": guardian approval was required, but no guardian is configured for this channel. In your next assistant reply, explain this and offer guardian setup. Mention that setup provides a verification code that the user replies with in the channel.`;
 }
 
-export function buildPromptDeliveryFailureContext(toolName: string): string {
-  return `Permission denied for "${toolName}": approval UI delivery failed and no plain-text fallback could be delivered. In your next assistant reply, apologize briefly, explain approval delivery failed, and ask the user to retry.`;
-}
-
 export function stripVerificationFailurePrefix(reason: string): string {
   const trimmed = reason.trim();
   return trimmed.replace(/^verification failed\.?\s*/i, "").trim() || trimmed;
 }
-
-// ---------------------------------------------------------------------------
-// Poll constants
-// ---------------------------------------------------------------------------
-
-export const RUN_POLL_INTERVAL_MS = 500;
-const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
-
-/** Post-decision delivery poll: uses the same budget as the main poll since
- *  this is the only delivery path for late approvals after the main poll exits. */
-export const POST_DECISION_POLL_INTERVAL_MS = 500;
-export const POST_DECISION_POLL_MAX_WAIT_MS = RUN_POLL_MAX_WAIT_MS;
-
-/**
- * Override the poll max-wait for tests. When set, used in place of
- * RUN_POLL_MAX_WAIT_MS so tests can exercise timeout paths without
- * waiting 5 minutes.
- */
-let testPollMaxWaitOverride: number | null = null;
+let _testPollMaxWaitOverride: number | null = null;
 
 /** @internal — test-only: set an override for the poll max-wait. */
 export function _setTestPollMaxWait(ms: number | null): void {
-  testPollMaxWaitOverride = ms;
-}
-
-export function getEffectivePollMaxWait(): number {
-  return testPollMaxWaitOverride ?? RUN_POLL_MAX_WAIT_MS;
+  _testPollMaxWaitOverride = ms;
 }

@@ -17,6 +17,7 @@ import JSZip from "jszip";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 import { compileApp } from "./app-compiler.js";
 import type { SigningCallback } from "./bundle-signer.js";
 import { signBundle } from "./bundle-signer.js";
@@ -25,7 +26,6 @@ import { serializeManifest } from "./manifest.js";
 
 const bundlerLog = getLogger("app-bundler");
 
-import { APP_VERSION } from "../version.js";
 const PACKAGE_VERSION = APP_VERSION;
 
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -35,6 +35,45 @@ export interface BundleResult {
   manifest: AppManifest;
   /** Base64-encoded PNG of the app icon, if one was generated. */
   iconImageBase64?: string;
+}
+
+function isDefaultMainScaffold(source: string): boolean {
+  const normalized = source.replace(/\s+/g, " ").trim();
+  return (
+    normalized.startsWith(
+      `import { render } from 'preact'; function App() { return <div>{"Hello, `,
+    ) &&
+    normalized.endsWith(
+      `!"}</div>; } render(<App />, document.getElementById('app')!);`,
+    )
+  );
+}
+
+function assertMultifileSourceReady(
+  app: { name: string },
+  appDir: string,
+): void {
+  const srcIndexPath = join(appDir, "src", "index.html");
+  const srcMainPath = join(appDir, "src", "main.tsx");
+  const missing = [
+    !existsSync(srcIndexPath) ? "src/index.html" : null,
+    !existsSync(srcMainPath) ? "src/main.tsx" : null,
+  ].filter((value): value is string => value !== null);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `App "${app.name}" is a multi-file TSX app but is missing ${missing.join(
+        " and ",
+      )}. Write source files under src/ and call app_refresh before sharing.`,
+    );
+  }
+
+  const mainSource = readFileSync(srcMainPath, "utf-8");
+  if (isDefaultMainScaffold(mainSource)) {
+    throw new Error(
+      `App "${app.name}" still has the default src/main.tsx scaffold. Write the real multi-file TSX source and call app_refresh before sharing.`,
+    );
+  }
 }
 
 /**
@@ -82,6 +121,8 @@ export async function packageApp(
   const appDir = getAppDirPath(appId);
 
   if (multifile) {
+    assertMultifileSourceReady(app, appDir);
+
     // Multi-file TSX app: compile src/ -> dist/
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
@@ -97,8 +138,15 @@ export async function packageApp(
     }
 
     const distDir = join(appDir, "dist");
-    const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-    const mainJs = await readFile(join(distDir, "main.js"));
+    const distIndexPath = join(distDir, "index.html");
+    const distMainPath = join(distDir, "main.js");
+    if (!existsSync(distIndexPath) || !existsSync(distMainPath)) {
+      throw new Error(
+        `Compilation for app "${app.name}" did not produce dist/index.html and dist/main.js. Check src/index.html and src/main.tsx, then call app_refresh.`,
+      );
+    }
+    const indexHtml = await readFile(distIndexPath, "utf-8");
+    const mainJs = await readFile(distMainPath);
 
     compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
     compiledFiles.push({ name: "main.js", data: mainJs });

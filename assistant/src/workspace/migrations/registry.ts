@@ -58,7 +58,14 @@ import { repairStaleGeminiModelIdsMigration } from "./057-repair-stale-gemini-mo
 import { releaseNotesAcpSessionsUiMigration } from "./058-release-notes-acp-sessions-ui.js";
 import { movePidToWorkspaceMigration } from "./059-move-pid-to-workspace.js";
 import { memoryV2InitMigration } from "./060-memory-v2-init.js";
-import { homeFeedNotificationOnlyMigration } from "./061-home-feed-notification-only.js";
+import { moveBackupKeyToWorkspaceMigration } from "./061-move-backup-key-to-workspace.js";
+import { dropMemoryV2EdgesJsonMigration } from "./062-drop-memory-v2-edges-json.js";
+import { releaseNotesDynamicModelContextMigration } from "./063-release-notes-dynamic-model-context.js";
+import { unwindMainAgentOpusSeedMigration } from "./064-unwind-main-agent-opus-seed.js";
+import { bumpStaleHeartbeatIntervalMigration } from "./065-bump-stale-heartbeat-interval.js";
+import { seedHeartbeatCallsiteCostDefaultMigration } from "./066-seed-heartbeat-callsite-cost-default.js";
+import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe-storage-limits.js";
+import { homeFeedNotificationOnlyMigration } from "./068-home-feed-notification-only.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -128,5 +135,12 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesAcpSessionsUiMigration,
   movePidToWorkspaceMigration,
   memoryV2InitMigration,
+  moveBackupKeyToWorkspaceMigration,
+  dropMemoryV2EdgesJsonMigration,
+  releaseNotesDynamicModelContextMigration,
+  unwindMainAgentOpusSeedMigration,
+  bumpStaleHeartbeatIntervalMigration,
+  seedHeartbeatCallsiteCostDefaultMigration,
+  releaseNotesSafeStorageLimitsMigration,
   homeFeedNotificationOnlyMigration,
 ];

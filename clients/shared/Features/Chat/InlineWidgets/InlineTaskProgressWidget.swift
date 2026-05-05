@@ -61,9 +61,11 @@ public struct TaskProgressData {
 
 public struct InlineTaskProgressWidget: View {
     public let data: TaskProgressData
+    public let onPopOut: (() -> Void)?
 
-    public init(data: TaskProgressData) {
+    public init(data: TaskProgressData, onPopOut: (() -> Void)? = nil) {
         self.data = data
+        self.onPopOut = onPopOut
     }
 
     public var body: some View {
@@ -85,6 +87,16 @@ public struct InlineTaskProgressWidget: View {
             Spacer()
 
             statusBadge(for: data.status)
+
+            if let onPopOut {
+                Button(action: onPopOut) {
+                    VIconView(.arrowUpRight, size: 10)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Pop out")
+                .accessibilityLabel("Pop out to floating window")
+            }
         }
     }
 

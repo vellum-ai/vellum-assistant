@@ -17,12 +17,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/settings-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

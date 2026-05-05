@@ -54,25 +54,29 @@ struct ChatProfilePicker: View {
     /// conversation falls back to `activeProfile`.
     let onSelect: (String?) -> Void
 
-    /// Pill label: the override profile when set, otherwise
+    /// Pill label: the override profile's display name when set, otherwise
     /// "Default (`<activeProfile>`)". Internal so tests can assert on it
     /// without spinning up a SwiftUI host.
-    static func label(current: String?, activeProfile: String) -> String {
-        if let current { return current }
-        return "Default (\(activeProfile))"
+    static func label(current: String?, profiles: [InferenceProfile], activeProfile: String) -> String {
+        if let current {
+            return profiles.first(where: { $0.name == current })?.displayName ?? current
+        }
+        let activeDisplay = profiles.first(where: { $0.name == activeProfile })?.displayName ?? activeProfile
+        return "Default (\(activeDisplay))"
     }
 
     var body: some View {
+        let pillLabel = Self.label(current: current, profiles: profiles, activeProfile: activeProfile)
         #if os(macOS)
         ComposerPillMenu(
             isEnabled: isEnabled,
             accessibilityLabel: "Inference profile",
-            accessibilityValue: Self.label(current: current, activeProfile: activeProfile),
+            accessibilityValue: pillLabel,
             tooltip: "Inference profile for this conversation"
         ) {
             VIconView(.sparkles, size: 14)
                 .foregroundStyle(VColor.contentSecondary)
-            Text(Self.label(current: current, activeProfile: activeProfile))
+            Text(pillLabel)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
                 .lineLimit(1)
@@ -80,7 +84,7 @@ struct ChatProfilePicker: View {
             ForEach(profiles) { profile in
                 VMenuItem(
                     icon: VIcon.sparkles.rawValue,
-                    label: profile.name,
+                    label: profile.displayName,
                     isActive: current == profile.name,
                     size: .regular
                 ) {
@@ -96,7 +100,7 @@ struct ChatProfilePicker: View {
             }
             VMenuItem(
                 icon: VIcon.rotateCcw.rawValue,
-                label: "Reset to default (\(activeProfile))",
+                label: "Reset to default (\(profiles.first { $0.name == activeProfile }?.displayName ?? activeProfile))",
                 isActive: current == nil,
                 size: .regular
             ) {

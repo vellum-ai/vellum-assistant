@@ -37,6 +37,7 @@ describe("cleanupSettingsChanged", () => {
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     conversationRetentionDays: 0,
     llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
+    traceEventRetentionDays: 3,
   };
 
   test("returns false when either side is undefined", () => {
@@ -128,11 +129,9 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (v: string) => v,
 }));
 
-// Simulate a config-cache layer: `diskConfig` is the on-disk value,
-// `cachedConfig` is what getConfig() returns until invalidateConfigCache()
-// is called. This matches the production behavior where getConfig() returns
-// a memoized value that only refreshes after explicit invalidation. Tests
-// mutate `diskConfig` to simulate a user writing a new config.json.
+// Simulate a config-cache layer: `diskConfig` is the on-disk value and
+// `cachedConfig` is the in-memory value returned by getConfig() when present.
+// Tests mutate `diskConfig` to simulate a user writing a new config.json.
 interface TestConfig {
   memory: {
     enabled: boolean;
@@ -199,10 +198,6 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../signals/bash.js", () => ({
-  handleBashSignal: () => {},
-}));
-
 mock.module("../signals/cancel.js", () => ({
   handleCancelSignal: () => {},
 }));
@@ -215,8 +210,8 @@ mock.module("../signals/emit-event.js", () => ({
   handleEmitEventSignal: () => {},
 }));
 
-mock.module("../signals/mcp-reload.js", () => ({
-  handleMcpReloadSignal: () => {},
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
 }));
 
 mock.module("../signals/user-message.js", () => ({
@@ -246,6 +241,20 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
     diskConfig = makeConfig({
       llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
     });
+
+    const changed = await watcher.refreshConfigFromSources();
+    expect(changed).toBe(true);
+    expect(resetCleanupScheduleThrottleCalls).toBe(1);
+  });
+
+  test("resets throttle when the loader cache has already observed the disk change", async () => {
+    const watcher = new ConfigWatcher();
+    watcher.initFingerprint(diskConfig as never);
+
+    diskConfig = makeConfig({
+      llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    cachedConfig = null;
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);

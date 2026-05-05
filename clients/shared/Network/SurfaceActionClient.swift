@@ -56,7 +56,7 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
                 body["data"] = data.mapValues { $0.value }
             }
 
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/surface-actions", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "surface-actions", json: body, timeout: 10)
             if !response.isSuccess {
                 logSurfaceActionFailure(operation: "sendSurfaceAction", statusCode: response.statusCode, data: response.data)
             }
@@ -71,7 +71,7 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
                 "conversationId": conversationId,
                 "surfaceId": surfaceId,
             ]
-            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/surfaces/\(surfaceId)/undo", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "surfaces/\(surfaceId)/undo", json: body, timeout: 10)
             if !response.isSuccess {
                 logSurfaceActionFailure(operation: "sendSurfaceUndo", statusCode: response.statusCode, data: response.data)
             }

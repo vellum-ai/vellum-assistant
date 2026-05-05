@@ -51,6 +51,27 @@ If you need to bypass this check in exceptional cases:
 git commit --no-verify
 ```
 
+### commit-msg
+
+Runs the same generic-examples patterns as `pre-commit`, but against the commit message text itself rather than the staged diff.
+
+**What it checks:**
+
+- **Generic-examples rule on commit messages** — Runs `scripts/check-generic-examples.ts --commit-msg <path>` against the message git is about to record. The same shape patterns and any private patterns (`VELLUM_CONTENT_CHECK_PATTERNS`) apply.
+
+**Behavior:**
+
+- Comment lines (lines starting with `#`) are stripped before scanning, since git removes them from the recorded commit anyway.
+- Content below the `# ------------------------ >8 ------------------------` scissors line (used by `git commit -v`) is ignored, since git also drops it.
+<!-- generic-examples:ignore-next-line — illustrative example of what the rule flags -->
+- Patterns are quote-anchored — they catch quoted/back-ticked emails and phone numbers (e.g., `Updated "alice@gmail.com" to be hashed`), not bare prose. Angle-bracketed trailers like `Co-Authored-By: Claude <noreply@anthropic.com>` are not flagged.
+- Same suppression syntax as `pre-commit`: `generic-examples:ignore-line` / `generic-examples:ignore-next-line` (note that the marker survives into the recorded message).
+
+**Bypass (not recommended):**
+```bash
+git commit --no-verify
+```
+
 ### pre-push
 
 Runs before pushing to catch issues that would fail CI.

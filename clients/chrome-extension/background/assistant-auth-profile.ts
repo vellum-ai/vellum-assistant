@@ -2,7 +2,7 @@
  * Auth profile enum for the chrome extension's transport selection.
  *
  * - `self-hosted` — pair directly with the gateway's
- *   `/v1/browser-extension-pair` endpoint over HTTP, then open a
+ *   `/v1/pair` endpoint over HTTP, then open a
  *   WebSocket relay to the same gateway. Used for locally running
  *   assistants where the extension can reach the gateway over loopback
  *   (or a user-provided URL).

@@ -58,9 +58,9 @@ describe("SSE assistant-events endpoint", () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 19500 + Math.floor(Math.random() * 500);
-    server = new RuntimeHttpServer({ port });
+    server = new RuntimeHttpServer({ port: 0 });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {

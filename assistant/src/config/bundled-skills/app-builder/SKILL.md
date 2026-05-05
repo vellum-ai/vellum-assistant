@@ -1,6 +1,6 @@
 ---
 name: app-builder
-description: Build interactive apps, dashboards, calculators, games, trackers, tools, landing pages, and data visualizations with HTML/CSS/JS
+description: Build interactive apps, dashboards, calculators, games, trackers, tools, landing pages, and data visualizations with Preact/TypeScript/CSS
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🏗️"
@@ -30,11 +30,11 @@ Apps live under `{workspaceDir}/data/apps/`. Each app has a slug-based layout:
 {workspaceDir}/data/apps/
   <slug>.json          # App metadata
   <slug>/              # App directory (contains all app files)
-    index.html         # Main page (entry point rendered in WebView)
-    pages/             # Additional pages
+    index.html         # Legacy single-file entry point (do not create for new apps)
+    pages/             # Legacy additional pages (do not create for new apps)
     records/           # Data records (one JSON file per record)
-    src/               # Source files (multifile TSX apps, formatVersion: 2)
-    dist/              # Compiled output (multifile TSX apps)
+    src/               # Source files (multi-file TSX apps, formatVersion: 2)
+    dist/              # Compiled output (multi-file TSX apps)
   <slug>.preview       # Preview image (auto-generated)
 ```
 
@@ -42,7 +42,7 @@ Apps live under `{workspaceDir}/data/apps/`. Each app has a slug-based layout:
 
 Fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`.
 
-**Important:** `htmlDefinition` and `pages` are NOT stored in the metadata JSON — they live as separate files inside the app directory (`index.html` and `pages/`).
+**Important:** Legacy `htmlDefinition` and `pages` content is NOT stored in the metadata JSON — it lives as separate files inside the app directory (`index.html` and `pages/`). Do not create new single-file apps or new `pages/` directories.
 
 ### Records
 
@@ -52,9 +52,9 @@ Each record is a JSON file at `<slug>/records/<uuid>.json` with shape:
 { "id": "<uuid>", "appId": "<app-id>", "data": { ... }, "createdAt": "...", "updatedAt": "..." }
 ```
 
-### Multifile TSX Apps
+### Multi-file TSX Apps
 
-For `formatVersion: 2` apps, source files live under `src/` and compiled output under `dist/`. The build system compiles TSX → JS automatically when `app_refresh` is called.
+All new apps use `formatVersion: 2`: source files live under `src/` and compiled output lives under `dist/`. The build system compiles TSX to JS automatically when `app_refresh` is called.
 
 ## Workflow
 
@@ -69,16 +69,7 @@ For `formatVersion: 2` apps, source files live under `src/` and compiled output 
 
 **Make creative decisions on behalf of the user.** They want to be delighted, not consulted. Pick the accent color. Choose between a dark moody aesthetic or a light airy one. Decide if cards should have glassmorphism or layered shadows. Add a background pattern or gradient. These are YOUR decisions as the designer.
 
-<!-- feature:app-builder-multifile:start -->
-
-**Prefer multi-file TSX projects** for any non-trivial app. They give you component reuse, TypeScript safety, and cleaner organization. Fall back to single-file HTML only for the simplest one-off pages.
-
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-
-**Always build single-file HTML apps.** Write a complete, self-contained HTML document with all CSS in `<style>` and all JavaScript in `<script>`. Do not use multi-file projects or TSX.
-
-<!-- feature:app-builder-multifile:alt:end -->
+**Build all new apps as multi-file TSX projects.** They give you component reuse, TypeScript safety, and cleaner organization.
 
 **Only ask questions when the request is genuinely ambiguous** - e.g., "build me an app" with no indication of what kind. Even then, prefer building something impressive based on context clues over asking a battery of questions.
 
@@ -124,11 +115,9 @@ Example schema for a project tracker:
 
 Apps are rendered inside a sandboxed WebView on macOS.
 
-<!-- feature:app-builder-multifile:start -->
-
 #### Multi-file TSX projects
 
-Build apps as multi-file TSX projects. You get component reuse, TypeScript type-checking, and clean file organization. The build system uses esbuild to bundle everything automatically.
+Build apps as multi-file TSX projects. You get component reuse, TypeScript type-checking, and clean file organization. The build system uses esbuild to bundle everything automatically. Do not create root-level `index.html` files or `pages/` directories for new apps.
 
 **Project structure:**
 
@@ -190,7 +179,7 @@ useEffect(() => {
 }, []);
 ```
 
-**File workflow:** Use `file_write` for each source file. After writing all files, call `app_refresh` once to compile and refresh the UI.
+**File workflow:** Call `app_create` first to create the app record and scaffold, use `file_write` for each source file under `src/`, then call `app_refresh` once to compile and refresh the UI.
 
 **Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly - esbuild resolves them at build time. No CDN imports. Note: `lucide` is the vanilla JS icon library (not `lucide-react`). Use its `createElement` or `createIcons` API, or manually inline SVG - do not import JSX icon components.
 
@@ -262,23 +251,6 @@ app_refresh(app_id)
 - No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
 - Design responsively. Apps render at fluid, user-resizable widths — avoid fixed-pixel layouts
 - The WebView blocks all navigation - links and form `action` attributes won't work
-<!-- feature:app-builder-multifile:end -->
-
-<!-- feature:app-builder-multifile:alt -->
-
-#### Single HTML file
-
-Write a complete, self-contained HTML document.
-
-**Technical constraints (single-file):**
-
-- Single HTML string - no external files, CDNs, or imports
-- All CSS in `<style>` in `<head>`, all JavaScript in `<script>` before `</body>`
-- No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
-- Design responsively. Apps render at fluid, user-resizable widths — avoid fixed-pixel layouts
-- The WebView blocks all navigation - links and form `action` attributes won't work
-
-<!-- feature:app-builder-multifile:alt:end -->
 
 #### Injected design system
 
@@ -352,88 +324,21 @@ For handler conventions, examples, key rules, and frontend usage patterns, see *
 
 `localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use custom routes for persistent app records, `localStorage` for UI preferences.
 
-<!-- feature:app-builder-multifile:alt -->
-
-#### JavaScript patterns
-
-Initialize apps with clean state management:
-
-```javascript
-document.addEventListener("DOMContentLoaded", async () => {
-  await loadRecords();
-});
-
-let allRecords = [];
-
-async function loadRecords() {
-  try {
-    const res = await window.vellum.fetch("/v1/x/records");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    allRecords = await res.json();
-    render();
-  } catch (err) {
-    console.error("Failed to load:", err);
-  }
-}
-
-function render() {
-  // Re-render UI from allRecords
-}
-```
-
-**HTML escaping:** Always escape user-controlled data before inserting into the DOM via `innerHTML`:
-
-```javascript
-function esc(s) {
-  const d = document.createElement("div");
-  d.textContent = String(s);
-  return d.innerHTML;
-}
-```
-
-### 4. Single-Page App Views
-
-Apps run inside a sandboxed WebView that blocks all navigation. All apps are effectively single-page. When an app needs multiple views, use JavaScript to swap content:
-
-```javascript
-function showView(name) {
-  document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
-  document.getElementById("view-" + name).hidden = false;
-  document
-    .querySelectorAll(".nav-link")
-    .forEach((btn) => btn.classList.remove("active"));
-  document
-    .querySelector(`[onclick="showView('${name}')"]`)
-    ?.classList.add("active");
-}
-```
-
-<!-- feature:app-builder-multifile:alt:end -->
-
-<!-- feature:app-builder-multifile:start -->
 ### 4. Create and Open the App
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-### 5. Create and Open the App
-<!-- feature:app-builder-multifile:alt:end -->
 
 Call `app_create` with:
 
 - `name`: Short descriptive name
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
-- `html`: (optional) Complete HTML document as string for `index.html`. If omitted, a minimal scaffold is created - you can then write `index.html` and other files via `file_write`.
 - `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat
 - `preview`: Always include - `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3 key-value pills)
 
+Do not pass `html` or `pages` to `app_create`; those single-file shortcuts are retired. After `app_create` returns the app ID, write the real app source under `src/` and call `app_refresh`.
+
 The app is NOT opened in a workspace panel automatically - users open it via the 'Open App' button on the inline card.
 
-<!-- feature:app-builder-multifile:start -->
 ### 5. Handle Iteration
-<!-- feature:app-builder-multifile:end -->
-<!-- feature:app-builder-multifile:alt -->
-### 6. Handle Iteration
-<!-- feature:app-builder-multifile:alt:end -->
 
 When the user requests changes, prefer **`file_edit`** over rewriting the entire file.
 
@@ -444,7 +349,7 @@ When the user requests changes, prefer **`file_edit`** over rewriting the entire
 
 After making all file changes, call `app_refresh(app_id)` once to compile and refresh the UI. Do NOT call it after every individual file edit — batch your changes first.
 
-Apps can have multiple files (`styles.css`, `app.js`, etc.). Link from `index.html` with standard tags.
+Apps should have multiple source files under `src/` (`styles.css`, components, helpers, etc.). Import CSS and modules from TSX so esbuild includes them in the compiled output.
 
 ## Interaction Standards
 

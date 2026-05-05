@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#endif
 
 /// Renders a remote image inline within a chat bubble.
 ///
@@ -68,11 +66,7 @@ public struct InlineImageEmbedView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { isVisible = true }
         .onTapGesture {
-            #if os(macOS)
             NSWorkspace.shared.open(url)
-            #elseif os(iOS)
-            UIApplication.shared.open(url)
-            #endif
         }
     }
 

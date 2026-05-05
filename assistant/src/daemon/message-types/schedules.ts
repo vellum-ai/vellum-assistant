@@ -118,10 +118,15 @@ export interface HeartbeatRunsListResponse {
   type: "heartbeat_runs_list_response";
   runs: Array<{
     id: string;
-    title: string;
+    scheduledFor: number;
+    startedAt: number | null;
+    finishedAt: number | null;
+    durationMs: number | null;
+    status: string;
+    skipReason: string | null;
+    error: string | null;
+    conversationId: string | null;
     createdAt: number;
-    result: string;
-    summary?: string;
   }>;
 }
 

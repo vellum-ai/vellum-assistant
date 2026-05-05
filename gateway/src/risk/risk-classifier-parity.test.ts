@@ -51,7 +51,7 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["command -v rm", RiskLevel.Low],
   ["command -V sudo", RiskLevel.Low],
   ["rm --help", RiskLevel.Low],
-  ["mycustomtool --help", RiskLevel.Low],
+  ["mycustomtool --help", RiskLevel.Medium],
 
   // Medium risk
   ["git push origin main", RiskLevel.Medium],
@@ -70,8 +70,6 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["chgrp group file.txt", RiskLevel.High],
   ['eval "ls"', RiskLevel.High],
   ['bash -c "echo hi"', RiskLevel.High],
-  ["assistant trust add", RiskLevel.High],
-  ["assistant trust update", RiskLevel.High],
   ["sudo rm -rf /", RiskLevel.High],
   ["rm -rf /tmp/stuff", RiskLevel.High],
   ["rm -r directory", RiskLevel.High],

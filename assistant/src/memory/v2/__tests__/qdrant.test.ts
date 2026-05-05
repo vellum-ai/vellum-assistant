@@ -190,6 +190,22 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(state.collectionExistsCalls).toBe(1);
   });
 
+  test("deduplicates concurrent collection creation", async () => {
+    state.collectionExistsBeforeCreate = false;
+
+    await Promise.all([
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+    ]);
+
+    expect(state.collectionExistsCalls).toBe(1);
+    expect(state.createCollectionCalls).toBe(1);
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "slug", field_schema: "keyword" },
+    ]);
+  });
+
   test("treats 409-on-create as success (concurrent creation race)", async () => {
     state.collectionExistsBeforeCreate = false;
     const conflict = Object.assign(new Error("Conflict"), { status: 409 });

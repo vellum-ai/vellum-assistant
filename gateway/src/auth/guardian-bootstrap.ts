@@ -1,26 +1,30 @@
 /**
  * Gateway-native guardian bootstrap — mints credentials using the
  * gateway's own SQLite database for token persistence and the
- * assistant's database for contact lookups (contacts migration is
- * separate). Uses the gateway's own signing key for JWT minting.
+ * assistant's database (via IPC proxy) for contact lookups and writes.
+ *
+ * Uses the gateway's own signing key for JWT minting.
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 
-import { Database } from "bun:sqlite";
 import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
+import {
+  assistantDbQuery,
+  assistantDbRun,
+  assistantDbExec,
+} from "../db/assistant-db-proxy.js";
 import {
   actorRefreshTokenRecords,
   actorTokenRecords,
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
+import { readCredential } from "../credential-reader.js";
+import { credentialKey } from "../credential-key.js";
 import { getLogger } from "../logger.js";
-import { getWorkspaceDir } from "../paths.js";
 
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
@@ -64,56 +68,6 @@ export interface GuardianBootstrapResult {
 }
 
 // ---------------------------------------------------------------------------
-// Assistant DB access (lazy singleton)
-// ---------------------------------------------------------------------------
-
-let assistantDb: Database | null = null;
-
-function getAssistantDbPath(): string {
-  return join(getWorkspaceDir(), "data", "db", "assistant.db");
-}
-
-/**
- * Open a connection to the assistant's SQLite database.
- *
- * Short-term workaround: the gateway accesses the assistant's DB directly
- * rather than owning its own contacts/token tables. This avoids a risky
- * data migration (copying contacts + tokens from assistant → gateway while
- * both processes are running). Once the migration is complete, this will
- * be replaced with a gateway-owned database.
- */
-export function getAssistantDb(): Database {
-  if (assistantDb) return assistantDb;
-
-  const dbPath = getAssistantDbPath();
-  if (!existsSync(dbPath)) {
-    throw new Error(
-      `Assistant database not found at ${dbPath} — the assistant may not have started yet`,
-    );
-  }
-
-  assistantDb = new Database(dbPath);
-  assistantDb.exec("PRAGMA journal_mode=WAL");
-  assistantDb.exec("PRAGMA busy_timeout=5000");
-  assistantDb.exec("PRAGMA foreign_keys=ON");
-
-  log.info({ dbPath }, "Opened assistant database for guardian bootstrap");
-  return assistantDb;
-}
-
-/** Close the assistant DB connection. Exported for tests. */
-export function closeAssistantDb(): void {
-  if (assistantDb) {
-    try {
-      assistantDb.close();
-    } catch {
-      // best effort
-    }
-    assistantDb = null;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -132,7 +86,7 @@ export function getExternalAssistantId(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Contact operations (against the assistant's DB)
+// Contact operations (via IPC proxy to assistant's DB)
 // ---------------------------------------------------------------------------
 
 interface GuardianLookupRow {
@@ -144,20 +98,19 @@ interface GuardianLookupRow {
  * Find the existing guardian contact for the "vellum" channel.
  * Mirrors assistant's `findGuardianForChannel("vellum")`.
  */
-function findVellumGuardian(db: Database): { principalId: string } | null {
-  const row = db
-    .query<GuardianLookupRow, []>(
-      `SELECT c.id AS contact_id, c.principal_id
-       FROM contacts c
-       INNER JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian'
-         AND cc.type = 'vellum'
-         AND cc.status = 'active'
-       ORDER BY cc.verified_at DESC
-       LIMIT 1`,
-    )
-    .get();
+async function findVellumGuardian(): Promise<{ principalId: string } | null> {
+  const rows = await assistantDbQuery<GuardianLookupRow>(
+    `SELECT c.id AS contact_id, c.principal_id
+     FROM contacts c
+     INNER JOIN contact_channels cc ON cc.contact_id = c.id
+     WHERE c.role = 'guardian'
+       AND cc.type = 'vellum'
+       AND cc.status = 'active'
+     ORDER BY cc.verified_at DESC
+     LIMIT 1`,
+  );
 
+  const row = rows[0];
   if (!row?.principal_id) return null;
   return { principalId: row.principal_id };
 }
@@ -171,26 +124,25 @@ function findVellumGuardian(db: Database): { principalId: string } | null {
  * Used by channel ingress paths to decide whether an inbound message
  * came from the assistant's owner — see `index.ts` Slack upload flow.
  */
-export function findGuardianForChannelActor(
+export async function findGuardianForChannelActor(
   channelType: string,
   externalUserId: string,
-): { principalId: string } | null {
+): Promise<{ principalId: string } | null> {
   if (!channelType || !externalUserId) return null;
 
-  const db = getAssistantDb();
-  const row = db
-    .query<GuardianLookupRow, [string, string]>(
-      `SELECT c.id AS contact_id, c.principal_id
-       FROM contacts c
-       INNER JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian'
-         AND cc.type = ?
-         AND cc.external_user_id = ?
-         AND cc.status = 'active'
-       LIMIT 1`,
-    )
-    .get(channelType, externalUserId);
+  const rows = await assistantDbQuery<GuardianLookupRow>(
+    `SELECT c.id AS contact_id, c.principal_id
+     FROM contacts c
+     INNER JOIN contact_channels cc ON cc.contact_id = c.id
+     WHERE c.role = 'guardian'
+       AND cc.type = ?
+       AND cc.external_user_id = ?
+       AND cc.status = 'active'
+     LIMIT 1`,
+    [channelType, externalUserId],
+  );
 
+  const row = rows[0];
   if (!row?.principal_id) return null;
   return { principalId: row.principal_id };
 }
@@ -224,17 +176,13 @@ export interface CreateGuardianBindingResult {
 /**
  * Create or update a guardian contact + channel binding.
  *
- * Writes to both the assistant DB (primary) and gateway DB (secondary).
- * Uses upsert semantics: looks up an existing contact by principalId
- * and an existing channel by (contactId, type), updating if found.
- *
- * Persona-file seeding and trust-rule cache invalidation are
- * assistant-side concerns — the assistant handles them independently.
+ * Writes to both the assistant DB (via IPC proxy, primary) and gateway DB
+ * (secondary). Uses upsert semantics: looks up an existing contact by
+ * principalId and an existing channel by (contactId, type), updating if found.
  */
-export function createGuardianBinding(
+export async function createGuardianBinding(
   params: CreateGuardianBindingParams,
-): CreateGuardianBindingResult {
-  const db = getAssistantDb();
+): Promise<CreateGuardianBindingResult> {
   const now = Date.now();
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
@@ -242,44 +190,41 @@ export function createGuardianBinding(
   let contactId: string;
   let channelId: string;
 
-  // --- Assistant DB write (primary) ---
-  // Lookups + writes inside one transaction to prevent concurrent calls
-  // from racing past the existence check and hitting UNIQUE constraints.
-  db.exec("BEGIN IMMEDIATE");
+  // --- Assistant DB write (primary, via IPC proxy) ---
+  await assistantDbExec("BEGIN IMMEDIATE");
   try {
-    const existingContact = db
-      .query<{ id: string }, [string]>(
-        `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
-      )
-      .get(params.guardianPrincipalId);
+    const existingContacts = await assistantDbQuery<{ id: string }>(
+      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
+      [params.guardianPrincipalId],
+    );
 
-    contactId = existingContact?.id ?? uuid();
+    contactId = existingContacts[0]?.id ?? uuid();
 
-    const existingChannel = existingContact
-      ? db
-          .query<{ id: string }, [string, string]>(
-            `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
-          )
-          .get(contactId, params.channel)
-      : null;
+    let existingChannels: { id: string }[] = [];
+    if (existingContacts[0]) {
+      existingChannels = await assistantDbQuery<{ id: string }>(
+        `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
+        [contactId, params.channel],
+      );
+    }
 
-    channelId = existingChannel?.id ?? uuid();
+    channelId = existingChannels[0]?.id ?? uuid();
 
-    if (existingContact) {
-      db.run(
+    if (existingContacts[0]) {
+      await assistantDbRun(
         `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,
         [displayName, now, contactId],
       );
     } else {
-      db.run(
+      await assistantDbRun(
         `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
          VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
         [contactId, displayName, params.guardianPrincipalId, now, now],
       );
     }
 
-    if (existingChannel) {
-      db.run(
+    if (existingChannels[0]) {
+      await assistantDbRun(
         `UPDATE contact_channels
          SET address = ?, external_user_id = ?, external_chat_id = ?,
              status = 'active', policy = 'allow', verified_at = ?,
@@ -296,7 +241,7 @@ export function createGuardianBinding(
         ],
       );
     } else {
-      db.run(
+      await assistantDbRun(
         `INSERT INTO contact_channels
            (id, contact_id, type, address, external_user_id, external_chat_id,
             is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
@@ -315,9 +260,13 @@ export function createGuardianBinding(
       );
     }
 
-    db.exec("COMMIT");
+    await assistantDbExec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    try {
+      await assistantDbExec("ROLLBACK");
+    } catch {
+      // best effort
+    }
     throw err;
   }
 
@@ -395,25 +344,8 @@ export function createGuardianBinding(
   };
 }
 
-/**
- * Thin wrapper for the vellum bootstrap path — creates a vellum channel
- * guardian binding with bootstrap-specific defaults.
- */
-function createVellumGuardianBinding(
-  _db: Database,
-  guardianPrincipalId: string,
-): void {
-  createGuardianBinding({
-    channel: "vellum",
-    externalUserId: guardianPrincipalId,
-    deliveryChatId: "local",
-    guardianPrincipalId,
-    verifiedVia: "bootstrap",
-  });
-}
-
 // ---------------------------------------------------------------------------
-// Token operations (against the assistant's DB)
+// Token operations (against the gateway's own DB — no cross-container issue)
 // ---------------------------------------------------------------------------
 
 /**
@@ -551,15 +483,59 @@ function mintRefreshToken(
 // ---------------------------------------------------------------------------
 
 /**
+ * Attempt to fetch the assistant owner's display name from the platform.
+ *
+ * Only runs when IS_PLATFORM=true. Reads platform_base_url and
+ * assistant_api_key from the credential store, then calls
+ * GET /v1/internal/gateway/guardian/ with a 5-second timeout.
+ * Returns null on any missing credential, timeout, or network/parse failure —
+ * callers fall back to a generated principal ID in that case.
+ */
+async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
+  const isPlatform =
+    process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+    process.env.IS_PLATFORM?.trim() === "1";
+  if (!isPlatform) return null;
+
+  const [platformBaseUrl, assistantApiKey] = await Promise.all([
+    readCredential(credentialKey("vellum", "platform_base_url")),
+    readCredential(credentialKey("vellum", "assistant_api_key")),
+  ]);
+
+  if (!platformBaseUrl || !assistantApiKey) {
+    return null;
+  }
+
+  try {
+    const url = `${platformBaseUrl.replace(/\/+$/, "")}/v1/internal/gateway/guardian/`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Api-Key ${assistantApiKey}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      log.warn(
+        { status: response.status },
+        "Failed to fetch platform owner display name",
+      );
+      return null;
+    }
+    const data = (await response.json()) as { display_name?: string | null };
+    return data.display_name?.trim() || null;
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch platform owner display name");
+    return null;
+  }
+}
+
+/**
  * Ensure a vellum guardian binding exists. If one already exists, returns
  * its principalId. Otherwise creates a new binding with a fresh principal
  * and dual-writes to both the assistant and gateway DBs.
  *
  * Called during gateway startup to backfill existing installations.
  */
-export function ensureVellumGuardianBinding(): string {
-  const db = getAssistantDb();
-  const existing = findVellumGuardian(db);
+export async function ensureVellumGuardianBinding(): Promise<string> {
+  const existing = await findVellumGuardian();
   if (existing) {
     log.debug(
       { guardianPrincipalId: existing.principalId },
@@ -568,8 +544,16 @@ export function ensureVellumGuardianBinding(): string {
     return existing.principalId;
   }
 
+  const displayName = await fetchPlatformOwnerDisplayName();
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
-  createVellumGuardianBinding(db, guardianPrincipalId);
+  await createGuardianBinding({
+    channel: "vellum",
+    externalUserId: guardianPrincipalId,
+    deliveryChatId: "local",
+    guardianPrincipalId,
+    verifiedVia: "bootstrap",
+    ...(displayName ? { displayName } : {}),
+  });
   return guardianPrincipalId;
 }
 
@@ -580,11 +564,10 @@ export function ensureVellumGuardianBinding(): string {
  *   3. Mint new JWT access token + opaque refresh token
  *   4. Persist token hashes
  */
-export function bootstrapGuardian(params: {
+export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
-}): GuardianBootstrapResult {
-  const db = getAssistantDb();
+}): Promise<GuardianBootstrapResult> {
   const hashedDeviceId = createHash("sha256")
     .update(params.deviceId)
     .digest("hex");
@@ -593,12 +576,18 @@ export function bootstrapGuardian(params: {
   let isNew = false;
   let guardianPrincipalId: string;
 
-  const existing = findVellumGuardian(db);
+  const existing = await findVellumGuardian();
   if (existing) {
     guardianPrincipalId = existing.principalId;
   } else {
     guardianPrincipalId = `vellum-principal-${uuid()}`;
-    createVellumGuardianBinding(db, guardianPrincipalId);
+    await createGuardianBinding({
+      channel: "vellum",
+      externalUserId: guardianPrincipalId,
+      deliveryChatId: "local",
+      guardianPrincipalId,
+      verifiedVia: "bootstrap",
+    });
     isNew = true;
   }
 

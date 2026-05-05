@@ -30,7 +30,7 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
             if let maxToolResultChars { params["maxToolResultChars"] = "\(maxToolResultChars)" }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/messages", params: params, timeout: 15
+                path: "messages", params: params, timeout: 15
             )
             guard response.isSuccess else {
                 log.error("fetchHistory failed (HTTP \(response.statusCode))")

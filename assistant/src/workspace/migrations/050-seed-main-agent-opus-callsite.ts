@@ -12,7 +12,8 @@ import type { WorkspaceMigration } from "./types.js";
  *      `llm.callSites` without overwriting a user-defined override.
  *   2. **Fresh install** (config.json absent): write a minimal starter
  *      config with just this seed. `loadConfig()` runs after migrations
- *      and backfills the remaining schema defaults via `deepMergeMissing`.
+ *      and applies schema defaults to the in-memory config without
+ *      rewriting disk, so the seeded callSite is preserved as-is.
  *
  * Applied only when:
  *   - the resolved provider is Anthropic (other providers own their
@@ -60,9 +61,10 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
 
     if (readObject(callSites.mainAgent) !== null) return;
 
-    // maxTokens: 32000 matches Opus's maxOutputTokens (see
-    // model-catalog.ts); without it the site would inherit the
-    // default's 64000 and overshoot the model capability.
+    // Historical seed: at the time this migration shipped, Opus's standard
+    // output cap was 32k and this avoided inheriting a too-large default.
+    // The resolver now lets active/conversation profiles override this static
+    // mainAgent default.
     callSites.mainAgent = { model: "claude-opus-4-7", maxTokens: 32000 };
     llm.callSites = callSites;
     config.llm = llm;

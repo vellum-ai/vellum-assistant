@@ -71,7 +71,7 @@ bun run typecheck
 | `assistant/` | Core assistant runtime — memory, tools, skills, scheduling, integrations |
 | `gateway/` | Public ingress — webhooks, API routes, OAuth callbacks |
 | `cli/` | The `vellum` CLI |
-| `clients/` | Native clients (macOS, iOS) |
+| `clients/` | Native clients (macOS) and browser extension |
 | `credential-executor/` | Isolated credential execution service |
 | `packages/` | Shared internal packages |
 | `skills/` | Skill definitions |

@@ -113,6 +113,14 @@ struct AboutVellumView: View {
                 }
             }
 
+            // Open-source repo link — Apple HIG endorses About panels as
+            // the home for app provenance and source-code references.
+            VLink(
+                "View on GitHub",
+                destination: AppURLs.repositoryURL,
+                font: VFont.bodyMediumDefault
+            )
+
             // Check for Updates button — handles check in-place
             VButton(
                 label: isCheckingForUpdates ? "Checking..." : "Check for Updates",
@@ -331,7 +339,7 @@ struct AboutVellumView: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

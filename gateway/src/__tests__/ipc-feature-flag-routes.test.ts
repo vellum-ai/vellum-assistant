@@ -39,7 +39,7 @@ const TEST_REGISTRY = {
     },
     {
       id: "user-hosted-enabled",
-      scope: "macos",
+      scope: "client",
       key: "user-hosted-enabled",
       label: "User Hosted Enabled",
       description: "Enable user-hosted onboarding flow",

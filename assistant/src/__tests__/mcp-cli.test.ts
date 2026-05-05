@@ -15,6 +15,41 @@ import { Command } from "commander";
 
 // ── Module mocks (must precede imports that pull them in) ──────────────
 
+type MockIpcResult = { ok: boolean; result?: unknown; error?: string };
+let mockCliIpcCallFn: ReturnType<
+  typeof mock<
+    (
+      method: string,
+      params?: Record<string, unknown>,
+      opts?: { timeoutMs?: number },
+    ) => Promise<MockIpcResult>
+  >
+> = mock(
+  (
+    _method: string,
+    _params?: Record<string, unknown>,
+    _opts?: { timeoutMs?: number },
+  ): Promise<MockIpcResult> =>
+    Promise.resolve({
+      ok: false,
+      error: "Could not connect to assistant daemon. Is it running?",
+    }),
+);
+
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: (
+    method: string,
+    params?: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ) => mockCliIpcCallFn(method, params, opts),
+}));
+
+let mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+
+mock.module("../util/browser.js", () => ({
+  openInHostBrowser: (url: string) => mockOpenInHostBrowserFn(url),
+}));
+
 let stdoutLines: string[] = [];
 let stderrLines: string[] = [];
 
@@ -26,7 +61,9 @@ mock.module("../util/logger.js", () => ({
     error: (...args: unknown[]) => {
       stderrLines.push(args.map(String).join(" "));
     },
-    warn: () => {},
+    warn: (...args: unknown[]) => {
+      stderrLines.push(args.map(String).join(" "));
+    },
     debug: () => {},
     trace: () => {},
     fatal: () => {},
@@ -39,7 +76,6 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
   deleteMcpOAuthCredentials: async () => {},
-  McpOAuthProvider: class {},
 }));
 
 mock.module("../mcp/client.js", () => ({
@@ -392,6 +428,23 @@ describe("assistant mcp add", () => {
     const server = servers?.["default-risk"] as Record<string, unknown>;
     expect(server.defaultRiskLevel).toBe("high");
   });
+
+  test("calls cliIpcCall with internal_mcp_reload after saving server", async () => {
+    mockCliIpcCallFn = mock(() => Promise.resolve({ ok: true }));
+
+    await runMcpAdd("reload-test-server", [
+      "-t",
+      "sse",
+      "-u",
+      "https://example.com/sse",
+    ]);
+
+    const reloadCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_reload",
+    );
+    expect(reloadCall).toBeDefined();
+    expect(reloadCall![1]).toEqual({ body: {} });
+  });
 });
 
 describe("assistant mcp remove", () => {
@@ -473,5 +526,288 @@ describe("assistant mcp remove", () => {
       ?.servers as Record<string, unknown> | undefined;
     expect(servers?.["remove-me"]).toBeUndefined();
     expect(servers?.["keep-me"]).toBeDefined();
+  });
+});
+
+describe("assistant mcp reload", () => {
+  beforeAll(() => {
+    testDataDir = join(
+      tmpdir(),
+      `vellum-mcp-reload-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(testDataDir, { recursive: true });
+    configPath = join(testDataDir, "config.json");
+    writeConfig({});
+  });
+
+  afterAll(() => {
+    rmSync(testDataDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    mockCliIpcCallFn = mock(() => Promise.resolve({ ok: true }));
+  });
+
+  test("calls cliIpcCall with internal_mcp_reload", async () => {
+    const { stdout } = await runMcp("reload");
+
+    const reloadCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_reload",
+    );
+    expect(reloadCall).toBeDefined();
+    expect(reloadCall![1]).toEqual({ body: {} });
+    expect(stdout).toContain("MCP reload signal sent");
+  });
+
+  test("warns but does not fail when daemon is unreachable", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon",
+      }),
+    );
+
+    const { exitCode, stderr } = await runMcp("reload");
+
+    expect(exitCode).toBe(0); // best-effort, not fatal
+    expect(stderr).toContain("Could not signal reload");
+  });
+});
+
+describe("assistant mcp auth — IPC path", () => {
+  let ipcTestDataDir: string;
+  let ipcConfigPath: string;
+
+  beforeAll(() => {
+    ipcTestDataDir = join(
+      tmpdir(),
+      `vellum-mcp-auth-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(ipcTestDataDir, { recursive: true });
+    ipcConfigPath = join(ipcTestDataDir, "config.json");
+    writeFileSync(
+      ipcConfigPath,
+      JSON.stringify({
+        mcp: {
+          servers: {
+            srv: {
+              transport: { type: "sse", url: "https://mcp.example.com/sse" },
+              enabled: true,
+              defaultRiskLevel: "high",
+            },
+          },
+        },
+      }),
+      "utf-8",
+    );
+  });
+
+  afterAll(() => {
+    rmSync(ipcTestDataDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    // runMcp() sets VELLUM_WORKSPACE_DIR = testDataDir; align the module-level
+    // variable with the IPC-specific directory so the config loader sees the
+    // SSE server config created in beforeAll.
+    testDataDir = ipcTestDataDir;
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      }),
+    );
+    mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+    stdoutLines = [];
+    stderrLines = [];
+    process.exitCode = 0;
+  });
+
+  test("mcp auth calls IPC internal_mcp_auth_start first", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        // start call
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // poll calls → complete
+      return Promise.resolve({
+        ok: true,
+        result: { status: "complete" },
+      });
+    });
+
+    await runMcp("auth", ["srv"]);
+
+    expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
+    expect(mockCliIpcCallFn.mock.calls[0][1]).toEqual({
+      body: { serverId: "srv" },
+    });
+    expect(mockOpenInHostBrowserFn).toHaveBeenCalledWith(
+      "https://auth.example.com",
+    );
+  });
+
+  test("IPC start returns ok=false (daemon unavailable) → exits 1 with helpful error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      }),
+    );
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Is it running?");
+  });
+
+  test("IPC start returns ok=false (Unknown method) → exits 1 with helpful error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Unknown method: internal_mcp_auth_start",
+      }),
+    );
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Is it running?");
+  });
+
+  test("IPC start returns ok=false with a real daemon error → exits 1 without falling back to loopback", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "MCP server not configured for OAuth",
+      }),
+    );
+
+    await runMcp("auth", ["srv"]);
+
+    // Should have surfaced the daemon error and set exit code 1, not fallen
+    // back to loopback (which would have constructed the OAuth provider and
+    // possibly opened a browser via the loopback path).
+    expect(process.exitCode).toBe(1);
+    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+    // Exactly one IPC call (the start) — no polling, no retry.
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(1);
+    expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
+  });
+
+  test("polling complete → exits 0 (daemon-side reload triggers itself; CLI no longer writes file signal)", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { status: "complete" },
+      });
+    });
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Authentication successful");
+    // The IPC success path relies on the daemon-side orchestrator to call
+    // reloadMcpServers() itself on completion — no CLI-side signal needed.
+  });
+
+  test("polling error → exits 1 with error message", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { status: "error", error: "access_denied" },
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/cancelled|access_denied|OAuth failed/);
+  });
+
+  test("polling gets NotFoundError (daemon restarted) → exits 1 with helpful message immediately", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // Daemon restarted — state lost
+      return Promise.resolve({
+        ok: false,
+        error: 'No active OAuth flow for server "srv"',
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/assistant may have restarted|OAuth flow was lost/);
+  });
+
+  test("IPC start returns ok=true with already_authenticated → exits 0 without OAuth flow", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { auth_url: "", state: "srv", already_authenticated: true },
+      }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("already authenticated");
+    // Should not have opened the browser or started polling
+    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(1);
+  });
+
+  test("polling gets a non-notfound IPC error → exits 1 immediately with the error message", async () => {
+    let ipcCallIndex = 0;
+    mockCliIpcCallFn = mock(() => {
+      ipcCallIndex++;
+      if (ipcCallIndex === 1) {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      // Unexpected IPC error (not "No active OAuth flow")
+      return Promise.resolve({
+        ok: false,
+        error: "Internal server error during polling",
+      });
+    });
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/Internal server error during polling/);
+    // Should fail fast — only 1 start call + 1 poll call, not the full timeout
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(2);
   });
 });

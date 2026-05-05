@@ -278,22 +278,10 @@ mock.module("../daemon/handlers/shared.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import {
   _resetFileProvidersForTest,
   getSkillFileContent,
 } from "../daemon/handlers/skills.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as SkillOperationContext;
 
 type FetchFn = typeof globalThis.fetch;
 
@@ -375,7 +363,7 @@ describe("getSkillFileContent — installed skill", () => {
     mockResolvedSkills = [installedSkill("my-skill", skillDir)];
     installFetchForbidden();
 
-    const result = await getSkillFileContent("my-skill", "SKILL.md", dummyCtx);
+    const result = await getSkillFileContent("my-skill", "SKILL.md");
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     expect(result.path).toBe("SKILL.md");
@@ -395,7 +383,7 @@ describe("getSkillFileContent — installed skill", () => {
     mockResolvedSkills = [installedSkill("my-skill", skillDir)];
     installFetchForbidden();
 
-    const result = await getSkillFileContent("my-skill", "img.png", dummyCtx);
+    const result = await getSkillFileContent("my-skill", "img.png");
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     expect(result.isBinary).toBe(true);
@@ -410,7 +398,7 @@ describe("getSkillFileContent — installed skill", () => {
     installFetchForbidden();
 
     for (const bad of ["../secrets", "..", "/etc/passwd", "./../escape"]) {
-      const result = await getSkillFileContent("my-skill", bad, dummyCtx);
+      const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
       if (!("error" in result)) continue;
       expect(result.status).toBe(400);
@@ -427,7 +415,6 @@ describe("getSkillFileContent — installed skill", () => {
     const result = await getSkillFileContent(
       "my-skill",
       "SKILL.md\0.png",
-      dummyCtx,
     );
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -440,7 +427,7 @@ describe("getSkillFileContent — installed skill", () => {
     mockResolvedSkills = [installedSkill("my-skill", skillDir)];
     installFetchForbidden();
 
-    const result = await getSkillFileContent("my-skill", "ghost.txt", dummyCtx);
+    const result = await getSkillFileContent("my-skill", "ghost.txt");
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(404);
@@ -474,7 +461,6 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent(
       "remote-skill",
       "SKILL.md",
-      dummyCtx,
     );
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -495,7 +481,6 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent(
       "ghost-skill",
       "SKILL.md",
-      dummyCtx,
     );
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -528,7 +513,6 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent(
       "owner/repo/my-skill",
       "SKILL.md",
-      dummyCtx,
     );
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -559,7 +543,7 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
       toSlimSkill: async () => null,
     };
 
-    const result = await getSkillFileContent("cool-tool", "SKILL.md", dummyCtx);
+    const result = await getSkillFileContent("cool-tool", "SKILL.md");
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     expect(result.content).toBe("# clawhub content yo\n");
@@ -581,7 +565,6 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent(
       "known-skill",
       "nonexistent.txt",
-      dummyCtx,
     );
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -624,7 +607,6 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent(
       "simple-slug",
       "SKILL.md",
-      dummyCtx,
     );
     // Should be "File not found" (vellum handled but returned null)
     expect("error" in result).toBe(true);
@@ -647,7 +629,6 @@ describe("getSkillFileContent — skill not found", () => {
     const result = await getSkillFileContent(
       "ghost-skill",
       "SKILL.md",
-      dummyCtx,
     );
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -688,7 +669,6 @@ describe("getSkillFileContent — installed skill with missing directory", () =>
     const result = await getSkillFileContent(
       "ghost-installed",
       "SKILL.md",
-      dummyCtx,
     );
 
     expect("error" in result).toBe(true);
@@ -713,7 +693,7 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     mockResolvedSkills = [installedSkill("leaky-skill", skillDir)];
     installFetchForbidden();
 
-    const result = await getSkillFileContent("leaky-skill", ".env", dummyCtx);
+    const result = await getSkillFileContent("leaky-skill", ".env");
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(400);
@@ -737,7 +717,7 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
       toSlimSkill: async () => null,
     };
 
-    const result = await getSkillFileContent("catalog-leaky", ".env", dummyCtx);
+    const result = await getSkillFileContent("catalog-leaky", ".env");
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.status).toBe(400);
@@ -753,7 +733,7 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     installFetchForbidden();
 
     for (const bad of [".git/config", "docs/.hidden/file.md"]) {
-      const result = await getSkillFileContent("my-skill", bad, dummyCtx);
+      const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
       if (!("error" in result)) continue;
       expect(result.status).toBe(400);
@@ -772,7 +752,7 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
       "__pycache__/cached.pyc",
       "nested/node_modules/mod/index.js",
     ]) {
-      const result = await getSkillFileContent("my-skill", bad, dummyCtx);
+      const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
       if (!("error" in result)) continue;
       expect(result.status).toBe(400);
@@ -789,7 +769,6 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     const result = await getSkillFileContent(
       "healthy-skill",
       "SKILL.md",
-      dummyCtx,
     );
     expect("error" in result).toBe(false);
     if ("error" in result) return;

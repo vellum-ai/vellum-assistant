@@ -15,7 +15,7 @@ public struct ConversationDetailClient: ConversationDetailClientProtocol {
     public func fetchConversation(conversationId: String) async -> ConversationListResponseItem? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/conversations/\(conversationId)",
+                path: "conversations/\(conversationId)",
                 timeout: 15
             )
             guard response.isSuccess else {

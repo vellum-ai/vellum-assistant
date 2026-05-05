@@ -10,16 +10,8 @@
       "defaultEnabled": false
     },
     {
-      "id": "browser",
-      "scope": "assistant",
-      "key": "browser",
-      "label": "Browser",
-      "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
-      "scope": "macos",
+      "scope": "client",
       "key": "user-hosted-enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
@@ -27,7 +19,7 @@
     },
     {
       "id": "local-docker-enabled",
-      "scope": "macos",
+      "scope": "client",
       "key": "local-docker-enabled",
       "label": "Local Docker Mode",
       "description": "When enabled, the Local hosting option uses Docker under the hood for sandboxed execution, hiding the separate Docker card",
@@ -42,32 +34,16 @@
       "defaultEnabled": false
     },
     {
-      "id": "app-builder-multifile",
-      "scope": "assistant",
-      "key": "app-builder-multifile",
-      "label": "App Builder Multi-file",
-      "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
-      "defaultEnabled": true
-    },
-    {
-      "id": "mobile-pairing",
-      "scope": "macos",
-      "key": "mobile-pairing",
-      "label": "Mobile Pairing",
-      "description": "Show the Mobile (iOS) pairing card in Settings > Account",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
-      "scope": "assistant",
+      "scope": "client",
       "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "developer-menu-items",
-      "scope": "macos",
+      "scope": "client",
       "key": "developer-menu-items",
       "label": "Developer Menu Items",
       "description": "Show Component Gallery and Replay Onboarding in the menu bar",
@@ -106,54 +82,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-managed-sidecar",
-      "scope": "assistant",
-      "key": "ces-managed-sidecar",
-      "label": "CES Managed Sidecar Transport",
-      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
-      "defaultEnabled": true
-    },
-    {
-      "id": "ces-credential-backend",
-      "scope": "assistant",
-      "key": "ces-credential-backend",
-      "label": "CES Credential Backend",
-      "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
-      "defaultEnabled": true
-    },
-    {
-      "id": "settings-billing",
-      "scope": "macos",
-      "key": "settings-billing",
-      "label": "Billing Settings Tab",
-      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
-      "defaultEnabled": true
-    },
-    {
-      "id": "referral-codes",
-      "scope": "macos",
-      "key": "referral-codes",
-      "label": "Referral Codes",
-      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
-      "defaultEnabled": true
-    },
-    {
-      "id": "managed-sign-in",
-      "scope": "macos",
-      "key": "managed-sign-in",
-      "label": "Managed Sign In",
-      "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": true
-    },
-    {
-      "id": "conversation-starters",
-      "scope": "assistant",
-      "key": "conversation-starters",
-      "label": "Recommended Starts",
-      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
-      "defaultEnabled": true
-    },
-    {
       "id": "deploy-to-vercel",
       "scope": "assistant",
       "key": "deploy-to-vercel",
@@ -179,7 +107,7 @@
     },
     {
       "id": "quick-input",
-      "scope": "macos",
+      "scope": "client",
       "key": "quick-input",
       "label": "Quick Input",
       "description": "Enable the Quick Input popover on right-click of the menu bar icon",
@@ -187,35 +115,11 @@
     },
     {
       "id": "expand-completed-steps",
-      "scope": "macos",
+      "scope": "client",
       "key": "expand-completed-steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
       "defaultEnabled": false
-    },
-    {
-      "id": "show-thinking-blocks",
-      "scope": "macos",
-      "key": "show-thinking-blocks",
-      "label": "Show Thinking Blocks",
-      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": true
-    },
-    {
-      "id": "inline-skill-commands",
-      "scope": "assistant",
-      "key": "inline-skill-commands",
-      "label": "Inline Skill Command Expansion",
-      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
-      "defaultEnabled": true
-    },
-    {
-      "id": "channel-voice-transcription",
-      "scope": "assistant",
-      "key": "channel-voice-transcription",
-      "label": "Channel Voice Transcription",
-      "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
-      "defaultEnabled": true
     },
     {
       "id": "sounds",
@@ -223,7 +127,7 @@
       "key": "sounds",
       "label": "Sounds",
       "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "message-tts",
@@ -239,7 +143,7 @@
       "key": "backward-releases",
       "label": "Backward Releases",
       "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "voice-mode",
@@ -267,7 +171,7 @@
     },
     {
       "id": "teleport",
-      "scope": "macos",
+      "scope": "client",
       "key": "teleport",
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
@@ -275,19 +179,11 @@
     },
     {
       "id": "apple-container",
-      "scope": "macos",
+      "scope": "client",
       "key": "apple-container",
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
       "defaultEnabled": false
-    },
-    {
-      "id": "tool-result-truncation",
-      "scope": "assistant",
-      "key": "tool-result-truncation",
-      "label": "Post-Turn Tool Result Truncation",
-      "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
-      "defaultEnabled": true
     },
     {
       "id": "managed-gemini-embeddings-enabled",
@@ -299,35 +195,19 @@
     },
     {
       "id": "fork-from-message",
-      "scope": "macos",
+      "scope": "client",
       "key": "fork-from-message",
       "label": "Fork from Message",
       "description": "Show the 'Fork from here' option in message overflow menus",
       "defaultEnabled": false
     },
     {
-      "id": "onboarding-pre-chat",
-      "scope": "macos",
-      "key": "onboarding-pre-chat",
-      "label": "Pre-Chat Onboarding Flow",
-      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
-      "defaultEnabled": true
-    },
-    {
       "id": "home-tab",
-      "scope": "macos",
+      "scope": "client",
       "key": "home-tab",
       "label": "Home Tab",
       "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
       "defaultEnabled": false
-    },
-    {
-      "id": "channel-avatar-sync",
-      "scope": "assistant",
-      "key": "channel-avatar-sync",
-      "label": "Channel Avatar Sync",
-      "description": "Automatically sync the assistant's avatar to connected channels (Slack) when the avatar changes or a new channel is connected",
-      "defaultEnabled": true
     },
     {
       "id": "meet",
@@ -338,28 +218,20 @@
       "defaultEnabled": false
     },
     {
-      "id": "compaction-v2",
-      "scope": "assistant",
-      "key": "compaction-v2",
-      "label": "Compaction v2",
-      "description": "Boundary-message-based compaction pipeline with forked prompt-cache-shared summarization and microcompact pre-pass. Replaces the four-tier overflow reducer and cursor-based storage.",
-      "defaultEnabled": false
-    },
-    {
       "id": "scroll-debug-overlay",
-      "scope": "macos",
+      "scope": "client",
       "key": "scroll-debug-overlay",
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
       "defaultEnabled": false
     },
     {
-      "id": "message-height-cache",
-      "scope": "macos",
-      "key": "message-height-cache",
-      "label": "Message Height Cache",
-      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
-      "defaultEnabled": true
+      "id": "coding-agents-panel",
+      "scope": "client",
+      "key": "coding-agents-panel",
+      "label": "Coding Agents Panel",
+      "description": "Gate native macOS Coding Agents panel entry points and inline ACP session deep links.",
+      "defaultEnabled": false
     },
     {
       "id": "compaction-playground",
@@ -370,19 +242,51 @@
       "defaultEnabled": false
     },
     {
+      "id": "safe-storage-limits",
+      "scope": "assistant",
+      "key": "safe-storage-limits",
+      "label": "Safe Storage Limits",
+      "description": "Enable disk pressure protection flows that block background work and remote actors while storage is critically low.",
+      "defaultEnabled": false
+    },
+    {
       "id": "memory-v2-enabled",
       "scope": "assistant",
       "key": "memory-v2-enabled",
       "label": "Memory v2 (concept-page activation model)",
-      "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. v1 graph + PKB stays write-active until cutover.",
+      "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. When on, v1 graph extraction/maintenance and PKB filing are suppressed; flipping the flag back off re-engages the full v1 pipeline.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "account-deletion",
+      "scope": "client",
+      "key": "account-deletion",
+      "label": "Account Deletion",
+      "description": "Surfaces the user-initiated account deletion flow in client settings.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "app-control",
+      "scope": "assistant",
+      "key": "app-control",
+      "label": "App Control",
+      "description": "Enable the app-control skill (per-app screenshot + raw input bypassing AX tree)",
       "defaultEnabled": false
     },
     {
-      "id": "inference-profiles",
+      "id": "analyze-conversation",
       "scope": "assistant",
-      "key": "inference-profiles",
-      "label": "Inference Profiles",
-      "description": "Show inference profile picker in chat, active profile dropdown, Manage Profiles button, and per-task overrides link in Settings",
+      "key": "analyze-conversation",
+      "label": "Analyze Conversation",
+      "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "pro-plan-adjust",
+      "scope": "assistant",
+      "key": "pro-plan-adjust",
+      "label": "Pro Plan Adjust",
+      "description": "Show the 'Adjust Plan' and 'Configure Auto Top Ups' CTAs in the macOS Settings → Billing tab. Both open the web app's billing settings page.",
       "defaultEnabled": false
     }
   ]

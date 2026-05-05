@@ -7,7 +7,7 @@
  * candidate counts.
  */
 
-import type { PolicyDecision } from "./types.js";
+import type { PolicyDecision } from "@vellumai/egress-proxy";
 
 const REDACTED = "[REDACTED]";
 

@@ -705,31 +705,6 @@ export function mergeContacts(
 }
 
 /**
- * Delete a contact by ID. Guardians cannot be deleted as a safety guard.
- * Associated contactChannels and assistantContactMetadata rows are
- * cascade-deleted by the DB schema's onDelete constraints.
- */
-export function deleteContact(
-  contactId: string,
-): "ok" | "not_found" | "is_guardian" {
-  const db = getDb();
-
-  const contact = db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .get();
-
-  if (!contact) return "not_found";
-  if (contact.role === "guardian") return "is_guardian";
-
-  db.delete(contacts).where(eq(contacts.id, contactId)).run();
-
-  emitContactChange();
-  return "ok";
-}
-
-/**
  * Find a contact by a specific channel address. Returns null if not found.
  */
 export function findContactByAddress(
@@ -837,23 +812,6 @@ export function findContactChannel(params: {
     }
   }
   return null;
-}
-
-/**
- * Find the guardian contact regardless of channel.
- * Returns the first contact with role='guardian', or null if none exists.
- */
-export function findGuardianContact(): ContactWithChannels | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.role, "guardian"))
-    .orderBy(asc(contacts.createdAt))
-    .limit(1)
-    .get();
-  if (!row) return null;
-  return withChannels(parseContact(row));
 }
 
 /**
@@ -979,19 +937,6 @@ export function updateChannelStatus(
 }
 
 /**
- * Update the lastSeenAt timestamp on a contact channel by its primary key.
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateChannelLastSeenById(channelId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({ lastSeenAt: now, updatedAt: now })
-    .where(eq(contactChannels.id, channelId))
-    .run();
-}
-
-/**
  * Update a guardian contact's principalId and its channel's identity fields.
  * Used for healing guardian binding drift when the JWT principal no longer
  * matches the stored guardian binding after a DB reset.
@@ -1052,23 +997,6 @@ export function updateContactPrincipalAndChannel(
 
   emitContactChange();
   return true;
-}
-
-/**
- * Atomically increment interactionCount and set lastInteraction on a contact channel.
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateChannelInteraction(channelId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({
-      lastInteraction: now,
-      interactionCount: sql`${contactChannels.interactionCount} + 1`,
-      updatedAt: now,
-    })
-    .where(eq(contactChannels.id, channelId))
-    .run();
 }
 
 // ── Assistant Contact Metadata ──────────────────────────────────────

@@ -189,14 +189,48 @@ const RM_BENIGN_FLAGS = new Set([
 ]);
 
 /**
- * Returns true when the command arguments include a top-level `--help` flag.
+ * Returns true when args contain a top-level help option that is not consumed
+ * as a value by another flag.
  *
- * This intentionally ignores any `--help` token that appears after `--`
- * because those are positional arguments, not options.
+ * This intentionally ignores:
+ * - any `--help` token that appears after `--` (positional mode), and
+ * - any `--help` token consumed as the value of a known value-taking flag.
+ *
+ * Help-mode shortcuts are only enabled for commands with an arg schema.
  */
-function hasHelpFlag(args: string[]): boolean {
-  for (const arg of args) {
+function hasStandaloneHelpFlag(args: string[], schema?: ArgSchema): boolean {
+  if (!schema) return false;
+
+  const valueFlags = new Set(schema.valueFlags ?? []);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === "--") return false;
+
+    // Value-taking flags consume the next token (if present), so that token
+    // must not be interpreted as a standalone top-level option.
+    if (valueFlags.has(arg)) {
+      if (i + 1 < args.length) i++;
+      continue;
+    }
+
+    // Short-flag bundles: -xf where -f is a value flag.  POSIX convention
+    // places the value-consuming flag last in a bundle, so check the final
+    // character.  If it matches a known short value flag, the next token is
+    // its value and must be skipped.
+    if (arg.startsWith("-") && !arg.startsWith("--") && arg.length > 2) {
+      const lastChar = arg[arg.length - 1];
+      if (lastChar && valueFlags.has(`-${lastChar}`)) {
+        if (i + 1 < args.length) i++;
+        continue;
+      }
+    }
+
+    if (arg.startsWith("-") && arg.includes("=")) {
+      const eqIdx = arg.indexOf("=");
+      const flagPart = arg.slice(0, eqIdx);
+      if (valueFlags.has(flagPart)) continue;
+    }
+
     if (arg === "--help" || arg.startsWith("--help=")) return true;
   }
   return false;
@@ -280,14 +314,6 @@ export function classifySegment(
   }
 
   if (!spec) {
-    // Unknown command with --help is just viewing help → low risk
-    if (hasHelpFlag(segment.args)) {
-      return {
-        risk: "low",
-        reason: `${segment.program} help output`,
-        matchType: "registry",
-      };
-    }
     return {
       risk: "unknown",
       reason: `Unknown command: ${segment.program}`,
@@ -299,7 +325,11 @@ export function classifySegment(
   //     Commands WITH subcommands (e.g. `assistant`) skip this — their
   //     subcommand resolution may assign elevated risk that --help must
   //     not bypass.
-  if (!spec.subcommands && !spec.isWrapper && hasHelpFlag(segment.args)) {
+  if (
+    !spec.subcommands &&
+    !spec.isWrapper &&
+    hasStandaloneHelpFlag(segment.args, spec.argSchema)
+  ) {
     return {
       risk: "low",
       reason: `${segment.program} help output`,

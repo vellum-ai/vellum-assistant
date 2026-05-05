@@ -118,11 +118,12 @@ public struct PlatformAssistant: Codable, Sendable {
     /// Present when the platform includes recovery-mode state in the assistant payload.
     /// `nil` when the field is absent (e.g. older platform versions or endpoints that omit it).
     public let recovery_mode: PlatformAssistantRecoveryMode?
+    public let machine_id: String?
 
     /// Maps Swift property names to JSON keys. `recovery_mode` is stored as
     /// `maintenance_mode` in the platform API response.
     enum CodingKeys: String, CodingKey {
-        case id, name, description, created_at, status
+        case id, name, description, created_at, status, machine_id
         case recovery_mode = "maintenance_mode"
     }
 
@@ -132,7 +133,8 @@ public struct PlatformAssistant: Codable, Sendable {
         description: String? = nil,
         created_at: String? = nil,
         status: String? = nil,
-        recovery_mode: PlatformAssistantRecoveryMode? = nil
+        recovery_mode: PlatformAssistantRecoveryMode? = nil,
+        machine_id: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -140,6 +142,7 @@ public struct PlatformAssistant: Codable, Sendable {
         self.created_at = created_at
         self.status = status
         self.recovery_mode = recovery_mode
+        self.machine_id = machine_id
     }
 }
 
@@ -168,6 +171,16 @@ public struct HatchAssistantRequest: Codable, Sendable {
     }
 }
 
+/// Hatch endpoint mode.
+///
+/// `ensure` preserves the legacy idempotent flow, returning an existing
+/// assistant when possible. `create` asks the platform to create an additional
+/// assistant when multi-assistant hatching is enabled.
+public enum HatchAssistantMode: String, Codable, Sendable {
+    case ensure
+    case create
+}
+
 /// Result type for platform assistant lookups where 404/403 are normal outcomes.
 public enum PlatformAssistantResult: Sendable {
     case found(PlatformAssistant)
@@ -175,7 +188,11 @@ public enum PlatformAssistantResult: Sendable {
     case accessDenied
 }
 
-/// Result type for the idempotent hatch endpoint (200 = existing, 201 = created).
+/// Result type for the hatch endpoint.
+///
+/// The platform returns 200 when reusing an existing assistant (legacy
+/// `ensure` mode) or deduping an in-flight create, and 201 for a newly
+/// created assistant.
 public enum HatchAssistantResult: Sendable {
     case reusedExisting(PlatformAssistant)
     case createdNew(PlatformAssistant)

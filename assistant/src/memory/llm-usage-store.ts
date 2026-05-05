@@ -14,6 +14,12 @@ import {
   bucketEventsByHour,
   type UsageEventBucketRow,
 } from "./usage-buckets.js";
+import {
+  bucketGroupedUsageEvents,
+  displayUsageGroup,
+  type UsageGroupedBucketRow,
+  type UsageGroupedSeriesBucket,
+} from "./usage-grouped-buckets.js";
 
 // ---------------------------------------------------------------------------
 // Write
@@ -28,6 +34,9 @@ export function recordUsageEvent(
     id: uuid(),
     createdAt: Date.now(),
     ...input,
+    callSite: input.callSite ?? null,
+    inferenceProfile: input.inferenceProfile ?? null,
+    inferenceProfileSource: input.inferenceProfileSource ?? null,
     estimatedCostUsd: pricing.estimatedCostUsd,
     pricingStatus: pricing.pricingStatus,
   };
@@ -39,6 +48,9 @@ export function recordUsageEvent(
       runId: event.runId,
       requestId: event.requestId,
       actor: event.actor,
+      callSite: event.callSite,
+      inferenceProfile: event.inferenceProfile,
+      inferenceProfileSource: event.inferenceProfileSource,
       provider: event.provider,
       model: event.model,
       inputTokens: event.inputTokens,
@@ -66,6 +78,9 @@ function rowToUsageEvent(row: {
   runId: string | null;
   requestId: string | null;
   actor: string;
+  callSite: string | null;
+  inferenceProfile: string | null;
+  inferenceProfileSource: string | null;
   provider: string;
   model: string;
   inputTokens: number;
@@ -82,6 +97,10 @@ function rowToUsageEvent(row: {
     runId: row.runId,
     requestId: row.requestId,
     actor: row.actor as UsageEvent["actor"],
+    callSite: row.callSite as UsageEvent["callSite"],
+    inferenceProfile: row.inferenceProfile,
+    inferenceProfileSource:
+      row.inferenceProfileSource as UsageEvent["inferenceProfileSource"],
     provider: row.provider,
     model: row.model,
     inputTokens: row.inputTokens,
@@ -183,17 +202,23 @@ export interface UsageDayBucket {
   eventCount: number;
 }
 
-/** A grouped breakdown row (by actor, provider, or model). */
+/** A grouped breakdown row. */
 export interface UsageGroupBreakdown {
+  /** Display label for the group. */
   group: string;
   /**
    * Stable identifier for the group. Populated with the conversation id when
    * `groupBy === "conversation"` (and `null` for that mode's "Other" bucket,
    * which aggregates events with no conversation id). For all other group-bys
-   * (`actor`, `provider`, `model`) this is always `null` — the raw grouping
-   * column is already exposed via `group`.
+   * this is always `null`.
    */
   groupId: string | null;
+  /**
+   * Raw stored grouping value for dimensions whose display label may differ
+   * from storage (`call_site`, `inference_profile`). Omitted for legacy
+   * dimensions where `group` is already the raw value.
+   */
+  groupKey?: string | null;
   /** Direct input tokens only; cache traffic is reported separately below. */
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -216,9 +241,8 @@ interface TotalsRow {
   unpriced_event_count: number;
 }
 
-
 interface GroupRow {
-  group_key: string;
+  group_key: string | null;
   group_id: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
@@ -274,6 +298,7 @@ function fetchRawBucketRows(range: UsageTimeRange): UsageEventBucketRow[] {
       llm_call_count
     FROM llm_usage_events
     WHERE created_at >= ?1 AND created_at <= ?2
+    ORDER BY created_at ASC
     `,
     range.from,
     range.to,
@@ -326,7 +351,64 @@ export function getUsageHourBuckets(
   return bucketEventsByHour(rows, range, tz, options);
 }
 
-type GroupByDimension = "actor" | "provider" | "model" | "conversation";
+export const USAGE_GROUP_BY_DIMENSIONS = [
+  "actor",
+  "provider",
+  "model",
+  "conversation",
+  "call_site",
+  "inference_profile",
+] as const;
+
+export type GroupByDimension = (typeof USAGE_GROUP_BY_DIMENSIONS)[number];
+
+export const USAGE_SERIES_GROUP_BY_DIMENSIONS = [
+  "actor",
+  "provider",
+  "model",
+  "call_site",
+  "inference_profile",
+] as const satisfies readonly GroupByDimension[];
+
+const GROUP_BY_COLUMNS: Record<
+  Exclude<GroupByDimension, "conversation">,
+  string
+> = {
+  actor: "actor",
+  provider: "provider",
+  model: "model",
+  call_site: "call_site",
+  inference_profile: "inference_profile",
+};
+
+const ALLOWED_DIMENSIONS = new Set<string>(USAGE_GROUP_BY_DIMENSIONS);
+
+function assertGroupByDimension(
+  groupBy: string,
+): asserts groupBy is GroupByDimension {
+  if (!ALLOWED_DIMENSIONS.has(groupBy)) {
+    throw new Error(`Invalid groupBy dimension: ${groupBy}`);
+  }
+}
+
+function mapGroupRow(
+  row: GroupRow,
+  groupBy: GroupByDimension,
+): UsageGroupBreakdown {
+  const includeGroupKey =
+    groupBy === "call_site" || groupBy === "inference_profile";
+  return {
+    group: displayUsageGroup(groupBy, row.group_key),
+    groupId: row.group_id,
+    ...(includeGroupKey ? { groupKey: row.group_key } : {}),
+    totalInputTokens: row.total_input_tokens,
+    totalOutputTokens: row.total_output_tokens,
+    totalCacheCreationTokens: row.total_cache_creation_tokens,
+    totalCacheReadTokens: row.total_cache_read_tokens,
+    totalEstimatedCostUsd: row.total_estimated_cost_usd ?? 0,
+    eventCount: row.event_count,
+  };
+}
 
 /**
  * Return grouped breakdowns across the given time range, ordered by total
@@ -337,15 +419,7 @@ export function getUsageGroupBreakdown(
   groupBy: GroupByDimension,
 ): UsageGroupBreakdown[] {
   // Runtime allowlist — defense-in-depth against SQL injection via type assertions.
-  const ALLOWED_DIMENSIONS = new Set<string>([
-    "actor",
-    "provider",
-    "model",
-    "conversation",
-  ]);
-  if (!ALLOWED_DIMENSIONS.has(groupBy)) {
-    throw new Error(`Invalid groupBy dimension: ${groupBy}`);
-  }
+  assertGroupByDimension(groupBy);
 
   // Conversation grouping requires a JOIN with conversations to resolve titles.
   if (groupBy === "conversation") {
@@ -372,22 +446,10 @@ export function getUsageGroupBreakdown(
       range.from,
       range.to,
     );
-    return rows.map((r) => ({
-      group: r.group_key,
-      // `GROUP BY e.conversation_id` makes `e.conversation_id` unambiguous
-      // inside each group — it is the seeded conversation id for real rows
-      // and `null` for the "Other" bucket (events with no conversation).
-      groupId: r.group_id,
-      totalInputTokens: r.total_input_tokens,
-      totalOutputTokens: r.total_output_tokens,
-      totalCacheCreationTokens: r.total_cache_creation_tokens,
-      totalCacheReadTokens: r.total_cache_read_tokens,
-      totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
-      eventCount: r.event_count,
-    }));
+    return rows.map((row) => mapGroupRow(row, groupBy));
   }
 
-  const column = groupBy;
+  const column = GROUP_BY_COLUMNS[groupBy];
   const rows = rawAll<GroupRow>(
     /*sql*/ `
     SELECT
@@ -407,18 +469,42 @@ export function getUsageGroupBreakdown(
     range.from,
     range.to,
   );
-  return rows.map((r) => ({
-    group: r.group_key,
-    // Non-conversation group-bys (actor/provider/model) don't have a
-    // separate stable id — the grouping column itself is the identifier
-    // and is already exposed via `group`. The SELECT projects
-    // `NULL AS group_id` so the runtime shape matches `GroupRow`.
-    groupId: r.group_id,
-    totalInputTokens: r.total_input_tokens,
-    totalOutputTokens: r.total_output_tokens,
-    totalCacheCreationTokens: r.total_cache_creation_tokens,
-    totalCacheReadTokens: r.total_cache_read_tokens,
-    totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
-    eventCount: r.event_count,
-  }));
+  return rows.map((row) => mapGroupRow(row, groupBy));
+}
+
+export function getUsageGroupedSeries(
+  range: UsageTimeRange,
+  groupBy: GroupByDimension,
+  granularity: UsageGranularity,
+  tz: string = "UTC",
+  options: UsageBucketOptions = {},
+): UsageGroupedSeriesBucket[] {
+  assertGroupByDimension(groupBy);
+  if (groupBy === "conversation") {
+    throw new Error("Grouped usage series does not support conversation");
+  }
+
+  const column = GROUP_BY_COLUMNS[groupBy];
+  const rows = rawAll<UsageGroupedBucketRow>(
+    /*sql*/ `
+    SELECT
+      created_at,
+      input_tokens,
+      output_tokens,
+      estimated_cost_usd,
+      llm_call_count,
+      ${column} AS group_key
+    FROM llm_usage_events
+    WHERE created_at >= ?1 AND created_at <= ?2
+    ORDER BY created_at ASC
+    `,
+    range.from,
+    range.to,
+  );
+
+  return bucketGroupedUsageEvents(rows, range, tz, {
+    ...options,
+    granularity,
+    groupBy,
+  });
 }

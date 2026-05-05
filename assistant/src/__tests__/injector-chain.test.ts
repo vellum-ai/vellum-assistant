@@ -4,9 +4,10 @@
  *
  * Covers:
  *
- * 1. The eight default injectors registered by `defaultInjectorsPlugin` come
- *    back from `getInjectors()` in the documented order (workspace-context →
- *    unified-turn-context → pkb-context → pkb-reminder → now-md →
+ * 1. The ten default injectors registered by `defaultInjectorsPlugin` come
+ *    back from `getInjectors()` in the documented order
+ *    (disk-pressure-warning → workspace-context → unified-turn-context →
+ *    pkb-context → pkb-reminder → memory-v2-static → now-md →
  *    subagent-status → slack-messages → thread-focus).
  * 2. A third-party-registered injector at `order: 25` slots between
  *    `unified-turn-context` (order 20) and `pkb` (order 30), proving the
@@ -25,6 +26,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   applyRuntimeInjections,
   composeInjectorChain,
@@ -33,6 +35,11 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
 } from "../plugins/defaults/injectors.js";
+
+// This test exercises v1 PKB injection. The `memory-v2-enabled` flag
+// (registry default `true`) makes the PKB injector go silent — disable it
+// here so the v1 injection chain assertions stay meaningful.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 import {
   getInjectors,
   registerPlugin,
@@ -76,15 +83,17 @@ describe("injector chain", () => {
     resetPluginRegistryForTests();
   });
 
-  test("defaultInjectorsPlugin registers the eight defaults in the documented order", () => {
+  test("defaultInjectorsPlugin registers the ten defaults in the documented order", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const names = getInjectors().map((i) => i.name);
     expect(names).toEqual([
+      "disk-pressure-warning",
       "workspace-context",
       "unified-turn-context",
       "pkb-context",
       "pkb-reminder",
+      "memory-v2-static",
       "now-md",
       "subagent-status",
       "slack-messages",
@@ -96,6 +105,9 @@ describe("injector chain", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const byName = new Map(getInjectors().map((i) => [i.name, i.order]));
+    expect(byName.get("disk-pressure-warning")).toBe(
+      DEFAULT_INJECTOR_ORDER.diskPressureWarning,
+    );
     expect(byName.get("workspace-context")).toBe(
       DEFAULT_INJECTOR_ORDER.workspaceContext,
     );
@@ -104,6 +116,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
     expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);
+    expect(byName.get("memory-v2-static")).toBe(
+      DEFAULT_INJECTOR_ORDER.memoryV2Static,
+    );
     expect(byName.get("now-md")).toBe(DEFAULT_INJECTOR_ORDER.nowMd);
     expect(byName.get("subagent-status")).toBe(
       DEFAULT_INJECTOR_ORDER.subagentStatus,
@@ -128,11 +143,13 @@ describe("injector chain", () => {
 
     const names = getInjectors().map((i) => i.name);
     expect(names).toEqual([
+      "disk-pressure-warning", // 5
       "workspace-context", // 10
       "unified-turn-context", // 20
       "plugin-25", // 25 — slots in
       "pkb-context", // 30
       "pkb-reminder", // 35
+      "memory-v2-static", // 38
       "now-md", // 40
       "subagent-status", // 50
       "slack-messages", // 60
@@ -141,7 +158,7 @@ describe("injector chain", () => {
   });
 
   test("composeInjectorChain returns empty string when every injector opts out", async () => {
-    // The default chain is the golden-path: all eight defaults return `null`
+    // The default chain is the golden-path: all ten defaults return `null`
     // on an empty turn context, so the composed block is an empty string.
     registerPlugin(defaultInjectorsPlugin);
 

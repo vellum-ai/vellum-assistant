@@ -46,7 +46,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.md)
 
         // Subtitle
-        Text("The safest way to create your personal assistant.")
+        Text("Your own personal intelligence is just a step away.")
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
             .multilineTextAlignment(.center)

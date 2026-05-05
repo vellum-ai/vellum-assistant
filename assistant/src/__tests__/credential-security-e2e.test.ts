@@ -7,8 +7,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const mockConfig = {
   secretDetection: {
     enabled: true,
-    action: "block" as "redact" | "warn" | "block",
-    entropyThreshold: 4.0,
     allowOneTimeSend: false,
   },
   timeouts: { permissionTimeoutSec: 300 },
@@ -63,6 +61,10 @@ mock.module("../security/secure-keys.js", () => {
   };
   return {
     getSecureKeyAsync: async (key: string) => storedKeys.get(key) ?? undefined,
+    getSecureKeyResultAsync: async (account: string) => ({
+      value: storedKeys.get(account),
+      unreachable: false,
+    }),
     setSecureKeyAsync: async (key: string, value: string) =>
       syncSet(key, value),
     deleteSecureKeyAsync: async (key: string) => syncDelete(key),
@@ -330,7 +332,6 @@ describe("E2E: cross-cutting secret leak prevention", () => {
   beforeEach(() => {
     storedKeys.clear();
     mockConfig.secretDetection.enabled = true;
-    mockConfig.secretDetection.action = "block";
     mockConfig.secretDetection.allowOneTimeSend = false;
   });
 

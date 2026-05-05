@@ -15,7 +15,7 @@ struct ConversationTitleActionsControl: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
-    let onAnalyzeConversation: () -> Void
+    var onAnalyzeConversation: (() -> Void)? = nil
     let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
@@ -167,7 +167,7 @@ struct ConversationActionsMenuContent: View {
     let onUnpin: () -> Void
     let onArchive: () -> Void
     let onRename: () -> Void
-    let onAnalyzeConversation: () -> Void
+    var onAnalyzeConversation: (() -> Void)? = nil
     let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
@@ -181,7 +181,7 @@ struct ConversationActionsMenuContent: View {
                 VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
             }
 
-            if presentation.isPersisted && !presentation.isChannelConversation {
+            if presentation.isPersisted && !presentation.isChannelConversation, let onAnalyzeConversation {
                 VMenuItem(
                     icon: VIcon.sparkles.rawValue,
                     label: "Analyze conversation",

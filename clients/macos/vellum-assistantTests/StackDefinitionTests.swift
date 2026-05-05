@@ -93,7 +93,6 @@ final class StackDefinitionTests: XCTestCase {
         XCTAssertEqual(env["GATEWAY_PORT"], "7830")
         XCTAssertEqual(env["ASSISTANT_HOST"], "localhost")
         XCTAssertEqual(env["RUNTIME_HTTP_PORT"], "3001")
-        XCTAssertEqual(env["RUNTIME_PROXY_ENABLED"], "true")
         XCTAssertNotNil(env["CES_CREDENTIAL_URL"])
         XCTAssertEqual(env["GATEWAY_IPC_SOCKET_DIR"], "/run/gateway-ipc")
         XCTAssertEqual(env["ASSISTANT_IPC_SOCKET_DIR"], "/run/assistant-ipc")

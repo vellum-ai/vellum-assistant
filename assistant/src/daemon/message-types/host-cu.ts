@@ -8,6 +8,7 @@ export interface HostCuRequest {
   type: "host_cu_request";
   requestId: string;
   conversationId: string;
+  targetClientId?: string;
   toolName: string; // "computer_use_click", "computer_use_type_text", etc.
   input: Record<string, unknown>;
   stepNumber: number;
@@ -17,6 +18,8 @@ export interface HostCuRequest {
 export interface HostCuCancelRequest {
   type: "host_cu_cancel";
   requestId: string;
+  conversationId: string;
+  targetClientId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

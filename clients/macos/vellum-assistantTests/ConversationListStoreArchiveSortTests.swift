@@ -3,18 +3,10 @@ import Testing
 @testable import VellumAssistantLib
 import VellumAssistantShared
 
-// UserDefaults keys touched by ConversationListStore's archive state. Kept in sync
-// with the private constants in ConversationListStore.swift so these tests can
-// seed and clean up the defaults independently.
-private let legacyArchivedIdsKey = "archivedSessionIds"
-private let intermediateArchivedIdsKey = "archivedConversationIds"
 private let archivedTimestampsKey = "archivedConversationTimestamps"
 
 private func clearArchiveDefaults() {
-    let defaults = UserDefaults.standard
-    defaults.removeObject(forKey: legacyArchivedIdsKey)
-    defaults.removeObject(forKey: intermediateArchivedIdsKey)
-    defaults.removeObject(forKey: archivedTimestampsKey)
+    UserDefaults.standard.removeObject(forKey: archivedTimestampsKey)
 }
 
 private func makeArchived(conversationId: String, title: String = "Test", createdAt: Date = Date()) -> ConversationModel {
@@ -53,30 +45,6 @@ struct ConversationListStoreArchiveSortTests {
 
         let titles = store.archivedConversations.map(\.title)
         #expect(titles == ["Third archived", "Second archived", "First archived"])
-    }
-
-    @Test
-    func preMigrationItemsSortBelowNewlyArchived() {
-        defer { clearArchiveDefaults() }
-
-        // Seed the legacy Set<String> format so init() runs the migration path.
-        UserDefaults.standard.set(["legacy1", "legacy2"], forKey: legacyArchivedIdsKey)
-
-        let store = ConversationListStore()
-
-        #expect(store.archivedConversationTimestamps["legacy1"] == .distantPast)
-        #expect(store.archivedConversationTimestamps["legacy2"] == .distantPast)
-
-        store.conversations = [
-            makeArchived(conversationId: "legacy1", title: "Legacy one", createdAt: Date(timeIntervalSince1970: 1_600_000_000)),
-            makeArchived(conversationId: "legacy2", title: "Legacy two", createdAt: Date(timeIntervalSince1970: 1_600_000_100)),
-            makeArchived(conversationId: "fresh", title: "Freshly archived"),
-        ]
-        store.markArchived("fresh", at: Date())
-
-        let titles = store.archivedConversations.map(\.title)
-        // Fresh first; legacy items follow, ordered by createdAt desc as the tiebreaker.
-        #expect(titles == ["Freshly archived", "Legacy two", "Legacy one"])
     }
 
     @Test

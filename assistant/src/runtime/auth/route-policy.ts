@@ -151,8 +151,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "host-app-control-result", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "host-browser-result", scopes: ["approval.write"] },
+  { endpoint: "host-browser-event", scopes: ["approval.write"] },
+  { endpoint: "host-browser-session-invalidated", scopes: ["approval.write"] },
   { endpoint: "host-cu-result", scopes: ["approval.write"] },
   { endpoint: "host-file-result", scopes: ["approval.write"] },
   { endpoint: "host-transfer-result", scopes: ["approval.write"] },
@@ -183,6 +186,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "calls/instruction", scopes: ["calls.write"] },
 
   // Settings / integrations / identity
+  { endpoint: "disk-pressure/status", scopes: ["settings.read"] },
+  { endpoint: "disk-pressure/acknowledge", scopes: ["settings.write"] },
+  { endpoint: "disk-pressure/override", scopes: ["settings.write"] },
   { endpoint: "ps", scopes: ["settings.read"] },
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
@@ -204,6 +210,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts/invites:POST", scopes: ["settings.write"] },
   { endpoint: "contacts/invites/redeem", scopes: ["settings.write"] },
   { endpoint: "contacts/invites:DELETE", scopes: ["settings.write"] },
+  { endpoint: "contacts/prompt:POST", scopes: ["settings.write"] },
+  { endpoint: "resolve_contact_prompt:POST", scopes: ["settings.write"] },
   { endpoint: "integrations/telegram/config", scopes: ["settings.read"] },
   { endpoint: "integrations/telegram/config:POST", scopes: ["settings.write"] },
   {
@@ -313,13 +321,16 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "usage/totals", scopes: ["settings.read"] },
   { endpoint: "usage/daily", scopes: ["settings.read"] },
   { endpoint: "usage/breakdown", scopes: ["settings.read"] },
+  { endpoint: "usage/series", scopes: ["settings.read"] },
 
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
 
   // Debug / introspection
   { endpoint: "clients", scopes: ["settings.read"] },
+  { endpoint: "clients/disconnect", scopes: ["settings.write"] },
   { endpoint: "debug", scopes: ["settings.read"] },
+  { endpoint: "debug/bash", scopes: ["settings.write"] },
 
   // Workspace file browsing
   { endpoint: "workspace/tree", scopes: ["settings.read"] },
@@ -372,6 +383,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
 
+  // LLM call site catalog
+  { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
+
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
@@ -417,13 +431,19 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
   { endpoint: "memory/v2/backfill:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/validate:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/concept-page:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
+  { endpoint: "memory/v2/explain-similarity:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/fit-anisotropy:POST", scopes: ["settings.write"] },
+  {
+    endpoint: "memory/v2/rebuild-corpus-stats:POST",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "memory/v2/concept-frequency:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/fit-anisotropy:POST", scopes: ["settings.write"] },
 
-  // Trust rule CRUD management
+  // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
-  { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:DELETE", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:PATCH", scopes: ["settings.write"] },
 
   // Computer use
   { endpoint: "computer-use/sessions", scopes: ["chat.write"] },
@@ -483,6 +503,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Filing
   { endpoint: "filing", scopes: ["settings.read"] },
   { endpoint: "filing:POST", scopes: ["settings.write"] },
+
+  // Consolidation (memory v2 counterpart to Filing)
+  { endpoint: "consolidation", scopes: ["settings.read"] },
+  { endpoint: "consolidation:POST", scopes: ["settings.write"] },
+
+  // Gateway log proxy
+  { endpoint: "gateway/logs/tail", scopes: ["settings.read"] },
 
   // Heartbeat (config, runs, checklist — all share the "heartbeat" policyKey)
   { endpoint: "heartbeat:GET", scopes: ["settings.read"] },
@@ -545,6 +572,12 @@ registerPolicy("conversations/clear-all", {
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
 
+// Event emission: gateway-only internal notification
+registerPolicy("events/emit", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
 // Channel inbound: gateway-only
 registerPolicy("channels/inbound", {
   requiredScopes: ["ingress.write"],
@@ -557,6 +590,11 @@ const INTERNAL_ENDPOINTS = [
   "internal/twilio/status",
   "internal/twilio/connect-action",
   "internal/oauth/callback",
+  "internal/mcp/auth/start",
+  "internal/mcp/auth/status",
+  "internal/mcp/reload", // ← new
+  "internal/oauth/connect/start",
+  "internal/oauth/connect/status",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
@@ -695,7 +733,7 @@ registerPolicy("conversations/wipe", {
 
 registerPolicy("trust-rules/suggest", {
   requiredScopes: ["settings.write"],
-  allowedPrincipalTypes: ["local"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
 
 // Notification pipeline: local-only (CLI / IPC callers)

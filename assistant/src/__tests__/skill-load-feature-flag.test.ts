@@ -12,8 +12,8 @@ const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {};
 
-const DECLARED_SKILL_ID = "sounds";
-const DECLARED_FLAG_KEY = "sounds";
+const DECLARED_SKILL_ID = "email-channel";
+const DECLARED_FLAG_KEY = "email-channel";
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -35,7 +35,6 @@ mock.module("../config/loader.js", () => ({
   getConfigReadOnly: () => currentConfig,
   loadConfig: () => currentConfig,
   loadRawConfig: () => ({}),
-  saveConfig: () => {},
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
@@ -99,8 +98,8 @@ describe("skill_load feature flag enforcement", () => {
   test("returns deterministic error for flag OFF skill", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Sounds",
-      "Toggle sounds behavior",
+      "Email Channel",
+      "Toggle email channel behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -120,8 +119,8 @@ describe("skill_load feature flag enforcement", () => {
   test("loads skill normally when flag is ON", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Sounds",
-      "Toggle sounds behavior",
+      "Email Channel",
+      "Toggle email channel behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -134,14 +133,14 @@ describe("skill_load feature flag enforcement", () => {
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Sounds");
+    expect(result.content).toContain("Skill: Email Channel");
   });
 
-  test("loads skill when flag key is absent (registry defaults to enabled)", async () => {
+  test("returns error when flag key is absent (registry defaults to disabled)", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Sounds",
-      "Toggle sounds behavior",
+      "Email Channel",
+      "Toggle email channel behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -153,8 +152,8 @@ describe("skill_load feature flag enforcement", () => {
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
-    // sounds is declared in the registry with defaultEnabled: true
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Sounds");
+    // email-channel is declared in the registry with defaultEnabled: false
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("disabled by feature flag");
   });
 });

@@ -97,7 +97,6 @@ type JsonFrame = Record<string, unknown>;
 
 const savedAuthEnv = {
   DISABLE_HTTP_AUTH: process.env.DISABLE_HTTP_AUTH,
-  VELLUM_UNSAFE_AUTH_BYPASS: process.env.VELLUM_UNSAFE_AUTH_BYPASS,
 };
 
 function mintGatewayToken(): string {
@@ -238,7 +237,6 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
 
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;
-    delete process.env.VELLUM_UNSAFE_AUTH_BYPASS;
     resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
     resolveStreamingTranscriberMock.mockClear();
     resolvedTranscribers.length = 0;
@@ -259,12 +257,6 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       delete process.env.DISABLE_HTTP_AUTH;
     } else {
       process.env.DISABLE_HTTP_AUTH = savedAuthEnv.DISABLE_HTTP_AUTH;
-    }
-    if (savedAuthEnv.VELLUM_UNSAFE_AUTH_BYPASS === undefined) {
-      delete process.env.VELLUM_UNSAFE_AUTH_BYPASS;
-    } else {
-      process.env.VELLUM_UNSAFE_AUTH_BYPASS =
-        savedAuthEnv.VELLUM_UNSAFE_AUTH_BYPASS;
     }
   });
 

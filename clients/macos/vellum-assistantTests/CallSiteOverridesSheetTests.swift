@@ -72,7 +72,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory,
+            domain: "memory",
             profile: "balanced"
         )
         XCTAssertEqual(
@@ -86,7 +86,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory,
+            domain: "memory",
             provider: "openai",
             model: "gpt-4.1"
         )
@@ -101,7 +101,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory,
+            domain: "memory",
             provider: "anthropic"
         )
         XCTAssertEqual(
@@ -115,7 +115,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory
+            domain: "memory"
         )
         XCTAssertEqual(
             CallSiteOverrideRow.profilePickerValue(for: row),
@@ -132,7 +132,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory,
+            domain: "memory",
             provider: "openai",
             model: "gpt-4.1",
             profile: "balanced"
@@ -152,7 +152,7 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         let row = CallSiteOverride(
             id: "memoryRetrieval",
             displayName: "Memory · Retrieval",
-            domain: .memory,
+            domain: "memory",
             profile: ""
         )
         XCTAssertEqual(

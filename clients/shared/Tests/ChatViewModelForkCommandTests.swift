@@ -162,7 +162,6 @@ final class ChatViewModelForkCommandTests: XCTestCase {
     }
 
     private func makeAttachment() -> ChatAttachment {
-        #if os(macOS)
         ChatAttachment(
             id: "attachment-1",
             filename: "note.txt",
@@ -172,18 +171,5 @@ final class ChatViewModelForkCommandTests: XCTestCase {
             dataLength: 8,
             thumbnailImage: nil
         )
-        #elseif os(iOS)
-        ChatAttachment(
-            id: "attachment-1",
-            filename: "note.txt",
-            mimeType: "text/plain",
-            data: "ZGF0YQ==",
-            thumbnailData: nil,
-            dataLength: 8,
-            thumbnailImage: nil
-        )
-        #else
-        fatalError("Unsupported platform")
-        #endif
     }
 }

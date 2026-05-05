@@ -184,36 +184,59 @@ interface VBundleFile {
   data: Uint8Array;
 }
 
-function createValidVBundle(
-  files?: VBundleFile[],
-  overrides?: Partial<{
-    schema_version: string;
-    source: string;
-    description: string;
-  }>,
-): Uint8Array {
+/** Build a v1-compliant manifest skeleton; tests override specific fields. */
+function v1Skeleton() {
+  return {
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
+    created_at: new Date().toISOString(),
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" as const },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  };
+}
+
+function createValidVBundle(files?: VBundleFile[]): Uint8Array {
   const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]); // "SQLite"
   const bundleFiles = files ?? [{ path: "data/db/assistant.db", data: dbData }];
 
-  const fileEntries = bundleFiles.map((f) => ({
+  const contents = bundleFiles.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
-  const manifestWithoutChecksum = {
-    schema_version: overrides?.schema_version ?? "1.0",
+  const manifestWithEmptyChecksum = {
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
     created_at: new Date().toISOString(),
-    source: overrides?.source ?? "test",
-    description: overrides?.description ?? "Test bundle",
-    files: fileEntries,
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents,
+    checksum: "",
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
   };
 
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
+  const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
+  const manifest = { ...manifestWithEmptyChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
@@ -237,9 +260,9 @@ describe("validateVBundle", () => {
     expect(result.is_valid).toBe(true);
     expect(result.errors).toHaveLength(0);
     expect(result.manifest).toBeDefined();
-    expect(result.manifest?.schema_version).toBe("1.0");
-    expect(result.manifest?.files).toHaveLength(1);
-    expect(result.manifest?.files[0].path).toBe("data/db/assistant.db");
+    expect(result.manifest?.schema_version).toBe(1);
+    expect(result.manifest?.contents).toHaveLength(1);
+    expect(result.manifest?.contents[0].path).toBe("data/db/assistant.db");
   });
 
   test("valid bundle with multiple files", () => {
@@ -254,7 +277,7 @@ describe("validateVBundle", () => {
 
     expect(result.is_valid).toBe(true);
     expect(result.errors).toHaveLength(0);
-    expect(result.manifest?.files).toHaveLength(2);
+    expect(result.manifest?.contents).toHaveLength(2);
   });
 
   test("invalid gzip returns INVALID_GZIP error", () => {
@@ -280,27 +303,30 @@ describe("validateVBundle", () => {
     expect(manifestError).toBeDefined();
   });
 
-  test("bundle with only manifest (no data files) is structurally valid", () => {
-    // After the workspace walk refactor, only manifest.json is required.
-    // But the manifest checksum must match for full validity.
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [],
+  test("bundle with only manifest (no data files) — valid schema rejects empty contents via refine", () => {
+    // The v1 schema's `.refine()` requires `data/db/assistant.db` in
+    // contents, so a manifest declaring `contents: []` is rejected by
+    // the validator. This documents the new behavior: bundles must
+    // declare the assistant DB even when no other data files are
+    // present.
+    const skeleton = {
+      ...v1Skeleton(),
+      contents: [] as Array<{
+        path: string;
+        sha256: string;
+        size_bytes: number;
+      }>,
+      checksum: "",
     };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
-    const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+    skeleton.checksum = sha256Hex(canonicalizeJson(skeleton));
+    const manifestData = new TextEncoder().encode(JSON.stringify(skeleton));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
     ]);
     const vbundle = gzipSync(tar);
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(true);
+    expect(result.is_valid).toBe(false);
   });
 
   test("invalid manifest JSON returns INVALID_MANIFEST_JSON error", () => {
@@ -341,16 +367,16 @@ describe("validateVBundle", () => {
   test("manifest checksum mismatch returns MANIFEST_CHECKSUM_MISMATCH", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifest = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+      ...v1Skeleton(),
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
-      manifest_sha256:
+      // Deliberately wrong checksum (correct shape, wrong value).
+      checksum:
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
@@ -372,22 +398,18 @@ describe("validateVBundle", () => {
     const wrongChecksum =
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = {
+      ...v1Skeleton(),
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: wrongChecksum,
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
+      checksum: "",
     };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+    manifest.checksum = sha256Hex(canonicalizeJson(manifest));
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -406,18 +428,18 @@ describe("validateVBundle", () => {
   test("file size mismatch returns FILE_SIZE_MISMATCH", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
-        { path: "data/db/assistant.db", sha256: sha256Hex(dbData), size: 999 },
-      ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
     const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
+      ...v1Skeleton(),
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(dbData),
+          size_bytes: 999,
+        },
+      ],
+      checksum: "",
     };
+    manifest.checksum = sha256Hex(canonicalizeJson(manifest));
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -437,23 +459,23 @@ describe("validateVBundle", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const missingFileHash = sha256Hex(new TextEncoder().encode("missing"));
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = {
+      ...v1Skeleton(),
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
-        { path: "config/missing.json", sha256: missingFileHash, size: 7 },
+        {
+          path: "config/missing.json",
+          sha256: missingFileHash,
+          size_bytes: 7,
+        },
       ],
+      checksum: "",
     };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+    manifest.checksum = sha256Hex(canonicalizeJson(manifest));
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -554,7 +576,10 @@ describe("handleMigrationValidate", () => {
     const body = (await handleMigrationValidate({
       rawBody: vbundle,
       headers: { "content-type": "application/octet-stream" },
-    })) as { is_valid: boolean; errors: Array<{ code: string; path?: string }> };
+    })) as {
+      is_valid: boolean;
+      errors: Array<{ code: string; path?: string }>;
+    };
 
     expect(body.is_valid).toBe(false);
     expect(
@@ -567,16 +592,16 @@ describe("handleMigrationValidate", () => {
   test("POST with checksum mismatch returns validation errors", async () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifest = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+      ...v1Skeleton(),
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
-      manifest_sha256:
+      // Deliberately wrong checksum (correct shape, wrong value).
+      checksum:
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));

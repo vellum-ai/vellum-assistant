@@ -189,7 +189,7 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
 - **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and local principals are rejected with 403.
-- **Dev bypass:** When `DISABLE_HTTP_AUTH` + `VELLUM_UNSAFE_AUTH_BYPASS=1` are set, JWT verification is skipped and a synthetic dev context is used.
+- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), JWT verification is skipped and a synthetic context is used.
 
 ## Twilio Setup Primitive
 
@@ -255,10 +255,9 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
+The vellum channel (macOS) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials. The CLI does not bootstrap separately; it uses the bearer token minted during `hatch`.
-- **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On gateway start, `ensureVellumGuardianBinding()` in `gateway/src/auth/guardian-bootstrap.ts` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.

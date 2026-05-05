@@ -77,6 +77,8 @@ export async function executeScheduleList(
       `  Last run: ${job.lastRunAt ? formatLocalDate(job.lastRunAt) : "never"}`,
       `  Last status: ${job.lastStatus ?? "n/a"}`,
       `  Retry count: ${job.retryCount}`,
+      `  Max retries: ${job.maxRetries}`,
+      `  Retry backoff: ${job.retryBackoffMs}ms`,
       `  Created: ${formatLocalDate(job.createdAt)}`,
     );
 

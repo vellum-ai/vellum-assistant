@@ -54,7 +54,9 @@ Most existing logos come from [Simple Icons](https://simpleicons.org) (CC0-licen
 
 If the service is not on Simple Icons, source or create an SVG and convert it the same way. The result must be a true vector PDF (not a rasterized image wrapped in PDF) so it scales cleanly.
 
-The `logoUrl` field in `seed-providers.ts` still serves as the remote fallback (typically a Simple Icons CDN URL like `https://cdn.simpleicons.org/acme`). The client renders the local PDF first, then falls back to `logoUrl`, then to an initials avatar.
+The `logoUrl` field in `seed-providers.ts` serves as the remote fallback (most providers use a Simple Icons CDN URL like `https://cdn.simpleicons.org/acme`). The client renders the local PDF first, then falls back to `logoUrl`, then to an initials avatar.
+
+For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the same `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist alongside the manifest in `clients/shared/Resources/integration-logos-manifest.json`.
 
 ### 5. Secret patterns (if applicable) — `../security/secret-patterns.ts`
 

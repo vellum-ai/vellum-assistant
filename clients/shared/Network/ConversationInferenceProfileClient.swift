@@ -38,7 +38,7 @@ public struct ConversationInferenceProfileClient: ConversationInferenceProfileCl
         let body: [String: Any] = ["profile": profile ?? NSNull()]
         do {
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/inference-profile",
+                path: "conversations/\(conversationId)/inference-profile",
                 json: body
             )
             guard response.isSuccess else {

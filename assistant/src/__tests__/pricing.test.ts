@@ -57,6 +57,56 @@ describe("resolvePricing", () => {
   });
 
   describe("OpenAI models", () => {
+    test("prices GPT-5.4 Mini at current API rates", () => {
+      const result = resolvePricingForUsage("openai", "gpt-5.4-mini", {
+        directInputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.75 + 4.5 + 0.075);
+    });
+
+    test("uses OpenAI long-context tiers above 272k prompt tokens", () => {
+      const cases = [
+        ["gpt-5.5", 10 + 45 + 1],
+        ["gpt-5.5-pro", 60 + 270 + 60],
+        ["gpt-5.4", 5 + 22.5 + 0.5],
+      ] as const;
+
+      for (const [model, expectedCost] of cases) {
+        const result = resolvePricingForUsage("openai", model, {
+          directInputTokens: 272_001,
+          outputTokens: 1_000_000,
+          cacheCreationInputTokens: 727_999,
+          cacheReadInputTokens: 1_000_000,
+          anthropicCacheCreation: null,
+        });
+
+        expect(result.pricingStatus).toBe("priced");
+        expect(result.estimatedCostUsd).toBeCloseTo(expectedCost, 10);
+      }
+    });
+
+    test("uses OpenAI short-context tiers through 272k prompt tokens", () => {
+      const result = resolvePricingForUsage("openai", "gpt-5.4", {
+        directInputTokens: 272_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (272_000 / 1_000_000) * 2.5 + 15,
+        10,
+      );
+    });
+
     test("returns priced for gpt-4o", () => {
       const result = resolvePricing("openai", "gpt-4o", 1_000_000, 1_000_000);
       expect(result.pricingStatus).toBe("priced");
@@ -166,15 +216,29 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBe(0.25 + 1.5);
     });
 
-    test("returns priced for gemini-2.5-pro", () => {
+    test("prices gemini-2.5-pro at the low-context tier through 200k input tokens", () => {
       const result = resolvePricing(
         "gemini",
         "gemini-2.5-pro",
-        1_000_000,
+        200_000,
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(1.25 + 10);
+      expect(result.estimatedCostUsd).toBe(0.25 + 10);
+    });
+
+    test("prices gemini-2.5-pro at the high-context tier above 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-2.5-pro",
+        200_001,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (200_001 / 1_000_000) * 2.5 + 15,
+        10,
+      );
     });
 
     test("returns priced for gemini-2.5-flash", () => {
@@ -296,7 +360,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(1.25 + 10);
+      expect(result.estimatedCostUsd).toBe(2.5 + 15);
     });
   });
 
@@ -427,7 +491,7 @@ describe("resolvePricingForUsage", () => {
       ["gemini-3.1-flash-lite-preview", 0.025],
       ["gemini-2.5-flash", 0.03],
       ["gemini-2.5-flash-lite", 0.01],
-      ["gemini-2.5-pro", 0.3125],
+      ["gemini-2.5-pro", 0.625],
     ] as const;
 
     for (const [model, expectedCost] of cases) {

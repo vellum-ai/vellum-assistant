@@ -63,7 +63,13 @@ export async function callHandler(
   } catch (err) {
     if (err instanceof RouteError) {
       return Response.json(
-        { error: { code: err.code, message: err.message } },
+        {
+          error: {
+            code: err.code,
+            message: err.message,
+            ...(err.details !== undefined && { details: err.details }),
+          },
+        },
         { status: err.statusCode },
       );
     }

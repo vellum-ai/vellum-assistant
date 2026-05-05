@@ -68,29 +68,6 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("filters results to the requested memory scope", async () => {
-    const inScope = await seedConversation({
-      title: "In-scope conversation",
-      memoryScopeId: "scope-a",
-      content: "sharedtoken belongs to scope A.",
-    });
-    await seedConversation({
-      title: "Out-of-scope conversation",
-      memoryScopeId: "scope-b",
-      content: "sharedtoken belongs to scope B.",
-    });
-
-    const result = await searchConversationSource(
-      "sharedtoken",
-      makeContext({ memoryScopeId: "scope-a" }),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${inScope.conversation.id}#${inScope.message.id}`,
-    ]);
-  });
-
   test("does not return derived subagent or auto-analysis conversations", async () => {
     const visible = await seedConversation({
       title: "User conversation",
@@ -312,7 +289,6 @@ function makeContext(
 ): RecallSearchContext {
   return {
     workingDir: "/tmp/example-workspace",
-    memoryScopeId: "default",
     conversationId: "current-conversation",
     config: {} as RecallSearchContext["config"],
     ...overrides,

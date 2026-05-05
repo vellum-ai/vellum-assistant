@@ -5,14 +5,8 @@ import Observation
 import os
 import SwiftUI
 import UniformTypeIdentifiers
-#if os(macOS)
 import AppKit
 import AVFoundation
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel")
 
@@ -52,7 +46,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
     func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse? {
         guard let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/conversation-starters",
+            path: "conversation-starters",
             params: ["limit": String(limit)]
         ), response.isSuccess else { return nil }
         return try? JSONDecoder().decode(ConversationStartersResponse.self, from: response.data)
@@ -60,7 +54,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
     func deleteConversationStarter(id: String) async -> Bool {
         guard let response = try? await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/conversation-starters/\(Self.pathEscape(id))"
+            path: "conversation-starters/\(Self.pathEscape(id))"
         ) else { return false }
         return response.isSuccess || response.statusCode == 404
     }
@@ -97,7 +91,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
 
     public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
+            path: "surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
@@ -111,7 +105,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
     /// reconstructing a `UiSurfaceShowMessage` to re-open ephemeral surfaces.
     public func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
+            path: "surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface content \(surfaceId) failed (HTTP \(statusCode))")
@@ -184,6 +178,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Watchdog task that fires when `isThinking` has been `true` for more than
+    /// 90 seconds without being reset.  The "thinking" activity phase disables
+    /// the `isSending` watchdog, so this provides equivalent auto-recovery when
+    /// both `assistantActivityState(idle)` and `messageComplete` are lost.
+    @ObservationIgnored private var thinkingWatchdogTask: Task<Void, Never>?
+
+    /// Fallback task scheduled by the `assistantActivityState("idle")` handler.
+    /// Clears `currentAssistantMessageId` after 5 seconds if `messageComplete`
+    /// hasn't arrived to do it. Cancelled by `handleMessageComplete`.
+    @ObservationIgnored var idleFallbackTask: Task<Void, Never>?
+
     /// Per-requestId safety-net timeouts that clear the submitting spinner if
     /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
     /// by requestId so concurrent submissions each get an independent timeout.
@@ -202,8 +207,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
     private static let poiLog = OSLog(subsystem: "com.vellum.assistant", category: .pointsOfInterest)
 
-
-
     // MARK: - Forwarding properties — ChatMessageManager
 
     public var messages: [ChatMessage] {
@@ -219,8 +222,66 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
     public var isThinking: Bool {
         get { messageManager.isThinking }
-        set { messageManager.isThinking = newValue }
+        set {
+            messageManager.isThinking = newValue
+            if newValue {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(90))
+                    guard !Task.isCancelled, let self, self.isThinking else { return }
+                    log.error("isThinking watchdog: still true after 90s — auto-recovering, conversationId=\(self.conversationId ?? "nil")")
+                    self.messageManager.isThinking = false
+                    self.isCancelling = false
+                    self.isCompacting = false
+                    self.assistantActivityPhase = "idle"
+                    self.assistantActivityAnchor = "global"
+                    self.assistantActivityReason = nil
+                    self.assistantStatusText = nil
+                    let assistantId = self.currentAssistantMessageId
+                    self.messageManager.batchUpdateMessages { msgs in
+                        if let existingId = assistantId {
+                            msgs.finalizeStreamingMessage(id: existingId)
+                        }
+                    }
+                    self.clearCurrentTurnTracking()
+                    self.discardStreamingBuffer()
+                    self.discardPartialOutputBuffer()
+                    self.messageManager.isSending = false
+                    self.sendingWatchdogTask?.cancel()
+                    self.sendingWatchdogTask = nil
+                    self.thinkingWatchdogTask = nil
+                }
+            } else {
+                thinkingWatchdogTask?.cancel()
+                thinkingWatchdogTask = nil
+            }
+        }
     }
+    /// Schedule a 5-second fallback to clear `currentAssistantMessageId` if
+    /// `messageComplete` never arrives after the daemon reported idle.
+    func scheduleIdleFallbackCleanup() {
+        idleFallbackTask?.cancel()
+        guard let messageId = currentAssistantMessageId else { return }
+        idleFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self else { return }
+            guard self.currentAssistantMessageId == messageId else { return }
+            log.warning("idle fallback: messageComplete not received within 5s — clearing currentAssistantMessageId")
+            self.clearCurrentTurnTracking()
+        }
+    }
+
+    /// Cancel any pending idle fallback and clear per-message turn tracking state.
+    /// Every code path that sets `currentAssistantMessageId = nil` should call this
+    /// instead to ensure the idle fallback timer is always cancelled.
+    func clearCurrentTurnTracking() {
+        idleFallbackTask?.cancel()
+        idleFallbackTask = nil
+        currentAssistantMessageId = nil
+        currentTurnUserText = nil
+        currentAssistantHasText = false
+    }
+
     /// Whether the assistant is actively working on a response — covers sending,
     /// extended-thinking, any in-progress assistant message, and orphaned tool
     /// calls that haven't received their `tool_result` event yet (e.g. tool
@@ -289,15 +350,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     // to emit a single Combine notification.
                     let assistantId = self.currentAssistantMessageId
                     self.messageManager.batchUpdateMessages { msgs in
-                        if let existingId = assistantId,
-                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
-                            msgs[index].isStreaming = false
-                            msgs[index].streamingCodePreview = nil
-                            msgs[index].streamingCodeToolName = nil
-                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
-                                msgs[index].toolCalls[j].isComplete = true
-                                msgs[index].toolCalls[j].completedAt = Date()
-                            }
+                        if let existingId = assistantId {
+                            msgs.finalizeStreamingMessage(id: existingId)
                         }
                         for i in msgs.indices {
                             if case .queued = msgs[i].status, msgs[i].role == .user {
@@ -307,9 +361,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                             }
                         }
                     }
-                    self.currentAssistantMessageId = nil
-                    self.currentTurnUserText = nil
-                    self.currentAssistantHasText = false
+                    self.clearCurrentTurnTracking()
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     // Voice state
@@ -655,6 +707,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
     @ObservationIgnored private var pendingGuardianActions: [String: String] = [:]
+
+    // MARK: - Conversation Artifacts
+
+    /// Apps and documents associated with the current conversation.
+    public var conversationArtifacts: [ConversationArtifact] = []
+    @ObservationIgnored private var artifactsClient: ConversationArtifactsClientProtocol = ConversationArtifactsClient()
+    @ObservationIgnored private var artifactsFetchTask: Task<Void, Never>?
+
     public var conversationId: String? {
         didSet {
             broadcastFilter.conversationId = conversationId
@@ -664,11 +724,18 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 needsOfflineFlush = false
                 flushOfflineQueue()
             }
+            // Refresh conversation artifacts when conversation changes.
+            if conversationId != oldValue {
+                conversationArtifacts = []
+                artifactsFetchTask?.cancel()
+                fetchConversationArtifacts()
+            }
         }
     }
     @ObservationIgnored private var reconnectObserver: NSObjectProtocol?
     @ObservationIgnored private var eventStreamReconnectObserver: NSObjectProtocol?
     @ObservationIgnored private var appPreviewCapturedObserver: NSObjectProtocol?
+    @ObservationIgnored private var documentDidSaveObserver: NSObjectProtocol?
     /// Debounces rapid-fire transport reconnect notifications so only one
     /// history reload is triggered per reconnect burst (500ms settle window).
     @ObservationIgnored private var reconnectDebounceTask: Task<Void, Never>?
@@ -960,6 +1027,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// the O(n) visibility filter on every body evaluation.
     public var paginatedVisibleMessages: [ChatMessage] {
         paginationState.paginatedVisibleMessages
+    }
+
+    /// Whether `paginatedVisibleMessages` is empty. Prefer over
+    /// `paginatedVisibleMessages.isEmpty` to avoid observing the full array.
+    public var isPaginatedEmpty: Bool {
+        paginationState.isPaginatedEmpty
     }
 
     public var historyCursor: Double? {
@@ -1258,6 +1331,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
 
+        // Refresh conversation artifacts when a document is saved successfully.
+        documentDidSaveObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("DocumentManager.documentDidSave"),
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.fetchConversationArtifacts()
+            }
+        }
+
         // Subscribe to the shared memory pressure monitor so we can
         // aggressively trim the message list when the OS warns of low memory.
         // This prevents the app from being jettisoned on devices with limited
@@ -1370,6 +1454,23 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         sendCoordinator.sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
     }
 
+    // MARK: - Conversation Artifacts Fetching
+
+    public func fetchConversationArtifacts() {
+        artifactsFetchTask?.cancel()
+        guard let conversationId else {
+            conversationArtifacts = []
+            return
+        }
+        let capturedId = conversationId
+        artifactsFetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.artifactsClient.fetchArtifacts(conversationId: capturedId)
+            guard !Task.isCancelled, self.conversationId == capturedId else { return }
+            self.conversationArtifacts = result
+        }
+    }
+
     // MARK: - Offline Queue Flush (forwarded to MessageSendCoordinator)
 
     func flushOfflineQueue() {
@@ -1400,12 +1501,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 self?.isThinking = false
                 self?.isSending = false
                 self?.isCancelling = false
-                // Mark current assistant message as no longer streaming
-                if let existingId = self?.currentAssistantMessageId,
-                   let index = self?.messages.firstIndex(where: { $0.id == existingId }) {
-                    self?.messages[index].isStreaming = false
+                if let existingId = self?.currentAssistantMessageId {
+                    self?.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
                 }
-                self?.currentAssistantMessageId = nil
+                self?.clearCurrentTurnTracking()
                 self?.discardStreamingBuffer()
                 self?.discardPartialOutputBuffer()
                 // If a send-direct was pending when the stream dropped,
@@ -1477,18 +1576,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     // MARK: - Actions
 
     public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
-        // For relay_prompt / agent_prompt actions from history-restored surfaces,
-        // send the prompt as a regular message instead of a surface action.
-        // This avoids requiring in-memory surface state on the daemon (which is
-        // lost after restart) and ensures the full message send pipeline runs
-        // (conversation creation, hub publisher setup, SSE event delivery).
-        let isRelay = actionId == "relay_prompt" || actionId == "agent_prompt"
-        if isRelay, let prompt = data?["prompt"]?.value as? String, !prompt.isEmpty {
-            _ = sendSilently(prompt)
-            return
-        }
-
-        guard let conversationId else { return }
         Task {
             await surfaceActionClient.sendSurfaceAction(
                 conversationId: conversationId,
@@ -1738,12 +1825,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if let debugDetails = error.debugDetails {
             details += "\n\nDebug Details:\n\(debugDetails)"
         }
-        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(details, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = details
-        #endif
     }
 
     /// Retry the last message after a conversation error, if the error is retryable.
@@ -2040,7 +2123,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
-
     /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
         guard let conversationId, connectionManager.isConnected else { return }
@@ -2185,8 +2267,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         discardStreamingBuffer()
         discardPartialOutputBuffer()
         surfaceRefetchCoordinator.cancelRefetchTasks()
-        currentAssistantMessageId = nil
-        currentAssistantHasText = false
+        clearCurrentTurnTracking()
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
@@ -2262,7 +2343,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
     }
 
-
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
         var hasModelCommand = false
 
@@ -2332,7 +2412,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if isThinking || isSending || currentAssistantMessageId != nil {
             isThinking = false
             isSending = false
-            currentAssistantMessageId = nil
+            clearCurrentTurnTracking()
             discardStreamingBuffer()
             discardPartialOutputBuffer()
             reconnectDebounceTask?.cancel()
@@ -2418,6 +2498,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        thinkingWatchdogTask?.cancel()
+        idleFallbackTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         if let token = memoryPressureListener {
             MemoryPressureMonitor.shared.removeListener(token)
@@ -2431,6 +2513,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         if let observer = appPreviewCapturedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = documentDidSaveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        artifactsFetchTask?.cancel()
     }
 
     // MARK: - Connection diagnostics
@@ -2647,12 +2733,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Read the current PTT activation key and microphone permission from the
     /// platform. On non-macOS platforms, returns nil fields (PTT is desktop-only).
     static func currentPttMetadata() -> PttMetadata {
-        #if os(macOS)
         let key = SharedUserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         return PttMetadata(activationKey: key, microphonePermissionGranted: micGranted)
-        #else
-        return PttMetadata(activationKey: nil, microphonePermissionGranted: nil)
-        #endif
     }
 }

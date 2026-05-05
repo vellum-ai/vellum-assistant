@@ -19,7 +19,9 @@
  */
 
 interface ChromeStorageArea {
-  get(keys?: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>>;
+  get(
+    keys?: string | string[] | Record<string, unknown> | null,
+  ): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
   remove(keys: string | string[]): Promise<void>;
   clear(): Promise<void>;
@@ -30,7 +32,7 @@ interface ChromeStorageChange {
   oldValue?: unknown;
 }
 
-type ChromeStorageAreaName = 'local' | 'sync' | 'managed' | 'session';
+type ChromeStorageAreaName = "local" | "sync" | "managed" | "session";
 
 interface ChromeStorageChangedEvent {
   addListener(
@@ -61,7 +63,9 @@ interface ChromeIdentityWebAuthFlowDetails {
 
 interface ChromeIdentityNamespace {
   getRedirectURL(path?: string): string;
-  launchWebAuthFlow(details: ChromeIdentityWebAuthFlowDetails): Promise<string | undefined>;
+  launchWebAuthFlow(
+    details: ChromeIdentityWebAuthFlowDetails,
+  ): Promise<string | undefined>;
 }
 
 interface ChromeRuntimeLastError {
@@ -125,12 +129,16 @@ interface ChromeRuntimeNamespace {
     responseCallback?: (response: TResponse) => void,
   ): void;
   getManifest(): ChromeRuntimeManifest;
+  /** Resolve a path relative to the extension root into an absolute chrome-extension:// URL. */
+  getURL(path: string): string;
 }
 
 interface ChromeTab {
   id?: number;
   windowId?: number;
   url?: string;
+  /** URL of a tab that hasn't committed yet (e.g. during loading). */
+  pendingUrl?: string;
   active?: boolean;
   title?: string;
   index?: number;
@@ -159,7 +167,7 @@ interface ChromeTabsUpdateProperties {
 }
 
 interface ChromeTabsCaptureVisibleTabOptions {
-  format?: 'jpeg' | 'png';
+  format?: "jpeg" | "png";
   quality?: number;
 }
 
@@ -167,7 +175,10 @@ interface ChromeTabsNamespace {
   query(queryInfo: ChromeTabsQueryInfo): Promise<ChromeTab[]>;
   get(tabId: number): Promise<ChromeTab>;
   create(createProperties: ChromeTabsCreateProperties): Promise<ChromeTab>;
-  update(tabId: number, updateProperties: ChromeTabsUpdateProperties): Promise<ChromeTab | undefined>;
+  update(
+    tabId: number,
+    updateProperties: ChromeTabsUpdateProperties,
+  ): Promise<ChromeTab | undefined>;
   captureVisibleTab(
     windowId: number,
     options?: ChromeTabsCaptureVisibleTabOptions,
@@ -187,7 +198,7 @@ interface ChromeCookie {
   path: string;
   secure: boolean;
   httpOnly: boolean;
-  sameSite?: 'no_restriction' | 'lax' | 'strict' | 'unspecified';
+  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
   session?: boolean;
   expirationDate?: number;
   storeId?: string;
@@ -211,12 +222,19 @@ interface ChromeCookiesSetDetails {
   path?: string;
   secure?: boolean;
   httpOnly?: boolean;
-  sameSite?: 'no_restriction' | 'lax' | 'strict' | 'unspecified';
+  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
   expirationDate?: number;
   storeId?: string;
 }
 
+interface ChromeCookiesGetDetails {
+  name: string;
+  url: string;
+  storeId?: string;
+}
+
 interface ChromeCookiesNamespace {
+  get(details: ChromeCookiesGetDetails): Promise<ChromeCookie | null>;
   getAll(details: ChromeCookiesGetAllDetails): Promise<ChromeCookie[]>;
   set(details: ChromeCookiesSetDetails): Promise<ChromeCookie | null>;
 }
@@ -267,7 +285,10 @@ interface ChromeDebuggerOnDetachEvent {
 
 interface ChromeDebuggerNamespace {
   // Promise-style (modern MV3 usage — used by worker.ts).
-  attach(target: ChromeDebuggerDebuggee, requiredVersion: string): Promise<void>;
+  attach(
+    target: ChromeDebuggerDebuggee,
+    requiredVersion: string,
+  ): Promise<void>;
   detach(target: ChromeDebuggerDebuggee): Promise<void>;
   sendCommand(
     target: ChromeDebuggerSession,
@@ -294,7 +315,16 @@ interface ChromeDebuggerNamespace {
   onDetach: ChromeDebuggerOnDetachEvent;
 }
 
+interface ChromeActionSetIconDetails {
+  path?: Record<string, string> | string;
+}
+
+interface ChromeActionNamespace {
+  setIcon(details: ChromeActionSetIconDetails): Promise<void>;
+}
+
 interface ChromeGlobal {
+  action: ChromeActionNamespace;
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;

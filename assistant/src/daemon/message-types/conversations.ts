@@ -184,7 +184,7 @@ export interface ReorderConversationsRequest {
 
 // === Server → Client ===
 
-export interface ConversationSearchMatchingMessage {
+interface ConversationSearchMatchingMessage {
   messageId: string;
   role: string;
   /** Plain-text excerpt around the match, truncated to ~200 chars. */
@@ -192,7 +192,7 @@ export interface ConversationSearchMatchingMessage {
   createdAt: number;
 }
 
-export interface ConversationSearchResultItem {
+interface ConversationSearchResultItem {
   conversationId: string;
   conversationTitle: string | null;
   conversationUpdatedAt: number;
@@ -225,7 +225,7 @@ export interface ConversationTitleUpdated {
 }
 
 /** Channel binding metadata exposed in conversation list APIs. */
-export interface ChannelBinding {
+interface ChannelBinding {
   sourceChannel: ChannelId;
   externalChatId: string;
   externalUserId?: string | null;
@@ -234,7 +234,7 @@ export interface ChannelBinding {
 }
 
 /** Attention state metadata for a conversation's latest assistant message. */
-export interface AssistantAttention {
+interface AssistantAttention {
   hasUnseenLatestAssistantMessage: boolean;
   latestAssistantMessageAt?: number;
   lastSeenAssistantMessageAt?: number;
@@ -242,7 +242,7 @@ export interface AssistantAttention {
   lastSeenSignalType?: string;
 }
 
-export interface ConversationForkParent {
+interface ConversationForkParent {
   conversationId: string;
   messageId: string;
   title: string;
@@ -314,6 +314,7 @@ export interface GenerationHandoff {
 
 export interface ModelInfo {
   type: "model_info";
+  conversationId?: string;
   model: string;
   provider: string;
   configuredProviders?: string[];
@@ -328,7 +329,7 @@ export interface ModelInfo {
   }>;
 }
 
-export interface HistoryResponseToolCall {
+interface HistoryResponseToolCall {
   name: string;
   input: Record<string, unknown>;
   result?: string;
@@ -349,11 +350,20 @@ export interface HistoryResponseToolCall {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
+  /**
+   * @deprecated Use `approvalMode` and `approvalReason` instead.
+   * Kept for backward compatibility during the migration window.
+   */
   autoApproved?: boolean;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
-export interface HistoryResponseSurface {
+interface HistoryResponseSurface {
   surfaceId: string;
   surfaceType: string;
   title?: string;
@@ -512,6 +522,7 @@ export interface CompactionCircuitClosed {
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
+  | "MANAGED_USAGE_LIMIT"
   | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
   | "PROVIDER_BILLING"
@@ -522,6 +533,7 @@ export type ConversationErrorCode =
   | "CONTEXT_TOO_LARGE"
   | "CONVERSATION_ABORTED"
   | "CONVERSATION_PROCESSING_FAILED"
+  | "DISK_SPACE_CRITICAL"
   | "REGENERATE_FAILED"
   | "UNKNOWN";
 

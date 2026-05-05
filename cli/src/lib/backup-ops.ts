@@ -9,7 +9,10 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import { loadGuardianToken, leaseGuardianToken } from "./guardian-token.js";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+} from "./guardian-token.js";
 
 /** Default backup directory following XDG convention */
 export function getBackupsDir(): string {
@@ -25,20 +28,25 @@ export function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Obtain a valid guardian access token (cached or fresh lease) */
+/**
+ * Obtain a valid guardian access token.
+ *
+ * Resolution order:
+ *  1. Cached token that is not yet expired — use as-is.
+ *  2. Cached token with a valid refresh token — call /v1/guardian/refresh.
+ *  3. No usable token — return null so callers can skip the backup gracefully
+ *     rather than hitting /v1/guardian/init (which 403s on bootstrapped instances).
+ */
 async function getGuardianAccessToken(
   runtimeUrl: string,
   assistantId: string,
-  forceRefresh?: boolean,
-): Promise<string> {
-  if (!forceRefresh) {
-    const tokenData = loadGuardianToken(assistantId);
-    if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
-      return tokenData.accessToken;
-    }
+): Promise<string | null> {
+  const tokenData = loadGuardianToken(assistantId);
+  if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
+    return tokenData.accessToken;
   }
-  const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
-  return freshToken.accessToken;
+  const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+  return refreshed?.accessToken ?? null;
 }
 
 /**
@@ -53,6 +61,10 @@ export async function createBackup(
 ): Promise<string | null> {
   try {
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    if (!accessToken) {
+      console.warn("Warning: backup skipped — no valid guardian token available");
+      return null;
+    }
 
     let response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
       method: "POST",
@@ -66,10 +78,15 @@ export async function createBackup(
       signal: AbortSignal.timeout(120_000),
     });
 
-    // Retry once with a fresh token on 401 — the cached token may be stale
-    // after a container restart that generated a new gateway signing key.
+    // Retry once with a refreshed token on 401 — the cached token may be
+    // stale after a container restart that regenerated the gateway signing key.
     if (response.status === 401) {
-      accessToken = await getGuardianAccessToken(runtimeUrl, assistantId, true);
+      const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+      if (!refreshed) {
+        console.warn(`Warning: backup export failed (401) and token refresh failed`);
+        return null;
+      }
+      accessToken = refreshed.accessToken;
       response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
         method: "POST",
         headers: {
@@ -130,6 +147,10 @@ export async function restoreBackup(
 
     const bundleData = readFileSync(backupPath);
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    if (!accessToken) {
+      console.warn("Warning: restore skipped — no valid guardian token available");
+      return false;
+    }
 
     let response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
       method: "POST",
@@ -141,10 +162,15 @@ export async function restoreBackup(
       signal: AbortSignal.timeout(120_000),
     });
 
-    // Retry once with a fresh token on 401 — the cached token may be stale
-    // after a container restart that generated a new gateway signing key.
+    // Retry once with a refreshed token on 401 — the cached token may be
+    // stale after a container restart that regenerated the gateway signing key.
     if (response.status === 401) {
-      accessToken = await getGuardianAccessToken(runtimeUrl, assistantId, true);
+      const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+      if (!refreshed) {
+        console.warn(`Warning: restore failed (401) and token refresh failed`);
+        return false;
+      }
+      accessToken = refreshed.accessToken;
       response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
         method: "POST",
         headers: {

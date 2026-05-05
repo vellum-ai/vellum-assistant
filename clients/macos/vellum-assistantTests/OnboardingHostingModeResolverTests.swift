@@ -22,7 +22,7 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
             appleContainerEnabled: false
         )
 
-        XCTAssertEqual(modes, [.vellumCloud, .local, .aws, .gcp, .customHardware])
+        XCTAssertEqual(modes, [.vellumCloud, .local, .aws, .gcp])
         XCTAssertFalse(modes.contains(.docker))
     }
 

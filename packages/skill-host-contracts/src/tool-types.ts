@@ -142,6 +142,8 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
@@ -212,6 +214,8 @@ export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
   riskLevel: string;
   /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   decision: "deny" | "always_deny";
   reason: string;
   durationMs: number;
@@ -220,6 +224,8 @@ export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
 export interface ToolExecutedEvent extends ToolLifecycleEventBase {
   type: "executed";
   riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
@@ -228,6 +234,8 @@ export interface ToolExecutedEvent extends ToolLifecycleEventBase {
 export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   type: "error";
   riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   decision: string;
   durationMs: number;
   errorMessage: string;
@@ -238,20 +246,12 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   errorStack?: string;
 }
 
-export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
-  type: "secret_detected";
-  matches: Array<{ type: string; redactedValue: string }>;
-  action: "redact" | "warn" | "block" | "prompt";
-  detectedAtMs: number;
-}
-
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent
   | ToolPermissionPromptEvent
   | ToolPermissionDeniedEvent
   | ToolExecutedEvent
-  | ToolExecutionErrorEvent
-  | ToolSecretDetectedEvent;
+  | ToolExecutionErrorEvent;
 
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
@@ -279,7 +279,7 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
@@ -397,8 +397,8 @@ export interface ToolContext {
    */
   transportInterface?: string;
   /**
-   * True when the host browser proxy's sender was overridden by a
-   * registry-routed extension connection (ChromeExtensionRegistry WebSocket).
+   * True when the host browser proxy's sender was overridden by an
+   * extension connection (WebSocket browser-relay).
    * The CDP factory uses this to distinguish between an SSE-backed proxy
    * (macOS, no extension) and an extension-backed proxy: only the latter
    * should suppress desktop-auto cdp-inspect when temporarily unavailable,

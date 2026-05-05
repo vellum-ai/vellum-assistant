@@ -18,7 +18,7 @@ enum OnboardingHostingModeResolver {
             modes.insert(.oldLocal, at: localIndex)
         }
         if userHostedEnabled {
-            modes.append(contentsOf: [.aws, .gcp, .customHardware])
+            modes.append(contentsOf: [.aws, .gcp])
         }
         return modes
     }
@@ -226,7 +226,6 @@ struct APIKeyStepView: View {
         case .docker: return .package
         case .oldLocal: return .laptop
         case .gcp, .aws: return .globe
-        case .customHardware: return .hardDrive
         }
     }
 

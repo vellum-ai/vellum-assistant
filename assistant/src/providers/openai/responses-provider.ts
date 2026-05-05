@@ -130,6 +130,9 @@ export class OpenAIResponsesProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const verbosity = configObj?.verbosity as string | undefined;
+    const usageAttributionHeaders = configObj?.usageAttributionHeaders as
+      | Record<string, string>
+      | undefined;
 
     try {
       const input = this.toResponsesInput(messages);
@@ -222,11 +225,14 @@ export class OpenAIResponsesProvider implements Provider {
         const responsesApi = this.client.responses as unknown as {
           stream(
             p: Record<string, unknown>,
-            o: { signal: AbortSignal },
+            o: { signal: AbortSignal; headers?: Record<string, string> },
           ): AsyncIterable<ResponsesStreamEvent>;
         };
         const stream = responsesApi.stream(params, {
           signal: timeoutSignal,
+          ...(usageAttributionHeaders
+            ? { headers: usageAttributionHeaders }
+            : {}),
         });
 
         for await (const event of stream) {

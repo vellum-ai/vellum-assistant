@@ -19,6 +19,25 @@ mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: mockSetSecureKeyAsync,
   getSecureKeyAsync: (account: string) =>
     Promise.resolve(secureKeyValues.get(account)),
+  getSecureKeyResultAsync: (account: string) =>
+    Promise.resolve({
+      value: secureKeyValues.get(account),
+      unreachable: false,
+    }),
+}));
+
+mock.module("../oauth/credential-token-resolver.js", () => ({
+  getConnectionAccessTokenResult: async (opts: {
+    provider: string;
+    connectionId: string;
+  }) => {
+    const key = `oauth_connection/${opts.connectionId}/access_token`;
+    return {
+      value: secureKeyValues.get(key),
+      unreachable: false,
+      key,
+    };
+  },
 }));
 
 import { eq } from "drizzle-orm";

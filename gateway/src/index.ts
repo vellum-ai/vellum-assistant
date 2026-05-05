@@ -1,6 +1,15 @@
 process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
+
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import {
   loadOrCreateSigningKey,
@@ -20,16 +29,13 @@ import {
   type CredentialChangeEvent,
 } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
-import {
-  createBrowserRelayWebsocketHandler,
-  getBrowserRelayWebsocketHandlers,
-  type BrowserRelaySocketData,
-} from "./http/routes/browser-relay-websocket.js";
+
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
+import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
 import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
@@ -57,8 +63,6 @@ import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
-import { createPairingHandler } from "./pairing/pairing-routes.js";
-import { PairingStore } from "./pairing/pairing-store.js";
 import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
@@ -74,12 +78,13 @@ import {
   createConversationThresholdPutHandler,
   createConversationThresholdDeleteHandler,
 } from "./http/routes/auto-approve-thresholds.js";
-import { handleBrowserExtensionPair } from "./http/routes/browser-extension-pair.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
+import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import { handlePair } from "./http/routes/pair.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
@@ -96,9 +101,15 @@ import {
   createMigrationJobStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
+import {
+  createListBackupsHandler,
+  createBackupSnapshotHandler,
+} from "./backup/backup-routes.js";
+import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
+import { createLogTailHandler } from "./http/routes/log-tail.js";
 import {
   createTrustRulesListHandler,
   createTrustRulesCreateHandler,
@@ -122,8 +133,13 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
+import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
+import { logAuthBypassState } from "./http/middleware/auth.js";
 import {
+  resolveExtensionOrigin,
+  handleExtensionPreflight,
+  withExtensionCorsHeaders,
   resolveWebviewOrigin,
   handlePreflight,
   withCorsHeaders,
@@ -139,21 +155,26 @@ import { fetchImpl } from "./fetch.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
+import { syncConfiguredTwilioPhoneNumberWebhooks } from "./twilio/webhook-sync.js";
+import {
+  isOnlyVelayPublicBaseUrlChange,
+  shouldSyncTwilioPhoneWebhooksAfterConfigChange,
+} from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
-import {
-  featureFlagRoutes,
-  getMergedFeatureFlags,
-} from "./ipc/feature-flag-handlers.js";
+import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
-import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
+
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
+import { createVelayRoutes } from "./ipc/velay-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
+import { createVelayTunnelClient } from "./velay/client.js";
+import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
 const log = getLogger("main");
 
@@ -196,16 +217,6 @@ function detectCredentialChanges(
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
-
-function isBrowserRelaySocketData(
-  data: unknown,
-): data is BrowserRelaySocketData {
-  return (
-    !!data &&
-    typeof data === "object" &&
-    (data as { wsType?: unknown }).wsType === "browser-relay"
-  );
-}
 
 function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
   return (
@@ -262,12 +273,23 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
 
+  // Wait for the assistant runtime to be healthy before serving traffic.
+  // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
+  // complete before the HTTP server starts accepting auth requests —
+  // otherwise newly minted tokens can be overwritten by stale rows
+  // migrated from the assistant DB.
+  await runPostAssistantReady();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
   const configFileCache = new ConfigFileCache();
+  const velayTunnelClient = createVelayTunnelClient(config, {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  });
 
   // ── Avatar sync ──
   const avatarChannelSyncer = new AvatarChannelSyncer();
@@ -305,18 +327,18 @@ async function main() {
   );
   const handleTwilioConnectActionWebhook =
     createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
+  const handleTwilioVoiceVerifyCallback =
+    createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
     configFile: configFileCache,
   });
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
-  const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
-  const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -345,9 +367,6 @@ async function main() {
     credentialCache,
   );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
-  const pairingStore = new PairingStore();
-  pairingStore.start();
-  const pairingHandler = createPairingHandler({ pairingStore });
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
@@ -376,6 +395,7 @@ async function main() {
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
+  const handleLogTail = createLogTailHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
@@ -397,9 +417,11 @@ async function main() {
 
   const audioProxy = createAudioProxyHandler(config);
 
-  const handleRuntimeProxy = config.runtimeProxyEnabled
-    ? createRuntimeProxyHandler(config)
-    : null;
+  const backupDeps = { assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl };
+  const handleListBackups = createListBackupsHandler(backupDeps);
+  const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
+
+  const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
   // Helper to reject when an integration isn't configured
   const requireConfigured = (
@@ -436,16 +458,20 @@ async function main() {
       handler: (req) => handleTelegramWebhook(req),
     },
     {
-      path: "/webhooks/twilio/voice",
+      path: TWILIO_VOICE_WEBHOOK_PATH,
       handler: (req) => handleTwilioVoiceWebhook(req),
     },
     {
-      path: "/webhooks/twilio/status",
+      path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
     },
     {
-      path: "/webhooks/twilio/connect-action",
+      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
       handler: (req) => handleTwilioConnectActionWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/voice-verify",
+      handler: (req) => handleTwilioVoiceVerifyCallback(req),
     },
     {
       path: "/webhooks/whatsapp",
@@ -469,7 +495,8 @@ async function main() {
     {
       path: "/inbound/register",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "internal.write",
       handler: (req) => handleInboundRegister(req),
     },
 
@@ -485,28 +512,6 @@ async function main() {
       auth: "track-failures",
       trackFailureStatuses: [400],
       handler: (req) => handleOAuthCallback(req),
-    },
-
-    // ── Pairing (mixed auth) ──
-    {
-      path: "/pairing/register",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => pairingHandler.handlePairingRegister(req),
-    },
-    {
-      path: "/pairing/request",
-      method: "POST",
-      auth: "track-failures",
-      trackFailureStatuses: [401, 403],
-      handler: (req) => pairingHandler.handlePairingRequest(req),
-    },
-    {
-      path: "/pairing/status",
-      method: "GET",
-      auth: "track-failures",
-      trackFailureStatuses: [401, 403],
-      handler: (req) => pairingHandler.handlePairingStatus(req),
     },
 
     // ── Runtime health ──
@@ -600,6 +605,12 @@ async function main() {
 
     // ── Contacts control plane ──
     {
+      path: "/v1/contacts/prompt/submit",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactPromptSubmit(req),
+    },
+    {
       path: "/v1/contacts",
       method: "GET",
       auth: "edge",
@@ -663,8 +674,8 @@ async function main() {
       path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
       method: "DELETE",
       auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(req, params[0]),
+      handler: (_req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(params[0]),
     },
     {
       path: /^\/v1\/contacts\/([^/]+)$/,
@@ -674,13 +685,12 @@ async function main() {
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
     },
 
-    // ── Browser extension pairing (localhost-only, auth: none) ──
+    // ── Generic loopback pairing (localhost-only, auth: none) ──
     {
-      path: "/v1/browser-extension-pair",
+      path: "/v1/pair",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        handleBrowserExtensionPair(req, getClientIp()),
+      handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
     },
 
     // ── Channel verification sessions ──
@@ -941,10 +951,10 @@ async function main() {
     },
 
     // ── Teleport-GCS migration (unified daemon-async flow) ──
-    // These are registered explicitly (not via the runtime-proxy catch-all)
-    // so local/docker teleport works whether or not `runtimeProxyEnabled`
-    // is set. The daemon returns 202 { job_id } on POST and cheap JSON on
-    // GET, so the gateway just transparently forwards without wrapping.
+    // Registered as explicit routes (not via the runtime-proxy catch-all)
+    // for dedicated auth and timeout handling. The daemon returns 202
+    // { job_id } on POST and cheap JSON on GET, so the gateway just
+    // transparently forwards without wrapping.
     {
       path: "/v1/migrations/export-to-gcs",
       method: "POST",
@@ -983,6 +993,22 @@ async function main() {
       auth: "edge-scoped",
       scope: "admin.write",
       handler: (req) => migrationRollbackProxy(req),
+    },
+
+    // ── Backups ──
+    {
+      path: "/v1/backups",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleListBackups(req),
+    },
+    {
+      path: "/v1/backups/create",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleCreateBackup(req),
     },
 
     // ── Channel readiness ──
@@ -1198,6 +1224,12 @@ async function main() {
       handler: (req, params, getClientIp) =>
         handleLogExport(req, params, getClientIp),
     },
+    {
+      path: "/v1/logs/tail",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleLogTail(req),
+    },
 
     // ── Trust rules v3 ──
     {
@@ -1241,20 +1273,23 @@ async function main() {
     },
   ];
 
-  // The runtime proxy catch-all is only added when the proxy is enabled.
-  // It must be last so that all specific routes are checked first.
-  if (handleRuntimeProxy) {
-    routes.push({
-      path: /^\//, // match everything
-      auth: "track-failures",
-      handler: (req, _params, getClientIp) =>
-        handleRuntimeProxy(req, getClientIp()),
-    });
-  }
+  // Runtime proxy catch-all — must be last so specific routes are checked first.
+  routes.push({
+    path: /^\//, // match everything
+    auth: "track-failures",
+    handler: (req, _params, getClientIp) =>
+      handleRuntimeProxy(req, getClientIp()),
+  });
 
   const router = createRouter(routes, {
     authRateLimiter,
   });
+
+  /** Stamp the assistant version header on a response. */
+  function stampVersion<T extends Response>(res: T): T {
+    res.headers.set(VERSION_HEADER_NAME, VERSION_HEADER_VALUE);
+    return res;
+  }
 
   const server = Bun.serve({
     port: config.port,
@@ -1264,10 +1299,6 @@ async function main() {
     maxRequestBodySize: 512 * 1024 * 1024,
     websocket: {
       open(ws) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.open(ws as never);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.open(ws as never);
           return;
@@ -1283,10 +1314,6 @@ async function main() {
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.message(ws as never, message);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.message(ws as never, message);
           return;
@@ -1302,10 +1329,6 @@ async function main() {
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
-        if (isBrowserRelaySocketData(ws.data)) {
-          browserRelayWebsocketHandlers.close(ws as never, code, reason);
-          return;
-        }
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
@@ -1323,210 +1346,228 @@ async function main() {
     },
     error(err) {
       if (err instanceof CircuitBreakerOpenError) {
+        return stampVersion(
+          Response.json(
+            {
+              error: "Service temporarily unavailable — runtime is unreachable",
+            },
+            {
+              status: 503,
+              headers: { "Retry-After": String(err.retryAfterSecs) },
+            },
+          ),
+        );
+      }
+      log.error({ err }, "Unhandled gateway error");
+      return stampVersion(
+        Response.json({ error: "Internal server error" }, { status: 500 }),
+      );
+    },
+    async fetch(req, svr) {
+      svr.timeout(req, 1800);
+      const inner = await routeRequest(req, svr);
+      if (inner) stampVersion(inner);
+      return inner;
+    },
+  });
+
+  /** Core request routing — extracted so `fetch` can stamp headers on every response. */
+  async function routeRequest(
+    req: Request,
+    svr: ReturnType<typeof Bun.serve>,
+  ): Promise<Response | undefined> {
+    const url = new URL(req.url);
+
+    // ── CORS: webview preflight & origin tracking ──
+    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+    // Reflect the origin back on matched requests so window.vellum.fetch
+    // calls succeed.
+    const extensionOrigin = resolveExtensionOrigin(req);
+    if (extensionOrigin && req.method === "OPTIONS") {
+      return handleExtensionPreflight(extensionOrigin);
+    }
+
+    const webviewOrigin = resolveWebviewOrigin(req);
+    if (webviewOrigin && req.method === "OPTIONS") {
+      return handlePreflight(webviewOrigin);
+    }
+
+    // ── Pre-router: health/readiness probes ──
+    // These bypass rate limiting and tracing for minimal overhead.
+    if (url.pathname === "/healthz") {
+      const includeMigrations =
+        url.searchParams.get("include") === "migrations";
+      if (!includeMigrations) {
+        return Response.json({ status: "ok" });
+      }
+      // Fetch the daemon's /v1/health to surface migration state
+      // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
+      // pre-upgrade migration state through the gateway.
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/v1/health`,
+          {
+            signal: AbortSignal.timeout(3000),
+            headers: { authorization: `Bearer ${mintServiceToken()}` },
+          },
+        );
+        if (upstream.ok) {
+          const body = (await upstream.json()) as {
+            migrations?: {
+              dbVersion?: number;
+              lastWorkspaceMigrationId?: string;
+            };
+          };
+          return Response.json({
+            status: "ok",
+            ...(body.migrations ? { migrations: body.migrations } : {}),
+          });
+        }
+      } catch {
+        // Daemon unreachable — graceful degradation, still return ok
+      }
+      return Response.json({ status: "ok" });
+    }
+
+    if (url.pathname === "/schema") {
+      return Response.json(buildSchema());
+    }
+
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      // Check that the upstream assistant is also reachable so callers
+      // know the full stack is ready, not just the gateway process.
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/readyz`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        if (!upstream.ok) {
+          return Response.json(
+            { status: "upstream_unhealthy", upstream: upstream.status },
+            { status: 503 },
+          );
+        }
+      } catch {
         return Response.json(
-          { error: "Service temporarily unavailable — runtime is unreachable" },
+          { status: "upstream_unreachable" },
+          { status: 503 },
+        );
+      }
+      return Response.json({ status: "ok" });
+    }
+
+    // Per-request IP resolver — scoped to this request so it remains
+    // correct across async yields under concurrent load.
+    const resolveClientIp: GetClientIp = () =>
+      getClientIp(req, svr, config.trustProxy);
+
+    const rateLimitResponse = checkAuthRateLimit(
+      url,
+      authRateLimiter,
+      resolveClientIp(),
+    );
+    if (rateLimitResponse) {
+      if (extensionOrigin)
+        return withExtensionCorsHeaders(rateLimitResponse, extensionOrigin);
+      if (webviewOrigin)
+        return withCorsHeaders(rateLimitResponse, webviewOrigin);
+      return rateLimitResponse;
+    }
+
+    // ── Pre-router: WebSocket upgrades ──
+    // Bun's WS upgrade needs `server.upgrade()` which doesn't return
+    // a Response, so these can't go through the route table.
+    if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
+      const upgradeResult = handleTwilioRelayWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (
+      url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
+      url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
+    ) {
+      const upgradeResult = handleTwilioMediaWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v1/stt/stream") {
+      const upgradeResult = handleSttStreamWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v1/live-voice") {
+      const upgradeResult = handleLiveVoiceWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    // Attach a trace ID to every non-healthcheck request for
+    // end-to-end correlation across webhook -> runtime -> reply.
+    if (!req.headers.has("x-trace-id")) {
+      req.headers.set("x-trace-id", generateTraceId());
+    }
+
+    // ── Route table dispatch ──
+    try {
+      const response = router(req, url, resolveClientIp, svr);
+      if (response !== null) {
+        if (extensionOrigin) {
+          const resolved = await response;
+          return withExtensionCorsHeaders(resolved, extensionOrigin);
+        }
+        if (webviewOrigin) {
+          const resolved = await response;
+          return withCorsHeaders(resolved, webviewOrigin);
+        }
+        return response;
+      }
+    } catch (err) {
+      // Mirror the error() handler logic while retaining CORS context.
+      // Bun's error() callback doesn't receive the request, so thrown
+      // errors during webview/extension requests would otherwise lose CORS headers.
+      if (!webviewOrigin && !extensionOrigin) throw err;
+      if (err instanceof CircuitBreakerOpenError) {
+        const body = Response.json(
+          {
+            error:
+              "Service temporarily unavailable \u2014 runtime is unreachable",
+          },
           {
             status: 503,
             headers: { "Retry-After": String(err.retryAfterSecs) },
           },
         );
+        if (extensionOrigin) return withExtensionCorsHeaders(body, extensionOrigin);
+        return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    },
-    async fetch(req, svr) {
-      svr.timeout(req, 1800);
-      const url = new URL(req.url);
-
-      // ── CORS: webview preflight & origin tracking ──
-      // The macOS WKWebView loads pages from https://{appId}.vellum.local/
-      // which is cross-origin to the gateway at http://127.0.0.1:{port}.
-      // Reflect the origin back on matched requests so window.vellum.fetch
-      // calls succeed.
-      const webviewOrigin = resolveWebviewOrigin(req);
-      if (webviewOrigin && req.method === "OPTIONS") {
-        return handlePreflight(webviewOrigin);
-      }
-
-      // ── Pre-router: health/readiness probes ──
-      // These bypass rate limiting and tracing for minimal overhead.
-      if (url.pathname === "/healthz") {
-        const includeMigrations =
-          url.searchParams.get("include") === "migrations";
-        if (!includeMigrations) {
-          return Response.json({ status: "ok" });
-        }
-        // Fetch the daemon's /v1/health to surface migration state
-        // (dbVersion, lastWorkspaceMigrationId) so the CLI can capture
-        // pre-upgrade migration state through the gateway.
-        try {
-          const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/v1/health`,
-            {
-              signal: AbortSignal.timeout(3000),
-              headers: { authorization: `Bearer ${mintServiceToken()}` },
-            },
-          );
-          if (upstream.ok) {
-            const body = (await upstream.json()) as {
-              migrations?: {
-                dbVersion?: number;
-                lastWorkspaceMigrationId?: string;
-              };
-            };
-            return Response.json({
-              status: "ok",
-              ...(body.migrations ? { migrations: body.migrations } : {}),
-            });
-          }
-        } catch {
-          // Daemon unreachable — graceful degradation, still return ok
-        }
-        return Response.json({ status: "ok" });
-      }
-
-      if (url.pathname === "/schema") {
-        return Response.json(buildSchema());
-      }
-
-      if (url.pathname === "/readyz") {
-        if (draining) {
-          return Response.json({ status: "draining" }, { status: 503 });
-        }
-        // Check that the upstream assistant is also reachable so callers
-        // know the full stack is ready, not just the gateway process.
-        try {
-          const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/readyz`,
-            { signal: AbortSignal.timeout(3000) },
-          );
-          if (!upstream.ok) {
-            return Response.json(
-              { status: "upstream_unhealthy", upstream: upstream.status },
-              { status: 503 },
-            );
-          }
-        } catch {
-          return Response.json(
-            { status: "upstream_unreachable" },
-            { status: 503 },
-          );
-        }
-        return Response.json({ status: "ok" });
-      }
-
-      // Per-request IP resolver — scoped to this request so it remains
-      // correct across async yields under concurrent load.
-      const resolveClientIp: GetClientIp = () =>
-        getClientIp(req, svr, config.trustProxy);
-
-      const rateLimitResponse = checkAuthRateLimit(
-        url,
-        authRateLimiter,
-        resolveClientIp(),
+      const errBody = Response.json(
+        { error: "Internal server error" },
+        { status: 500 },
       );
-      if (rateLimitResponse) {
-        if (webviewOrigin)
-          return withCorsHeaders(rateLimitResponse, webviewOrigin);
-        return rateLimitResponse;
-      }
+      if (extensionOrigin) return withExtensionCorsHeaders(errBody, extensionOrigin);
+      return withCorsHeaders(errBody, webviewOrigin!);
+    }
 
-      // ── Pre-router: WebSocket upgrades ──
-      // Bun's WS upgrade needs `server.upgrade()` which doesn't return
-      // a Response, so these can't go through the route table.
-      if (url.pathname === "/webhooks/twilio/relay") {
-        const upgradeResult = handleTwilioRelayWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      if (
-        url.pathname === "/webhooks/twilio/media-stream" ||
-        url.pathname.startsWith("/webhooks/twilio/media-stream/")
-      ) {
-        const upgradeResult = handleTwilioMediaWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
-        const upgradeResult = handleBrowserRelayWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      if (url.pathname === "/v1/stt/stream") {
-        const upgradeResult = handleSttStreamWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      if (url.pathname === "/v1/live-voice") {
-        const upgradeResult = handleLiveVoiceWs(req, server);
-        if (upgradeResult !== undefined) return upgradeResult;
-        return undefined as unknown as Response;
-      }
-
-      // Attach a trace ID to every non-healthcheck request for
-      // end-to-end correlation across webhook -> runtime -> reply.
-      if (!req.headers.has("x-trace-id")) {
-        req.headers.set("x-trace-id", generateTraceId());
-      }
-
-      // ── Route table dispatch ──
-      try {
-        const response = router(req, url, resolveClientIp, svr);
-        if (response !== null) {
-          if (webviewOrigin) {
-            const resolved = await response;
-            return withCorsHeaders(resolved, webviewOrigin);
-          }
-          return response;
-        }
-      } catch (err) {
-        // Mirror the error() handler logic while retaining CORS context.
-        // Bun's error() callback doesn't receive the request, so thrown
-        // errors during webview requests would otherwise lose CORS headers.
-        if (!webviewOrigin) throw err;
-        if (err instanceof CircuitBreakerOpenError) {
-          return withCorsHeaders(
-            Response.json(
-              {
-                error:
-                  "Service temporarily unavailable \u2014 runtime is unreachable",
-              },
-              {
-                status: 503,
-                headers: { "Retry-After": String(err.retryAfterSecs) },
-              },
-            ),
-            webviewOrigin,
-          );
-        }
-        log.error({ err }, "Unhandled gateway error");
-        return withCorsHeaders(
-          Response.json({ error: "Internal server error" }, { status: 500 }),
-          webviewOrigin,
-        );
-      }
-
-      const notFound = Response.json(
-        { error: "Not found", source: "gateway" },
-        { status: 404 },
-      );
-      if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
-      return notFound;
-    },
-  });
+    const notFound = Response.json(
+      { error: "Not found", source: "gateway" },
+      { status: 404 },
+    );
+    if (extensionOrigin) return withExtensionCorsHeaders(notFound, extensionOrigin);
+    if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
+    return notFound;
+  }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
-
-  // Deferred startup tasks that depend on the assistant runtime being
-  // ready (e.g. guardian binding backfill, data migrations that touch
-  // the assistant DB). Runs in the background — does not block startup.
-  runPostAssistantReady().catch((err) => {
-    log.error({ err }, "Post-assistant-ready lifecycle failed");
-  });
+  logAuthBypassState();
+  velayTunnelClient?.start();
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
@@ -1661,6 +1702,20 @@ async function main() {
         }
 
         const forward = async () => {
+          // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
+          // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          if (normalized.event.actor.actorExternalId) {
+            void upsertContactChannel({
+              sourceChannel: "slack",
+              externalUserId: normalized.event.actor.actorExternalId,
+              ...(normalized.event.source.chatType === "im"
+                ? { externalChatId: normalized.event.message.conversationExternalId }
+                : {}),
+              displayName: normalized.event.actor.displayName,
+              username: normalized.event.actor.username,
+            }).catch(() => {});
+          }
+
           try {
             // Download and upload attachments if present (skip for edits and
             // callback actions — edits only update text, callbacks have no media)
@@ -1692,10 +1747,10 @@ async function main() {
               let isGuardianActor = false;
               if (slackActorId) {
                 try {
-                  isGuardianActor = !!findGuardianForChannelActor(
+                  isGuardianActor = !!(await findGuardianForChannelActor(
                     "slack",
                     slackActorId,
-                  );
+                  ));
                 } catch (err) {
                   log.warn(
                     { err, slackActorId },
@@ -1882,12 +1937,7 @@ async function main() {
         );
       });
 
-      // Sync avatar to Slack bot profile on credential change (including
-      // initial startup). Gated behind channel-avatar-sync feature flag.
-      // Known limitation: if the flag is toggled off without a credential
-      // change, the syncer stays registered until the next credential
-      // change triggers this callback.
-      if (slackReady && getMergedFeatureFlags()["channel-avatar-sync"]) {
+      if (slackReady) {
         avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
         avatarChannelSyncer.syncToChannel("slack").catch((err) => {
           log.warn({ err }, "Initial Slack avatar sync failed");
@@ -1895,6 +1945,15 @@ async function main() {
       } else {
         avatarChannelSyncer.unregister("slack");
       }
+    }
+
+    if (changed.has("twilio")) {
+      syncConfiguredTwilioPhoneNumberWebhooks({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.warn({ err }, "Twilio webhook sync failed after credential change");
+      });
     }
 
     // Register email callback route with the platform so inbound email
@@ -1928,7 +1987,13 @@ async function main() {
     configFileCache.invalidate();
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
-    if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
+    const onlyVelayPublicBaseUrlChanged = isOnlyVelayPublicBaseUrlChange(event);
+
+    if (
+      event.changedKeys.has("ingress") &&
+      !onlyVelayPublicBaseUrlChanged &&
+      isTelegramConfigured()
+    ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
         log.error(
           { err },
@@ -1937,9 +2002,22 @@ async function main() {
       });
     }
 
+    if (shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)) {
+      syncConfiguredTwilioPhoneNumberWebhooks({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.warn({ err }, "Twilio webhook sync failed after config change");
+      });
+    }
+
     // Side effect: re-register email callback when ingress URL changes so
     // the platform callback route points at the new self-hosted URL.
-    if (event.changedKeys.has("ingress") && vellumReady) {
+    if (
+      event.changedKeys.has("ingress") &&
+      !onlyVelayPublicBaseUrlChanged &&
+      vellumReady
+    ) {
       registerEmailCallbackRoute({
         credentials: credentialCache,
         configFile: configFileCache,
@@ -1960,11 +2038,16 @@ async function main() {
     ...contactRoutes,
     ...thresholdRoutes,
     ...riskClassificationRoutes,
-    ...capabilityTokenRoutes,
+    ...createVelayRoutes(velayTunnelClient),
   ]);
   ipcServer.start();
 
   void refreshRouteSchema();
+
+  // ── Backup worker ──
+  const backupWorkerHandle = startBackupWorker({
+    assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+  });
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
@@ -2009,25 +2092,30 @@ async function main() {
   process.on("SIGTERM", () => {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
+    const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
+    backupWorkerHandle.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
+    const velayStop = velayTunnelClient?.stop();
+    if (velayStop) shutdownTasks.push(velayStop);
     ipcServer.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();
-    pairingStore.stop();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
     }
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
-      server.stop(true);
-      process.exit(0);
+      void Promise.allSettled(shutdownTasks).then(() => {
+        server.stop(true);
+        process.exit(0);
+      });
     }, drainMs);
   });
 }

@@ -36,7 +36,10 @@ mock.module("../runtime/services/conversation-serializer.js", () => ({
   buildConversationDetailResponse: (id: string) => ({ id }),
 }));
 
-import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  AssistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-analysis-routes.js";
 
 const analyzeRoute = ROUTES.find(
@@ -107,22 +110,22 @@ describe("POST /v1/conversations/:id/analyze", () => {
     expect(allowedTools).toBeInstanceOf(Set);
     expect(allowedTools?.size).toBe(0);
     expect(mockConversation.updateClient).toHaveBeenCalledWith(
-      expect.any(Function),
+      broadcastMessage,
       true,
     );
     expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      expect.any(Function),
+      undefined,
       expect.objectContaining({ isInteractive: false, isUserMessage: true }),
     );
   });
 
   test("keeps analysis non-interactive even when a matching subscriber is connected", async () => {
-    const sub = testHub.subscribe(
-      {},
-      () => {},
-    );
+    const sub = testHub.subscribe({
+      type: "process",
+      callback: () => {},
+    });
 
     try {
       await analyzeRoute.handler({
@@ -130,13 +133,13 @@ describe("POST /v1/conversations/:id/analyze", () => {
       });
 
       expect(mockConversation.updateClient).toHaveBeenCalledWith(
-        expect.any(Function),
+        broadcastMessage,
         false,
       );
       expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
         expect.any(String),
         "msg-1",
-        expect.any(Function),
+        undefined,
         expect.objectContaining({ isInteractive: false, isUserMessage: true }),
       );
     } finally {

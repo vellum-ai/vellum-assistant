@@ -22,53 +22,54 @@ if [[ "$MODE" != "ratchet" && "$MODE" != "strict" ]]; then
   exit 1
 fi
 
-# Run grep from CLIENTS_DIR so paths are relative (e.g., macos/foo/bar.swift:42:...)
+# git grep restricts the scan to tracked files (skips .build/, Pods/, and other
+# checkouts). cd into clients/ so output paths are e.g. macos/foo.swift, not
+# clients/macos/foo.swift.
 cd "$CLIENTS_DIR"
 
-# Scope: macOS + shared only (exclude ios/)
-SCOPE="--include=*.swift"
-SCOPE_DIRS="./macos ./shared"
+# Scope: macOS + shared only (exclude ios/). :(glob) enables `**` recursion.
+SCOPE_PATHSPECS=(":(glob)macos/**/*.swift" ":(glob)shared/**/*.swift")
 
 VIOLATIONS=""
 
 # Rule A: Color(hex:) outside token files
-RULE_A=$(grep -rn 'Color(hex:' $SCOPE_DIRS $SCOPE | grep -v 'shared/DesignSystem/Tokens/' | sed 's|^\./||' || true)
+RULE_A=$(git grep -n 'Color(hex:' -- "${SCOPE_PATHSPECS[@]}" | grep -v 'shared/DesignSystem/Tokens/' || true)
 if [[ -n "$RULE_A" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_A}"$'\n'
 fi
 
 # Rule B: adaptiveColor( outside token files
-RULE_B=$(grep -rn 'adaptiveColor(' $SCOPE_DIRS $SCOPE | grep -v 'shared/DesignSystem/Tokens/' | sed 's|^\./||' || true)
+RULE_B=$(git grep -n 'adaptiveColor(' -- "${SCOPE_PATHSPECS[@]}" | grep -v 'shared/DesignSystem/Tokens/' || true)
 if [[ -n "$RULE_B" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_B}"$'\n'
 fi
 
 # Rule C: Legacy CSS variable names without --v- prefix
-RULE_C=$(grep -rn -E '\-\-(bg|bg-subtle|text|text-secondary|border|accent|accent-text):' $SCOPE_DIRS $SCOPE | sed 's|^\./||' || true)
+RULE_C=$(git grep -n -E '\-\-(bg|bg-subtle|text|text-secondary|border|accent|accent-text):' -- "${SCOPE_PATHSPECS[@]}" || true)
 if [[ -n "$RULE_C" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_C}"$'\n'
 fi
 
 # Rule D: Legacy systemDanger* references (renamed to systemNegative*)
-RULE_D=$(grep -rn 'systemDanger' $SCOPE_DIRS $SCOPE | sed 's|^\./||' || true)
+RULE_D=$(git grep -n 'systemDanger' -- "${SCOPE_PATHSPECS[@]}" || true)
 if [[ -n "$RULE_D" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_D}"$'\n'
 fi
 
 # Rule E: Raw palette enum usage outside token files
-RULE_E=$(grep -rn -E '\b(Emerald|Danger|Amber|Stone|Slate|Moss|Forest|Sage)\._[0-9]' $SCOPE_DIRS $SCOPE | grep -v 'shared/DesignSystem/Tokens/' | sed 's|^\./||' || true)
+RULE_E=$(git grep -n -E '\b(Emerald|Danger|Amber|Stone|Slate|Moss|Forest|Sage)\._[0-9]' -- "${SCOPE_PATHSPECS[@]}" | grep -v 'shared/DesignSystem/Tokens/' || true)
 if [[ -n "$RULE_E" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_E}"$'\n'
 fi
 
 # Rule F: Direct non-semantic color literals outside token files and allowlist
 # Matches: .white, .black, .red, .orange, .yellow, .green, .blue, .gray (but not .clear)
-RULE_F=$(grep -rn -E '\.(white|black|red|orange|yellow|green|blue|gray)\b' $SCOPE_DIRS $SCOPE \
+RULE_F=$(git grep -n -E '\.(white|black|red|orange|yellow|green|blue|gray)\b' -- "${SCOPE_PATHSPECS[@]}" \
   | grep -v 'shared/DesignSystem/Tokens/' \
   | grep -v 'Tests/' \
   | grep -v 'VellumQLThumbnail/' \
   | grep -v '// color-literal-ok' \
-  | sed 's|^\./||' || true)
+  || true)
 if [[ -n "$RULE_F" ]]; then
   VIOLATIONS="${VIOLATIONS}${RULE_F}"$'\n'
 fi

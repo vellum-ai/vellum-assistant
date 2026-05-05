@@ -3,9 +3,9 @@ import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Management sheet for the user's inference profiles. Lists every entry in
-/// `store.profiles`, surfaces a "Built-in" badge for the canonical profiles
-/// seeded by workspace migration 052, and exposes Edit / Duplicate / Delete
-/// per row plus a `+ New profile` toolbar action.
+/// `store.profiles`, surfaces a "Managed" badge for profiles with
+/// `source == "managed"`, and exposes Edit / Duplicate / Delete per row
+/// plus a `+ New profile` toolbar action.
 ///
 /// State ownership:
 /// - The list mirrors `store.profiles` directly. Edits route through
@@ -19,10 +19,8 @@ import VellumAssistantShared
 ///   The user can re-target every conflicting reference to a replacement
 ///   profile, which retries the delete after the patches land.
 ///
-/// Built-in profiles are *not* protected — the badge is informational only.
-/// Users can edit, duplicate, or delete a built-in profile. Re-running the
-/// seed migration is idempotent and skips entries the user has touched, so
-/// deleted built-ins stay deleted across daemon restarts.
+/// Managed profiles are read-only — Edit and Delete are disabled.
+/// Users can duplicate a managed profile to create a customizable variant.
 @MainActor
 struct InferenceProfilesSheet: View {
     @ObservedObject var store: SettingsStore
@@ -60,6 +58,7 @@ struct InferenceProfilesSheet: View {
         case create
         case edit(name: String)
         case duplicate(name: String)
+        case view(name: String)
     }
 
     /// Conflict surface for a blocked delete. Mirrors
@@ -74,25 +73,23 @@ struct InferenceProfilesSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            SettingsDivider()
-            profilesList
-            SettingsDivider()
-            footer
+            if editorState != nil {
+                editorInline
+            } else {
+                header
+                SettingsDivider()
+                profilesList
+                SettingsDivider()
+                footer
+            }
         }
-        .frame(width: 560, height: 540)
+        .frame(width: 560, height: 600)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .sheet(item: $editorState) { _ in
-            editorSheet
-        }
         .sheet(item: $blockedState) { _ in
             blockedDeleteSheet
         }
         .onChange(of: editorState) { _, newValue in
-            // Clear the draft when the editor dismisses so the next
-            // session starts from a clean slate. Re-seeding happens in
-            // `beginCreate` / `beginEdit` / `beginDuplicate`.
             if newValue == nil {
                 editorDraft = InferenceProfile(name: "")
                 editorOriginalName = nil
@@ -103,6 +100,7 @@ struct InferenceProfilesSheet: View {
                 replacementSelection = ""
             }
         }
+        .animation(VAnimation.fast, value: editorState != nil)
     }
 
     // MARK: - Header / Footer
@@ -110,27 +108,22 @@ struct InferenceProfilesSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Inference Profiles")
+                Text("Model Profiles")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Bundle a provider, model, and tuning into a named profile. Assign profiles to call sites or pick one for a single chat.")
+                Text("Bundle a provider and model into a named profile. Assign profiles to specific actions or swap between them when chatting.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            HStack(spacing: VSpacing.sm) {
-                VButton(label: "+ New Profile", style: .primary) {
-                    beginCreate()
-                }
-                VButton(
-                    label: "Close",
-                    iconOnly: VIcon.x.rawValue,
-                    style: .ghost,
-                    tintColor: VColor.contentTertiary
-                ) {
-                    isPresented = false
-                }
+            VButton(
+                label: "Close",
+                iconOnly: VIcon.x.rawValue,
+                style: .ghost,
+                tintColor: VColor.contentTertiary
+            ) {
+                isPresented = false
             }
         }
         .padding(VSpacing.lg)
@@ -138,6 +131,9 @@ struct InferenceProfilesSheet: View {
 
     private var footer: some View {
         HStack {
+            VButton(label: "+ New Profile", style: .primary) {
+                beginCreate()
+            }
             if let actionError {
                 Text(actionError)
                     .font(VFont.bodySmallDefault)
@@ -184,12 +180,17 @@ struct InferenceProfilesSheet: View {
                             )
                         )
                         .contextMenu {
-                            Button("Edit") { beginEdit(profile.name) }
+                            if profile.isManaged {
+                                Button("View") { beginView(profile.name) }
+                            } else {
+                                Button("Edit") { beginEdit(profile.name) }
+                            }
                             Button("Duplicate") { beginDuplicate(profile.name) }
                             Divider()
                             Button("Delete", role: .destructive) {
                                 Task { await attemptDelete(profile.name) }
                             }
+                            .disabled(profile.isManaged)
                         }
                 }
             }
@@ -213,9 +214,9 @@ struct InferenceProfilesSheet: View {
         .padding(VSpacing.xl)
     }
 
-    /// Single row: name + optional badge on the leading column, summary on
-    /// the trailing column. Tapping opens the editor; the context menu
-    /// surfaces Duplicate and Delete in addition.
+    /// Single row: display name + optional badge on the leading column,
+    /// summary on the trailing column. Managed profiles disable Edit and
+    /// Delete but keep Duplicate available.
     private func profileRow(_ profile: InferenceProfile) -> some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
             VIconView(.gripVertical, size: 14)
@@ -223,13 +224,13 @@ struct InferenceProfilesSheet: View {
                 .frame(width: 18, height: 28)
                 .contentShape(Rectangle())
                 .help("Drag to reorder")
-                .accessibilityLabel("Reorder \(profile.name)")
+                .accessibilityLabel("Reorder \(profile.displayName)")
                 .pointerCursor()
                 .onDrag {
                     draggingProfileName = profile.name
                     return NSItemProvider(object: profile.name as NSString)
                 } preview: {
-                    Text(profile.name)
+                    Text(profile.displayName)
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
@@ -241,20 +242,30 @@ struct InferenceProfilesSheet: View {
                 }
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 HStack(spacing: VSpacing.xs) {
-                    Text(profile.name)
+                    Text(profile.displayName)
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
-                    if builtInInferenceProfileNames.contains(profile.name) {
-                        VBadge(label: "Built-in", tone: .neutral, emphasis: .subtle)
+                    if profile.isManaged {
+                        VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
+                            .help("Profiles managed by Vellum cannot be edited, but can be copied")
                     }
+                }
+                if let subtitle = profile.subtitle {
+                    Text(subtitle)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 Text(InferenceProfilesSheet.summary(for: profile, store: store))
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
             Spacer(minLength: 0)
-            VButton(label: "Edit", style: .ghost) {
-                beginEdit(profile.name)
+            VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
+                if profile.isManaged {
+                    beginView(profile.name)
+                } else {
+                    beginEdit(profile.name)
+                }
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -271,15 +282,32 @@ struct InferenceProfilesSheet: View {
         }
     }
 
-    // MARK: - Editor Sheet
+    // MARK: - Inline Editor
 
-    private var editorSheet: some View {
-        InferenceProfileEditor(
+    private var editorInline: some View {
+        let isViewMode: Bool = {
+            if case .view = editorState { return true }
+            return false
+        }()
+        let isCreateMode: Bool = {
+            switch editorState {
+            case .create, .duplicate: return true
+            default: return false
+            }
+        }()
+
+        return InferenceProfileEditor(
             store: store,
             profile: $editorDraft,
+            isReadOnly: isViewMode,
+            isCreating: isCreateMode,
             onSave: {
                 Task { await commitEditor() }
             },
+            onSaveAs: isViewMode ? {
+                guard let originalName = editorOriginalName else { return }
+                beginDuplicate(originalName)
+            } : nil,
             onCancel: {
                 editorState = nil
             }
@@ -404,6 +432,14 @@ struct InferenceProfilesSheet: View {
         editorState = .create
     }
 
+    private func beginView(_ name: String) {
+        actionError = nil
+        guard let existing = store.profiles.first(where: { $0.name == name }) else { return }
+        editorDraft = existing
+        editorOriginalName = name
+        editorState = .view(name: name)
+    }
+
     private func beginEdit(_ name: String) {
         actionError = nil
         guard let existing = store.profiles.first(where: { $0.name == name }) else { return }
@@ -416,7 +452,12 @@ struct InferenceProfilesSheet: View {
         actionError = nil
         guard let source = store.profiles.first(where: { $0.name == name }) else { return }
         var copy = source
+        let sourceDisplayName = source.displayName
+        copy.label = "\(sourceDisplayName) (copy)"
         copy.name = uniqueProfileName(prefix: "\(name)-copy")
+        // Clear the managed source so the duplicate is treated as a
+        // user-created profile and is fully editable.
+        copy.source = nil
         editorDraft = copy
         editorOriginalName = nil
         editorState = .duplicate(name: name)
@@ -429,6 +470,16 @@ struct InferenceProfilesSheet: View {
         // Refuse to commit empty or whitespace-only names — the daemon
         // would accept them but the row would render unusably.
         guard !name.isEmpty else { return }
+
+        // Defense-in-depth: the UI disables Edit for managed profiles, but
+        // guard here in case the method is reached through an unexpected
+        // path. The daemon also rejects writes to managed profiles.
+        if let originalName,
+           let existing = store.profiles.first(where: { $0.name == originalName }),
+           existing.isManaged {
+            actionError = "Managed profiles are read-only. Duplicate to customize."
+            return
+        }
 
         // Profile saves are upserts keyed by name, so committing under a
         // name that already belongs to a different profile would silently
@@ -517,6 +568,8 @@ struct InferenceProfilesSheet: View {
             blockedState = .active(profileName: name, activeProfile: active)
         case .blockedByCallSites(let ids):
             blockedState = .callSites(profileName: name, callSiteIds: ids)
+        case .blockedByManaged:
+            actionError = "Managed profiles are read-only. Duplicate to customize."
         case .failed:
             actionError = "Couldn't delete \"\(name)\". Please try again."
         }
@@ -630,6 +683,12 @@ struct InferenceProfilesSheet: View {
         if visibility.effort, let effort = profile.effort, !effort.isEmpty {
             pieces.append("\(effort) effort")
         }
+        if visibility.maxTokens, let maxTokens = profile.maxTokens {
+            pieces.append("\(InferenceProfileEditor.formattedTokenCount(maxTokens)) output")
+        }
+        if let contextMax = profile.contextWindowMaxInputTokens {
+            pieces.append("\(InferenceProfileEditor.formattedTokenCount(contextMax)) context")
+        }
         if visibility.thinking, let thinkingEnabled = profile.thinkingEnabled {
             pieces.append("thinking \(thinkingEnabled ? "on" : "off")")
         }
@@ -654,6 +713,8 @@ extension InferenceProfilesSheet.EditorState: Identifiable {
             return "edit:\(name)"
         case .duplicate(let name):
             return "duplicate:\(name)"
+        case .view(let name):
+            return "view:\(name)"
         }
     }
 }

@@ -185,7 +185,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway even when the broad runtime proxy is disabled.",
+      "Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway for dedicated auth handling.",
     callerGlobs: ["gateway/src/http/routes/runtime-health-proxy.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
@@ -264,17 +264,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway proxies POST /v1/admin/upgrade-broadcast to the assistant's upgrade-broadcast admin endpoint.",
     callerGlobs: ["gateway/src/http/routes/upgrade-broadcast-proxy.ts"],
-    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
-  },
-  {
-    label: "Pairing proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "http",
-    auth: "JWT Bearer (service token)",
-    description:
-      "Gateway proxies /v1/pairing/* (register, request, status) to the assistant's pairing endpoints. The gateway ingress is unauthenticated — secured by a pairingSecret in the request body — while the gateway→assistant hop uses a service token.",
-    callerGlobs: ["gateway/src/http/routes/pairing-proxy.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
   {

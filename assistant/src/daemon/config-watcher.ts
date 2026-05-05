@@ -17,11 +17,9 @@ import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js"
 import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { initializeProviders } from "../providers/registry.js";
-import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
-import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
@@ -33,6 +31,7 @@ import {
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
 
@@ -56,6 +55,7 @@ export class ConfigWatcher {
   });
   private suppressReload = false;
   lastFingerprint = "";
+  private lastConfig: ReturnType<typeof getConfig> | null = null;
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;
@@ -88,12 +88,15 @@ export class ConfigWatcher {
 
   /** Initialize the config fingerprint (call after first config load). */
   initFingerprint(config: ReturnType<typeof getConfig>): void {
+    this.lastConfig = config;
     this.lastFingerprint = this.configFingerprint(config);
   }
 
   /** Update the fingerprint to match the current config. */
   updateFingerprint(): void {
-    this.lastFingerprint = this.configFingerprint(getConfig());
+    const config = getConfig();
+    this.lastConfig = config;
+    this.lastFingerprint = this.configFingerprint(config);
     this.lastRefreshTime = Date.now();
   }
 
@@ -103,7 +106,7 @@ export class ConfigWatcher {
    * Returns true if config actually changed.
    */
   async refreshConfigFromSources(): Promise<boolean> {
-    const prevCleanup = safeGetCleanupConfig();
+    const prevCleanup = this.lastConfig?.memory?.cleanup;
     invalidateConfigCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
@@ -120,6 +123,7 @@ export class ConfigWatcher {
     }
     const isFirstInit = this.lastFingerprint === "";
     await initializeProviders(config);
+    this.lastConfig = config;
     this.lastFingerprint = fingerprint;
     return !isFirstInit;
   }
@@ -142,16 +146,17 @@ export class ConfigWatcher {
       "config.json": async () => {
         if (this.suppressReload) return;
         try {
-          const prevConfig = getConfig();
-          const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
+          const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             onConversationEvict();
             onConfigChanged?.();
-            const newConfig = getConfig();
+            const newConfig = this.lastConfig ?? getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
-              handleMcpReloadSignal();
+              reloadMcpServers().catch((err: unknown) => {
+                log.error({ err }, "MCP reload after config change failed");
+              });
             }
           }
         } catch (err) {
@@ -331,7 +336,6 @@ export class ConfigWatcher {
 
     const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
       cancel: handleCancelSignal,
-      "mcp-reload": handleMcpReloadSignal,
       "conversation-undo": handleConversationUndoSignal,
       "emit-event": handleEmitEventSignal,
     };
@@ -340,7 +344,6 @@ export class ConfigWatcher {
       string,
       (filename: string) => void | Promise<void>
     > = {
-      "bash.": handleBashSignal,
       "user-message.": handleUserMessageSignal,
     };
 
@@ -486,20 +489,6 @@ export class ConfigWatcher {
 }
 
 /**
- * Snapshot the current cleanup config so we can compare it against the
- * post-reload value. Tolerant of config-load failures — if the config can't
- * be read (e.g. first-load), returns undefined so the comparison below
- * treats it as "no previous value".
- */
-function safeGetCleanupConfig(): MemoryCleanupConfig | undefined {
-  try {
-    return getConfig().memory?.cleanup;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Return true if any cleanup field the user can change via the UI differs
  * between the previous and next config snapshots. Used to decide whether to
  * reset the cleanup-scheduler throttle after a config reload so retention
@@ -529,6 +518,7 @@ export function cleanupSettingsChanged(
   return (
     prev.llmRequestLogRetentionMs !== next.llmRequestLogRetentionMs ||
     prev.conversationRetentionDays !== next.conversationRetentionDays ||
+    prev.traceEventRetentionDays !== next.traceEventRetentionDays ||
     prev.enabled !== next.enabled
   );
 }

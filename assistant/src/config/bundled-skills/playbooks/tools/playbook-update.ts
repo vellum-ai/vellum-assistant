@@ -18,7 +18,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookUpdate(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {
@@ -28,7 +28,7 @@ export async function executePlaybookUpdate(
     };
   }
 
-  const scopeId = context.memoryScopeId ?? "default";
+  const scopeId = "default";
 
   try {
     const existing = getNode(playbookId);

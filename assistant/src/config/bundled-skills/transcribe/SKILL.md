@@ -6,6 +6,10 @@ metadata:
   emoji: "🎙️"
   vellum:
     display-name: "Transcribe"
+    activation-hints:
+      - "User has an audio or video file on disk they want converted to text"
+      - "User wants speech-to-text on a recording, voice memo, podcast, or meeting capture"
+      - "User asks for a transcript of a media file (mp3, wav, m4a, mp4, mov, etc.)"
 ---
 
 Transcribe audio and video files using the configured speech-to-text provider. Supports multiple STT providers including OpenAI Whisper, Deepgram, and Google Gemini — the active provider is selected in Settings under Speech-to-Text (`services.stt`).

@@ -11,7 +11,8 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import * as pendingInteractions from "../pending-interactions.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -29,21 +30,26 @@ export type HostBrowserResultResolution =
   | { ok: true }
   | {
       ok: false;
-      code: "BAD_REQUEST" | "NOT_FOUND";
-      status: 400 | 404;
+      code: "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT";
+      status: 400 | 404 | 409;
       message: string;
     };
 
 /**
- * Shared resolver used by both the HTTP route handler and the WS
- * `host_browser_result` frame handler. Looks up the pending interaction
- * by requestId, validates its kind, and forwards the response to the
- * owning conversation.
+ * Resolver for the `POST /v1/host-browser-result` HTTP route. Looks up
+ * the pending interaction by requestId, validates its kind is
+ * `host_browser`, and forwards the response to the owning conversation.
+ *
+ * NOTE: The WebSocket `host_browser_result` frame path does NOT go
+ * through this function — it is handled by `HostBrowserProxy.resolveResult`
+ * directly, which only consults `pendingInteractions` and does not
+ * currently perform a kind check. That asymmetry is pre-existing; if
+ * the WS path is ever opened to less-trusted clients, it should adopt
+ * the same kind-check guard added here.
  *
  * This function does NOT perform auth — callers are expected to have
  * already authenticated the caller (the HTTP route uses
- * `requireBoundGuardian`, the WS path relies on the JWT check performed
- * at WebSocket upgrade time).
+ * `requireBoundGuardian`).
  */
 export function resolveHostBrowserResultByRequestId(frame: {
   requestId?: unknown;
@@ -61,20 +67,30 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  const proxy = HostBrowserProxy.instance;
-  if (!proxy.hasPendingRequest(requestId)) {
+  const peeked = pendingInteractions.get(requestId);
+  if (!peeked) {
     return {
       ok: false,
       code: "NOT_FOUND",
       status: 404,
-      message: "No pending interaction found for this requestId",
+      message: "No pending browser request for this requestId",
+    };
+  }
+
+  if (peeked.kind !== "host_browser") {
+    return {
+      ok: false,
+      code: "CONFLICT",
+      status: 409,
+      message: `Pending interaction is of kind "${peeked.kind}", expected "host_browser"`,
     };
   }
 
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  proxy.resolve(requestId, {
+  const proxy = HostBrowserProxy.instance;
+  proxy.resolveResult(requestId, {
     content: normalizedContent,
     isError: normalizedIsError,
   });
@@ -181,6 +197,42 @@ function handleHostBrowserResult({ body }: RouteHandlerArgs) {
   if (!resolution.ok) {
     if (resolution.code === "NOT_FOUND")
       throw new NotFoundError(resolution.message);
+    if (resolution.code === "CONFLICT")
+      throw new ConflictError(resolution.message);
+    throw new BadRequestError(resolution.message);
+  }
+
+  return { accepted: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/host-browser-event
+// ---------------------------------------------------------------------------
+
+function handleHostBrowserEvent({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const resolution = resolveHostBrowserEvent(body);
+  if (!resolution.ok) {
+    throw new BadRequestError(resolution.message);
+  }
+
+  return { accepted: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/host-browser-session-invalidated
+// ---------------------------------------------------------------------------
+
+function handleHostBrowserSessionInvalidated({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const resolution = resolveHostBrowserSessionInvalidated(body);
+  if (!resolution.ok) {
     throw new BadRequestError(resolution.message);
   }
 
@@ -209,5 +261,48 @@ export const ROUTES: RouteDefinition[] = [
       accepted: z.boolean(),
     }),
     handler: handleHostBrowserResult,
+  },
+  {
+    operationId: "host_browser_event",
+    endpoint: "host-browser-event",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Forward a CDP event from the browser extension",
+    description:
+      "Publishes a chrome.debugger.onEvent firing into the runtime-side browser-session event bus.",
+    tags: ["host"],
+    requestBody: z.object({
+      method: z.string().describe("CDP event method name"),
+      params: z.unknown().optional().describe("CDP event parameters"),
+      cdpSessionId: z
+        .string()
+        .optional()
+        .describe("CDP session ID (if target-scoped)"),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostBrowserEvent,
+  },
+  {
+    operationId: "host_browser_session_invalidated",
+    endpoint: "host-browser-session-invalidated",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Notify runtime that a CDP session was invalidated",
+    description:
+      "Marks the target as invalidated in the runtime-side browser session registry.",
+    tags: ["host"],
+    requestBody: z.object({
+      targetId: z
+        .string()
+        .optional()
+        .describe("CDP target that was detached"),
+      reason: z.string().optional().describe("Detach reason"),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostBrowserSessionInvalidated,
   },
 ];

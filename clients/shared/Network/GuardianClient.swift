@@ -18,7 +18,7 @@ public struct GuardianClient: GuardianClientProtocol {
     public func fetchPendingActions(conversationId: String) async -> GuardianActionsPendingResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/guardian-actions/pending",
+                path: "guardian-actions/pending",
                 params: ["conversationId": conversationId],
                 timeout: 10
             )
@@ -46,7 +46,7 @@ public struct GuardianClient: GuardianClientProtocol {
             if let conversationId { body["conversationId"] = conversationId }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/guardian-actions/decision", json: body, timeout: 10
+                path: "guardian-actions/decision", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("submitDecision failed (HTTP \(response.statusCode))")
@@ -90,7 +90,7 @@ public struct GuardianClient: GuardianClientProtocol {
 
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15
+                path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15, unprefixed: true
             )
 
             guard response.isSuccess else {
@@ -124,7 +124,7 @@ public struct GuardianClient: GuardianClientProtocol {
     public func resetBootstrap() async -> Bool {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/reset-bootstrap", json: [:], timeout: 5
+                path: "guardian/reset-bootstrap", json: [:], timeout: 5, unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("Reset bootstrap failed (HTTP \(response.statusCode))")

@@ -160,41 +160,6 @@ describe("HTTP proxy timeout/error via assistant-client", () => {
 describe("WS upstream URL construction via assistant-client", () => {
   const baseUrl = "http://localhost:7821";
 
-  test("browser-relay builds correct upstream WS URL with guardian/instance params", () => {
-    const result = buildWsUpstreamUrl({
-      baseUrl,
-      path: "/v1/browser-relay",
-      serviceToken: "svc-jwt-token",
-      extraParams: {
-        guardianId: "guardian-abc",
-        clientInstanceId: "inst-xyz",
-      },
-    });
-
-    const url = new URL(result.url);
-    expect(url.protocol).toBe("ws:");
-    expect(url.hostname).toBe("localhost");
-    expect(url.port).toBe("7821");
-    expect(url.pathname).toBe("/v1/browser-relay");
-    expect(url.searchParams.get("token")).toBe("svc-jwt-token");
-    expect(url.searchParams.get("guardianId")).toBe("guardian-abc");
-    expect(url.searchParams.get("clientInstanceId")).toBe("inst-xyz");
-  });
-
-  test("browser-relay builds URL without optional params when absent", () => {
-    const result = buildWsUpstreamUrl({
-      baseUrl,
-      path: "/v1/browser-relay",
-      serviceToken: "svc-jwt-token",
-      extraParams: {},
-    });
-
-    const url = new URL(result.url);
-    expect(url.searchParams.get("token")).toBe("svc-jwt-token");
-    expect(url.searchParams.has("guardianId")).toBe(false);
-    expect(url.searchParams.has("clientInstanceId")).toBe(false);
-  });
-
   test("twilio-relay builds correct upstream WS URL with callSessionId", () => {
     const result = buildWsUpstreamUrl({
       baseUrl,
@@ -270,7 +235,6 @@ describe("WS upstream log-safe URL", () => {
       path: string;
       params: Record<string, string>;
     }> = [
-      { path: "/v1/browser-relay", params: { guardianId: "g1" } },
       { path: "/v1/calls/relay", params: { callSessionId: "c1" } },
       { path: "/v1/calls/media-stream", params: { callSessionId: "m1" } },
       { path: "/v1/stt/stream", params: { mimeType: "audio/webm" } },

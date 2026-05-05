@@ -54,6 +54,7 @@ mock.module("../memory/app-store.js", () => ({
   writeAppFile: mock(() => {}),
   editAppFile: mock(() => ({})),
   inlineDistAssets: mock((_, html: string) => html),
+  addAppConversationId: mock(() => false),
 }));
 mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: mock(() => Promise.resolve()),

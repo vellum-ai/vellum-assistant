@@ -58,6 +58,7 @@ final class ConversationSelectionStore {
         draftViewModel = nil
         draftLocalId = nil
         activeConversationId = conversationId
+        activeConversation = listStore.conversations.first { $0.id == conversationId }
 
         let vm = getOrCreateViewModel(for: conversationId)
         vm?.ensureMessageLoopStarted()
@@ -84,6 +85,7 @@ final class ConversationSelectionStore {
     /// stop channel refresh, and notify observation.
     func performDeactivation() {
         activeConversationId = nil
+        activeConversation = nil
         onActiveViewModelChanged?(nil)
         stopChannelRefresh()
     }
@@ -197,12 +199,27 @@ final class ConversationSelectionStore {
         migrateStorageKeysIfNeeded()
     }
 
-    // MARK: - Computed Properties
+    // MARK: - Active Conversation Cache
 
     /// The active conversation model, if one is selected and exists in the list.
-    var activeConversation: ConversationModel? {
-        guard let activeConversationId else { return nil }
-        return listStore.conversations.first { $0.id == activeConversationId }
+    ///
+    /// Stored rather than computed so that views track only this property — not
+    /// `listStore.conversations`. Synchronized by ``syncActiveConversationCache()``
+    /// and writes in ``performActivation(for:)`` / ``performDeactivation()``.
+    private(set) var activeConversation: ConversationModel?
+
+    /// Synchronize ``activeConversation`` with the current conversations array.
+    /// The equality guard skips the write when the active conversation's fields
+    /// are unchanged, avoiding unnecessary observation notifications.
+    func syncActiveConversationCache() {
+        guard let activeConversationId else {
+            if activeConversation != nil { activeConversation = nil }
+            return
+        }
+        let updated = listStore.conversations.first { $0.id == activeConversationId }
+        if updated != activeConversation {
+            activeConversation = updated
+        }
     }
 
     /// The ChatViewModel for the active conversation, or the draft ViewModel
@@ -281,8 +298,16 @@ final class ConversationSelectionStore {
 
     /// Evict the oldest cached ChatViewModel that is not the active conversation,
     /// keeping at most `maxCachedViewModels` entries in the dictionary.
+    ///
+    /// Evicted VMs are collected into a local array and handed to
+    /// `Task.detached` so the expensive `deinit` cascade (8+
+    /// `ObservationRegistrar.Extent` teardowns, Task cancellations,
+    /// NotificationCenter unregistrations) runs on the cooperative thread
+    /// pool instead of blocking the main thread. Under memory pressure the
+    /// synchronous dealloc can stall for 2+ seconds.
     private func evictStaleCachedViewModels() {
         var evictedCount = 0
+        var evictedVMs: [ChatViewModel] = []
         while chatViewModels.count > maxCachedViewModels {
             // Find the oldest non-active, non-busy VM so we never cancel an in-flight response.
             guard let victim = vmAccessOrder.first(where: {
@@ -293,7 +318,9 @@ final class ConversationSelectionStore {
             }) else {
                 break
             }
-            chatViewModels.removeValue(forKey: victim)
+            if let vm = chatViewModels.removeValue(forKey: victim) {
+                evictedVMs.append(vm)
+            }
             onViewModelEvicted?(victim)
             if let idx = vmAccessOrder.firstIndex(of: victim) {
                 vmAccessOrder.remove(at: idx)
@@ -303,6 +330,14 @@ final class ConversationSelectionStore {
         }
         if evictedCount > 0 {
             os_signpost(.event, log: stallLog, name: "LRU.evict", "%{public}d VMs", evictedCount)
+        }
+        if !evictedVMs.isEmpty {
+            // Defer deallocation to the cooperative thread pool.
+            // ChatViewModel.deinit is nonisolated and all cleanup operations
+            // (Task.cancel, AnyCancellable.cancel, NotificationCenter.removeObserver,
+            // MemoryPressureMonitor.removeListener, ObservationRegistrar.Extent.deinit)
+            // are thread-safe. See LUM-1277 / LUM-504 for background.
+            Task.detached { withExtendedLifetime(evictedVMs) {} }
         }
     }
 

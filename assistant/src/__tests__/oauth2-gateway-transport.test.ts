@@ -16,7 +16,6 @@ mock.module("../config/loader.js", () => ({
     ingress: { publicBaseUrl: mockPublicBaseUrl },
   }),
   loadRawConfig: () => ({}),
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
 }));
 

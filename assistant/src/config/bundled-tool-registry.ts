@@ -24,6 +24,16 @@ import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
+// ── app-control ────────────────────────────────────────────────────────────────
+import * as appControlClick from "./bundled-skills/app-control/tools/app-control-click.js";
+import * as appControlCombo from "./bundled-skills/app-control/tools/app-control-combo.js";
+import * as appControlDrag from "./bundled-skills/app-control/tools/app-control-drag.js";
+import * as appControlObserve from "./bundled-skills/app-control/tools/app-control-observe.js";
+import * as appControlPress from "./bundled-skills/app-control/tools/app-control-press.js";
+import * as appControlSequence from "./bundled-skills/app-control/tools/app-control-sequence.js";
+import * as appControlStart from "./bundled-skills/app-control/tools/app-control-start.js";
+import * as appControlStop from "./bundled-skills/app-control/tools/app-control-stop.js";
+import * as appControlType from "./bundled-skills/app-control/tools/app-control-type.js";
 // ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
@@ -124,6 +134,17 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
+
+  // app-control
+  ["app-control:tools/app-control-start.ts", appControlStart],
+  ["app-control:tools/app-control-observe.ts", appControlObserve],
+  ["app-control:tools/app-control-press.ts", appControlPress],
+  ["app-control:tools/app-control-combo.ts", appControlCombo],
+  ["app-control:tools/app-control-sequence.ts", appControlSequence],
+  ["app-control:tools/app-control-type.ts", appControlType],
+  ["app-control:tools/app-control-click.ts", appControlClick],
+  ["app-control:tools/app-control-drag.ts", appControlDrag],
+  ["app-control:tools/app-control-stop.ts", appControlStop],
 
   // computer-use
   ["computer-use:tools/computer-use-observe.ts", computerUseObserve],

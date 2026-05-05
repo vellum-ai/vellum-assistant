@@ -397,7 +397,7 @@ public final class EventStreamClient {
             do {
                 await self.sseHandshakeDiagnostics.reset()
                 let (bytes, response) = try await GatewayHTTPClient.stream(
-                    path: "assistants/{assistantId}/events",
+                    path: "events",
                     timeout: .infinity,
                     session: session
                 )
@@ -607,22 +607,34 @@ public final class EventStreamClient {
     private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
         switch message {
         case .hostBashRequest(let msg):
+            // Targeted cross-client requests carry a non-local conversationId by design.
+            // Pass them through so AppDelegate+ConnectionSetup can perform the targetClientId check.
+            if msg.targetClientId != nil { return false }
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_bash_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostFileRequest(let msg):
+            // Targeted cross-client requests carry a non-local conversationId by design.
+            // Pass them through so AppDelegate+ConnectionSetup can perform the targetClientId check.
+            if msg.targetClientId != nil { return false }
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_file_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostCuRequest(let msg):
+            if msg.targetClientId != nil { return false }
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_cu_request for non-local conversation \(msg.conversationId, privacy: .public)")
+            return true
+        case .hostAppControlRequest(let msg):
+            if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
+            log.warning("Ignoring host_app_control_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostBrowserRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_browser_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostTransferRequest(let msg):
+            if msg.targetClientId != nil { return false }   // pass through targeted requests
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_transfer_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true

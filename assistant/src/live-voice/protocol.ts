@@ -1,4 +1,4 @@
-export const LIVE_VOICE_CLIENT_FRAME_TYPES = [
+const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
   "ptt_release",
@@ -6,10 +6,9 @@ export const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "end",
 ] as const;
 
-export type LiveVoiceClientFrameType =
-  (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
+type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
 
-export const LIVE_VOICE_SERVER_FRAME_TYPES = [
+const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "ready",
   "busy",
   "stt_partial",
@@ -23,8 +22,7 @@ export const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "error",
 ] as const;
 
-export type LiveVoiceServerFrameType =
-  (typeof LIVE_VOICE_SERVER_FRAME_TYPES)[number];
+type LiveVoiceServerFrameType = (typeof _LIVE_VOICE_SERVER_FRAME_TYPES)[number];
 
 export const LiveVoiceProtocolErrorCode = {
   InvalidJson: "invalid_json",
@@ -38,15 +36,6 @@ export const LiveVoiceProtocolErrorCode = {
 export type LiveVoiceProtocolErrorCode =
   (typeof LiveVoiceProtocolErrorCode)[keyof typeof LiveVoiceProtocolErrorCode];
 
-export const LIVE_VOICE_PROTOCOL_ERROR_CODES = [
-  LiveVoiceProtocolErrorCode.InvalidJson,
-  LiveVoiceProtocolErrorCode.InvalidFrame,
-  LiveVoiceProtocolErrorCode.UnknownType,
-  LiveVoiceProtocolErrorCode.MissingRequiredField,
-  LiveVoiceProtocolErrorCode.InvalidField,
-  LiveVoiceProtocolErrorCode.InvalidAudioPayload,
-] as const satisfies readonly LiveVoiceProtocolErrorCode[];
-
 export interface LiveVoiceProtocolError {
   readonly code: LiveVoiceProtocolErrorCode;
   readonly message: string;
@@ -54,7 +43,7 @@ export interface LiveVoiceProtocolError {
   readonly frameType?: string;
 }
 
-export type LiveVoiceParseResult<T> =
+type LiveVoiceParseResult<T> =
   | { ok: true; frame: T }
   | { ok: false; error: LiveVoiceProtocolError };
 
@@ -94,12 +83,12 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame;
 
-export interface LiveVoiceBinaryAudioFrame {
+interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
   readonly data: Uint8Array;
 }
 
-export interface LiveVoiceServerFrameBase {
+interface LiveVoiceServerFrameBase {
   readonly type: LiveVoiceServerFrameType;
   readonly seq: number;
 }
@@ -208,7 +197,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceArchivedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
 
-export class LiveVoiceServerFrameSequencer {
+class LiveVoiceServerFrameSequencer {
   private seq: number;
 
   constructor(initialSeq = 0) {

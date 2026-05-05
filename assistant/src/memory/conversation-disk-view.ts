@@ -43,11 +43,7 @@ const log = getLogger("conversation-disk-view");
 // Directory helpers
 // ---------------------------------------------------------------------------
 
-export {
-  getConversationDirName,
-  getConversationDirPath,
-  getResolvedConversationDirPath,
-};
+export { getConversationDirName, getConversationDirPath };
 
 function ensureConversationDirPath(id: string, createdAtMs: number): string {
   const dirPath = getResolvedConversationDirPath(id, createdAtMs);

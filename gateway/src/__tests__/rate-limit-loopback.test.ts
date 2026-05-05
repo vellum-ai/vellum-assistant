@@ -49,7 +49,7 @@ describe("checkAuthRateLimit loopback exemption", () => {
     const ip = "203.0.113.5";
     const limiter = blockedLimiter(ip);
     const res = checkAuthRateLimit(
-      new URL("http://local/v1/browser-relay"),
+      new URL("http://local/health"),
       limiter,
       ip,
     );

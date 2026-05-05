@@ -1,12 +1,6 @@
 import Foundation
 import os
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 
 public enum ChatRole: String {
     case user
@@ -809,6 +803,14 @@ public struct ToolCallData: Identifiable, Equatable {
     public var riskLevel: String?
     /// Human-readable reason for the risk classification.
     public var riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public var matchedTrustRuleId: String?
+    /// How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown".
+    public var approvalMode: String?
+    /// Why the approval decision was reached (stable enum for client display).
+    public var approvalReason: String?
+    /// Snapshot of the auto-approve threshold at execution time.
+    public var riskThreshold: String?
     /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
     public var riskScopeOptions: [ToolResultRiskScopeOption]?
     /// Directory scope options ladder for the rule editor (scope + label pairs, narrowest to broadest).
@@ -829,13 +831,7 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Set when a `confirmation_request` arrives, cleared when approved/denied.
     public var pendingConfirmation: ToolConfirmationData?
     /// Pre-decoded images cached to avoid repeated base64 decoding in SwiftUI body.
-    #if os(macOS)
     public var cachedImages: [NSImage] = []
-    #elseif os(iOS)
-    public var cachedImages: [UIImage] = []
-    #else
-    #error("Unsupported platform")
-    #endif
 
     public static func == (lhs: ToolCallData, rhs: ToolCallData) -> Bool {
         lhs.id == rhs.id
@@ -862,6 +858,10 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.pendingConfirmation == rhs.pendingConfirmation
             && lhs.riskLevel == rhs.riskLevel
             && lhs.riskReason == rhs.riskReason
+            && lhs.matchedTrustRuleId == rhs.matchedTrustRuleId
+            && lhs.approvalMode == rhs.approvalMode
+            && lhs.approvalReason == rhs.approvalReason
+            && lhs.riskThreshold == rhs.riskThreshold
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -893,7 +893,6 @@ public struct ToolCallData: Identifiable, Equatable {
     /// can be called from any isolation context (including `Task.detached`).
     /// `NSImage(data:)` is NOT thread-safe.
     /// Ref: https://developer.apple.com/documentation/imageio/cgimagesource
-    #if os(macOS)
     public static func decodeImage(from base64String: String?) -> NSImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
         let start = CFAbsoluteTimeGetCurrent()
@@ -907,21 +906,6 @@ public struct ToolCallData: Identifiable, Equatable {
         }
         return image
     }
-    #elseif os(iOS)
-    public static func decodeImage(from base64String: String?) -> UIImage? {
-        guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
-        let start = CFAbsoluteTimeGetCurrent()
-        let image = UIImage(data: data)
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-        if elapsed > 0.05 {
-            Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")
-                .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
-        }
-        return image
-    }
-    #else
-    #error("Unsupported platform")
-    #endif
 
     /// Human-readable label for the tool (e.g. "Run Command" instead of "bash").
     public var friendlyName: String {
@@ -1475,13 +1459,7 @@ public struct ChatAttachment: Identifiable {
     public let sizeBytes: Int?
     /// Pre-decoded thumbnail image, cached to avoid decoding PNG data on every
     /// SwiftUI render pass (each keystroke triggers a re-evaluation of the composer).
-    #if os(macOS)
     public let thumbnailImage: NSImage?
-    #elseif os(iOS)
-    public let thumbnailImage: UIImage?
-    #else
-    #error("Unsupported platform")
-    #endif
 
     /// Absolute path to the local file on disk. Present for file-backed attachments
     /// (e.g. recordings) where the file lives on the same Mac as the client.
@@ -1496,7 +1474,6 @@ public struct ChatAttachment: Identifiable {
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
-    #if os(macOS)
     public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil, rawData: Data? = nil) {
         self.id = id
         self.filename = filename
@@ -1510,23 +1487,6 @@ public struct ChatAttachment: Identifiable {
         self.filePath = filePath
         self.rawData = rawData
     }
-    #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil, rawData: Data? = nil) {
-        self.id = id
-        self.filename = filename
-        self.mimeType = mimeType
-        self.sourceType = sourceType
-        self.data = data
-        self.thumbnailData = thumbnailData
-        self.dataLength = dataLength
-        self.sizeBytes = sizeBytes
-        self.thumbnailImage = thumbnailImage
-        self.filePath = filePath
-        self.rawData = rawData
-    }
-    #else
-    #error("Unsupported platform")
-    #endif
 }
 
 /// Tracks the state of a guardian decision prompt displayed in chat.
@@ -1887,5 +1847,50 @@ public struct ChatMessage: Identifiable, Equatable {
             }
         }
         isContentStripped = true
+    }
+}
+
+// MARK: - Streaming message finalization
+
+/// Controls which tool calls are marked complete when finalizing a streaming message.
+public enum ToolCallCompletionMode {
+    /// Complete all incomplete tool calls (recovery paths: idle handler, watchdogs).
+    case all
+    /// Only complete preview-only tool calls — those with a `toolUseId` but no
+    /// `inputRawDict`, indicating the daemon hadn't started executing them
+    /// (cancellation/error paths).
+    case previewOnly
+    /// Don't touch tool calls.
+    case none
+}
+
+extension Array where Element == ChatMessage {
+    /// Mark a specific assistant message as no longer streaming, clear code preview
+    /// state, and optionally complete tool calls based on the specified mode.
+    mutating func finalizeStreamingMessage(
+        id: UUID,
+        completeToolCalls: ToolCallCompletionMode = .all
+    ) {
+        guard let index = firstIndex(where: { $0.id == id }) else { return }
+        self[index].isStreaming = false
+        self[index].streamingCodePreview = nil
+        self[index].streamingCodeToolName = nil
+        switch completeToolCalls {
+        case .all:
+            for j in self[index].toolCalls.indices where !self[index].toolCalls[j].isComplete {
+                self[index].toolCalls[j].isComplete = true
+                self[index].toolCalls[j].completedAt = Date()
+            }
+        case .previewOnly:
+            for j in self[index].toolCalls.indices {
+                let tc = self[index].toolCalls[j]
+                if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                    self[index].toolCalls[j].isComplete = true
+                    self[index].toolCalls[j].completedAt = Date()
+                }
+            }
+        case .none:
+            break
+        }
     }
 }

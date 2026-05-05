@@ -140,7 +140,7 @@ step_remove_cli_symlinks() {
 
 step_remove_vellum_apps() {
     VELLUM_APP_REMOVED=false
-    for app in "/Applications/Vellum.app" "/Applications/Vellum (Staging).app"; do
+    for app in "/Applications/Vellum.app" "/Applications/Vellum Staging.app" "/Applications/Vellum (Staging).app"; do
         if [ -d "$app" ]; then
             rm -rf "$app"
             echo "       ✅ Removed $app"

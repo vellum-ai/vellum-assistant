@@ -1,8 +1,8 @@
 /**
  * Gateway proxy endpoints for channel verification session control-plane routes.
  *
- * These routes remain available even when the broad runtime proxy is
- * disabled, so skills and clients can use gateway URLs exclusively.
+ * These routes are registered as explicit gateway routes for dedicated
+ * auth handling rather than falling through to the catch-all proxy.
  */
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -159,11 +159,20 @@ export function createChannelVerificationSessionProxyHandler(
       const expectedSecrets = parseBootstrapSecrets();
       const provided = req.headers.get("x-bootstrap-secret");
 
+      // Platform-managed mode: the gateway runs as an authenticated sidecar;
+      // the platform handles auth upstream (via vembda's /gateway-query proxy)
+      // before the request ever reaches the gateway. Skip the bare-metal
+      // loopback guard entirely — it would always reject because the request
+      // arrives from a pod IP, not from 127.0.0.1.
+      const isManaged =
+        process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+        process.env.IS_PLATFORM?.trim() === "1";
+
       // Bare-metal mode: restrict to loopback callers only. Without a
       // bootstrap secret the lockfile is the sole guard, so a remote
       // client that can reach the gateway (e.g. via ngrok) must not be
       // able to race the legitimate local user.
-      if (expectedSecrets.length === 0) {
+      if (!isManaged && expectedSecrets.length === 0) {
         if (clientIp && !isLoopbackAddress(clientIp)) {
           log.warn(
             { clientIp },
@@ -274,15 +283,14 @@ export function createChannelVerificationSessionProxyHandler(
           guardianInitInFlight = false;
           return Response.json(
             {
-              error:
-                "Invalid platform. Bootstrap is macOS/CLI/web-only; iOS uses QR pairing.",
+              error: "Invalid platform. Bootstrap is macOS/CLI/web-only.",
             },
             { status: 400 },
           );
         }
 
         // Execute the bootstrap directly — no round-trip to the runtime.
-        const result = bootstrapGuardian({ platform, deviceId });
+        const result = await bootstrapGuardian({ platform, deviceId });
 
         // Bootstrap succeeded — record consumption and write lock files.
         if (expectedSecrets.length > 0 && providedIndex >= 0) {
@@ -347,58 +355,33 @@ export function createChannelVerificationSessionProxyHandler(
     async handleGuardianRefresh(req: Request): Promise<Response> {
       try {
         const body = (await req.json()) as Record<string, unknown>;
-        const platform =
-          typeof body.platform === "string" ? body.platform.trim() : "";
-        const deviceId =
-          typeof body.deviceId === "string" ? body.deviceId.trim() : "";
         const refreshToken =
           typeof body.refreshToken === "string" ? body.refreshToken : "";
 
-        if (!platform || !deviceId || !refreshToken) {
+        if (!refreshToken) {
           return Response.json(
             {
               error: {
                 code: "BAD_REQUEST",
-                message:
-                  "Missing required fields: platform, deviceId, refreshToken",
+                message: "Missing required field: refreshToken",
               },
             },
             { status: 400 },
           );
         }
 
-        if (
-          platform !== "ios" &&
-          platform !== "macos" &&
-          platform !== "cli" &&
-          platform !== "web"
-        ) {
-          return Response.json(
-            {
-              error: {
-                code: "BAD_REQUEST",
-                message:
-                  'Invalid platform. Must be "ios", "macos", "cli", or "web".',
-              },
-            },
-            { status: 400 },
-          );
-        }
-
-        const result = rotateCredentials({ refreshToken, platform, deviceId });
+        const result = rotateCredentials({ refreshToken });
 
         if (!result.ok) {
           const statusCode =
             result.error === "refresh_reuse_detected"
               ? 403
-              : result.error === "device_binding_mismatch"
+              : result.error === "revoked"
                 ? 403
-                : result.error === "revoked"
-                  ? 403
-                  : 401;
+                : 401;
 
           log.warn(
-            { error: result.error, platform },
+            { error: result.error },
             "Refresh token rotation failed",
           );
           return Response.json({ error: result.error }, { status: statusCode });
@@ -406,7 +389,6 @@ export function createChannelVerificationSessionProxyHandler(
 
         log.info(
           {
-            platform,
             guardianPrincipalId: result.result.guardianPrincipalId,
           },
           "Refresh token rotation succeeded",

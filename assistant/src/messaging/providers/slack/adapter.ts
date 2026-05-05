@@ -5,8 +5,12 @@
  * implements the MessagingProvider interface.
  */
 
+import {
+  buildSlackUserLabelMap,
+  renderSlackTextForModel,
+} from "@vellumai/slack-text";
+
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import { upsertContactChannel } from "../../../contacts/contacts-write.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
 import { isProviderConnected } from "../../../oauth/oauth-store.js";
@@ -17,6 +21,7 @@ import type {
   ConnectionInfo,
   Conversation,
   HistoryOptions,
+  HistoryPageResult,
   ListOptions,
   Message,
   SearchOptions,
@@ -157,18 +162,6 @@ async function resolveUserName(
       resp.user.real_name ||
       resp.user.name;
     userNameCache.set(userId, name);
-
-    // Persist to contacts for future sessions
-    try {
-      upsertContactChannel({
-        sourceChannel: "slack",
-        externalUserId: userId,
-        displayName: name,
-      });
-    } catch {
-      // Non-fatal — caching failure shouldn't break messaging
-    }
-
     return name;
   } catch {
     return userId;
@@ -199,42 +192,112 @@ function mapConversation(conv: SlackConversation): Conversation {
   };
 }
 
+function mapSlackFiles(
+  files: SlackMessage["files"],
+): Array<{ id?: string; name: string; mimetype?: string }> | undefined {
+  if (!files || files.length === 0) return undefined;
+  const mapped = files
+    .map((file) => ({
+      ...(file.id ? { id: file.id } : {}),
+      name: file.name,
+      ...(file.mimetype ? { mimetype: file.mimetype } : {}),
+    }))
+    .filter((file) => file.name.length > 0);
+  return mapped.length > 0 ? mapped : undefined;
+}
+
 function mapMessage(
   msg: SlackMessage,
   channelId: string,
   senderName: string,
+  renderedText: string,
 ): Message {
   // Bot-authored when Slack sets `subtype: "bot_message"` or attributes the
   // row to a `bot_id` with no user. Backfill callers rely on this flag to
   // avoid rehydrating assistant/bot replies as user turns.
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
+  const slackFiles = mapSlackFiles(msg.files);
   return {
     id: msg.ts,
     conversationId: channelId,
     sender: { id: msg.user ?? msg.bot_id ?? "unknown", name: senderName },
-    text: msg.text,
+    text: renderedText,
     timestamp: parseFloat(msg.ts) * 1000,
     threadId: msg.thread_ts,
     replyCount: msg.reply_count,
     platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
-    ...(isBot ? { metadata: { isBot: true } } : {}),
+    ...(isBot || slackFiles
+      ? {
+          metadata: {
+            ...(isBot ? { isBot: true } : {}),
+            ...(slackFiles ? { slackFiles } : {}),
+          },
+        }
+      : {}),
   };
 }
 
-function mapSearchMatch(match: SlackSearchMatch): Message {
+function mapSearchMatch(
+  match: SlackSearchMatch,
+  userLabels: Record<string, string>,
+): Message {
   return {
     id: match.ts,
     conversationId: match.channel.id,
     sender: { id: match.user ?? "unknown", name: match.username ?? "unknown" },
-    text: match.text,
+    text: renderSlackTextForModel(match.text, { userLabels }),
     timestamp: parseFloat(match.ts) * 1000,
     threadId: match.thread_ts,
     platform: "slack",
     metadata: { permalink: match.permalink, channelName: match.channel.name },
   };
+}
+
+async function mapSlackMessages(
+  auth: OAuthConnection | string,
+  channelId: string,
+  slackMessages: SlackMessage[],
+): Promise<Message[]> {
+  const userLabels = await buildMentionUserLabels(
+    auth,
+    slackMessages.map((msg) => msg.text),
+  );
+  const messages: Message[] = [];
+  for (const msg of slackMessages) {
+    const name = await resolveUserName(auth, msg.user ?? "");
+    messages.push(
+      mapMessage(
+        msg,
+        channelId,
+        name,
+        renderSlackTextForModel(msg.text, { userLabels }),
+      ),
+    );
+  }
+  return messages;
+}
+
+async function buildMentionUserLabels(
+  auth: OAuthConnection | string,
+  textValues: Iterable<string | undefined>,
+): Promise<Record<string, string>> {
+  return buildSlackUserLabelMap(textValues, (userId) =>
+    resolveUserName(auth, userId),
+  );
+}
+
+async function mapSearchMatches(
+  auth: OAuthConnection | string,
+  matches: SlackSearchMatch[],
+): Promise<Message[]> {
+  const userLabels = await buildMentionUserLabels(
+    auth,
+    matches.map((match) => match.text),
+  );
+  return matches.map((match) => mapSearchMatch(match, userLabels));
 }
 
 export const slackProvider: MessagingProvider = {
@@ -357,24 +420,7 @@ export const slackProvider: MessagingProvider = {
         const dmUserId = conv.metadata.dmUserId as string;
         conv.name = await resolveUserName(auth, dmUserId);
 
-        // Persist the DM channel ID so future sends skip conversations.open
-        try {
-          const existing = findContactChannel({
-            channelType: "slack",
-            externalUserId: dmUserId,
-          });
-          if (existing && !existing.channel.externalChatId) {
-            upsertContactChannel({
-              contactId: existing.contact.id,
-              sourceChannel: "slack",
-              externalUserId: dmUserId,
-              externalChatId: conv.id,
-              displayName: conv.name,
-            });
-          }
-        } catch {
-          // Non-fatal
-        }
+
       }
     }
 
@@ -395,16 +441,12 @@ export const slackProvider: MessagingProvider = {
         options?.limit ?? 50,
         options?.before,
         options?.after,
+        options?.cursor,
+        options?.inclusive,
       );
     });
 
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
   },
 
   async search(
@@ -412,12 +454,14 @@ export const slackProvider: MessagingProvider = {
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult> {
-    const resp = await runReadWithFallback(connection, (auth) =>
-      slack.searchMessages(auth, query, options?.count ?? 20),
-    );
+    let auth: OAuthConnection | string = getReadAuth(connection);
+    const resp = await runReadWithFallback(connection, async (a) => {
+      auth = a;
+      return slack.searchMessages(a, query, options?.count ?? 20);
+    });
     return {
       total: resp.messages.total,
-      messages: resp.messages.matches.map(mapSearchMatch),
+      messages: await mapSearchMatches(auth, resp.messages.matches),
       hasMore: resp.messages.paging.page < resp.messages.paging.pages,
     };
   },
@@ -456,14 +500,41 @@ export const slackProvider: MessagingProvider = {
         conversationId,
         threadId,
         options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
       );
     });
-    const messages: Message[] = [];
-    for (const msg of resp.messages) {
-      const name = await resolveUserName(auth, msg.user ?? "");
-      messages.push(mapMessage(msg, conversationId, name));
-    }
-    return messages;
+    return mapSlackMessages(auth, conversationId, resp.messages);
+  },
+
+  async getThreadRepliesPage(
+    connection: OAuthConnection | undefined,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<HistoryPageResult> {
+    let auth: OAuthConnection | string = getReadAuth(connection);
+    const resp = await runReadWithFallback(connection, async (a) => {
+      auth = a;
+      return slack.conversationReplies(
+        a,
+        conversationId,
+        threadId,
+        options?.limit ?? 50,
+        options?.before,
+        options?.after,
+        options?.inclusive,
+        options?.cursor,
+      );
+    });
+    const nextCursor = resp.response_metadata?.next_cursor || undefined;
+    return {
+      messages: await mapSlackMessages(auth, conversationId, resp.messages),
+      hasMore: Boolean(resp.has_more || nextCursor),
+      ...(nextCursor ? { nextCursor } : {}),
+    };
   },
 
   async markRead(

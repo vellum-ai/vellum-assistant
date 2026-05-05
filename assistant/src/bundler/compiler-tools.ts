@@ -15,10 +15,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { arch, homedir, platform } from "node:os";
+import { arch, platform } from "node:os";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 
 const log = getLogger("compiler-tools");
@@ -44,7 +45,7 @@ interface VersionManifest {
 }
 
 function getToolsDir(): string {
-  return join(homedir(), ".vellum", "workspace", "compiler-tools");
+  return join(getWorkspaceDir(), "compiler-tools");
 }
 
 const installGuard = new PromiseGuard<void>();

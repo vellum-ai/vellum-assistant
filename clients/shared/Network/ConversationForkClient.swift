@@ -20,7 +20,7 @@ public struct ConversationForkClient: ConversationForkClientProtocol {
             }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/fork",
+                path: "conversations/fork",
                 json: body,
                 timeout: 15
             )

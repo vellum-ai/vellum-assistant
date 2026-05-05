@@ -21,6 +21,20 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
+### Safe Storage Limits
+
+Safe storage limits are gated by the assistant feature flag `safe-storage-limits`, default off. When the flag is off, the disk pressure guard reports a disabled status and no runtime path blocks work, injects cleanup guidance, or changes tool access.
+
+**Disk pressure state:** `src/daemon/disk-pressure-guard.ts` samples workspace storage usage every 60 seconds through `src/util/disk-usage.ts`. At or above the 95% critical threshold it creates an in-memory lock with `lockId`, usage snapshot, `acknowledged`, `overrideActive`, `effectivelyLocked`, and the blocked capabilities `agent-turns`, `background-work`, and `remote-ingress`. The lock clears when usage drops below the threshold or the process restarts. `acknowledgeDiskPressureLock()` only lets the guardian enter cleanup mode; `overrideDiskPressureLock()` requires the exact phrase `I understand the risks` and disables the effective lock while usage remains critical.
+
+**Runtime API and events:** `src/runtime/routes/disk-pressure-routes.ts` exposes `GET /v1/disk-pressure/status`, `POST /v1/disk-pressure/acknowledge`, and `POST /v1/disk-pressure/override`. Route auth policies require normal runtime protection, and `disk_pressure_status_changed` events are emitted when the status changes so clients can update live.
+
+**Turn policy:** `src/daemon/disk-pressure-policy.ts` classifies turns before the main agent loop. Local guardian/owner turns are allowed in cleanup mode; trusted contacts, non-guardian actors, unknown remote senders, background conversations, direct wakes, and non-main LLM call sites are blocked while `effectivelyLocked` is true. Blocked turns emit terminal conversation errors rather than reaching the provider.
+
+**Background work:** Heartbeats, scheduled tasks, filing work, retry sweeps, and background tool completions call `src/daemon/disk-pressure-background-gate.ts` before starting work. While effectively locked they skip the wake or job and log throttled disk-pressure fields.
+
+**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the `<disk_pressure_warning>` injector in `src/plugins/defaults/injectors.ts`. The instruction tells the assistant to warn first, focus only on freeing storage, inspect before deleting, ask for deletion approval, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
+
 ### Single-Header JWT Auth Model
 
 All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
@@ -42,7 +56,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 | Pattern                                  | Principal Type | Description                         |
 | ---------------------------------------- | -------------- | ----------------------------------- |
-| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client         |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop or CLI client               |
 | `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
 | `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
 | `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
@@ -51,7 +65,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 | Profile              | Scopes                                                                                                                                                | Used by                                      |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients                    |
+| `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, CLI clients                         |
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write`                                                                                                   | Gateway service-to-daemon calls              |
 | `internal_v1`        | `internal.all`                                                                                                                                        | Internal service connections                 |
@@ -60,11 +74,9 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 1. **Bootstrap (loopback-only, macOS)** — On first launch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The CLI obtains its bearer token during `hatch` and does not perform a separate bootstrap step.
 
-2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
+2. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
-3. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
-
-4. **Local identity** — Local connections use deterministic identity resolution without tokens.
+3. **Local identity** — Local connections use deterministic identity resolution without tokens.
 
 **Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 
@@ -86,7 +98,6 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
-| `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
 | `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 
@@ -116,7 +127,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 
 **Button-first path (deterministic):**
 
-- Desktop clients (macOS/iOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
+- Desktop clients (macOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
 - Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyCanonicalGuardianDecision`.
 - Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
 
@@ -176,7 +187,7 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 
 4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
-5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS/iOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
+5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
@@ -595,14 +606,14 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                                               |
-| ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                                         |
-| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
-| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
-| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`                                    |
-| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                                                                                                                                         | Fallback when STT service is unconfigured or fails                                                   |
+| Boundary                     | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                   |
+| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                        |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation) via gateway WS proxy                  |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`              |
+| **Client service-first**     | macOS via gateway → daemon                                                    | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS on-device                                                               | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`                                                                                                                                                                                                          | Fallback when STT service is unconfigured or fails                             |
 
 **Telephony boundary (hybrid routing):**
 
@@ -643,7 +654,7 @@ To add a new daemon batch STT provider, follow the full checklist in `docs/stt-p
 
 **Conversation streaming boundary:**
 
-Real-time conversation chat message capture on macOS and iOS uses a WebSocket-based streaming STT path. When the configured `services.stt` provider supports conversation streaming (determined by the `conversationStreamingMode` field in the provider catalog), native clients open a WebSocket session through the gateway to the daemon's `/v1/stt/stream` endpoint. The daemon resolves a `StreamingTranscriber` for the configured provider and streams partial/final transcript events back to the client in real time.
+Real-time conversation chat message capture on macOS uses a WebSocket-based streaming STT path. When the configured `services.stt` provider supports conversation streaming (determined by the `conversationStreamingMode` field in the provider catalog), native clients open a WebSocket session through the gateway to the daemon's `/v1/stt/stream` endpoint. The daemon resolves a `StreamingTranscriber` for the configured provider and streams partial/final transcript events back to the client in real time.
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
@@ -672,14 +683,13 @@ Two provider adapters are supported, each implementing the `StreamingTranscriber
 - `STTStreamingClient` (`clients/shared/Network/STTStreamingClient.swift`) manages the WebSocket session using `URLSessionWebSocketTask`. It builds the gateway WebSocket URL via `GatewayHTTPClient.buildWebSocketRequest(path: "stt/stream", params:)`.
 - `STTProviderRegistry` (`clients/shared/Utilities/STTProviderRegistry.swift`) exposes `isStreamingAvailable` (checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API) and `isServiceConfigured` (checks whether any STT provider is set).
 - macOS: `VoiceInputManager.startStreamingSession()` creates a fresh `STTStreamingClient` per recording session. Streaming partials take priority over `SFSpeechRecognizer` partials while the stream is active and healthy. When recording stops, if the stream delivered at least one `final` event (`streamingReceivedFinal`) and has not failed (`streamingFailed`), the streaming final text is used directly. Otherwise, the batch STT path (`STTClient.transcribe()`) provides the fallback.
-- iOS: `InputBarView.handleStreamingEvent()` applies the same priority scheme. Streaming partials update the text field while `isStreamingActive` is true and the user has not manually typed. A `.final` event commits the result via `onVoiceResult` and tears down the session. On error or close without a final, `resolveTranscriptWithServiceFirst()` triggers batch STT fallback.
 
 **Fallback semantics:**
 
 The conversation streaming path degrades gracefully to the existing batch STT path:
 
 1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks `STTProviderRegistry.isStreamingAvailable` before attempting a streaming session. When `false`, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
-2. **Connection failure** (network error, gateway down, auth failure): The `STTStreamingClient` reports an `STTStreamFailure` to the client's `onFailure` callback. macOS sets `streamingFailed = true`; iOS sets `isStreamingActive = false`. Both platforms then fall through to batch STT resolution when recording stops.
+2. **Connection failure** (network error, gateway down, auth failure): The `STTStreamingClient` reports an `STTStreamFailure` to the client's `onFailure` callback. macOS sets `streamingFailed = true` and falls through to batch STT resolution when recording stops.
 3. **Mid-session provider error** (provider WebSocket disconnect, timeout, rate limit): The daemon session emits an `error` event (with a normalized `SttErrorCategory`) followed by `closed`. The client marks the stream as failed and defers to batch STT.
 4. **Missing credentials**: `resolveStreamingTranscriber()` returns `null` when the API key is not configured. The session sends an `error`+`closed` pair and the client falls back to batch.
 
@@ -707,7 +717,6 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 | `clients/shared/Network/STTStreamingClient.swift`           | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
 | `clients/shared/Utilities/STTProviderRegistry.swift`        | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
 | `clients/macos/.../VoiceInputManager.swift`                 | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
-| `clients/ios/Views/InputBarView.swift`                      | iOS integration: `handleStreamingEvent()`, auto-stop coordination, batch fallback                                                                     |
 
 **Live voice channel boundary:**
 
@@ -734,7 +743,7 @@ V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region 
 
 **Client service-first boundary:**
 
-All product-facing dictation and voice-streaming paths on macOS and iOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+All product-facing dictation and voice-streaming paths on macOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
 
 - `STTClient` conforms to `STTClientProtocol` and returns a typed `STTResult` enum (`success`, `notConfigured`, `serviceUnavailable`, `error`). Callers pattern-match on the result to deterministically trigger native fallback.
 - The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
@@ -742,27 +751,17 @@ All product-facing dictation and voice-streaming paths on macOS and iOS use a se
 
 Product-facing flows using service-first STT:
 
-| Flow                          | Client | Entry point                                                                                                                                                                                                                                                  |
-| ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Push-to-talk dictation**    | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                                                                                    |
-| **Conversation chat capture** | macOS  | `VoiceInputManager.handleFinalTranscription()` — prefers streaming final when available; falls back to batch `sttClient.transcribe()` when streaming was not used, failed, or produced no finals                                                             |
-| **Input bar dictation**       | iOS    | `InputBarView.resolveTranscriptWithServiceFirst()` — encodes captured audio buffers to WAV, calls `sttClient.transcribe()`, falls back to native transcript on failure. In conversation mode, defers to streaming final when `streamingFinalReceived` is set |
-| **Voice mode (streaming)**    | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result                                                          |
+| Flow                          | Client | Entry point                                                                                                                                                                                         |
+| ----------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Push-to-talk dictation**    | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                           |
+| **Conversation chat capture** | macOS  | `VoiceInputManager.handleFinalTranscription()` — prefers streaming final when available; falls back to batch `sttClient.transcribe()` when streaming was not used, failed, or produced no finals    |
+| **Voice mode (streaming)**    | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result |
 
 **Client-native fallback boundary:**
 
 Apple-native on-device recognition via `SFSpeechRecognizer` serves two roles in all three product-facing flows above: (1) it provides low-latency partial transcriptions for real-time display during recording, and (2) it provides the fallback final transcription when the STT service is unconfigured (HTTP 503), temporarily unavailable (HTTP 5xx), or returns an empty result. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**.
 
-- macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The macOS protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
-- iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter. **Note:** The iOS protocol defines its own framework-agnostic types (`SpeechRecognizerAuthorizationStatus`, `SpeechRecognitionResult`) so callers never see `SFSpeechRecognizer` directly. However, `startRecognitionTask` still returns `SFSpeechAudioBufferRecognitionRequest` in its tuple, so full framework decoupling is not yet achieved.
-
-Platform divergence summary:
-
-- **Auth API:** macOS uses a callback-based `requestAuthorization(completion:)` returning `SFSpeechRecognizerAuthorizationStatus`; iOS uses `async requestAuthorization()` returning a custom `SpeechRecognizerAuthorizationStatus` enum.
-- **Recognizer exposure:** macOS exposes the raw `SFSpeechRecognizer?` via `makeRecognizer(locale:)`; iOS fully encapsulates recognizer construction inside `startRecognitionTask`.
-- **Concurrency model:** The iOS protocol is `@MainActor`-annotated; the macOS protocol is not.
-
-These differences are intentional — the adapters were designed for their respective platform integration needs, not for cross-platform uniformity.
+The macOS `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
 
 **Cross-boundary notes:**
 
@@ -981,6 +980,7 @@ The daemon emits two distinct error message types via SSE:
 | -------------------------------- | ----------------------------------------------------------------------- | --------- |
 | `PROVIDER_NETWORK`               | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
 | `PROVIDER_RATE_LIMIT`            | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
+| `MANAGED_USAGE_LIMIT`            | Vellum managed inference usage limit or quota was exceeded (HTTP 429)   | Yes       |
 | `PROVIDER_API`                   | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
 | `PROVIDER_BILLING`               | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
 | `CONTEXT_TOO_LARGE`              | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
@@ -995,7 +995,7 @@ The daemon classifies errors via `classifyConversationError()` in `conversation-
 
 Classification uses a two-tier strategy:
 
-1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `413` maps to `CONTEXT_TOO_LARGE` (not retryable), `401` maps to `PROVIDER_BILLING` (not retryable, invalid/expired key), `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (retryable) unless a message pattern matches a more specific non-retryable category (context-too-large, billing/auth).
+1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `413` maps to `CONTEXT_TOO_LARGE` (not retryable), `401` maps to `PROVIDER_BILLING` (not retryable, invalid/expired key), `429` maps to `MANAGED_USAGE_LIMIT` when the provider is routed through the managed proxy or the payload matches a Vellum managed quota/limit response, otherwise `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (retryable) unless a message pattern matches a more specific non-retryable category (context-too-large, billing/auth).
 2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle regeneration contexts.
 
 Debug details are capped at 4,000 characters to prevent oversized payloads.
@@ -1199,12 +1199,12 @@ graph TB
 
     INPUT --> RESOLVE
     RESOLVE -->|"kind: passthrough"| PASSTHROUGH
-    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands, /pair)"| HANDLED
+    RESOLVE -->|"kind: unknown<br/>(/models, /status, /commands)"| HANDLED
 ```
 
 Key behaviors:
 
-- **Built-in commands**: `/models`, `/status`, `/commands`, and `/pair` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Built-in commands**: `/models`, `/status`, and `/commands` are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
 - **Passthrough**: Any input that does not match a built-in command passes through to the normal agent loop, including slash-like tokens that are not recognized.
 - **Queue**: Queued messages receive the same slash resolution.
 
@@ -1606,11 +1606,11 @@ graph TB
 Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
-| ------------------ | -------------- | ----------------- | --------------- |
-| `"none"`           | Prompted       | Prompted          | Prompted        |
-| `"low"` (default)  | Auto-allowed   | Prompted          | Prompted        |
-| `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
-| `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
+| ----------------- | -------------- | ----------------- | --------------- |
+| `"none"`          | Prompted       | Prompted          | Prompted        |
+| `"low"` (default) | Auto-allowed   | Prompted          | Prompted        |
+| `"medium"`        | Auto-allowed   | Auto-allowed      | Prompted        |
+| `"high"`          | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
 When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
 
@@ -1867,7 +1867,6 @@ Events emitted during a conversation lifecycle:
 | `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
 | `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
 | `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
-| `secret_detected`           | ToolTraceListener       | Secret found in tool output                                                                     |
 | `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
 | `message_complete`          | Conversation            | Full request processing finished                                                                |
 | `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
@@ -1876,7 +1875,7 @@ Events emitted during a conversation lifecycle:
 ### Architecture
 
 - **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
+- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`) into trace events through the `TraceEmitter`.
 - **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
 - **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
@@ -1909,7 +1908,6 @@ graph TB
 
     subgraph "Clients"
         MACOS["macOS App<br/>(DaemonClient / ServerMessage)"]
-        IOS["iOS App<br/>(HTTP+SSE via gateway)"]
         WEB["Web / Remote clients<br/>(EventSource / fetch)"]
     end
 
@@ -1919,7 +1917,6 @@ graph TB
     HUB -->|"subscriber callback"| SSE_ROUTE
 
     SSE_ROUTE --> MACOS
-    SSE_ROUTE --> IOS
     SSE_ROUTE --> WEB
 ```
 
@@ -2005,7 +2002,7 @@ Every notification delivery materializes a conversation + seed message **before*
 This ensures:
 
 1. Every delivery has an auditable conversation trail in the conversations table
-2. The macOS/iOS client can deep-link directly into the notification conversation
+2. The macOS client can deep-link directly into the notification conversation
 3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, and `conversation_fallback_used` columns
 
 The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
@@ -2014,18 +2011,18 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 
 The notification pipeline uses a single conversation materialization path across producers:
 
-1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
 2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
 ### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
 
-The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing conversation does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
+The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing conversation does not trigger this event — the macOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
 
-When a new vellum notification conversation is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the conversation to the macOS/iOS client so it can display the notification conversation in the sidebar and deep-link to it.
+When a new vellum notification conversation is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the conversation to the macOS client so it can display the notification conversation in the sidebar and deep-link to it.
 
 ### Conversation-Created Events
 
-Two SSE push events surface new conversations in the macOS/iOS client sidebar:
+Two SSE push events surface new conversations in the macOS client sidebar:
 
 - **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
 - **`task_run_conversation_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
@@ -2201,7 +2198,7 @@ All text-to-speech functionality (in-app message playback and phone call voice) 
 
 **Canonical provider catalog (`provider-catalog.ts`):** The provider catalog is the **single source of truth** for TTS provider identity and metadata on the assistant side. Every provider the system supports is declared as a `TtsProviderCatalogEntry` in the `CATALOG` array. Each entry captures the provider's unique ID (`TtsProviderId`), display name, telephony call mode (`TtsCallMode`: `"native-twilio"` or `"synthesized-play"`), static capabilities (`supportsStreaming`, `supportedFormats`), and secret requirements (credential store keys, display names, setup commands). Downstream modules query the catalog via `getCatalogProvider()`, `listCatalogProviders()`, or `listCatalogProviderIds()` instead of hardcoding provider IDs.
 
-A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the subset of provider metadata needed by native clients (macOS, iOS) for display and setup UX. The client artifact must list exactly the same provider IDs as the assistant catalog. A CI consistency guard test (`src/tts/__tests__/provider-catalog-consistency.test.ts`) compares the two sets and fails if they drift.
+A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the subset of provider metadata needed by the native macOS client for display and setup UX. The client artifact must list exactly the same provider IDs as the assistant catalog. A CI consistency guard test (`src/tts/__tests__/provider-catalog-consistency.test.ts`) compares the two sets and fails if they drift.
 
 **Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
 
@@ -2261,7 +2258,7 @@ No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts`
 | `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
 | `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
 | `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
-| `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS/iOS settings UI                                 |
+| `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS settings UI                                     |
 | `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
 | `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |
 

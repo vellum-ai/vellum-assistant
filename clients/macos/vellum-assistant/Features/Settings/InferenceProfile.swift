@@ -10,11 +10,10 @@ import Foundation
 ///
 /// Only the leaves the macOS UI exposes are modeled here: `provider`,
 /// `model`, `maxTokens`, `effort`, `speed`, `verbosity`, `temperature`,
-/// and the two `thinking` sub-fields. Other `LLMConfigFragment` leaves
-/// (e.g. `contextWindow`, `openrouter`) flow through the daemon's config
-/// layer untouched — the JSON mapper preserves only the fields it knows
-/// about, but `SettingsStore.patchConfig` merges into the live config so
-/// unknown keys are not clobbered.
+/// the two `thinking` sub-fields, and `contextWindow.maxInputTokens`.
+/// Other `LLMConfigFragment` leaves (e.g. `openrouter` and non-UI
+/// `contextWindow` sub-fields) are preserved by the JSON mapper so edits
+/// can round-trip profile fragments without clobbering hidden settings.
 ///
 /// Conformance is intentionally limited to `Hashable` and `Identifiable`.
 /// `Codable` is *not* on the list because the wire shape is bespoke (the
@@ -27,12 +26,26 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// stable `id` for `Identifiable` conformance.
     public var name: String
 
+    /// Origin of the profile. `"managed"` indicates a daemon-seeded profile
+    /// that should be read-only in the UI. User-created profiles have `nil`.
+    public var source: String?
+
+    /// Human-readable label for pickers and list rows (e.g. "Quality").
+    /// Falls back to `name` when absent — see `displayName`.
+    public var label: String?
+
+    /// Longer description surfaced as secondary text in the profiles list.
+    /// Named `profileDescription` because `description` collides with
+    /// Swift's `CustomStringConvertible.description`.
+    public var profileDescription: String?
+
     public var provider: String?
     public var model: String?
     public var maxTokens: Int?
     public var effort: String?
     public var speed: String?
     public var verbosity: String?
+    public var contextWindowMaxInputTokens: Int?
 
     /// Three-state temperature so JSON round-trips preserve the daemon's
     /// `null` vs absent distinction. The resolver's `deepMerge` skips
@@ -51,30 +64,53 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// Maps to `thinking.streamThinking` in the fragment JSON.
     public var thinkingStreamThinking: Bool?
 
+    private var preservedJSON: [String: Any]
+
     public var id: String { name }
+
+    /// Whether this profile was seeded by the daemon and should be
+    /// treated as read-only in the UI. Users can duplicate a managed
+    /// profile to create a customizable variant.
+    public var isManaged: Bool { source == "managed" }
+
+    /// Label for pickers and list rows. Prefers the explicit `label`
+    /// (e.g. "Quality") and falls back to `name`.
+    public var displayName: String { label ?? name }
+
+    /// Optional secondary text for list row subtitles.
+    public var subtitle: String? { profileDescription }
 
     public init(
         name: String,
+        source: String? = nil,
+        label: String? = nil,
+        profileDescription: String? = nil,
         provider: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
         effort: String? = nil,
         speed: String? = nil,
         verbosity: String? = nil,
+        contextWindowMaxInputTokens: Int? = nil,
         temperature: TemperatureValue = .unset,
         thinkingEnabled: Bool? = nil,
         thinkingStreamThinking: Bool? = nil
     ) {
         self.name = name
+        self.source = source
+        self.label = label
+        self.profileDescription = profileDescription
         self.provider = provider
         self.model = model
         self.maxTokens = maxTokens
         self.effort = effort
         self.speed = speed
         self.verbosity = verbosity
+        self.contextWindowMaxInputTokens = contextWindowMaxInputTokens
         self.temperature = temperature
         self.thinkingEnabled = thinkingEnabled
         self.thinkingStreamThinking = thinkingStreamThinking
+        self.preservedJSON = [:]
     }
 
     /// Convenience overload that accepts an `Optional<Double>`. `nil`
@@ -82,24 +118,32 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// produce an explicit `null`, pass `.explicitNull` directly.
     public init(
         name: String,
+        source: String? = nil,
+        label: String? = nil,
+        profileDescription: String? = nil,
         provider: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
         effort: String? = nil,
         speed: String? = nil,
         verbosity: String? = nil,
+        contextWindowMaxInputTokens: Int? = nil,
         temperature: Double?,
         thinkingEnabled: Bool? = nil,
         thinkingStreamThinking: Bool? = nil
     ) {
         self.init(
             name: name,
+            source: source,
+            label: label,
+            profileDescription: profileDescription,
             provider: provider,
             model: model,
             maxTokens: maxTokens,
             effort: effort,
             speed: speed,
             verbosity: verbosity,
+            contextWindowMaxInputTokens: contextWindowMaxInputTokens,
             temperature: TemperatureValue(value: temperature),
             thinkingEnabled: thinkingEnabled,
             thinkingStreamThinking: thinkingStreamThinking
@@ -114,16 +158,22 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// survive a save.
     public init(name: String, json: [String: Any]) {
         self.name = name
+        self.source = (json["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.label = (json["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.profileDescription = (json["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.provider = (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        self.maxTokens = json["maxTokens"] as? Int
+        self.maxTokens = Self.intValue(json["maxTokens"])
         self.effort = (json["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.speed = (json["speed"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.verbosity = (json["verbosity"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let contextWindow = json["contextWindow"] as? [String: Any]
+        self.contextWindowMaxInputTokens = Self.intValue(contextWindow?["maxInputTokens"])
         self.temperature = TemperatureValue(jsonValue: json["temperature"], present: json.keys.contains("temperature"))
         let thinking = json["thinking"] as? [String: Any]
         self.thinkingEnabled = thinking?["enabled"] as? Bool
         self.thinkingStreamThinking = thinking?["streamThinking"] as? Bool
+        self.preservedJSON = Self.preservedJSON(from: json)
     }
 
     /// Returns a copy of `self` with every non-nil field on `fragment`
@@ -138,6 +188,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         if let v = fragment.effort { merged.effort = v }
         if let v = fragment.speed { merged.speed = v }
         if let v = fragment.verbosity { merged.verbosity = v }
+        if let v = fragment.contextWindowMaxInputTokens { merged.contextWindowMaxInputTokens = v }
         // `.unset` means "no opinion" — any other state overrides.
         if fragment.temperature != .unset { merged.temperature = fragment.temperature }
         if let v = fragment.thinkingEnabled { merged.thinkingEnabled = v }
@@ -152,13 +203,27 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// `.explicitNull` so the daemon receives the original wire-shape
     /// distinction between "absent" and "null".
     public func toJSON() -> [String: Any] {
-        var result: [String: Any] = [:]
+        var result = preservedJSON
+        if let source { result["source"] = source }
+        if let label { result["label"] = label }
+        if let profileDescription { result["description"] = profileDescription }
         if let provider { result["provider"] = provider }
         if let model { result["model"] = model }
         if let maxTokens { result["maxTokens"] = maxTokens }
         if let effort { result["effort"] = effort }
         if let speed { result["speed"] = speed }
         if let verbosity { result["verbosity"] = verbosity }
+        var contextWindow = (result["contextWindow"] as? [String: Any]) ?? [:]
+        if let contextWindowMaxInputTokens {
+            contextWindow["maxInputTokens"] = contextWindowMaxInputTokens
+        } else {
+            contextWindow.removeValue(forKey: "maxInputTokens")
+        }
+        if contextWindow.isEmpty {
+            result.removeValue(forKey: "contextWindow")
+        } else {
+            result["contextWindow"] = contextWindow
+        }
         switch temperature {
         case .unset:
             break
@@ -174,6 +239,85 @@ public struct InferenceProfile: Hashable, Identifiable {
             result["thinking"] = thinking
         }
         return result
+    }
+
+    private static func preservedJSON(from json: [String: Any]) -> [String: Any] {
+        var preserved = json
+        for key in [
+            "source",
+            "label",
+            "description",
+            "provider",
+            "model",
+            "maxTokens",
+            "effort",
+            "speed",
+            "verbosity",
+            "temperature",
+            "thinking",
+        ] {
+            preserved.removeValue(forKey: key)
+        }
+
+        if var contextWindow = json["contextWindow"] as? [String: Any] {
+            contextWindow.removeValue(forKey: "maxInputTokens")
+            if contextWindow.isEmpty {
+                preserved.removeValue(forKey: "contextWindow")
+            } else {
+                preserved["contextWindow"] = contextWindow
+            }
+        } else {
+            preserved.removeValue(forKey: "contextWindow")
+        }
+        return preserved
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let double = value as? Double,
+           double.isFinite,
+           double.rounded(.towardZero) == double,
+           double >= Double(Int.min),
+           double < Double(Int.max) {
+            return Int(double)
+        }
+        return nil
+    }
+
+    public static func == (lhs: InferenceProfile, rhs: InferenceProfile) -> Bool {
+        lhs.name == rhs.name
+            && lhs.source == rhs.source
+            && lhs.label == rhs.label
+            && lhs.profileDescription == rhs.profileDescription
+            && lhs.provider == rhs.provider
+            && lhs.model == rhs.model
+            && lhs.maxTokens == rhs.maxTokens
+            && lhs.effort == rhs.effort
+            && lhs.speed == rhs.speed
+            && lhs.verbosity == rhs.verbosity
+            && lhs.contextWindowMaxInputTokens == rhs.contextWindowMaxInputTokens
+            && lhs.temperature == rhs.temperature
+            && lhs.thinkingEnabled == rhs.thinkingEnabled
+            && lhs.thinkingStreamThinking == rhs.thinkingStreamThinking
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(source)
+        hasher.combine(label)
+        hasher.combine(profileDescription)
+        hasher.combine(provider)
+        hasher.combine(model)
+        hasher.combine(maxTokens)
+        hasher.combine(effort)
+        hasher.combine(speed)
+        hasher.combine(verbosity)
+        hasher.combine(contextWindowMaxInputTokens)
+        hasher.combine(temperature)
+        hasher.combine(thinkingEnabled)
+        hasher.combine(thinkingStreamThinking)
     }
 }
 
@@ -233,13 +377,3 @@ public enum TemperatureValue: Hashable {
         return nil
     }
 }
-
-/// The three first-class profile names the daemon seeds into every
-/// workspace (see migration 052 in `assistant/src/workspace/migrations/`).
-/// The macOS UI uses this set only to render a "Built-in" badge —
-/// deletion and editing remain allowed for these profiles.
-public let builtInInferenceProfileNames: Set<String> = [
-    "quality-optimized",
-    "balanced",
-    "cost-optimized",
-]

@@ -119,6 +119,7 @@ let mockSingletonProxy: HostBrowserProxy | null = null;
 /** Default proxy that reports unavailable — used when no test override is set. */
 const unavailableFallback: HostBrowserProxy = {
   isAvailable: () => false,
+  hasExtensionClient: () => false,
   request: () => Promise.reject(new Error("no extension")),
   resolve: () => {},
   hasPendingRequest: () => false,
@@ -161,23 +162,38 @@ function makeContext(
 }
 
 /**
- * Create a fake HostBrowserProxy that reports as available.
+ * Create a fake HostBrowserProxy with a Chrome Extension client connected.
+ * Both isAvailable() and hasExtensionClient() return true.
  */
 function makeAvailableProxy(): HostBrowserProxy {
   return {
     request: mock(async () => ({})),
     isAvailable: () => true,
+    hasExtensionClient: () => true,
+  } as unknown as HostBrowserProxy;
+}
+
+/**
+ * Create a fake HostBrowserProxy where only the macOS SSE bridge is connected
+ * (no Chrome Extension). isAvailable() is true but hasExtensionClient() is false.
+ */
+function makeMacosBridgeOnlyProxy(): HostBrowserProxy {
+  return {
+    request: mock(async () => ({})),
+    isAvailable: () => true,
+    hasExtensionClient: () => false,
   } as unknown as HostBrowserProxy;
 }
 
 /**
  * Create a fake HostBrowserProxy that reports as unavailable
- * (proxy exists but client is disconnected).
+ * (proxy exists but no client of any kind is connected).
  */
 function makeUnavailableProxy(): HostBrowserProxy {
   return {
     request: mock(async () => ({})),
     isAvailable: () => false,
+    hasExtensionClient: () => false,
   } as unknown as HostBrowserProxy;
 }
 
@@ -680,6 +696,22 @@ describe("buildCandidateList", () => {
 
     expect(candidates.every((c) => c.kind !== "extension")).toBe(true);
     expect(candidates[0].kind).toBe("local");
+  });
+
+  test("excludes extension candidate when only macOS SSE bridge is connected", () => {
+    // isAvailable() = true but hasExtensionClient() = false: only macOS bridge.
+    // The macOS bridge routes through localhost:9222 on the host, so it must
+    // NOT be included under the "extension" candidate kind.
+    const fakeProxy = makeMacosBridgeOnlyProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "candidates-macos-bridge-only",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.every((c) => c.kind !== "extension")).toBe(true);
+    expect(candidates[candidates.length - 1].kind).toBe("local");
   });
 
   test("includes cdp-inspect candidate when enabled in config", () => {
@@ -1435,7 +1467,7 @@ describe("pinned-mode selection", () => {
       const cdpErr = err as CdpError;
       expect(cdpErr.code).toBe("transport_error");
       expect(cdpErr.message).toContain('Pinned mode "extension" unavailable');
-      expect(cdpErr.message).toContain("no active extension connection");
+      expect(cdpErr.message).toContain("no Chrome Extension connected");
       expect(cdpErr.attemptDiagnostics).toBeDefined();
       expect(cdpErr.attemptDiagnostics).toHaveLength(1);
       expect(cdpErr.attemptDiagnostics![0].candidateKind).toBe("extension");
@@ -1457,7 +1489,7 @@ describe("pinned-mode selection", () => {
     } catch (err) {
       const cdpErr = err as CdpError;
       expect(cdpErr.code).toBe("transport_error");
-      expect(cdpErr.message).toContain("no active extension connection");
+      expect(cdpErr.message).toContain("no Chrome Extension connected");
       expect(cdpErr.attemptDiagnostics![0].stage).toBe("candidate_selection");
     }
   });
@@ -1665,6 +1697,25 @@ describe("buildPinnedCandidateList", () => {
         stage: "candidate_selection",
         errorCode: "transport_error",
       });
+    }
+  });
+
+  test("extension mode throws when only macOS SSE bridge is connected", () => {
+    // This is the bug case: isAvailable() = true but hasExtensionClient() = false.
+    // Before the fix, this would build an extension candidate that silently
+    // dispatched to the macOS bridge and failed with a misleading localhost:9222 error.
+    const fakeProxy = makeMacosBridgeOnlyProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({ conversationId: "bpl-ext-macos-bridge-only" });
+
+    try {
+      buildPinnedCandidateList(ctx, "extension");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.message).toContain("no Chrome Extension connected");
     }
   });
 });

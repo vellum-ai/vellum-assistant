@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { runScript } from "../../schedule/run-script.js";
@@ -28,10 +29,6 @@ import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
-const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-} as const;
 
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
@@ -57,6 +54,9 @@ function handleListSchedules(queryParams: Record<string, string>) {
       nextRunAt: j.nextRunAt,
       lastRunAt: j.lastRunAt,
       lastStatus: j.lastStatus,
+      retryCount: j.retryCount,
+      maxRetries: j.maxRetries,
+      retryBackoffMs: j.retryBackoffMs,
       description:
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
@@ -142,6 +142,8 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "quiet",
     "reuseConversation",
     "wakeConversationId",
+    "maxRetries",
+    "retryBackoffMs",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
@@ -297,6 +299,8 @@ export const ROUTES: RouteDefinition[] = [
         .describe("single_channel, multi_channel, or all_channels"),
       quiet: z.boolean(),
       reuseConversation: z.boolean(),
+      maxRetries: z.number().describe("Maximum retry attempts"),
+      retryBackoffMs: z.number().describe("Retry backoff in milliseconds"),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),
@@ -382,7 +386,7 @@ async function handleRunScheduleNow(id: string) {
         { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
           const conversation = await getOrCreateConversation(conversationId, {
-            trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+            trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
           });
           conversation.taskRunId = taskRunId;
           try {
@@ -479,7 +483,7 @@ async function handleRunScheduleNow(id: string) {
       "Executing schedule manually (run now)",
     );
     const activeConversation = await getOrCreateConversation(conversationId, {
-      trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
     activeConversation.taskRunId = undefined;
     await activeConversation.processMessage(

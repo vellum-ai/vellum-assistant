@@ -1,11 +1,7 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  disposeAcpSessionManager,
-  getAcpSessionManager,
-  setBroadcastToAllClients,
-} from "../acp/index.js";
+import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
@@ -14,30 +10,17 @@ import type { CesProcessManager } from "../credential-execution/process-manager.
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
-import {
-  uploadFileBackedAttachment,
-  validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
-import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
-import { registerCancelCallback } from "../signals/cancel.js";
-import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
-import { appendEventToStream } from "../signals/event-stream.js";
-import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   getAvatarImagePath,
   getWorkspacePromptPath,
 } from "../util/platform.js";
-import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
@@ -45,33 +28,20 @@ import {
 import { getConfigWatcher } from "./config-watcher.js";
 import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
-import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import {
   allConversations,
   clearConversations,
   conversationEntries,
   deleteConversation,
-  findConversation,
   getConversationMap,
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
   setCesClientPromise,
 } from "./conversation-store.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
-import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
-import type {
-  ServerMessage,
-  UserMessageAttachment,
-} from "./message-protocol.js";
-import {
-  makePendingInteractionRegistrar,
-  prepareConversationForMessage,
-  resolveTurnChannel,
-  resolveTurnInterface,
-} from "./process-message.js";
 
 const log = getLogger("server");
 
@@ -93,7 +63,6 @@ export class DaemonServer {
   private sharedRequestTimestamps: number[] = [];
   private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
-  private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
   private configWatcher = getConfigWatcher();
@@ -164,12 +133,12 @@ export class DaemonServer {
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
-    getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+
     initConversationLifecycle({
       evictor: this.evictor,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
     });
-    setBroadcastToAllClients((msg) => this.broadcast(msg));
+
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
     // dispatch path. The supervisor is constructed in
@@ -186,120 +155,6 @@ export class DaemonServer {
         (c) => c.status === "running" || c.status === "pending",
       );
     };
-    getSubagentManager().onSubagentFinished = async (
-      parentConversationId,
-      message,
-      sendToClient,
-      notification,
-    ) => {
-      const parentConversation = findConversation(parentConversationId);
-      if (!parentConversation) {
-        log.warn(
-          { parentConversationId },
-          "Subagent finished but parent conversation not found",
-        );
-        return;
-      }
-      const requestId = `subagent-notify-${Date.now()}`;
-      const metadata = { subagentNotification: notification };
-      const enqueueResult = parentConversation.enqueueMessage(
-        message,
-        [],
-        sendToClient,
-        requestId,
-        undefined,
-        undefined,
-        metadata,
-      );
-      if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentConversation.persistUserMessage(
-          message,
-          [],
-          undefined,
-          metadata,
-        );
-        parentConversation
-          .runAgentLoop(message, messageId, sendToClient)
-          .catch((err) => {
-            log.error(
-              { parentConversationId, err },
-              "Failed to process subagent notification in parent",
-            );
-          });
-      }
-    };
-    getAcpSessionManager().onAcpSessionFinished = async (
-      parentConversationId,
-      message,
-      sendToClient,
-    ) => {
-      const parentConversation = findConversation(parentConversationId);
-      if (!parentConversation) {
-        log.warn(
-          { parentConversationId },
-          "ACP agent finished but parent conversation not found",
-        );
-        return;
-      }
-      const requestId = `acp-notify-${Date.now()}`;
-      const enqueueResult = parentConversation.enqueueMessage(
-        message,
-        [],
-        sendToClient,
-        requestId,
-      );
-      if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentConversation.persistUserMessage(
-          message,
-          [],
-        );
-        parentConversation
-          .runAgentLoop(message, messageId, sendToClient)
-          .catch((err: unknown) => {
-            log.error(
-              { parentConversationId, err },
-              "Failed to process ACP notification in parent",
-            );
-          });
-      }
-    };
-  }
-
-  // ── Broadcast / Event publishing ──────────────────────────────────
-
-  /**
-   * Publish `msg` as an `AssistantEvent` to the process-level hub.
-   * Publications are serialized via a promise chain so subscribers
-   * always observe events in send order.
-   */
-  private publishAssistantEvent(
-    msg: ServerMessage,
-    conversationId?: string,
-  ): void {
-    const event = buildAssistantEvent(msg, conversationId);
-    this._hubChain = this._hubChain
-      .then(() => assistantEventHub.publish(event))
-      .catch((err: unknown) => {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during broadcast",
-        );
-      });
-
-    // Dual-write to file-based stream for cross-process consumers.
-    // No-op when no subscriber files exist for this conversation.
-    if (conversationId) {
-      try {
-        appendEventToStream(conversationId, event);
-      } catch {
-        // Best-effort; file I/O failures must not block the hub chain.
-      }
-    }
-  }
-
-  broadcast(msg: ServerMessage): void {
-    const conversationId = extractConversationId(msg);
-    this.publishAssistantEvent(msg, conversationId);
   }
 
   private broadcastIdentityChanged(): void {
@@ -309,7 +164,7 @@ export class DaemonServer {
         ? readFileSync(identityPath, "utf-8")
         : "";
       const fields = parseIdentityFields(content);
-      this.broadcast({
+      broadcastMessage({
         type: "identity_changed",
         name: fields.name,
         role: fields.role,
@@ -344,15 +199,15 @@ export class DaemonServer {
   }
 
   private broadcastConfigChanged(): void {
-    this.broadcast({ type: "config_changed" });
+    broadcastMessage({ type: "config_changed" });
   }
 
   private broadcastSoundsConfigUpdated(): void {
-    this.broadcast({ type: "sounds_config_updated" });
+    broadcastMessage({ type: "sounds_config_updated" });
   }
 
   private broadcastAvatarUpdated(): void {
-    this.broadcast({
+    broadcastMessage({
       type: "avatar_updated",
       avatarPath: getAvatarImagePath(),
     });
@@ -370,7 +225,7 @@ export class DaemonServer {
       for (const conversation of allConversations()) {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
-      this.broadcast({ type: "app_files_changed", appId });
+      broadcastMessage({ type: "app_files_changed", appId });
       void updatePublishedAppDeployment(appId);
     };
 
@@ -405,146 +260,6 @@ export class DaemonServer {
 
     this.evictor.start();
 
-    registerDaemonCallbacks({
-      getOrCreateConversation: (conversationId) =>
-        getOrCreateActiveConversation(conversationId),
-      broadcast: (msg) => this.broadcast(msg),
-    });
-
-    registerCancelCallback((conversationId) => {
-      const conversation = findConversation(conversationId);
-      if (!conversation) return false;
-      this.evictor.touch(conversationId);
-      conversation.abort(
-        createAbortReason(
-          "signal_cancel",
-          "registerCancelCallback",
-          conversationId,
-        ),
-      );
-      getSubagentManager().abortAllForParent(conversationId);
-      return true;
-    });
-
-    registerConversationUndoCallback((conversationId) =>
-      undoLastMessage(conversationId),
-    );
-
-    registerUserMessageCallback(async (params) => {
-      // Block messages containing known-format secrets before persistence
-      if (!params.bypassSecretCheck) {
-        const ingressResult = checkIngressForSecrets(params.content);
-        if (ingressResult.blocked) {
-          return {
-            accepted: false,
-            error: "secret_blocked" as const,
-            message: ingressResult.userNotice,
-          };
-        }
-      }
-
-      const { conversationId } = getOrCreateConversation(
-        params.conversationKey,
-      );
-      const conversation = await getOrCreateActiveConversation(conversationId);
-
-      // Register file-backed attachments so they flow through the send
-      // pipeline as images the LLM can see directly.
-      const attachmentIds: string[] = [];
-      const resolvedAttachments: UserMessageAttachment[] = [];
-      if (params.attachments && params.attachments.length > 0) {
-        for (const a of params.attachments) {
-          try {
-            const validation = validateAttachmentUpload(a.filename, a.mimeType);
-            if (!validation.ok) {
-              log.warn(
-                { error: validation.error, path: a.path },
-                "Signal attachment rejected by validation",
-              );
-              continue;
-            }
-            const size = statSync(a.path).size;
-            const stored = uploadFileBackedAttachment(
-              a.filename,
-              a.mimeType,
-              a.path,
-              size,
-            );
-            attachmentIds.push(stored.id);
-            resolvedAttachments.push({
-              id: stored.id,
-              filename: a.filename,
-              mimeType: a.mimeType,
-              data: "",
-              filePath: a.path,
-            });
-          } catch (err) {
-            log.warn(
-              { err, path: a.path },
-              "Failed to register signal attachment",
-            );
-          }
-        }
-      }
-
-      // Build a hub-publishing sender so events reach SSE clients.
-      const hubSender = (msg: ServerMessage) => {
-        const msgConversationId =
-          "conversationId" in msg &&
-          typeof (msg as { conversationId?: unknown }).conversationId ===
-            "string"
-            ? (msg as { conversationId: string }).conversationId
-            : undefined;
-        this.publishAssistantEvent(msg, msgConversationId ?? conversationId);
-      };
-
-      if (conversation.isProcessing()) {
-        // Hydrate file data now — the queue path won't re-read from
-        // the attachment store, so base64 content must be inline.
-        for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
-          const att = resolvedAttachments[i];
-          if (att.filePath && !att.data) {
-            try {
-              att.data = readFileSync(att.filePath).toString("base64");
-            } catch (err) {
-              log.warn(
-                { err, path: att.filePath },
-                "Failed to read queued signal attachment, skipping",
-              );
-              resolvedAttachments.splice(i, 1);
-            }
-          }
-        }
-        const requestId = crypto.randomUUID();
-        const resolvedChannel = resolveTurnChannel(params.sourceChannel);
-        const resolvedInterface = resolveTurnInterface(params.sourceInterface);
-        const result = conversation.enqueueMessage(
-          params.content,
-          resolvedAttachments,
-          hubSender,
-          requestId,
-          undefined,
-          undefined,
-          {
-            userMessageChannel: resolvedChannel,
-            assistantMessageChannel: resolvedChannel,
-            userMessageInterface: resolvedInterface,
-            assistantMessageInterface: resolvedInterface,
-          },
-        );
-        return { accepted: !result.rejected };
-      }
-      await this.persistAndProcessMessage(
-        conversationId,
-        params.content,
-        attachmentIds.length > 0 ? attachmentIds : undefined,
-        { onEvent: hubSender },
-        params.sourceChannel,
-        params.sourceInterface,
-      );
-      return { accepted: true };
-    });
-
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
@@ -552,31 +267,6 @@ export class DaemonServer {
     // host.events.*, host.registries.*). Route registry is populated by
     // subsequent PRs in the skill-isolation plan.
     await this.skillIpc.start();
-
-    // Wire the launchConversation helper to daemon-side state so
-    // handleSurfaceAction can spawn conversations through it.
-    registerLaunchConversationDeps({
-      getOrCreateConversation: (id, options) =>
-        getOrCreateActiveConversation(id, options),
-      persistAndProcessMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      ) =>
-        this.persistAndProcessMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          options,
-          sourceChannel,
-          sourceInterface,
-        ),
-      publishAssistantEvent: (msg, conversationId) =>
-        this.publishAssistantEvent(msg, conversationId),
-    });
 
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
@@ -592,7 +282,7 @@ export class DaemonServer {
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
-      this.broadcast({ type: "contacts_changed" });
+      broadcastMessage({ type: "contacts_changed" });
     });
 
     log.info("DaemonServer started (HTTP-only mode)");
@@ -651,7 +341,7 @@ export class DaemonServer {
   // ── Conversation management ──────────────────────────────────────────────
 
   broadcastStatus(): void {
-    this.broadcast({
+    broadcastMessage({
       type: "assistant_status",
       version: daemonVersion,
       keyFingerprint: getSigningKeyFingerprint(),
@@ -694,76 +384,6 @@ export class DaemonServer {
     this.evictConversationsForReload();
   }
 
-  // ── HTTP message processing ─────────────────────────────────────────
-
-  async persistAndProcessMessage(
-    conversationId: string,
-    content: string,
-    attachmentIds?: string[],
-    options?: ConversationCreateOptions,
-    sourceChannel?: string,
-    sourceInterface?: string,
-  ): Promise<{ messageId: string }> {
-    const { conversation, attachments } = await prepareConversationForMessage(
-      conversationId,
-      content,
-      attachmentIds,
-      options,
-      sourceChannel,
-      sourceInterface,
-    );
-
-    const requestId = crypto.randomUUID();
-    const messageId = await conversation.persistUserMessage(
-      content,
-      attachments,
-      requestId,
-    );
-
-    // Register pending interactions so channel approval interception can
-    // find the conversation by requestId when confirmation/secret events fire.
-    const registrar = makePendingInteractionRegistrar(
-      conversation,
-      conversationId,
-    );
-    const onEvent = options?.onEvent
-      ? (msg: ServerMessage) => {
-          registrar(msg);
-          try {
-            options.onEvent!(msg);
-          } catch (err) {
-            log.error(
-              { err, conversationId },
-              "onEvent callback failed; continuing agent loop",
-            );
-          }
-        }
-      : registrar;
-    if (options?.isInteractive === true) {
-      conversation.updateClient(onEvent, false);
-    }
-
-    conversation
-      .runAgentLoop(content, messageId, onEvent, {
-        isInteractive: options?.isInteractive ?? false,
-        isUserMessage: true,
-        ...(options?.callSite ? { callSite: options.callSite } : {}),
-      })
-      .finally(() => {
-        if (
-          options?.isInteractive === true &&
-          conversation.getCurrentSender() === onEvent
-        ) {
-          conversation.updateClient(() => {}, true);
-        }
-      })
-      .catch((err) => {
-        log.error({ err, conversationId }, "Background agent loop failed");
-      });
-
-    return { messageId };
-  }
-
   /**
    * Expose conversation lookup for the POST /v1/messages handler.
    * The handler manages busy-state checking and queueing itself.
@@ -774,13 +394,4 @@ export class DaemonServer {
   ): Promise<Conversation> {
     return getOrCreateActiveConversation(conversationId, options);
   }
-}
-
-/** Extract conversationId from a ServerMessage if present. */
-function extractConversationId(msg: ServerMessage): string | undefined {
-  const record = msg as unknown as Record<string, unknown>;
-  if ("conversationId" in msg && typeof record.conversationId === "string") {
-    return record.conversationId as string;
-  }
-  return undefined;
 }

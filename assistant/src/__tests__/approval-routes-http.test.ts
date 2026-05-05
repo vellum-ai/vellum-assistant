@@ -120,6 +120,11 @@ mock.module("../permissions/trust-store.js", () => ({
 let _conversationFactory: (() => Conversation) | undefined;
 
 mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: () => {
+    // Return the current test session for any conversation ID lookup.
+    if (!_conversationFactory) return undefined;
+    return _conversationFactory();
+  },
   getOrCreateConversation: async () => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -171,12 +176,9 @@ function makeIdleSession(opts?: {
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
@@ -203,8 +205,9 @@ function makeIdleSession(opts?: {
 }
 
 /**
- * Conversation whose agent loop emits a confirmation_request, so the hub
- * publisher registers a pending interaction automatically.
+ * Conversation whose agent loop emits a confirmation_request. The mock
+ * self-registers in pendingInteractions (as PermissionPrompter.prompt() does)
+ * so the /v1/confirm endpoint can route the response.
  */
 function makeConfirmationEmittingSession(opts?: {
   onConfirmation?: (requestId: string, decision: string) => void;
@@ -238,12 +241,9 @@ function makeConfirmationEmittingSession(opts?: {
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
@@ -252,11 +252,26 @@ function makeConfirmationEmittingSession(opts?: {
       _messageId: string,
       onEvent: (msg: ServerMessage) => void,
     ) => {
-      // Emit confirmation_request — this triggers the hub publisher to register
-      // the pending interaction
+      // Simulate PermissionPrompter.prompt(): self-register in pendingInteractions
+      // before emitting the SSE event (registration no longer happens via broadcastMessage).
+      pendingInteractions.register(reqId, {
+        conversationId: "conv-auto",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: tool,
+          input: { command: "ls" },
+          riskLevel: "medium",
+          allowlistOptions: [
+            { label: "Allow ls", description: "Allow ls command", pattern: "ls" },
+          ],
+          scopeOptions: [{ label: "This conversation", scope: "session" }],
+          persistentDecisionsAllowed: true,
+        },
+      });
       onEvent({
         type: "confirmation_request",
         requestId: reqId,
+        conversationId: "conv-auto",
         toolName: tool,
         input: { command: "ls" },
         riskLevel: "medium",
@@ -335,7 +350,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Manually register a pending interaction
       pendingInteractions.register("req-abc", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -384,7 +398,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-once", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
       });
@@ -427,7 +440,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-1", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -462,7 +474,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-host-access", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -500,7 +511,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-v2-invalid", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -549,7 +559,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("secret-req-1", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "secret",
       });
@@ -628,8 +637,8 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
   // ── Hub publisher integration ────────────────────────────────────────
 
-  describe("hub publisher registers pending interactions", () => {
-    test("confirmation_request events register pending interactions", async () => {
+  describe("full round-trip: emit → register → confirm", () => {
+    test("confirmation_request: self-registered interaction resolves via /v1/confirm", async () => {
       const confirmReceived: Array<{
         requestId: string;
         decision: string;
@@ -691,17 +700,14 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-a", {
-        conversation: session,
         conversationId: "conv-x",
         kind: "confirmation",
       });
       pendingInteractions.register("req-b", {
-        conversation: session,
         conversationId: "conv-x",
         kind: "secret",
       });
       pendingInteractions.register("req-c", {
-        conversation: session,
         conversationId: "conv-y",
         kind: "confirmation",
       });

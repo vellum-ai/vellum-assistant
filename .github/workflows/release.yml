@@ -58,7 +58,7 @@ jobs:
             fi
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
-            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             if [ -z "$LATEST_TAG" ]; then
               LATEST_TAG="v0.0.0"
             fi
@@ -89,23 +89,24 @@ jobs:
 
       - name: Compute final version
         id: finalize
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            # Use the number of times this workflow has run on this branch
-            # as the prerelease suffix — monotonically increasing and scoped
-            # to the branch (e.g. v0.6.0-staging.3 for the 3rd run).
-            WORKFLOW_FILE="release.yml"
-            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count' || true)
-            if [ -z "$RUN_COUNT" ] || ! [ "$RUN_COUNT" -ge 1 ] 2>/dev/null; then
-              echo "::warning::Failed to query workflow run count (got '${RUN_COUNT}'), falling back to 1"
-              RUN_COUNT=1
-            fi
-            VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
-            echo "Staging prerelease version: $VERSION"
+            # Derive the next staging suffix from existing git tags so the
+            # postfix monotonically increases per base version regardless of
+            # how many total workflow runs exist on the branch.
+            git fetch --tags --quiet
+            MAX_SUFFIX=0
+            for tag in $(git tag -l "v${BASE_VERSION}-staging.*"); do
+              SUFFIX="${tag##*staging.}"
+              if [ "$SUFFIX" -gt "$MAX_SUFFIX" ] 2>/dev/null; then
+                MAX_SUFFIX="$SUFFIX"
+              fi
+            done
+            NEXT_SUFFIX=$((MAX_SUFFIX + 1))
+            VERSION="${BASE_VERSION}-staging.${NEXT_SUFFIX}"
+            echo "Staging prerelease version: $VERSION (previous max suffix: $MAX_SUFFIX)"
             echo 'docker_environment=staging' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
@@ -122,7 +123,7 @@ jobs:
           # Exclude the current version's tag so retries after tagging still
           # detect minor/major bumps correctly.
           # If no prior tag exists (first release), always build.
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
 
           # Force a build on minor/major version bumps so the CWS listing
           # stays in sync even when the extension code itself hasn't changed.
@@ -307,23 +308,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: gateway/chrome-extension-allowlist.json
+          sparse-checkout: clients/chrome-extension/extension-environments.json
           sparse-checkout-cone-mode: false
 
-      - name: Read CWS extension ID from allowlist
+      - name: Read CWS extension ID
         id: read-extension-id
-        run: echo "id=$(jq -r '.allowedExtensionIds[0]' gateway/chrome-extension-allowlist.json)" >> "$GITHUB_OUTPUT"
+        run: echo "id=$(jq -r '.production.extensionId' clients/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Download extension CRX
-        id: download-crx
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
-        with:
-          name: chrome-extension-crx
-          path: /tmp/chrome-extension
-
-      - name: Download extension zip (fallback)
-        if: steps.download-crx.outcome != 'success'
+      - name: Download extension zip
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: chrome-extension-zip
@@ -338,16 +330,30 @@ jobs:
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          # Prefer signed CRX if available, fall back to zip
-          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx 2>/dev/null || ls /tmp/chrome-extension/*.zip)
+          # CWS API requires a zip — it handles signing server-side
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.zip)
           echo "Uploading: $UPLOAD_FILE"
-          chrome-webstore-upload upload \
+          set +e
+          OUTPUT=$(chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
             --extension-id "$EXTENSION_ID" \
             --client-id "$CLIENT_ID" \
             --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+            --refresh-token "$REFRESH_TOKEN" 2>&1)
+          EXIT=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT -ne 0 ] && echo "$OUTPUT" | grep -q "ITEM_NOT_UPDATABLE"; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::CWS rejected upload with ITEM_NOT_UPDATABLE — this version was likely already pushed. e2e tests are gating this release; failing to surface divergence."
+              exit 1
+            fi
+            echo "::notice::CWS already has this version pending/published — skipping upload (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          exit $EXIT
 
       - name: Publish to Chrome Web Store
         env:
@@ -1067,8 +1073,17 @@ jobs:
     timeout-minutes: 5
     environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Compute migration ceilings
         id: migration-ceilings
@@ -1243,6 +1258,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
+      - name: Tag staging release
+        if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+          echo "Tagged staging release: v${VERSION}"
+
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
@@ -1266,6 +1289,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
           PACKAGE="${{ matrix.package }}"
           cd "$PACKAGE"
@@ -1275,9 +1301,17 @@ jobs:
             rm -rf node_modules
             bun install
           fi
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
           npm publish --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
@@ -1355,11 +1389,22 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Publish meta-package
-        run: |
-          cd meta
-          npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+        run: |
+          cd meta
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          npm publish --access public --no-provenance
 
   # arm64 macOS build — builds Swift + Bun binaries in a single job,
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
@@ -1370,8 +1415,7 @@ jobs:
   # and production, and `push-dockerhub-image` is prod-only (skipped in staging)
   # — a skipped dep would cascade-skip this job in staging. The Docker Hub
   # gate is applied downstream at the `release` job (GitHub Release), which
-  # is the sole publisher of the DMG produced here, and at `release-ios`
-  # for its sibling TestFlight publish.
+  # is the sole publisher of the DMG produced here.
   build-macos-arm64:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-26
@@ -1451,6 +1495,7 @@ jobs:
 
       - name: Build binaries
         run: |
+          VELLUM_ENVIRONMENT="${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}" \
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
@@ -1460,7 +1505,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
-            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
+            export SU_FEED_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -1699,7 +1744,7 @@ jobs:
 
           REPO="${{ github.repository }}"
           if [ "$IS_STAGING" = "true" ]; then
-            DOWNLOAD_URL="https://github.com/${REPO}/releases/download/staging-latest/vellum-assistant.zip"
+            DOWNLOAD_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/vellum-assistant.zip"
             TITLE="Vellum Staging"
           else
             DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/vellum-assistant.zip"
@@ -1841,6 +1886,13 @@ jobs:
           fi
           DAEMON_FLAGS+=(--define "process.env.COMMIT_SHA='${{ github.sha }}'")
 
+          # Embed VELLUM_ENVIRONMENT at compile time so all binaries know their
+          # runtime context without any filesystem lookup.
+          VELLUM_ENVIRONMENT_VALUE="${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
+          ENV_DEFINE=(--define "process.env.VELLUM_ENVIRONMENT='$VELLUM_ENVIRONMENT_VALUE'")
+          DAEMON_FLAGS+=("${ENV_DEFINE[@]}")
+          DAEMON_EXTERNAL_FLAGS+=("${ENV_DEFINE[@]}")
+
           # Daemon
           (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p daemon-bin
@@ -1865,14 +1917,14 @@ jobs:
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 
           # Gateway
           (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p gateway-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
           cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" gateway-bin/
@@ -1881,7 +1933,7 @@ jobs:
           # Credential-executor (CES)
           (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p ces-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CES_SRC_DIR/src/main.ts" --outfile ces-bin/credential-executor
           chmod +x ces-bin/credential-executor
 
@@ -1890,7 +1942,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
-            export SU_FEED_URL="https://github.com/${{ github.repository }}/releases/download/staging-latest/appcast.xml"
+            export SU_FEED_URL="https://storage.googleapis.com/vellum-staging-sparkle/staging/appcast.xml"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -2213,6 +2265,8 @@ jobs:
     if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.release.result == 'success' && needs.register-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      outcome: ${{ steps.merge.outcome }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -2227,6 +2281,8 @@ jobs:
           fetch-depth: 0
 
       - name: Merge release branch and delete
+        id: merge
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -2315,6 +2371,55 @@ jobs:
             --head "$BRANCH")
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
+
+  # ── Dispatch iOS release to platform repo ────────────────────────────
+
+  dispatch-ios-release:
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    if: >-
+      ${{
+        always() && !cancelled()
+        && needs.extract-version.result == 'success'
+        && needs.build-macos-arm64.result == 'success'
+        && needs.build-macos-x64.result == 'success'
+        && needs.push-assistant-manifest.result == 'success'
+        && needs.push-gateway-manifest.result == 'success'
+        && needs.push-credential-executor-manifest.result == 'success'
+        && needs.build-chrome-extension.result == 'success'
+        && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
+        && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
+        && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Dispatch iOS release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="production"
+          fi
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/dispatches" \
+            -d "{\"event_type\":\"ios-release\",\"client_payload\":{\"environment\":\"$ENVIRONMENT\",\"version\":\"$VERSION\"}}"
+          echo "Dispatched ios-release to vellum-assistant-platform (environment=$ENVIRONMENT, version=$VERSION)"
 
   # ci-assistant runs lint/typecheck/test for the assistant service. It also
   # transitively gates the release pipeline because push-assistant-image and
@@ -2452,193 +2557,6 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
-  # iOS build — produces .ipa for TestFlight upload via release-ios.
-  # As with the macOS builds, `needs:` gates on GCR manifests only because
-  # this job runs in staging too; the Docker Hub gate lives on `release-ios`
-  # (prod-only), which is the sole external publisher of this .ipa.
-  #
-  # -------------------------------------------------------------------------
-  # PAUSED during the Capacitor iOS migration (LUM-1125).
-  # iOS releases are handled manually out of `vellum-assistant-platform`'s
-  # Capacitor shell while the replacement CI workflow is being designed.
-  # Both pipelines cannot upload to the same bundle ID
-  # (`ai.vocify-inc.vellum-assistant-ios`) simultaneously — App Store
-  # Connect rejects duplicate build numbers, so we skip this one.
-  #
-  # To re-enable either for a fallback native-iOS release, or if the
-  # Capacitor migration is abandoned: remove `if: false` from here and
-  # from `release-ios` below.
-  # -------------------------------------------------------------------------
-  build-ios:
-    if: false
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Cache Homebrew XcodeGen
-        id: cache-xcodegen-build
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /usr/local/Cellar/xcodegen
-            /opt/homebrew/Cellar/xcodegen
-          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install XcodeGen
-        if: steps.cache-xcodegen-build.outputs.cache-hit != 'true'
-        run: brew install xcodegen
-
-      - name: Link XcodeGen
-        if: steps.cache-xcodegen-build.outputs.cache-hit == 'true'
-        run: brew link xcodegen 2>/dev/null || true
-
-      - name: Clear stale SPM artifact cache
-        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
-
-      - name: Build for simulator
-        working-directory: clients/ios
-        run: ./build.sh
-
-      - name: Run iOS tests
-        working-directory: clients/ios
-        run: ./build.sh test
-
-  # PAUSED during the Capacitor iOS migration (LUM-1125) — see note on
-  # `build-ios` above. To re-enable, delete the `if: false` line and
-  # restore the original staging gate:
-  #   if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
-  release-ios:
-    if: false
-    needs: [extract-version, build-ios, push-dockerhub-image]
-    runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      KEYCHAIN_NAME: ios-build.keychain
-      KEYCHAIN_PASSWORD: temporary-ci-password
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Import code-signing certificate
-        env:
-          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
-          security import /tmp/ios-certificate.p12 \
-            -k "$KEYCHAIN_PATH" \
-            -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm /tmp/ios-certificate.p12
-
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-      - name: Verify signing identity
-        run: |
-          security find-identity -v -p codesigning | grep -q "Apple Distribution" \
-            || { echo "::error::Apple Distribution identity not found in keychain. Check the DIST_CERTIFICATE_P12 secret."; exit 1; }
-
-      - name: Install provisioning profile
-        env:
-          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-        run: |
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILE_DIR"
-          echo "$PROVISIONING_PROFILE" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
-          echo "Provisioning profile installed"
-
-      - name: Set version
-        id: version
-        run: |
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
-          else
-            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
-          fi
-          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
-          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
-
-      - name: Cache Homebrew XcodeGen
-        id: cache-xcodegen-release
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /usr/local/Cellar/xcodegen
-            /opt/homebrew/Cellar/xcodegen
-          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install XcodeGen
-        if: steps.cache-xcodegen-release.outputs.cache-hit != 'true'
-        run: brew install xcodegen
-
-      - name: Link XcodeGen
-        if: steps.cache-xcodegen-release.outputs.cache-hit == 'true'
-        run: brew link xcodegen 2>/dev/null || true
-
-      - name: Clear stale SPM artifact cache
-        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
-
-      - name: Build release .ipa
-        working-directory: clients/ios
-        run: |
-          DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
-          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
-          ./build.sh release
-
-      - name: Upload to TestFlight
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          mkdir -p ~/.private_keys
-          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
-
-          IPA_FILE=$(find clients/ios/dist/export -name "*.ipa" -maxdepth 1 | head -1)
-          echo "Uploading $IPA_FILE to TestFlight..."
-          xcrun altool --upload-app \
-            -f "$IPA_FILE" \
-            --type ios \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID"
-
-      - name: Upload .ipa artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ios-ipa
-          path: clients/ios/dist/export/*.ipa
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Cleanup keychain and keys
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-          rm -rf ~/.private_keys 2>/dev/null || true
-
   ci-playwright:
     name: Playwright Tests
     needs: [extract-version, build-macos-arm64]
@@ -2731,61 +2649,52 @@ jobs:
           done
 
   # ── Sparkle Rolling Release (Staging) ──────────────────────────────────
-  # Maintain a rolling `staging-latest` GitHub pre-release with the signed
-  # Sparkle ZIP + appcast so existing staging installs can self-update.
+  # ── Upload Sparkle artifacts to GCS (staging) ─────────────────────────
+  # Push appcast.xml + ZIP to the public vellum-staging-sparkle GCS bucket.
+  # Staging macOS builds have SUFeedURL pointing here, keeping GitHub
+  # releases clean (no staging pre-releases on the public releases page).
 
-  publish-sparkle-staging:
+  upload-sparkle-staging:
     needs: [extract-version, build-macos-arm64]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: staging
     permissions:
-      contents: write
+      contents: read
+      id-token: write
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@<redacted type="High-Entropy Hex Token" /> # v2.2.2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
       - name: Download macOS build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-build
           path: macos-artifacts
 
-      - name: Update staging-latest rolling release
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Sparkle artifacts to GCS
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
-          TAG="staging-latest"
-          REPO="${{ github.repository }}"
+          BUCKET="vellum-staging-sparkle"
 
           ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
           APPCAST=$(find macos-artifacts -name "appcast.xml" -type f | head -1)
           DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
 
           if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
-            echo "::warning::Sparkle artifacts not found, skipping rolling release"
+            echo "::warning::Sparkle artifacts not found, skipping GCS upload"
             exit 0
           fi
 
-          # Delete existing release if present
-          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gcloud storage cp "$ZIP" "gs://${BUCKET}/staging/vellum-assistant.zip"
+          gcloud storage cp "$APPCAST" "gs://${BUCKET}/staging/appcast.xml"
+          [ -n "$DMG" ] && gcloud storage cp "$DMG" "gs://${BUCKET}/staging/vellum-assistant.dmg"
 
-          ASSETS=("$ZIP#vellum-assistant.zip" "$APPCAST#appcast.xml")
-          [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
-
-          gh release create "$TAG" \
-            "${ASSETS[@]}" \
-            --repo "$REPO" \
-            --title "Staging Build ${VERSION}" \
-            --notes "Rolling staging release for Sparkle auto-update. Version: ${VERSION}" \
-            --prerelease
-
-          echo "Updated staging-latest rolling release with ${VERSION}"
+          echo "Uploaded staging Sparkle artifacts to gs://${BUCKET}/staging/ (version=${VERSION})"
 
   notify-staging-dmg:
     name: Slack Notification (Staging DMG Ready)
@@ -2871,7 +2780,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2945,8 +2854,6 @@ jobs:
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
           DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
-          I=$(ci_icon "${{ needs.build-ios.result }}")
-          RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
@@ -2954,8 +2861,11 @@ jobs:
           RR=$(ci_icon "${{ needs.register-release.result }}")
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
+          DI=$(ci_icon "${{ needs.dispatch-ios-release.result }}")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
+          MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"
+          MB=$(ci_icon "$MERGE_OUTCOME")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -2968,7 +2878,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -2977,7 +2887,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
@@ -3017,6 +2927,12 @@ jobs:
           # CI checks + metadata
           BODY=$(printf '%s\n\n%s' "$CI_LINE" "$META_LINE")
           BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          # Warning if merge-release-branch failed
+          if [ "$MERGE_OUTCOME" != "success" ] && [ "$MERGE_OUTCOME" != "skipped" ] && [ "$IS_STAGING" != "true" ] && [ "$RELEASE_FAILED" != "true" ]; then
+            MERGE_WARNING="⚠️ *The release branch failed to merge to main and must be merged manually.* Run \`gh pr create --base main --head release/v${VERSION}\` and merge."
+            BLOCKS=$(echo "$BLOCKS" | jq --arg warning "$MERGE_WARNING" '. + [{ type: "section", text: { type: "mrkdwn", text: $warning } }]')
+          fi
 
           # Buttons
           VIEW_RUN=$(jq -n --arg url "$RUN_URL" --arg style "$STYLE" '{

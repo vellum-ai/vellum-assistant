@@ -62,6 +62,7 @@ export interface ConceptPageQueryResult {
 
 let _client: QdrantRestClient | null = null;
 let _collectionReady = false;
+let _collectionReadyPromise: Promise<void> | null = null;
 
 /** Lazily create a Qdrant REST client bound to the resolved URL. */
 function getClient(): QdrantRestClient {
@@ -85,7 +86,15 @@ function getClient(): QdrantRestClient {
  */
 export async function ensureConceptPageCollection(): Promise<void> {
   if (_collectionReady) return;
+  if (_collectionReadyPromise) return _collectionReadyPromise;
 
+  _collectionReadyPromise = ensureConceptPageCollectionOnce().finally(() => {
+    _collectionReadyPromise = null;
+  });
+  return _collectionReadyPromise;
+}
+
+async function ensureConceptPageCollectionOnce(): Promise<void> {
   const client = getClient();
   const config = getConfig();
   const vectorSize = config.memory.qdrant.vectorSize;
@@ -216,6 +225,95 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
 }
 
 /**
+ * Remove every point whose slug starts with the given prefix and whose
+ * remaining suffix is not in `activeSuffixes`. Used by the skill-seed flow to
+ * drop stale `skills/<id>` slugs after a skill is uninstalled or disabled,
+ * since skills now share the concept-page collection rather than living in a
+ * dedicated one.
+ *
+ * Idempotent: when the live `<prefix>*` slugs already match `activeSuffixes`,
+ * the function performs a single scroll and no deletes.
+ */
+export async function pruneSlugsWithPrefixExcept(
+  prefix: string,
+  activeSuffixes: readonly string[],
+): Promise<void> {
+  await ensureConceptPageCollection();
+
+  const client = getClient();
+  const activeSet = new Set(activeSuffixes);
+
+  const doPrune = async (): Promise<void> => {
+    const stalePointIds: Array<string | number> = [];
+    let offset: string | number | undefined = undefined;
+    const maxIterations = 10_000;
+    const batchSize = 256;
+    for (let i = 0; i < maxIterations; i++) {
+      const result = await client.scroll(MEMORY_V2_COLLECTION, {
+        limit: batchSize,
+        with_payload: true,
+        with_vector: false,
+        ...(offset !== undefined ? { offset } : {}),
+      });
+      for (const point of result.points) {
+        const slug = (point.payload as { slug?: unknown } | null)?.slug;
+        if (typeof slug !== "string") continue;
+        if (!slug.startsWith(prefix)) continue;
+        const suffix = slug.slice(prefix.length);
+        if (!activeSet.has(suffix)) {
+          stalePointIds.push(point.id);
+        }
+      }
+      const next = result.next_page_offset;
+      if (next == null) break;
+      offset = typeof next === "string" ? next : (next as number);
+    }
+
+    if (stalePointIds.length === 0) return;
+
+    await client.delete(MEMORY_V2_COLLECTION, {
+      wait: true,
+      points: stalePointIds,
+    });
+  };
+
+  try {
+    await doPrune();
+  } catch (err) {
+    if (isCollectionMissing(err)) {
+      _collectionReady = false;
+      await ensureConceptPageCollection();
+      await doPrune();
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Best-effort delete of the legacy `memory_v2_skills` Qdrant collection. Skill
+ * embeddings now live alongside concept pages in `memory_v2_concept_pages`
+ * under the `skills/<id>` slug prefix, so the dedicated collection is dead
+ * weight on installs upgraded from the split-collection era. Fire-and-forget:
+ * on a fresh install (collection never existed) or a transient Qdrant
+ * unavailable, we log and move on.
+ */
+export async function dropLegacySkillsCollection(): Promise<void> {
+  try {
+    const client = getClient();
+    const exists = await client.collectionExists("memory_v2_skills");
+    if (!exists.exists) return;
+    await client.deleteCollection("memory_v2_skills");
+    log.info("Deleted legacy memory_v2_skills Qdrant collection");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to drop legacy memory_v2_skills collection — non-fatal",
+    );
+  }
+}
+
+/**
  * Run separate dense and sparse queries against the concept-page collection
  * and return per-channel scores per slug. Callers fuse these — typically via
  * a normalized weighted-sum — because RRF would discard the score magnitudes
@@ -236,6 +334,7 @@ export async function hybridQueryConceptPages(
   sparse: SparseEmbedding,
   limit: number,
   restrictToSlugs?: readonly string[],
+  options?: { skipSparse?: boolean },
 ): Promise<ConceptPageQueryResult[]> {
   if (restrictToSlugs && restrictToSlugs.length === 0) {
     // An empty restriction means "no candidates"; skip the round-trip.
@@ -248,6 +347,13 @@ export async function hybridQueryConceptPages(
   const filter = restrictToSlugs
     ? { must: [{ key: "slug", match: { any: [...restrictToSlugs] } }] }
     : undefined;
+
+  // When the caller weighted sparse to zero, skip the round-trip entirely.
+  // The downstream fuser (`fuseHit` in `sim.ts`) already treats a missing
+  // sparse score as a 0 contribution, so omitting the query is a pure
+  // optimization — and it's also the kill switch operators use to dodge a
+  // Qdrant 1.13.x sparse-index crash that we've reproduced in the wild.
+  const skipSparse = options?.skipSparse ?? false;
 
   const denseQuery = () =>
     client.query(MEMORY_V2_COLLECTION, {
@@ -267,7 +373,14 @@ export async function hybridQueryConceptPages(
     });
 
   // Run both queries concurrently — they hit independent named vectors.
-  const runQueries = async () => Promise.all([denseQuery(), sparseQuery()]);
+  // When sparse is gated off we still resolve a Promise so the destructuring
+  // below stays uniform; the empty `points: []` matches the shape of a
+  // no-hit Qdrant response.
+  const emptyResult = {
+    points: [] as Array<{ payload?: unknown; score?: number }>,
+  };
+  const runQueries = async () =>
+    Promise.all([denseQuery(), skipSparse ? emptyResult : sparseQuery()]);
 
   let denseResults;
   let sparseResults;
@@ -306,6 +419,89 @@ export async function hybridQueryConceptPages(
 }
 
 /**
+ * Page through the v2 concept-page collection and return up to `maxSamples`
+ * stored dense vectors. Used by the anisotropy-fit pipeline to compute a
+ * corpus mean + top-k principal components without re-embedding every page.
+ *
+ * Sparse vectors are skipped — anisotropy is a dense-embedding phenomenon, and
+ * pulling the sparse side would just inflate the response. Payload is also
+ * skipped because the fit doesn't need slug identity.
+ *
+ * Returns an empty array when the collection is empty or missing. Caller
+ * decides what to do (typically: surface a "no vectors to fit" error).
+ */
+export async function sampleConceptPageDenseVectors(
+  maxSamples: number,
+): Promise<number[][]> {
+  if (maxSamples <= 0) return [];
+  await ensureConceptPageCollection();
+
+  const client = getClient();
+  const out: number[][] = [];
+  let offset: string | number | undefined = undefined;
+  // Same pagination guard pattern as the rest of the file — bounds the loop
+  // even if Qdrant somehow keeps handing back a non-null offset.
+  const maxIterations = 10_000;
+  const batchSize = Math.min(256, maxSamples);
+
+  for (let i = 0; i < maxIterations; i++) {
+    if (out.length >= maxSamples) break;
+    const remaining = maxSamples - out.length;
+    let result;
+    try {
+      result = await client.scroll(MEMORY_V2_COLLECTION, {
+        limit: Math.min(batchSize, remaining),
+        with_payload: false,
+        // Fetch only the dense named vector — sparse is irrelevant for
+        // anisotropy correction.
+        with_vector: ["dense"],
+        ...(offset !== undefined ? { offset } : {}),
+      });
+    } catch (err) {
+      if (isCollectionMissing(err)) {
+        _collectionReady = false;
+        return out;
+      }
+      throw err;
+    }
+
+    for (const point of result.points) {
+      const v = extractDenseVector(point.vector);
+      if (v) out.push(v);
+      if (out.length >= maxSamples) break;
+    }
+
+    const next = result.next_page_offset;
+    if (next == null) break;
+    offset = typeof next === "string" ? next : (next as number);
+  }
+
+  return out;
+}
+
+/**
+ * Pull the `dense` named-vector payload out of a Qdrant point. Defensively
+ * handles both the named-vector shape (`{ dense: [...] }`) and the legacy
+ * unnamed-vector shape (`number[]`) so older collection layouts don't trip
+ * the sampler. Returns `null` for shapes we don't recognise.
+ */
+function extractDenseVector(vector: unknown): number[] | null {
+  if (Array.isArray(vector)) {
+    if (vector.every((n) => typeof n === "number")) {
+      return vector as number[];
+    }
+    return null;
+  }
+  if (vector && typeof vector === "object") {
+    const dense = (vector as { dense?: unknown }).dense;
+    if (Array.isArray(dense) && dense.every((n) => typeof n === "number")) {
+      return dense as number[];
+    }
+  }
+  return null;
+}
+
+/**
  * Detect "collection not found" errors so callers can reset readiness and
  * retry after an external deletion (e.g. workspace reset).
  */
@@ -339,4 +535,5 @@ function pointIdForSlug(slug: string): string {
 export function _resetMemoryV2QdrantForTests(): void {
   _client = null;
   _collectionReady = false;
+  _collectionReadyPromise = null;
 }

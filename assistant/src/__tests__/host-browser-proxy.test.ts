@@ -15,32 +15,32 @@ let mockHasConnection = true;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
-    publish: async (event: unknown) => {
+    publish: async (event: unknown, _options?: unknown) => {
       publishedEvents.push(event);
     },
-  },
-}));
-
-mock.module("../runtime/assistant-event.js", () => ({
-  buildAssistantEvent: (message: unknown) => ({ message }),
-}));
-
-mock.module("../runtime/client-registry.js", () => ({
-  getClientRegistry: () => ({
-    getMostRecentByCapability: (cap: string) =>
+    getPreferredClientByCapability: (cap: string, _preference?: unknown) =>
       cap === "host_browser" && mockHasConnection
-        ? { clientId: "test-client" }
+        ? {
+            type: "client",
+            clientId: "test-client",
+            interfaceId: "macos",
+            capabilities: ["host_browser"],
+          }
         : undefined,
-  }),
+  },
+  broadcastMessage: (msg: unknown) => {
+    publishedEvents.push(msg);
+  },
 }));
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostBrowserProxy } = await import("../daemon/host-browser-proxy.js");
 
 /** Extract the ServerMessage payloads from published events. */
 function getPublishedMessages(): unknown[] {
-  return publishedEvents.map((e) => (e as { message: unknown }).message);
+  return publishedEvents;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -50,6 +50,7 @@ describe("HostBrowserProxy", () => {
 
   beforeEach(() => {
     HostBrowserProxy.reset();
+    pendingInteractions.clear();
     publishedEvents = [];
     mockHasConnection = true;
     proxy = HostBrowserProxy.instance;
@@ -57,6 +58,7 @@ describe("HostBrowserProxy", () => {
 
   afterEach(() => {
     HostBrowserProxy.reset();
+    pendingInteractions.clear();
   });
 
   describe("request/resolve lifecycle (happy path)", () => {
@@ -78,14 +80,14 @@ describe("HostBrowserProxy", () => {
       expect(typeof sent.requestId).toBe("string");
 
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolve(requestId, { content: "ok", isError: false });
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
 
       const result = await resultPromise;
       expect(result.content).toBe("ok");
       expect(result.isError).toBe(false);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("forwards cdpParams and cdpSessionId on the emitted envelope", async () => {
@@ -108,7 +110,7 @@ describe("HostBrowserProxy", () => {
       });
       expect(sent.cdpSessionId).toBe("session-abc");
 
-      proxy.resolve(sent.requestId as string, {
+      proxy.resolveResult(sent.requestId as string, {
         content: "Example Domain",
         isError: false,
       });
@@ -123,7 +125,7 @@ describe("HostBrowserProxy", () => {
       );
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, {
+      proxy.resolveResult(sent.requestId as string, {
         content: "Navigation failed",
         isError: true,
       });
@@ -143,11 +145,11 @@ describe("HostBrowserProxy", () => {
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolve(requestId, { content: "ok", isError: false });
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
       await resultPromise;
     });
   });
@@ -165,14 +167,14 @@ describe("HostBrowserProxy", () => {
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       await new Promise((r) => setTimeout(r, 50));
 
       const result = await resultPromise;
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Host browser proxy timed out");
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 
@@ -202,14 +204,14 @@ describe("HostBrowserProxy", () => {
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
 
       const result = await resultPromise;
       expect(result.content).toBe("Aborted");
       expect(result.isError).toBe(true);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
 
       // Cancel envelope should have been sent.
       expect(getPublishedMessages()).toHaveLength(2);
@@ -251,8 +253,8 @@ describe("HostBrowserProxy", () => {
 
       proxy.dispose();
 
-      expect(proxy.hasPendingRequest(requestIds[0]!)).toBe(false);
-      expect(proxy.hasPendingRequest(requestIds[1]!)).toBe(false);
+      expect(pendingInteractions.get(requestIds[0]!)).toBeUndefined();
+      expect(pendingInteractions.get(requestIds[1]!)).toBeUndefined();
 
       await expect(p1).rejects.toThrow("Host browser proxy disposed");
       await expect(p2).rejects.toThrow("Host browser proxy disposed");
@@ -270,7 +272,7 @@ describe("HostBrowserProxy", () => {
 
   describe("resolve with unknown requestId", () => {
     test("silently ignores unknown requestId", () => {
-      proxy.resolve("nonexistent", { content: "stale", isError: false });
+      proxy.resolveResult("nonexistent", { content: "stale", isError: false });
     });
   });
 
@@ -342,7 +344,7 @@ describe("HostBrowserProxy", () => {
 
       const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolve(requestId, { content: "ok", isError: false });
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
 
       expect(spy.removeCalls).toEqual(["abort"]);

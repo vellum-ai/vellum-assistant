@@ -13,7 +13,7 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
+import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -39,9 +39,8 @@ export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
   gateway: `${DOCKERHUB_ORG}/vellum-gateway`,
 };
 
-/** Internal ports exposed by each service's Dockerfile. */
-export const ASSISTANT_INTERNAL_PORT = 7821;
-export const GATEWAY_INTERNAL_PORT = 7830;
+/** Internal ports exposed by each service's Dockerfile. Re-exported from environments/paths.ts. */
+export { ASSISTANT_INTERNAL_PORT, GATEWAY_INTERNAL_PORT } from "./environments/paths.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
@@ -363,7 +362,6 @@ export function dockerResourceNames(instanceName: string) {
     assistantIpcVolume: `${instanceName}-assistant-ipc`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
-    dockerdDataVolume: `${instanceName}-dockerd-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewayIpcVolume: `${instanceName}-gateway-ipc`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
@@ -426,7 +424,6 @@ export async function retireDocker(name: string): Promise<void> {
     res.workspaceVolume,
     res.cesSecurityVolume,
     res.gatewaySecurityVolume,
-    res.dockerdDataVolume,
   ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
@@ -562,254 +559,6 @@ async function buildAllImages(
   );
 }
 
-/**
- * Returns a function that builds the `docker run` arguments for a given
- * service. All three containers share a network namespace via
- * `--network=container:` so inter-service traffic is over localhost,
- * matching the platform's Kubernetes pod topology.
- */
-export function serviceDockerRunArgs(opts: {
-  signingKey?: string;
-  bootstrapSecret?: string;
-  cesServiceToken?: string;
-  extraAssistantEnv?: Record<string, string>;
-  gatewayPort: number;
-  imageTags: Record<ServiceName, string>;
-  defaultWorkspaceConfigPath?: string;
-  instanceName: string;
-  res: ReturnType<typeof dockerResourceNames>;
-}): Record<ServiceName, () => string[]> {
-  const {
-    cesServiceToken,
-    defaultWorkspaceConfigPath,
-    extraAssistantEnv,
-    gatewayPort,
-    imageTags,
-    instanceName,
-    res,
-  } = opts;
-  return {
-    assistant: () => {
-      // Run the assistant container in Docker-in-Docker (DinD) mode: the
-      // container runs its own `dockerd` so the Meet subsystem can spawn
-      // sibling meet-bot containers without needing access to the host's
-      // Docker engine. This requires:
-      //   - `CAP_SYS_ADMIN` + `CAP_NET_ADMIN` so the inner dockerd can
-      //     configure cgroups, overlay mounts, network namespaces, and
-      //     iptables. We deliberately avoid `--privileged` (which grants the
-      //     full host capability set and access to every host device node)
-      //     to shrink the escape surface from any code running inside the
-      //     assistant container. See the "Security tradeoff for Docker mode"
-      //     note in AGENTS.md.
-      //   - `seccomp=unconfined` + `apparmor=unconfined` because Docker's
-      //     default seccomp profile blocks syscalls dockerd needs (e.g.
-      //     certain clone/unshare and pivot_root flags) and the default
-      //     AppArmor profile on Debian/Ubuntu hosts denies the mount
-      //     operations dockerd performs while launching bot containers. On
-      //     hosts where these LSMs are inactive, the options are no-ops.
-      //   - A dedicated named volume mounted at `/var/lib/docker` so the
-      //     inner Docker image cache and container state survive restarts of
-      //     the assistant container.
-      // The host's `/var/run/docker.sock` is intentionally NOT mounted — all
-      // Meet-bot spawning happens against the inner dockerd.
-      const args: string[] = [
-        "run",
-        "--init",
-        "-d",
-        "--cap-add",
-        "SYS_ADMIN",
-        "--cap-add",
-        "NET_ADMIN",
-        "--security-opt",
-        "seccomp=unconfined",
-        "--security-opt",
-        "apparmor=unconfined",
-        "--name",
-        res.assistantContainer,
-        `--network=${res.network}`,
-        "-p",
-        `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
-        // Published so the Meet subsystem's sibling bot containers can reach
-        // the daemon's internal HTTP API at host.docker.internal:<port>.
-        //
-        // Published on all host interfaces (no `127.0.0.1:` prefix) because on
-        // vanilla Linux Docker, `host.docker.internal:host-gateway` resolves
-        // to the Docker bridge gateway IP (e.g. 172.17.0.1), not loopback.
-        // Packets from sibling containers arrive at the host's bridge
-        // interface, and an iptables DNAT rule keyed on dest=127.0.0.1 would
-        // not match — causing connection refused. Docker Desktop (macOS/
-        // Windows) still works because its VM proxy forwards to the same
-        // published port regardless of the binding address.
-        //
-        // Security tradeoff: the daemon HTTP API is now reachable from the
-        // host's LAN (any device that can hit the host IP on this port).
-        // This matches the gateway port's existing posture and is acceptable
-        // for single-user self-hosted Docker mode per the Phase 1.8 security
-        // note. Managed/multi-tenant deployments are out of scope and would
-        // require a different design.
-        "-p",
-        `${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
-        "-v",
-        `${res.workspaceVolume}:/workspace`,
-        "-v",
-        `${res.socketVolume}:/run/ces-bootstrap`,
-        "-v",
-        `${res.assistantIpcVolume}:/run/assistant-ipc`,
-        "-v",
-        `${res.gatewayIpcVolume}:/run/gateway-ipc`,
-        "-v",
-        `${res.dockerdDataVolume}:/var/lib/docker`,
-        "-e",
-        "IS_CONTAINERIZED=true",
-        "-e",
-        `VELLUM_ASSISTANT_NAME=${instanceName}`,
-        "-e",
-        "VELLUM_CLOUD=docker",
-        "-e",
-        "RUNTIME_HTTP_HOST=0.0.0.0",
-        "-e",
-        "VELLUM_WORKSPACE_DIR=/workspace",
-        "-e",
-        "VELLUM_BACKUP_DIR=/workspace/.backups",
-        "-e",
-        "VELLUM_BACKUP_KEY_PATH=/workspace/.backup.key",
-        "-e",
-        "CES_CREDENTIAL_URL=http://localhost:8090",
-        "-e",
-        `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
-        "-e",
-        "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
-        "-e",
-        "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
-      ];
-      if (defaultWorkspaceConfigPath) {
-        const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
-        args.push(
-          "-v",
-          `${defaultWorkspaceConfigPath}:${containerPath}:ro`,
-          "-e",
-          `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${containerPath}`,
-        );
-      }
-      if (cesServiceToken) {
-        args.push("-e", `CES_SERVICE_TOKEN=${cesServiceToken}`);
-      }
-      if (opts.signingKey) {
-        args.push("-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`);
-      }
-      if (opts.bootstrapSecret) {
-        // Mirror the secret into the assistant container so the runtime's
-        // guardian-bootstrap handler can validate the x-bootstrap-secret
-        // header forwarded by the gateway. Without this, the published
-        // runtime port would expose an unauthenticated token-minting
-        // endpoint reachable from the host bypassing the gateway's gate.
-        args.push("-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`);
-      }
-      for (const envVar of [
-        ...Object.values(PROVIDER_ENV_VAR_NAMES),
-        "VELLUM_ENVIRONMENT",
-        "VELLUM_PLATFORM_URL",
-      ]) {
-        if (process.env[envVar]) {
-          args.push("-e", `${envVar}=${process.env[envVar]}`);
-        }
-      }
-      if (extraAssistantEnv) {
-        for (const [key, value] of Object.entries(extraAssistantEnv)) {
-          args.push("-e", `${key}=${value}`);
-        }
-      }
-      const avatarDevice = resolveAvatarDevicePath();
-      if (existsSync(avatarDevice)) {
-        args.push(
-          "--device",
-          `${avatarDevice}:${avatarDevice}`,
-          "-e",
-          `${AVATAR_DEVICE_ENV_VAR}=${avatarDevice}`,
-        );
-      }
-      args.push(imageTags.assistant);
-      return args;
-    },
-    gateway: () => [
-      "run",
-      "--init",
-      "-d",
-      "--name",
-      res.gatewayContainer,
-      `--network=container:${res.assistantContainer}`,
-      "-v",
-      `${res.workspaceVolume}:/workspace`,
-      "-v",
-      `${res.gatewaySecurityVolume}:/gateway-security`,
-      "-v",
-      `${res.assistantIpcVolume}:/run/assistant-ipc`,
-      "-v",
-      `${res.gatewayIpcVolume}:/run/gateway-ipc`,
-      "-e",
-      "VELLUM_WORKSPACE_DIR=/workspace",
-      "-e",
-      "GATEWAY_SECURITY_DIR=/gateway-security",
-      "-e",
-      `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-      "-e",
-      "ASSISTANT_HOST=localhost",
-      "-e",
-      `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-      "-e",
-      "RUNTIME_PROXY_ENABLED=true",
-      "-e",
-      "CES_CREDENTIAL_URL=http://localhost:8090",
-      "-e",
-      "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
-      "-e",
-      "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
-      ...(cesServiceToken
-        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
-        : []),
-      ...(opts.signingKey
-        ? ["-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`]
-        : []),
-      ...(opts.bootstrapSecret
-        ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
-        : []),
-      ...(process.env.VELLUM_ENVIRONMENT
-        ? ["-e", `VELLUM_ENVIRONMENT=${process.env.VELLUM_ENVIRONMENT}`]
-        : []),
-      ...(process.env.VELLUM_PLATFORM_URL
-        ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
-        : []),
-      imageTags.gateway,
-    ],
-    "credential-executor": () => [
-      "run",
-      "--init",
-      "-d",
-      "--name",
-      res.cesContainer,
-      `--network=container:${res.assistantContainer}`,
-      "-v",
-      `${res.socketVolume}:/run/ces-bootstrap`,
-      "-v",
-      `${res.workspaceVolume}:/workspace:ro`,
-      "-v",
-      `${res.cesSecurityVolume}:/ces-security`,
-      "-e",
-      "CES_MODE=managed",
-      "-e",
-      "VELLUM_WORKSPACE_DIR=/workspace",
-      "-e",
-      "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-      "-e",
-      "CREDENTIAL_SECURITY_DIR=/ces-security",
-      ...(cesServiceToken
-        ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
-        : []),
-      imageTags["credential-executor"],
-    ],
-  };
-}
-
 /** The order in which services must be started. */
 export const SERVICE_START_ORDER: ServiceName[] = [
   "assistant",
@@ -832,17 +581,7 @@ export async function startContainers(
   },
   log: (msg: string) => void,
 ): Promise<void> {
-  // Ensure the inner dockerd's data volume exists before mounting it.
-  // For instances hatched on Phase 1.10+, this is created in hatchDocker and
-  // is a no-op here. For instances that pre-date Phase 1.10 (DinD) and are
-  // upgrading in place, Docker would otherwise auto-create the volume on
-  // first `-v` mount without our standard ownership/labeling. Creating it
-  // explicitly keeps volume provenance consistent across fresh and upgraded
-  // instances. `docker volume create` is idempotent for an existing volume
-  // of the same name, so this is safe to run on every start.
-  await exec("docker", ["volume", "create", opts.res.dockerdDataVolume]);
-
-  const runArgs = serviceDockerRunArgs(opts);
+  const runArgs = buildServiceRunArgs({ ...opts, avatarDevicePath: resolveAvatarDevicePath() });
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
     await exec("docker", runArgs[service]());
@@ -1020,7 +759,7 @@ function startFileWatcher(opts: {
   let rebuilding = false;
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
-  const runArgs = serviceDockerRunArgs({
+  const runArgs = buildServiceRunArgs({
     signingKey: opts.signingKey,
     bootstrapSecret: opts.bootstrapSecret,
     cesServiceToken: opts.cesServiceToken,
@@ -1028,6 +767,7 @@ function startFileWatcher(opts: {
     imageTags,
     instanceName,
     res,
+    avatarDevicePath: resolveAvatarDevicePath(),
   });
   const containerForService: Record<ServiceName, string> = {
     assistant: res.assistantContainer,
@@ -1254,7 +994,6 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
-    await exec("docker", ["volume", "create", res.dockerdDataVolume]);
 
     // Set volume ownership so non-root containers (UID 1001) can write.
     await exec("docker", [

@@ -35,8 +35,8 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
+  buildSlashContextForContent,
   resolveSlash,
-  type SlashContext,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import {
@@ -44,10 +44,9 @@ import {
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
-import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
-import { HostFileProxy } from "../../daemon/host-file-proxy.js";
-import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
+import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -66,8 +65,6 @@ import {
   getSourcePathsForAttachments,
 } from "../../memory/attachments-store.js";
 import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
   listCanonicalGuardianRequests,
   listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
@@ -89,11 +86,11 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
+import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
-import { redactSecrets } from "../../security/secret-scanner.js";
-import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getInterfacesDir,
@@ -101,9 +98,8 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
@@ -347,18 +343,6 @@ async function tryConsumeCanonicalGuardianReply(params: {
   }
 
   return { consumed: true, messageId };
-}
-
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string | undefined,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") {
-    return "voice";
-  }
-  if (sourceChannel === "vellum") {
-    return "desktop";
-  }
-  return "channel";
 }
 
 function getInterfaceFilesWithMtimes(
@@ -1015,224 +999,10 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 }
 
 /**
- * Build an `onEvent` callback that publishes every outbound event to the
- * assistant event hub, maintaining ordered delivery through a serial chain.
- *
- * Also registers pending interactions when confirmation_request,
- * secret_request, host_bash_request, host_browser_request, host_file_request,
- * or host_cu_request events flow through, so standalone approval/result
- * endpoints can look up the conversation by requestId.
- */
-function makeHubPublisher(
-  deps: SendMessageDeps,
-  conversationId: string,
-  conversation: Conversation,
-): (msg: ServerMessage) => void {
-  let hubChain: Promise<void> = Promise.resolve();
-  return (msg: ServerMessage) => {
-    // Register pending interactions for approval events
-    if (msg.type === "confirmation_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: msg.toolName,
-          input: msg.input,
-          riskLevel: msg.riskLevel,
-          executionTarget: msg.executionTarget,
-          allowlistOptions: msg.allowlistOptions,
-          scopeOptions: msg.scopeOptions,
-          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-        },
-      });
-
-      // Create a canonical guardian request so HTTP handlers can find it
-      // via applyCanonicalGuardianDecision.
-      try {
-        const trustContext = conversation.trustContext;
-        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-        const inputRecord = msg.input as Record<string, unknown>;
-        const activityRaw =
-          (typeof inputRecord.activity === "string"
-            ? inputRecord.activity
-            : undefined) ??
-          (typeof inputRecord.reason === "string"
-            ? inputRecord.reason
-            : undefined);
-        const canonicalRequest = createCanonicalGuardianRequest({
-          id: msg.requestId,
-          kind: "tool_approval",
-          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-          sourceChannel,
-          conversationId,
-          requesterExternalUserId: trustContext?.requesterExternalUserId,
-          requesterChatId: trustContext?.requesterChatId,
-          guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: msg.toolName,
-          commandPreview:
-            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-            undefined,
-          riskLevel: msg.riskLevel,
-          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-          executionTarget: msg.executionTarget,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
-
-        // For trusted-contact conversations, bridge to guardian.question so the
-        // guardian gets notified and can approve via callback/request-code.
-        if (trustContext) {
-          bridgeConfirmationRequestToGuardian({
-            canonicalRequest,
-            trustContext,
-            conversationId,
-            toolName: msg.toolName,
-            assistantId:
-              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          });
-        }
-      } catch (err) {
-        log.debug(
-          { err, requestId: msg.requestId, conversationId },
-          "Failed to create canonical request from hub publisher",
-        );
-      }
-    } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
-      // When the SecretPrompter already broadcast this requestId to the hub
-      // (non-UI channel path), skip the duplicate hub publish from sendToClient.
-      if (conversation.wasSecretBroadcast(msg.requestId)) {
-        return;
-      }
-    } else {
-      registerHostProxyPendingInteraction(msg, conversation, conversationId);
-    }
-
-    // ServerMessage is a large union; conversationId exists on most but not all variants.
-    const msgConversationId =
-      "conversationId" in msg &&
-      typeof (msg as { conversationId?: unknown }).conversationId === "string"
-        ? (msg as { conversationId: string }).conversationId
-        : undefined;
-    // `conversation_list_invalidated` is a list-level system event: it
-    // describes no particular conversation and every connected client
-    // should refresh its sidebar. Publish it unscoped so the SSE hub does
-    // not filter it out by the subscriber's `filter.conversationId`.
-    // Other events (including `conversation_title_updated`) stay scoped to
-    // their conversation — unscoped scoped-events would leak foreign
-    // `conversationId` values to native clients' speculative ID-resolution
-    // path. For `conversation_title_updated` we instead enqueue a matching
-    // unscoped `conversation_list_invalidated` below so other clients'
-    // sidebars can refresh and pick up the new title.
-    const resolvedConversationId =
-      msg.type === "conversation_list_invalidated"
-        ? undefined
-        : (msgConversationId ?? conversationId);
-    const event = buildAssistantEvent(msg, resolvedConversationId);
-    hubChain = (async () => {
-      await hubChain;
-      try {
-        await deps.assistantEventHub.publish(event);
-      } catch (err) {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during POST /messages",
-        );
-      }
-
-      // When the agent loop auto-generates a conversation title, also
-      // broadcast an unscoped `conversation_list_invalidated` so every
-      // connected client's sidebar can refresh and pick up the new title.
-      // Without this, clients viewing other conversations (or a draft)
-      // would never learn that the title for this conversation changed.
-      // The scoped `conversation_title_updated` above still handles the
-      // in-place update for the client currently viewing this conversation.
-      if (msg.type === "conversation_title_updated") {
-        try {
-          await deps.assistantEventHub.publish(
-            buildAssistantEvent({
-              type: "conversation_list_invalidated",
-              reason: "renamed",
-            }),
-          );
-        } catch (err) {
-          log.warn(
-            { err },
-            "Failed to publish conversation_list_invalidated after title update",
-          );
-        }
-      }
-    })();
-  };
-}
-
-/**
- * Register pending interactions for host proxy request envelopes so
- * standalone result endpoints can resolve by requestId.
- *
- * Returns the registered requestId when a host proxy request was registered.
- * Callers that route through non-hub transports (e.g. registry-routed
- * host_browser sends) can use this to clean up the registration if send fails.
- */
-function registerHostProxyPendingInteraction(
-  msg: ServerMessage,
-  conversation: Conversation,
-  conversationId: string,
-): string | undefined {
-  if (msg.type === "host_bash_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_bash",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_browser_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_browser",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_file_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_file",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_cu_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_cu",
-    });
-    return msg.requestId;
-  }
-  if (msg.type === "host_transfer_request") {
-    pendingInteractions.register(msg.requestId, {
-      conversation,
-      conversationId,
-      kind: "host_transfer",
-    });
-    return msg.requestId;
-  }
-  return undefined;
-}
-
 /**
  * Persist the pre-chat onboarding payload to disk.
  *
- * Runs only on the very first message of a fresh conversation. Three
+ * Runs only on the very first message of a fresh conversation. Four
  * artifacts are produced:
  *
  *   1. `data/onboarding-context.json` — sidecar read by the
@@ -1240,12 +1010,15 @@ function registerHostProxyPendingInteraction(
  *      the pure-recomputation write cycle (every turn boundary rebuilds
  *      facts from markdown; the sidecar is the durable source for the
  *      tool/task/tone chips).
- *   2. `IDENTITY.md` / `USER.md` — persona seed files, only written
- *      when missing so we never clobber existing content. These feed
- *      the system prompt and the relationship-state writer's
- *      `parseIdentity` / `parseUserName` helpers after a daemon
- *      restart when the in-memory onboarding context is gone.
- *   3. `data/relationship-state.json` — kicked off fire-and-forget so
+ *   2. `IDENTITY.md` — assistant persona seed file, only written when
+ *      missing so we never clobber existing content. Feeds the system
+ *      prompt and the relationship-state writer's `parseIdentity`
+ *      helper after a daemon restart when the in-memory onboarding
+ *      context is gone.
+ *   3. Onboarding section in the guardian persona file — written via
+ *      `writeOnboardingSection`, which handles the user's preferred
+ *      name (with fallback to root `USER.md`).
+ *   4. `data/relationship-state.json` — kicked off fire-and-forget so
  *      the Home page can populate immediately on first visit instead
  *      of waiting for the first agent-turn boundary.
  *
@@ -1290,25 +1063,11 @@ export function persistOnboardingArtifacts(onboarding: {
     }
   }
 
-  const userName = onboarding.userName?.trim();
-  if (userName) {
-    const userPath = getWorkspacePromptPath("USER.md");
-    try {
-      if (existsSync(userPath)) {
-        const content = readFileSync(userPath, "utf-8");
-        const updated = content.replace(
-          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
-          () => `- **Name:** ${userName}`,
-        );
-        if (updated !== content) {
-          writeFileSync(userPath, updated, "utf-8");
-        }
-      } else {
-        writeFileSync(userPath, `# User\n\n- **Name:** ${userName}\n`, "utf-8");
-      }
-    } catch (err) {
-      log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
-    }
+  try {
+    const normalized = normalizeOnboardingContext(onboarding);
+    writeOnboardingSection(normalized);
+  } catch (err) {
+    log.warn({ err }, "Failed to write onboarding section to persona file");
   }
 
   void writeRelationshipState().catch((err) => {
@@ -1555,10 +1314,9 @@ export async function handleSendMessage(
 
   // Store pre-chat onboarding context on the conversation when this is the
   // very first message (no prior messages loaded). Artifact persistence
-  // (IDENTITY.md, USER.md, sidecar) is deferred: on the canned greeting
-  // path it runs inside the setTimeout right before warmPromptCache() so
-  // the warmed system prompt includes the identity; on the normal LLM
-  // path it runs immediately before inference starts.
+  // (IDENTITY.md, USER.md, sidecar) runs before either the canned greeting
+  // broadcast or normal LLM inference so client-side identity reads observe
+  // the selected assistant name.
   const isFirstOnboarding =
     !!body.onboarding && conversation.messages.length === 0;
   if (isFirstOnboarding) {
@@ -1622,72 +1380,39 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
-  const onEvent = makeHubPublisher(
-    smDeps,
-    mapping.conversationId,
-    conversation,
-  );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create each host proxy for interfaces that support the matching
-  // capability. macOS supports all four; the chrome-extension interface only
-  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
-  // fall back to local execution.
-  // Set the proxy BEFORE updateClient so updateClient's call to
-  // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (supportsHostProxy(sourceInterface, "host_bash")) {
-    // Reuse the existing proxy if the conversation is actively processing a
-    // host bash request to avoid orphaning in-flight requests.
-    if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      const proxy = new HostBashProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostBashProxy(proxy);
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-  }
-  if (supportsHostProxy(sourceInterface, "host_file")) {
-    if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostFileProxy(fileProxy);
-    }
-    if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      const transferProxy = new HostTransferProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostTransferProxy(transferProxy);
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostFileProxy(undefined);
-    conversation.setHostTransferProxy(undefined);
-  }
+  // Bash/File/Transfer singletons are globally available via isAvailable() —
+  // no per-conversation gating needed. CU is per-conversation (owns step
+  // count, AX tree history, loop detection).
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      conversation.setHostCuProxy(cuProxy);
-    }
-    // Only preactivate CU when the conversation is idle — if the conversation is
-    // processing, this message will be queued and preactivation is deferred
-    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
-    if (!conversation.isProcessing()) {
-      conversation.addPreactivatedSkillId("computer-use");
+      conversation.setHostCuProxy(new HostCuProxy());
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
   }
+  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
+  // singleton lock plus per-session loop tracking. Instantiation is
+  // unconditional when the client supports the capability — feature-flag
+  // gating lives in the skill-projection layer (which reads the
+  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
+  // an attached proxy is harmless when the flag resolves to off.
+  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(mapping.conversationId),
+      );
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
+  }
+  // Only preactivate when the conversation is idle — if it's processing,
+  // this message will be queued and preactivation is deferred to dequeue
+  // time in drainQueueImpl to avoid mutating in-flight turn state.
+  if (!conversation.isProcessing()) {
+    preactivateHostProxySkills(conversation, sourceInterface);
+  }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
-  // Called after setHostBashProxy so updateSender targets the current proxy.
-  // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them. The gate
-  // matches the host_bash capability because the legacy "reject send during
-  // host bash" flow is what this is really protecting.
-  const preservingProxies =
-    conversation.isProcessing() &&
-    !supportsHostProxy(sourceInterface, "host_bash");
   // hasNoClient must remain `!isInteractive` so downstream tool gating
   // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
   // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
@@ -1695,9 +1420,7 @@ export async function handleSendMessage(
   // is non-interactive (no SSE prompter UI) but still has a connected client
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(onEvent, !isInteractive, {
-    skipProxySenderUpdate: preservingProxies,
-  });
+  conversation.updateClient(broadcastMessage, !isInteractive);
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
@@ -1758,25 +1481,30 @@ export async function handleSendMessage(
         conversationId,
       };
 
+      if (isFirstOnboarding) {
+        persistOnboardingArtifacts(body.onboarding!);
+      }
+
       setTimeout(() => {
-        onEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
           messageId: persisted.id,
           clientMessageId,
         });
-        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
-        onEvent({ type: "message_complete", conversationId });
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: cannedGreeting,
+          conversationId,
+        });
+        broadcastMessage({ type: "message_complete", conversationId });
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
           "canned-greeting queue drain",
         );
 
-        if (isFirstOnboarding) {
-          persistOnboardingArtifacts(body.onboarding!);
-        }
         conversation.warmPromptCache();
       }, 0);
 
@@ -1820,7 +1548,7 @@ export async function handleSendMessage(
       content: content ?? "",
       attachments,
       conversation,
-      onEvent,
+      onEvent: broadcastMessage,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active. Mirrors conversation-process.ts behavior.
@@ -1853,7 +1581,7 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
-      onEvent,
+      broadcastMessage,
       requestId,
       undefined, // activeSurfaceId
       undefined, // currentPage
@@ -1891,10 +1619,7 @@ export async function handleSendMessage(
         for (const interaction of pendingInteractions.getByConversation(
           mapping.conversationId,
         )) {
-          if (
-            interaction.conversation === conversation &&
-            interaction.kind === "confirmation"
-          ) {
+          if (interaction.kind === "confirmation") {
             conversation.emitConfirmationStateChanged({
               conversationId: mapping.conversationId,
               requestId: interaction.requestId,
@@ -1909,7 +1634,7 @@ export async function handleSendMessage(
           }
         }
         conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(conversation);
+        pendingInteractions.removeByConversation(mapping.conversationId);
       }
 
       // Expire any orphaned canonical requests that survived without a
@@ -1938,10 +1663,7 @@ export async function handleSendMessage(
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
-      if (
-        interaction.conversation === conversation &&
-        interaction.kind === "confirmation"
-      ) {
+      if (interaction.kind === "confirmation") {
         conversation.emitConfirmationStateChanged({
           conversationId: mapping.conversationId,
           requestId: interaction.requestId,
@@ -1956,7 +1678,7 @@ export async function handleSendMessage(
       }
     }
     conversation.denyAllPendingConfirmations();
-    pendingInteractions.removeByConversation(conversation);
+    pendingInteractions.removeByConversation(mapping.conversationId);
   }
 
   // Expire any orphaned canonical requests that survived without a
@@ -1977,17 +1699,14 @@ export async function handleSendMessage(
 
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
-  const config = getConfig();
-  const slashContext: SlashContext = {
+  const slashContext = buildSlashContextForContent(rawContent, {
+    conversationId: mapping.conversationId,
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: sourceInterface,
-  };
+  });
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
@@ -2044,7 +1763,7 @@ export async function handleSendMessage(
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
       const modelInfoEvent = isModelSlashCommand(rawContent)
-        ? await buildModelInfoEvent()
+        ? await buildModelInfoEvent(mapping.conversationId)
         : null;
 
       const response = {
@@ -2064,7 +1783,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        onEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -2072,10 +1791,14 @@ export async function handleSendMessage(
           clientMessageId,
         });
         if (modelInfoEvent) {
-          onEvent(modelInfoEvent);
+          broadcastMessage(modelInfoEvent);
         }
-        onEvent({ type: "assistant_text_delta", text: message });
-        onEvent({
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: message,
+          conversationId,
+        });
+        broadcastMessage({
           type: "message_complete",
           conversationId: conversationId,
         });
@@ -2121,7 +1844,7 @@ export async function handleSendMessage(
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
       try {
-        onEvent({
+        broadcastMessage({
           type: "user_message_echo",
           text: rawContent,
           conversationId,
@@ -2145,11 +1868,15 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        onEvent({ type: "assistant_text_delta", text: responseText });
-        onEvent({ type: "message_complete", conversationId });
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: responseText,
+          conversationId,
+        });
+        broadcastMessage({ type: "message_complete", conversationId });
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
-        onEvent({
+        broadcastMessage({
           type: "conversation_error",
           conversationId,
           code: "UNKNOWN",
@@ -2187,7 +1914,7 @@ export async function handleSendMessage(
     throw err;
   }
 
-  onEvent({
+  broadcastMessage({
     type: "user_message_echo",
     text: resolvedContent,
     conversationId: mapping.conversationId,
@@ -2196,9 +1923,9 @@ export async function handleSendMessage(
     clientMessageId,
   });
 
-  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+  // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
-    .runAgentLoop(resolvedContent, messageId, onEvent, {
+    .runAgentLoop(resolvedContent, messageId, broadcastMessage, {
       isInteractive,
       isUserMessage: true,
     })
@@ -2256,6 +1983,13 @@ async function generateLlmSuggestion(
   // prefill-safe model. Keep `stop_sequences: ["</reply>"]` as an
   // early-termination hint; the parser below handles both tagged and
   // untagged responses so untagged "casual answer" replies still work.
+  //
+  // Force `thinking: disabled` + `effort: none` so the call works on any
+  // user profile — including thinking-enabled profiles (Opus 4.x at
+  // `effort: high|xhigh`, etc.) where Anthropic 400s on `temperature` ≠ 1
+  // when thinking is enabled or in adaptive mode. A 60-token reply chip
+  // doesn't benefit from extended thinking anyway, and burning thinking
+  // tokens here would be wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     [], // no tools
@@ -2266,6 +2000,8 @@ async function generateLlmSuggestion(
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
+        thinking: { type: "disabled" },
+        effort: "none",
       },
     },
   );

@@ -178,6 +178,18 @@ extension AppDelegate {
             await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
         }
     }
+
+    func setupContactPromptManager() {
+        // Contact request handling is in startDaemonEventSubscription() via subscribe().
+        contactPromptManager.onResponse = { requestId, address, channelType, role in
+            await InteractionClient().sendContactPromptResponse(
+                requestId: requestId,
+                address: address,
+                channelType: channelType,
+                role: role
+            )
+        }
+    }
 }
 
 // MARK: - Window Observer & Reopen

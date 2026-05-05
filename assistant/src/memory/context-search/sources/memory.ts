@@ -9,6 +9,7 @@ import type {
   RecallSearchContext,
   RecallSearchResult,
 } from "../types.js";
+import { isMemoryV2ReadActive, searchMemoryV2Source } from "./memory-v2.js";
 
 const log = getLogger("context-search-memory-source");
 
@@ -20,6 +21,10 @@ export async function searchMemorySource(
   const normalizedLimit = Math.max(0, Math.floor(limit));
   if (normalizedLimit === 0) {
     return { evidence: [] };
+  }
+
+  if (isMemoryV2ReadActive(context.config)) {
+    return searchMemoryV2Source(query, context, normalizedLimit);
   }
 
   let queryVector: number[] | null = null;
@@ -42,7 +47,6 @@ export async function searchMemorySource(
     const searchResults = await searchGraphNodes(
       queryVector,
       normalizedLimit,
-      [context.memoryScopeId],
       sparseVector,
     );
 

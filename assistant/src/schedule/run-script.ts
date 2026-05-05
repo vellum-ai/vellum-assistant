@@ -38,21 +38,53 @@ export async function runScript(
     env: buildSanitizedEnv(),
   });
 
-  // Race process completion against a timeout
+  // Start consuming streams immediately so buffered output is available even on timeout.
+  // When the process is killed the pipe fds close and these promises resolve on their own.
+  const stdoutPromise = new Response(proc.stdout).text();
+  const stderrPromise = new Response(proc.stderr).text();
+
+  let timedOut = false;
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
+      timedOut = true;
       proc.kill("SIGKILL");
       reject(new Error(`Script timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
-    // Clean up timer if process finishes first
     proc.exited.then(() => clearTimeout(timer));
   });
 
-  const exitCode = await Promise.race([proc.exited, timeoutPromise]);
+  /** How long to wait for pipes to drain after SIGKILL before giving up. */
+  const DRAIN_TIMEOUT_MS = 5_000;
 
-  const stdout = truncate(await new Response(proc.stdout).text());
-  const stderr = truncate(await new Response(proc.stderr).text());
+  let exitCode: number;
+  try {
+    exitCode = await Promise.race([proc.exited, timeoutPromise]);
+  } catch (err) {
+    if (!timedOut) throw err;
+    // Collect whatever the process wrote before it was killed.
+    // Race each stream against a short drain window — if a background child
+    // process inherited the pipe fd, the stream would otherwise never reach
+    // EOF and block the scheduler tick indefinitely.
+    const empty = (ms: number): Promise<string> =>
+      new Promise((resolve) => setTimeout(() => resolve(""), ms));
+    const [stdoutStr, stderrStr] = await Promise.all([
+      Promise.race([stdoutPromise, empty(DRAIN_TIMEOUT_MS)]),
+      Promise.race([stderrPromise, empty(DRAIN_TIMEOUT_MS)]),
+    ]);
+    const stdout = truncate(stdoutStr);
+    const timeoutMsg = `Script timed out after ${timeoutMs}ms`;
+    const stderr = truncate(stderrStr ? `${timeoutMsg}\n${stderrStr}` : timeoutMsg);
+    log.info(
+      { command, timedOut: true, stdoutLen: stdout.length },
+      "Script timed out",
+    );
+    return { exitCode: 124, stdout, stderr };
+  }
+
+  const stdout = truncate(await stdoutPromise);
+  const stderr = truncate(await stderrPromise);
 
   log.info(
     { command, exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },

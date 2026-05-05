@@ -17,11 +17,55 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
+
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
 // to honor the conversation's pinned inference profile.
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
+}));
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ llm: {} }),
+  loadConfig: () => ({ llm: {} }),
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getConfigReadOnly: () => ({ llm: {} }),
+  applyNestedDefaults: (config: unknown) => config,
+  deepMergeOverwrite: (base: unknown) => base,
+  mergeDefaultWorkspaceConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [],
+  _appendQuarantineBulletin: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../../config/llm-context-resolution.js", () => ({
+  resolveEffectiveContextWindow: () => ({
+    maxInputTokens: 200_000,
+  }),
+}));
+
+let mockDiskPressureStatus: DiskPressureStatus = {
+  enabled: false,
+  state: "disabled",
+  locked: false,
+  acknowledged: false,
+  overrideActive: false,
+  effectivelyLocked: false,
+  lockId: null,
+  usagePercent: null,
+  thresholdPercent: 95,
+  path: null,
+  lastCheckedAt: null,
+  blockedCapabilities: [],
+  error: null,
+};
+
+mock.module("../../daemon/disk-pressure-guard.js", () => ({
+  getDiskPressureStatus: () => mockDiskPressureStatus,
 }));
 
 import type { AgentEvent } from "../../agent/loop.js";
@@ -37,7 +81,11 @@ import {
 interface MockTarget extends WakeTarget {
   emittedEvents: AgentEvent[];
   pushedMessages: Message[];
-  runCalls: Array<{ input: Message[]; requestId?: string }>;
+  runCalls: Array<{
+    input: Message[];
+    requestId?: string;
+    turnContext?: unknown;
+  }>;
   processingToggles: boolean[];
   /** Tail messages handed to `persistTailMessage`, in call order. */
   persistedTailCalls: Message[];
@@ -70,7 +118,11 @@ function makeTarget(options: {
 }): MockTarget {
   const emittedEvents: AgentEvent[] = [];
   const pushedMessages: Message[] = [];
-  const runCalls: Array<{ input: Message[]; requestId?: string }> = [];
+  const runCalls: Array<{
+    input: Message[];
+    requestId?: string;
+    turnContext?: unknown;
+  }> = [];
   const processingToggles: boolean[] = [];
   const persistedTailCalls: Message[] = [];
   const callSequence: string[] = [];
@@ -97,8 +149,11 @@ function makeTarget(options: {
         onEvent: (event: AgentEvent) => void | Promise<void>,
         _signal?: AbortSignal,
         requestId?: string,
+        _onCheckpoint?: unknown,
+        _callSite?: unknown,
+        turnContext?: unknown,
       ) => {
-        runCalls.push({ input: [...input], requestId });
+        runCalls.push({ input: [...input], requestId, turnContext });
         // Emit any scripted events the test wanted us to produce.
         for (const ev of options.scriptedEvents ?? []) {
           await onEvent(ev);
@@ -165,11 +220,163 @@ function makeTarget(options: {
 
 beforeEach(() => {
   __resetWakeChainForTests();
+  mockDiskPressureStatus = {
+    enabled: false,
+    state: "disabled",
+    locked: false,
+    acknowledged: false,
+    overrideActive: false,
+    effectivelyLocked: false,
+    lockId: null,
+    usagePercent: null,
+    thresholdPercent: 95,
+    path: null,
+    lastCheckedAt: null,
+    blockedCapabilities: [],
+    error: null,
+  };
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("wakeAgentForOpportunity", () => {
+  test("disabled disk pressure flag allows background wakes to pass through", async () => {
+    const target = makeTarget({
+      scriptedAssistant: null,
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "background completion",
+        source: "background-tool",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls).toHaveLength(1);
+  });
+
+  test("blocks background wakes during disk pressure before marking processing", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({
+      isProcessing: true,
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "should not run" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "background shell completed",
+        source: "background-tool",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "disk_pressure",
+    });
+    expect(target.runCalls).toHaveLength(0);
+    expect(target.processingToggles).toEqual([]);
+    expect(target.drainQueueCalls).toBe(0);
+    expect(target.isProcessing()).toBe(true);
+  });
+
+  test("blocks trusted-contact direct wakes during disk pressure", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({ scriptedAssistant: null });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "notify the guardian",
+        source: "notification",
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "trusted_contact",
+        },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.reason).toBe("disk_pressure");
+    expect(target.runCalls).toHaveLength(0);
+  });
+
+  test("threads cleanup-mode injection context for explicit local-owner wakes", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({ scriptedAssistant: null });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "clean storage",
+        source: "local-cleanup",
+        sourceChannel: "vellum",
+        sourceInterface: "macos",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls).toHaveLength(1);
+    expect(target.runCalls[0]!.turnContext).toMatchObject({
+      conversationId: target.conversationId,
+      injectionInputs: {
+        diskPressureContext: { cleanupModeActive: true },
+      },
+    });
+  });
+
   test("silent no-op when agent produces no tool calls and no text", async () => {
     const target = makeTarget({
       baseline: [
@@ -400,6 +607,95 @@ describe("wakeAgentForOpportunity", () => {
     // the thrown error, otherwise the next user turn would hang.
     expect(toggles).toEqual([true, false]);
     expect(processing).toBe(false);
+  });
+
+  test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
+    // Background system jobs (memory consolidation, update-bulletin) need
+    // guardian trust to clear the side-effect approval gate. The wake must
+    // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
+    // captures the elevated trust.
+    const trustCalls: Array<{ ctx: unknown; before: number }> = [];
+    const runCalls: number[] = [];
+    let callOrder = 0;
+
+    const history: Message[] = [];
+    let processing = false;
+    const target: WakeTarget = {
+      conversationId: "conv-trust",
+      agentLoop: {
+        run: async (input) => {
+          runCalls.push(callOrder++);
+          return [...input];
+        },
+      },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+      },
+      persistTailMessage: async () => {},
+      setTrustContext: (ctx) => {
+        trustCalls.push({ ctx, before: callOrder++ });
+      },
+    };
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-trust",
+        hint: "consolidate memory",
+        source: "memory_v2_consolidation",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(trustCalls).toHaveLength(1);
+    expect(trustCalls[0]!.ctx).toEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+    // setTrustContext fired strictly before agentLoop.run.
+    expect(runCalls).toHaveLength(1);
+    expect(trustCalls[0]!.before).toBeLessThan(runCalls[0]!);
+  });
+
+  test("does not call setTrustContext when no trustContext is supplied", async () => {
+    const trustCalls: unknown[] = [];
+    const history: Message[] = [];
+    let processing = false;
+    const target: WakeTarget = {
+      conversationId: "conv-no-trust",
+      agentLoop: {
+        run: async (input) => [...input],
+      },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+      },
+      persistTailMessage: async () => {},
+      setTrustContext: (ctx) => {
+        trustCalls.push(ctx);
+      },
+    };
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-no-trust",
+        hint: "x",
+        source: "t",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    // Inbound-message conversations populate trust via processMessage().
+    // Without an explicit opt-in from the caller, the wake must not
+    // overwrite whatever the conversation already holds.
+    expect(trustCalls).toHaveLength(0);
   });
 
   test("two concurrent wakes on the same conversation are serialized", async () => {
@@ -891,6 +1187,252 @@ describe("wakeAgentForOpportunity", () => {
         "drain",
       ]);
       expect(target.processingDuringDrain).toEqual([false]);
+    },
+  );
+
+  test(
+    "checkpoint fires mid-run: events stream live and tail is persisted " +
+      "incrementally so a long-running wake is observable",
+    async () => {
+      // Locks in the streaming-during-run fix. A long-running wake (e.g.
+      // memory consolidation, often 5-30 minutes and 30+ turns) must
+      // emit events and persist tail messages as each turn finalizes —
+      // otherwise opening the conversation mid-flight returns 0 messages
+      // from fetchHistory and the client renders the empty welcome
+      // state instead of the in-progress turns.
+      const turn1Assistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "file_write", input: {} },
+        ],
+      };
+      const turn1ToolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+      const turn2Assistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-2", name: "remember", input: {} },
+        ],
+      };
+      const turn2ToolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-2", content: "ok" }],
+      };
+      const finalAssistant: Message = {
+        role: "assistant",
+        content: [{ type: "text", text: "All done." }],
+      };
+
+      const emittedEvents: AgentEvent[] = [];
+      const pushedMessages: Message[] = [];
+      const persistedTailCalls: Message[] = [];
+      // Snapshot of how many tail messages had been persisted at each
+      // point a streaming event reached the target. This is the actual
+      // observability invariant: when a turn-2 streaming event arrives,
+      // turn-1's messages must already be persisted so a fetchHistory
+      // call from a client opening the conversation mid-stream returns
+      // turn-1's content.
+      const persistedAtEachEmit: number[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+
+      const target: WakeTarget = {
+        conversationId: "conv-stream",
+        agentLoop: {
+          run: async (_input, onEvent, _signal, _requestId, onCheckpoint) => {
+            // Preamble + assistant hint + postamble (mirrors what the
+            // wake injects). The agent-wake helper expects these three
+            // hint messages in the input it hands to run().
+            const runHistory: Message[] = [..._input];
+
+            // Turn 1: stream a text_delta + message_complete, then
+            // fire the checkpoint after the tool_result lands.
+            await onEvent({ type: "text_delta", text: "Working" });
+            runHistory.push(turn1Assistant);
+            await onEvent({
+              type: "message_complete",
+              message: turn1Assistant,
+            });
+            runHistory.push(turn1ToolResult);
+            const dec1 = await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            expect(dec1).toBe("continue");
+
+            // Turn 2: another tool turn — must already see the live
+            // streaming because mode flipped after turn 1.
+            await onEvent({ type: "text_delta", text: "Still going" });
+            runHistory.push(turn2Assistant);
+            await onEvent({
+              type: "message_complete",
+              message: turn2Assistant,
+            });
+            runHistory.push(turn2ToolResult);
+            const dec2 = await onCheckpoint!({
+              turnIndex: 1,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            expect(dec2).toBe("continue");
+
+            // Final assistant message with no tool calls — loop would
+            // exit. onCheckpoint does NOT fire for the terminal turn,
+            // so the post-run flushPendingTail must catch this one.
+            await onEvent({ type: "text_delta", text: "All done." });
+            runHistory.push(finalAssistant);
+            await onEvent({
+              type: "message_complete",
+              message: finalAssistant,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          pushedMessages.push(msg);
+          history.push(msg);
+        },
+        emitAgentEvent: (event) => {
+          emittedEvents.push(event);
+          persistedAtEachEmit.push(persistedTailCalls.length);
+        },
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+      };
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: "conv-stream",
+          hint: "consolidate",
+          source: "memory_v2_consolidation",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      expect(result).toEqual({ invoked: true, producedToolCalls: true });
+
+      // All 5 tail messages persisted in order. The first two via
+      // turn-1 checkpoint, the next two via turn-2 checkpoint, and
+      // `finalAssistant` via the post-run flush.
+      expect(persistedTailCalls).toHaveLength(5);
+      expect(persistedTailCalls[0]).toBe(turn1Assistant);
+      expect(persistedTailCalls[1]).toBe(turn1ToolResult);
+      expect(persistedTailCalls[2]).toBe(turn2Assistant);
+      expect(persistedTailCalls[3]).toBe(turn2ToolResult);
+      expect(persistedTailCalls[4]).toBe(finalAssistant);
+
+      // Critical observability invariant: by the time turn-2's
+      // streaming text_delta reached the client, turn-1's messages
+      // were already persisted. A client opening the conversation at
+      // that moment would fetchHistory and see turn-1, plus stream
+      // turn-2 live — instead of seeing an empty welcome view.
+      const turn2DeltaIdx = emittedEvents.findIndex(
+        (e) => e.type === "text_delta" && e.text === "Still going",
+      );
+      expect(turn2DeltaIdx).toBeGreaterThan(-1);
+      expect(persistedAtEachEmit[turn2DeltaIdx]).toBeGreaterThanOrEqual(2);
+    },
+  );
+
+  test(
+    "checkpoint-driven wake injects ui_surface card into the first " +
+      "assistant tail message",
+    async () => {
+      // The wake card ("Conversation Woke") is the visual entry point —
+      // it must land in the first assistant message regardless of
+      // whether the wake produced output via checkpoints or only via
+      // post-run (tool-free) detection. This test covers the
+      // checkpoint path; the existing post-run path is covered by the
+      // tool_use tests above.
+      const firstAssistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "some_tool", input: {} },
+        ],
+      };
+      const toolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+
+      const persistedTailCalls: Message[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+      const wakeProducedOutputCalls: string[] = [];
+
+      const target: WakeTarget = {
+        conversationId: "conv-card",
+        agentLoop: {
+          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+            const runHistory: Message[] = [..._input];
+            runHistory.push(firstAssistant);
+            runHistory.push(toolResult);
+            await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          history.push(msg);
+        },
+        emitAgentEvent: () => {},
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+        onWakeProducedOutput: (_source, _hint, surfaceId) => {
+          wakeProducedOutputCalls.push(surfaceId);
+        },
+      };
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: "conv-card",
+          hint: "do the thing",
+          source: "memory_v2_consolidation",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      // ui_surface fired exactly once (idempotent goLive), and the
+      // surfaceId matches the block prepended into the first
+      // assistant message.
+      expect(wakeProducedOutputCalls).toHaveLength(1);
+      const persistedFirst = persistedTailCalls[0];
+      expect(persistedFirst).toBeDefined();
+      const blocks = Array.isArray(persistedFirst!.content)
+        ? persistedFirst!.content
+        : [];
+      const uiBlock = blocks.find(
+        (b: { type?: string }) => b.type === "ui_surface",
+      ) as { surfaceId?: string } | undefined;
+      expect(uiBlock).toBeDefined();
+      expect(uiBlock!.surfaceId).toBe(wakeProducedOutputCalls[0]);
     },
   );
 });

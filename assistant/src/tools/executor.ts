@@ -22,7 +22,6 @@ import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
-import { SecretDetectionHandler } from "./secret-detection-handler.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -39,13 +38,11 @@ const log = getLogger("tool-executor");
 export class ToolExecutor {
   private prompter: PermissionPrompter;
   private permissionChecker: PermissionChecker;
-  private secretDetectionHandler: SecretDetectionHandler;
   private approvalHandler: ToolApprovalHandler;
 
   constructor(prompter: PermissionPrompter) {
     this.prompter = prompter;
     this.permissionChecker = new PermissionChecker(prompter);
-    this.secretDetectionHandler = new SecretDetectionHandler(prompter);
     this.approvalHandler = new ToolApprovalHandler();
   }
 
@@ -105,6 +102,19 @@ export class ToolExecutor {
     const startTime = Date.now();
     let decision = "allow";
     let riskLevel: string = RiskLevel.Low;
+    let permRiskMeta:
+      | {
+          riskLevel: string;
+          riskReason: string;
+          riskScopeOptions: Array<{ pattern: string; label: string }>;
+          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+          isContainerized?: boolean;
+        }
+      | undefined;
+    let permMatchedTrustRuleId: string | undefined;
+    let permApprovalMode: string | undefined;
+    let permApprovalReason: string | undefined;
+    let permRiskThreshold: string | undefined;
     const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
@@ -167,15 +177,6 @@ export class ToolExecutor {
       // Exception: requireFreshApproval tools always go through the
       // permission check even when a grant was consumed - the grant does
       // not substitute for an interactive human review.
-      let permRiskMeta:
-        | {
-            riskLevel: string;
-            riskReason: string;
-            riskScopeOptions: Array<{ pattern: string; label: string }>;
-            riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-            isContainerized?: boolean;
-          }
-        | undefined;
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
@@ -192,6 +193,10 @@ export class ToolExecutor {
         riskLevel = permResult.riskLevel;
         decision = permResult.decision;
         permRiskMeta = permResult.riskMeta;
+        permMatchedTrustRuleId = permResult.matchedTrustRuleId;
+        permApprovalMode = permResult.approvalMode;
+        permApprovalReason = permResult.approvalReason;
+        permRiskThreshold = permResult.riskThreshold;
 
         if (!permResult.allowed) {
           return {
@@ -202,12 +207,21 @@ export class ToolExecutor {
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
+            matchedTrustRuleId: permMatchedTrustRuleId,
+            approvalMode: permApprovalMode,
+            approvalReason: permApprovalReason,
+            riskThreshold: permRiskThreshold,
           };
         }
 
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
         }
+      } else {
+        // Grant consumed — permission check was skipped. Set provenance explicitly
+        // so the record shows how this execution was authorized.
+        permApprovalMode = "auto";
+        permApprovalReason = "grant_scoped_consumed";
       }
 
       // Execute the tool - proxy tools delegate to an external resolver.
@@ -231,6 +245,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedTrustRuleId: permMatchedTrustRuleId,
             decision: "error",
             durationMs,
             errorMessage: msg,
@@ -268,6 +283,7 @@ export class ToolExecutor {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          matchedTrustRuleId: permMatchedTrustRuleId,
           decision: "error",
           durationMs,
           errorMessage: msg,
@@ -334,6 +350,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedTrustRuleId: permMatchedTrustRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -352,6 +369,7 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            matchedTrustRuleId: permMatchedTrustRuleId,
             decision: "error",
             durationMs,
             errorMessage: errorMsg,
@@ -364,8 +382,6 @@ export class ToolExecutor {
 
       // Sensitive output extraction: strip directives, replace raw values
       // with placeholders, and attach bindings for agent-loop substitution.
-      // Runs before secret detection so that raw sensitive values are already
-      // replaced and won't trigger entropy-based redaction.
       const { sanitizedContent, bindings } = extractAndSanitize(
         execResult.content,
       );
@@ -376,23 +392,6 @@ export class ToolExecutor {
           sensitiveBindings: bindings,
         };
       }
-
-      // Secret detection on tool output
-      const secretResult = await this.secretDetectionHandler.handle(
-        execResult,
-        name,
-        input,
-        context,
-        executionTarget,
-        riskLevel,
-        decision,
-        startTime,
-        emitLifecycleEvent,
-      );
-      if (secretResult.earlyReturn) {
-        return secretResult.result;
-      }
-      execResult = secretResult.result;
 
       const durationMs = Date.now() - startTime;
       // Strip sensitiveBindings from lifecycle event to prevent raw values leaking
@@ -406,6 +405,9 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
+        matchedTrustRuleId: permMatchedTrustRuleId,
+        approvalMode: permApprovalMode,
+        approvalReason: permApprovalReason,
         decision,
         durationMs,
         result: safeResult,
@@ -423,6 +425,18 @@ export class ToolExecutor {
           riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
         };
+      }
+      if (permMatchedTrustRuleId) {
+        execResult = { ...execResult, matchedTrustRuleId: permMatchedTrustRuleId };
+      }
+      if (permApprovalMode) {
+        execResult = { ...execResult, approvalMode: permApprovalMode };
+      }
+      if (permApprovalReason) {
+        execResult = { ...execResult, approvalReason: permApprovalReason };
+      }
+      if (permRiskThreshold) {
+        execResult = { ...execResult, riskThreshold: permRiskThreshold };
       }
 
       return execResult;
@@ -465,6 +479,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
+        matchedTrustRuleId: permMatchedTrustRuleId,
         decision: "error",
         durationMs,
         errorMessage: msg,

@@ -2,10 +2,13 @@ import { getConfig } from "../config/loader.js";
 import { updateConversationUsage } from "../memory/conversation-crud.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import type { UsageActor } from "../usage/actors.js";
+import { resolveUsageAttribution } from "../usage/attribution.js";
 import type {
   AnthropicCacheCreationTokenDetails,
   PricingResult,
   PricingUsage,
+  UsageAttributionInput,
+  UsageAttributionSnapshot,
 } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -117,6 +120,34 @@ function resolveStructuredPricing(
   }
 }
 
+function isUsageAttributionSnapshot(
+  attribution:
+    | UsageAttributionInput
+    | UsageAttributionSnapshot
+    | null
+    | undefined,
+): attribution is UsageAttributionSnapshot {
+  return (
+    attribution != null &&
+    typeof (attribution as UsageAttributionSnapshot).resolvedProvider ===
+      "string" &&
+    typeof (attribution as UsageAttributionSnapshot).resolvedModel === "string"
+  );
+}
+
+function resolveAttribution(
+  attribution:
+    | UsageAttributionInput
+    | UsageAttributionSnapshot
+    | null
+    | undefined,
+): UsageAttributionSnapshot | null {
+  if (attribution == null) return null;
+  return isUsageAttributionSnapshot(attribution)
+    ? attribution
+    : resolveUsageAttribution(attribution);
+}
+
 export function recordUsage(
   ctx: UsageContext,
   inputTokens: number,
@@ -130,6 +161,7 @@ export function recordUsage(
   rawResponse?: unknown,
   llmCallCount = 1,
   contextWindow?: { tokens: number; maxTokens: number },
+  attribution?: UsageAttributionInput | UsageAttributionSnapshot | null,
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -193,6 +225,7 @@ export function recordUsage(
 
   // Dual-write: persist per-turn usage event to the new ledger table
   try {
+    const attributionSnapshot = resolveAttribution(attribution);
     recordUsageEvent(
       {
         actor,
@@ -206,6 +239,9 @@ export function recordUsage(
         runId: null,
         requestId,
         llmCallCount,
+        callSite: attributionSnapshot?.callSite ?? null,
+        inferenceProfile: attributionSnapshot?.appliedProfile ?? null,
+        inferenceProfileSource: attributionSnapshot?.profileSource ?? null,
       },
       pricing,
     );

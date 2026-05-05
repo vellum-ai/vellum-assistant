@@ -1,9 +1,5 @@
 import { getLogger } from "../../logger.js";
-import {
-  enqueueConfigWrite,
-  readConfigFile,
-  writeConfigFileAtomic,
-} from "./config-file-utils.js";
+import { mutateConfigFile, readConfigFile } from "../../config-file-utils.js";
 
 const log = getLogger("privacy-config");
 
@@ -181,83 +177,73 @@ export function createPrivacyConfigPatchHandler() {
       // null passes through without validation — it means "keep forever"
     }
 
-    const writeResult = new Promise<Response>((resolve) => {
-      enqueueConfigWrite(() => {
-        try {
-          const result = readConfigFile();
-          if (!result.ok) {
-            resolve(
-              Response.json(
-                { error: "Config file is malformed, cannot safely write" },
-                { status: 500 },
-              ),
-            );
-            return;
-          }
-
-          const config = result.data;
-          if (hasCollectUsageData) {
-            config.collectUsageData = collectUsageData;
-          }
-          if (hasSendDiagnostics) {
-            config.sendDiagnostics = sendDiagnostics;
-          }
-          if (hasLlmRequestLogRetentionMs) {
-            const memory =
-              config.memory &&
-              typeof config.memory === "object" &&
-              !Array.isArray(config.memory)
-                ? (config.memory as Record<string, unknown>)
-                : {};
-            const cleanup =
-              memory.cleanup &&
-              typeof memory.cleanup === "object" &&
-              !Array.isArray(memory.cleanup)
-                ? (memory.cleanup as Record<string, unknown>)
-                : {};
-            cleanup.llmRequestLogRetentionMs = llmRequestLogRetentionMs;
-            memory.cleanup = cleanup;
-            config.memory = memory;
-          }
-          writeConfigFileAtomic(config);
-
-          // Always include all three fields in the response so GET and PATCH
-          // share the same shape and match the OpenAPI schema contract
-          // (`required: [collectUsageData, sendDiagnostics,
-          // llmRequestLogRetentionMs]`). Source each value from the
-          // post-write config via the same fallback logic as the GET handler
-          // so a fresh or manually-edited config.json that lacks any of
-          // these keys still produces a well-formed response.
-          const responseData = {
-            collectUsageData: resolveBoolean(
-              config,
-              "collectUsageData",
-              DEFAULT_COLLECT_USAGE_DATA,
-            ),
-            sendDiagnostics: resolveBoolean(
-              config,
-              "sendDiagnostics",
-              DEFAULT_SEND_DIAGNOSTICS,
-            ),
-            llmRequestLogRetentionMs: parseNestedNullableNumber(
-              config,
-              ["memory", "cleanup", "llmRequestLogRetentionMs"],
-              DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
-              { maxValue: MAX_LLM_REQUEST_LOG_RETENTION_MS },
-            ),
-          };
-          log.info(responseData, "Privacy config updated");
-          resolve(Response.json(responseData));
-        } catch (err) {
-          log.error({ err }, "Failed to update privacy config");
-          resolve(
-            Response.json({ error: "Internal server error" }, { status: 500 }),
-          );
+    try {
+      const result = await mutateConfigFile((config) => {
+        if (hasCollectUsageData) {
+          config.collectUsageData = collectUsageData;
         }
-      });
-    });
+        if (hasSendDiagnostics) {
+          config.sendDiagnostics = sendDiagnostics;
+        }
+        if (hasLlmRequestLogRetentionMs) {
+          const memory =
+            config.memory &&
+            typeof config.memory === "object" &&
+            !Array.isArray(config.memory)
+              ? (config.memory as Record<string, unknown>)
+              : {};
+          const cleanup =
+            memory.cleanup &&
+            typeof memory.cleanup === "object" &&
+            !Array.isArray(memory.cleanup)
+              ? (memory.cleanup as Record<string, unknown>)
+              : {};
+          cleanup.llmRequestLogRetentionMs = llmRequestLogRetentionMs;
+          memory.cleanup = cleanup;
+          config.memory = memory;
+        }
 
-    return writeResult;
+        // Always include all three fields in the response so GET and PATCH
+        // share the same shape and match the OpenAPI schema contract
+        // (`required: [collectUsageData, sendDiagnostics,
+        // llmRequestLogRetentionMs]`). Source each value from the
+        // post-write config via the same fallback logic as the GET handler
+        // so a fresh or manually-edited config.json that lacks any of
+        // these keys still produces a well-formed response.
+        const responseData = {
+          collectUsageData: resolveBoolean(
+            config,
+            "collectUsageData",
+            DEFAULT_COLLECT_USAGE_DATA,
+          ),
+          sendDiagnostics: resolveBoolean(
+            config,
+            "sendDiagnostics",
+            DEFAULT_SEND_DIAGNOSTICS,
+          ),
+          llmRequestLogRetentionMs: parseNestedNullableNumber(
+            config,
+            ["memory", "cleanup", "llmRequestLogRetentionMs"],
+            DEFAULT_LLM_REQUEST_LOG_RETENTION_MS,
+            { maxValue: MAX_LLM_REQUEST_LOG_RETENTION_MS },
+          ),
+        };
+        log.info(responseData, "Privacy config updated");
+        return responseData;
+      });
+
+      if (!result.ok) {
+        return Response.json(
+          { error: "Config file is malformed, cannot safely write" },
+          { status: 500 },
+        );
+      }
+
+      return Response.json(result.value);
+    } catch (err) {
+      log.error({ err }, "Failed to update privacy config");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
   };
 }
 

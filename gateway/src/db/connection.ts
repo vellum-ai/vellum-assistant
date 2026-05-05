@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
@@ -71,6 +72,64 @@ async function pushSchemaNoPrompt(
 
 let db: GatewayDb | null = null;
 
+function canonicalizePathThroughExistingParent(path: string): string {
+  const resolvedPath = resolve(path);
+  const pendingSegments: string[] = [];
+  let currentPath = resolvedPath;
+
+  while (true) {
+    try {
+      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
+    } catch {
+      const parentPath = dirname(currentPath);
+      if (parentPath === currentPath) {
+        return resolvedPath;
+      }
+      pendingSegments.push(basename(currentPath));
+      currentPath = parentPath;
+    }
+  }
+}
+
+function assertTestDbIsIsolated(): void {
+  if (
+    process.env.NODE_ENV !== "test" ||
+    process.env.VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS === "1"
+  ) {
+    return;
+  }
+
+  const securityDir = process.env.GATEWAY_SECURITY_DIR?.trim();
+  if (!securityDir) {
+    throw new Error(
+      [
+        "Refusing to open the gateway DB during tests without GATEWAY_SECURITY_DIR.",
+        "Run gateway tests from the gateway package so the test preload can isolate state:",
+        "  cd gateway && bun test src/path/to/file.test.ts",
+      ].join("\n"),
+    );
+  }
+
+  const resolvedSecurityDir =
+    canonicalizePathThroughExistingParent(securityDir);
+  const realSecurityDir = canonicalizePathThroughExistingParent(
+    process.env.VELLUM_TEST_REAL_GATEWAY_SECURITY_DIR?.trim() ||
+      join(homedir(), ".vellum", "protected"),
+  );
+  if (
+    resolvedSecurityDir === realSecurityDir ||
+    resolvedSecurityDir.startsWith(realSecurityDir + sep)
+  ) {
+    throw new Error(
+      [
+        "Refusing to open the real gateway security DB during tests.",
+        `GATEWAY_SECURITY_DIR resolved to ${resolvedSecurityDir}.`,
+        "Use a temp gateway security directory for tests instead.",
+      ].join("\n"),
+    );
+  }
+}
+
 /**
  * One-time migration: move gateway.sqlite from the legacy path
  * (~/.vellum/data/gateway.sqlite) to the new PVC-backed path
@@ -100,12 +159,15 @@ function migrateLegacyDb(newPath: string): void {
 }
 
 function getDbPath(): string {
+  assertTestDbIsIsolated();
   const securityDir = getGatewaySecurityDir();
   if (!existsSync(securityDir)) {
     mkdirSync(securityDir, { recursive: true });
   }
   const dbPath = join(securityDir, "gateway.sqlite");
-  migrateLegacyDb(dbPath);
+  if (process.env.NODE_ENV !== "test") {
+    migrateLegacyDb(dbPath);
+  }
   return dbPath;
 }
 

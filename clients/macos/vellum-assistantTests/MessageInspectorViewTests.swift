@@ -122,8 +122,17 @@ final class MessageInspectorViewTests: XCTestCase {
         XCTAssertEqual(tab.label, "Memory")
     }
 
-    private func makeResponse(logs: [LLMRequestLogEntry], memoryRecall: MemoryRecallData? = nil) -> LLMContextResponse {
-        LLMContextResponse(messageId: "message-1", logs: logs, memoryRecall: memoryRecall)
+    private func makeResponse(
+        logs: [LLMRequestLogEntry],
+        memoryRecall: MemoryRecallData? = nil,
+        memoryV2Activation: MemoryV2ActivationData? = nil
+    ) -> LLMContextResponse {
+        LLMContextResponse(
+            messageId: "message-1",
+            logs: logs,
+            memoryRecall: memoryRecall,
+            memoryV2Activation: memoryV2Activation
+        )
     }
 
     private func makeLog(

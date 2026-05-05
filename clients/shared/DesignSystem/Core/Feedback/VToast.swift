@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 public struct VToastAction {
     public let label: String
@@ -59,12 +55,8 @@ public struct VToast: View {
                 HStack(spacing: VSpacing.sm) {
                     if let detail = copyableDetail {
                         Button {
-                            #if os(macOS)
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(detail, forType: .string)
-                            #elseif os(iOS)
-                            UIPasteboard.general.string = detail
-                            #endif
                             showCopied = true
                             copiedResetTask?.cancel()
                             copiedResetTask = Task {
@@ -111,7 +103,6 @@ public struct VToast: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("\(String(describing: style)): \(message)"))
         .onAppear {
-            #if os(macOS)
             NSAccessibility.post(
                 element: NSApp as Any,
                 notification: .announcementRequested,
@@ -120,9 +111,6 @@ public struct VToast: View {
                     .priority: NSAccessibilityPriorityLevel.high.rawValue
                 ]
             )
-            #elseif os(iOS)
-            UIAccessibility.post(notification: .announcement, argument: "\(style): \(message)")
-            #endif
         }
         .onDisappear {
             copiedResetTask?.cancel()

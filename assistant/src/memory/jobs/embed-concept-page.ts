@@ -24,6 +24,7 @@ import type { AssistantConfig } from "../../config/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { getDb } from "../db-connection.js";
 import {
   embedWithBackend,
@@ -39,6 +40,10 @@ import {
   deleteConceptPageEmbedding,
   upsertConceptPageEmbedding,
 } from "../v2/qdrant.js";
+import {
+  generateBm25DocEmbedding,
+  getConceptPageCorpusStats,
+} from "../v2/sparse-bm25.js";
 
 const log = getLogger("memory-v2-embed-concept-page");
 
@@ -141,7 +146,17 @@ export async function embedConceptPageJob(
 
   // Sparse is cheap (in-process tokenization) and changes any time the body
   // changes, so we always recompute it rather than caching alongside dense.
-  const sparse = generateSparseEmbedding(text);
+  // BM25 weights live on the doc side; queries embed binary occurrence in
+  // sim.ts. When corpus stats aren't built yet (cold daemon, walking the
+  // corpus for the first time), fall back to the legacy TF-only encoding —
+  // the next reembed pass overwrites the page once stats are available.
+  const corpusStats = getConceptPageCorpusStats();
+  const sparse = corpusStats
+    ? generateBm25DocEmbedding(text, corpusStats, {
+        k1: config.memory.v2.bm25_k1,
+        b: config.memory.v2.bm25_b,
+      })
+    : generateSparseEmbedding(text);
 
   const now = Date.now();
   // Persist freshly embedded vectors for cross-restart reuse. On cache hit
@@ -189,9 +204,20 @@ export async function embedConceptPageJob(
     }
   }
 
+  // Apply anisotropy correction at the boundary between the (raw) cached
+  // dense vector and the Qdrant collection. Storing raw in SQLite and
+  // corrected in Qdrant means a recalibration just needs a reembed pass —
+  // the cache survives and the (cheap) correction math reruns over each
+  // cached vector. Pass-through when no calibration is fit yet.
+  const correctedDense = await applyCorrectionIfCalibrated(
+    dense,
+    provider,
+    model,
+  );
+
   await upsertConceptPageEmbedding({
     slug,
-    dense,
+    dense: correctedDense,
     sparse,
     updatedAt: now,
   });

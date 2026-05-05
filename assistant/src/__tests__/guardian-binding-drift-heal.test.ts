@@ -8,10 +8,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

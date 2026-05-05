@@ -16,6 +16,13 @@ public enum LLMProviderSetupMode: String, Decodable {
     case keyless
 }
 
+/// How a model reaches context windows above the standard default budget.
+public enum LLMLongContextMode: String, Decodable {
+    case nativeModel = "native-model"
+    case providerRequestOption = "provider-request-option"
+    case unsupported
+}
+
 /// Guide for obtaining API credentials from an LLM provider.
 ///
 /// Contains a short description of the steps, a URL to the provider's
@@ -65,6 +72,13 @@ public struct LLMModelEntry: Decodable {
     public let displayName: String
     /// Maximum context window in tokens. Optional — omitted when unknown.
     public let contextWindowTokens: Int?
+    /// Conservative default context budget in tokens. Optional — callers
+    /// should fall back to their schema default when omitted.
+    public let defaultContextWindowTokens: Int?
+    /// Token threshold where the provider may apply long-context pricing.
+    public let longContextPricingThresholdTokens: Int?
+    /// Whether long context is available natively, by request option, or not supported.
+    public let longContextMode: LLMLongContextMode?
     /// Maximum output tokens per response. Optional — omitted when unknown.
     public let maxOutputTokens: Int?
     /// Whether the model supports extended thinking / reasoning.
@@ -82,6 +96,9 @@ public struct LLMModelEntry: Decodable {
         id: String,
         displayName: String,
         contextWindowTokens: Int? = nil,
+        defaultContextWindowTokens: Int? = nil,
+        longContextPricingThresholdTokens: Int? = nil,
+        longContextMode: LLMLongContextMode? = nil,
         maxOutputTokens: Int? = nil,
         supportsThinking: Bool? = nil,
         supportsCaching: Bool? = nil,
@@ -92,6 +109,9 @@ public struct LLMModelEntry: Decodable {
         self.id = id
         self.displayName = displayName
         self.contextWindowTokens = contextWindowTokens
+        self.defaultContextWindowTokens = defaultContextWindowTokens
+        self.longContextPricingThresholdTokens = longContextPricingThresholdTokens
+        self.longContextMode = longContextMode
         self.maxOutputTokens = maxOutputTokens
         self.supportsThinking = supportsThinking
         self.supportsCaching = supportsCaching
@@ -165,10 +185,10 @@ public struct LLMProviderEntry: Decodable {
 
 /// Top-level schema for `llm-provider-catalog.json`.
 ///
-/// The JSON file is expected to live at `meta/llm-provider-catalog.json`
-/// and be copied into `Contents/Resources` by `build.sh` once the later
-/// PRs in the LLM catalog plan land. Until then, this registry always
-/// returns the fallback data.
+/// The JSON file is generated from `meta/llm-provider-catalog.json` and
+/// copied into `Contents/Resources` by the client build. The hard-coded
+/// fallback below keeps startup resilient when the bundled resource is
+/// missing, unreadable, or corrupt.
 public struct LLMProviderCatalog: Decodable {
     public let version: Int
     public let providers: [LLMProviderEntry]
@@ -215,12 +235,12 @@ public enum LLMProviderRegistry {
 /// corrupt. Keeps client startup resilient — the app can always show at
 /// least the current set of providers.
 ///
-/// The entries below mirror the inline catalog in
-/// `clients/macos/vellum-assistant/Features/Onboarding/APIKeyEntryStepView.swift`
-/// so that fallback behaviour matches what the onboarding flow already
-/// shows users. Capability flags and pricing are intentionally omitted in
-/// this first scaffold PR; they will be populated in a later PR when the
-/// full JSON catalog is wired up.
+/// The entries below mirror the startup-critical subset of
+/// `meta/llm-provider-catalog.json`: provider/model identity, setup metadata,
+/// defaults, context and output budgets, and long-context signals needed by
+/// settings before bundled JSON loads. Pricing and capability flags are
+/// intentionally omitted from the hard-coded fallback; the bundled JSON
+/// catalog remains authoritative when present.
 private let fallbackCatalog = LLMProviderCatalog(
     version: 0,
     providers: [
@@ -239,10 +259,41 @@ private let fallbackCatalog = LLMProviderCatalog(
             ),
             defaultModel: "claude-opus-4-7",
             models: [
-                LLMModelEntry(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-                LLMModelEntry(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
-                LLMModelEntry(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                LLMModelEntry(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
+                LLMModelEntry(
+                    id: "claude-opus-4-7",
+                    displayName: "Claude Opus 4.7",
+                    contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "claude-opus-4-6",
+                    displayName: "Claude Opus 4.6",
+                    contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "claude-sonnet-4-6",
+                    displayName: "Claude Sonnet 4.6",
+                    contextWindowTokens: 1_000_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 64_000
+                ),
+                LLMModelEntry(
+                    id: "claude-haiku-4-5-20251001",
+                    displayName: "Claude Haiku 4.5",
+                    contextWindowTokens: 200_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextMode: .unsupported,
+                    maxOutputTokens: 64_000
+                ),
             ]
         ),
         LLMProviderEntry(
@@ -260,11 +311,56 @@ private let fallbackCatalog = LLMProviderCatalog(
             ),
             defaultModel: "gpt-5.5",
             models: [
-                LLMModelEntry(id: "gpt-5.5", displayName: "GPT-5.5"),
-                LLMModelEntry(id: "gpt-5.4", displayName: "GPT-5.4"),
-                LLMModelEntry(id: "gpt-5.2", displayName: "GPT-5.2"),
-                LLMModelEntry(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
-                LLMModelEntry(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
+                LLMModelEntry(
+                    id: "gpt-5.5",
+                    displayName: "GPT-5.5",
+                    contextWindowTokens: 1_050_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 272_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "gpt-5.5-pro",
+                    displayName: "GPT-5.5 Pro",
+                    contextWindowTokens: 1_050_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextPricingThresholdTokens: 272_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "gpt-5.4",
+                    displayName: "GPT-5.4",
+                    contextWindowTokens: 1_050_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "gpt-5.2",
+                    displayName: "GPT-5.2",
+                    contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "gpt-5.4-mini",
+                    displayName: "GPT-5.4 Mini",
+                    contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
+                LLMModelEntry(
+                    id: "gpt-5.4-nano",
+                    displayName: "GPT-5.4 Nano",
+                    contextWindowTokens: 400_000,
+                    defaultContextWindowTokens: 200_000,
+                    longContextMode: .nativeModel,
+                    maxOutputTokens: 128_000
+                ),
             ]
         ),
         LLMProviderEntry(
@@ -383,10 +479,9 @@ private let fallbackCatalog = LLMProviderCatalog(
 // MARK: - Loader
 
 /// Cached catalog loaded once per process lifetime.
-/// The bundled `llm-provider-catalog.json` (when present in later PRs)
-/// is immutable at runtime, so reading it more than once is unnecessary
-/// I/O. Swift guarantees thread-safe lazy initialization of static
-/// properties.
+/// The bundled `llm-provider-catalog.json` is immutable at runtime, so
+/// reading it more than once is unnecessary I/O. Swift guarantees
+/// thread-safe lazy initialization of static properties.
 private let _cachedLLMProviderCatalog: LLMProviderCatalog = {
     guard let url = Bundle.main.url(forResource: "llm-provider-catalog", withExtension: "json") else {
         log.warning("llm-provider-catalog.json not found in bundle — using fallback catalog")

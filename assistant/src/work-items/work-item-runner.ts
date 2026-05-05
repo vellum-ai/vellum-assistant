@@ -1,13 +1,13 @@
 /**
- * Module-level registry for running work items from tool context.
+ * Module-level runner for executing work items from tool context.
  *
- * The daemon server registers its `getOrCreateConversation` and `broadcast`
- * callbacks at startup. Tool implementations can then trigger async
- * work item execution without needing direct access to server internals.
+ * Imports conversation-store and the assistant event hub directly — no
+ * daemon-server callback registration needed.
  */
 
-import type { Conversation } from "../daemon/conversation.js";
+import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runTask } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
 import {
@@ -24,28 +24,12 @@ import {
 
 const log = getLogger("work-item-runner");
 
-// ── Daemon callback registry ─────────────────────────────────────────
-
-interface DaemonCallbacks {
-  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
-  broadcast: (msg: ServerMessage) => void;
-}
-
-let _callbacks: DaemonCallbacks | null = null;
-
-export function registerDaemonCallbacks(callbacks: DaemonCallbacks): void {
-  _callbacks = callbacks;
-}
-
 // ── Public API ───────────────────────────────────────────────────────
 
-function broadcastWorkItemStatus(
-  broadcast: (msg: ServerMessage) => void,
-  id: string,
-): void {
+function broadcastWorkItemStatus(id: string): void {
   const item = getWorkItem(id);
   if (item) {
-    broadcast({
+    broadcastMessage({
       type: "work_item_status_changed",
       item: {
         id: item.id,
@@ -75,14 +59,6 @@ export interface RunWorkItemResult {
  * auto-approved since the user explicitly requested execution.
  */
 export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
-  if (!_callbacks) {
-    return {
-      success: false,
-      error: "Daemon callbacks not registered",
-      errorCode: "not_initialized",
-    };
-  }
-
   const workItem = getWorkItem(workItemId);
   if (!workItem) {
     return {
@@ -135,11 +111,8 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   // Set status to running
   updateWorkItem(workItemId, { status: "running" });
 
-  const { getOrCreateConversation, broadcast } = _callbacks;
-
-  // Broadcast the running state
-  broadcastWorkItemStatus(broadcast, workItemId);
-  broadcast({ type: "tasks_changed" } as ServerMessage);
+  broadcastWorkItemStatus(workItemId);
+  broadcastMessage({ type: "tasks_changed" } as ServerMessage);
 
   // Execute asynchronously
   let conversation: Awaited<ReturnType<typeof getOrCreateConversation>> | null =
@@ -155,7 +128,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             });
             conversation = await getOrCreateConversation(conversationId);
 
-            broadcast({
+            broadcastMessage({
               type: "task_run_conversation_created",
               conversationId,
               workItemId,
@@ -165,7 +138,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             conversation.headlessLock = true;
           }
           await conversation.processMessage(message, [], (event) => {
-            broadcast(event);
+            broadcastMessage(event);
           });
         },
       );
@@ -188,8 +161,8 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
         });
       }
 
-      broadcastWorkItemStatus(broadcast, workItemId);
-      broadcast({ type: "tasks_changed" } as ServerMessage);
+      broadcastWorkItemStatus(workItemId);
+      broadcastMessage({ type: "tasks_changed" } as ServerMessage);
     } catch (err) {
       const errConversation = conversation as { headlessLock: boolean } | null;
       if (errConversation) {
@@ -200,8 +173,8 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
         status: "failed",
         lastRunStatus: "failed",
       });
-      broadcastWorkItemStatus(broadcast, workItemId);
-      broadcast({ type: "tasks_changed" } as ServerMessage);
+      broadcastWorkItemStatus(workItemId);
+      broadcastMessage({ type: "tasks_changed" } as ServerMessage);
     }
   })();
 

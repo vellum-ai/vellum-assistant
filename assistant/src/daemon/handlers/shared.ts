@@ -1,18 +1,14 @@
 import { v4 as uuid } from "uuid";
 
-import { broadcastToAllClients } from "../../acp/index.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
-import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import type {
-  ConversationTransportMetadata,
-  ServerMessage,
-} from "../message-protocol.js";
+import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
 
 const log = getLogger("handlers");
@@ -25,25 +21,13 @@ export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 // Module-level map for non-conversation secret prompts (e.g. publish_page)
-export const pendingStandaloneSecrets = new Map<
+const pendingStandaloneSecrets = new Map<
   string,
   {
     resolve: (result: SecretPromptResult) => void;
     timer: ReturnType<typeof setTimeout>;
   }
 >();
-
-// Pending signing responses (bundle signing orchestration), keyed by unique requestId
-interface PendingSigningResolve {
-  resolve: (result: {
-    signature: string;
-    keyId: string;
-    publicKey: string;
-  }) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
 
 export interface HistoryToolCall {
   name: string;
@@ -66,8 +50,19 @@ export interface HistoryToolCall {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  /**
+   * @deprecated Use `approvalMode` and `approvalReason` instead.
+   * Kept for backward compatibility during the migration window.
+   */
   autoApproved?: boolean;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
 export interface HistorySurface {
@@ -132,11 +127,11 @@ export interface ConversationCreateOptions {
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
-  memoryScopeId?: string;
+  /** Slack-only non-persisted notice injected into the active model turn. */
+  slackRuntimeContextNotice?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
-  onEvent?: (msg: ServerMessage) => void;
+
   /**
    * Optional explicit model override (provider/model string) for this
    * conversation's agent loop. Used by the auto-analyze loop to pin the
@@ -157,35 +152,6 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
-}
-
-// ── Narrow handler context types ─────────────────────────────────────
-//
-// Each handler declares only the server capabilities it actually uses.
-// This replaces the former monolithic HandlerContext interface.
-
-/** Handlers that only need to broadcast to all connected clients. */
-export interface BroadcastContext {
-  broadcast(msg: ServerMessage): void;
-}
-
-/** Handlers that need to send a message to the originating client. */
-export interface SendContext {
-  send(msg: ServerMessage): void;
-}
-
-/** Conversation handlers that send messages and touch eviction timers. */
-export interface ConversationHandlerContext {
-  send(msg: ServerMessage): void;
-  touchConversation(conversationId: string): void;
-}
-
-/** Config-ingress handlers that manage debounce and reload suppression. */
-export interface IngressConfigContext {
-  send(msg: ServerMessage): void;
-  debounceTimers: DebouncerMap;
-  suppressConfigReload: boolean;
-  setSuppressConfigReload(value: boolean): void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -392,8 +358,16 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.riskLevel = block._riskLevel;
       if (typeof block._riskReason === "string")
         entry.riskReason = block._riskReason;
+      if (typeof block._matchedTrustRuleId === "string")
+        entry.matchedTrustRuleId = block._matchedTrustRuleId;
       if (typeof block._autoApproved === "boolean")
         entry.autoApproved = block._autoApproved;
+      if (typeof block._approvalMode === "string")
+        entry.approvalMode = block._approvalMode;
+      if (typeof block._approvalReason === "string")
+        entry.approvalReason = block._approvalReason;
+      if (typeof block._riskThreshold === "string")
+        entry.riskThreshold = block._riskThreshold;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -550,10 +524,6 @@ export function requestSecretStandalone(params: {
   allowedTools?: string[];
   allowedDomains?: string[];
 }): Promise<SecretPromptResult> {
-  const broadcast = broadcastToAllClients;
-  if (!broadcast) {
-    return Promise.resolve({ value: null, delivery: "store" });
-  }
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
@@ -562,7 +532,7 @@ export function requestSecretStandalone(params: {
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    broadcast({
+    broadcastMessage({
       type: "secret_request",
       requestId,
       service: params.service,
@@ -576,29 +546,6 @@ export function requestSecretStandalone(params: {
       allowOneTimeSend: config.secretDetection.allowOneTimeSend,
     });
   });
-}
-
-const SIGNING_TIMEOUT_MS = 30_000;
-
-/**
- * Create a SigningCallback that sends `sign_bundle_payload` to the Swift client
- * over HTTP and waits for the `sign_bundle_payload_response`.
- */
-export function createSigningCallback(
-  ctx: SendContext,
-): (
-  payload: string,
-) => Promise<{ signature: string; keyId: string; publicKey: string }> {
-  return (payload: string) =>
-    new Promise((resolve, reject) => {
-      const requestId = uuid();
-      const timer = setTimeout(() => {
-        pendingSignBundlePayload.delete(requestId);
-        reject(new Error("Signing request timed out"));
-      }, SIGNING_TIMEOUT_MS);
-      pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
-      ctx.send({ type: "sign_bundle_payload", requestId, payload });
-    });
 }
 
 /** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.

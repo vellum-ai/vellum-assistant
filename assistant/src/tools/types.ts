@@ -10,17 +10,27 @@ import type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
 } from "@vellumai/skill-host-contracts";
 
 import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
-import type { HostBashProxy } from "../daemon/host-bash-proxy.js";
-import type { HostFileProxy } from "../daemon/host-file-proxy.js";
-import type { HostTransferProxy } from "../daemon/host-transfer-proxy.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+
+export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "bash",
+  "host_bash",
+  "file_read",
+  "file_list",
+  "host_file_read",
+  "background_tool_list",
+  "background_tool_cancel",
+]);
+
+export function isDiskPressureCleanupToolName(name: string): boolean {
+  return DISK_PRESSURE_CLEANUP_TOOL_NAMES.has(name);
+}
 
 // ---------------------------------------------------------------------------
 // Re-exports + concrete overlays for types that live in
@@ -58,7 +68,6 @@ export type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
 } from "@vellumai/skill-host-contracts";
 export { RiskLevel } from "@vellumai/skill-host-contracts";
 
@@ -96,6 +105,14 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  /** How the decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at the time of execution. */
+  riskThreshold?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
@@ -133,6 +150,12 @@ export interface ToolExecutedEvent {
   requestId?: string;
   executionTarget?: ExecutionTarget;
   riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  /** How the approval decision was reached. Copied from PermissionDecision for analytics consumers. */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */
+  approvalReason?: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
@@ -143,8 +166,7 @@ export type ToolLifecycleEvent =
   | ToolPermissionPromptEvent
   | ToolPermissionDeniedEvent
   | ToolExecutedEvent
-  | ToolExecutionErrorEvent
-  | ToolSecretDetectedEvent;
+  | ToolExecutionErrorEvent;
 
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
@@ -163,12 +185,14 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
+  /** True when this turn is restricted to storage cleanup-safe tools. */
+  diskPressureCleanupModeActive?: boolean;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
     service: string;
@@ -184,8 +208,6 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
-  /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
-  memoryScopeId?: string;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**
@@ -238,12 +260,6 @@ export interface ToolContext {
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;
-  /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
-  hostBashProxy?: HostBashProxy;
-  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
-  hostFileProxy?: HostFileProxy;
-  /** Optional proxy for delegating bidirectional file transfers between sandbox and host (managed/cloud-hosted mode). */
-  hostTransferProxy?: HostTransferProxy;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
   isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
@@ -266,6 +282,14 @@ export interface ToolContext {
    * `executeSubagentSpawn` in tools/subagent/spawn.ts.
    */
   overrideProfile?: string;
+  /**
+   * Canonical principal ID of the actor on whose behalf this tool invocation
+   * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.
+   * Used by host proxies to bind cross-client targeted execution to the same
+   * authenticated user identity. May be undefined for legacy/internal flows
+   * with no resolved actor identity.
+   */
+  sourceActorPrincipalId?: string;
 }
 
 export interface Tool {

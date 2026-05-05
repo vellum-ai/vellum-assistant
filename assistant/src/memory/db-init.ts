@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
+import { backfillAppConversationIds } from "./app-store.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
@@ -66,6 +67,7 @@ import {
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
+  migrateCreateDocumentConversations,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
@@ -100,14 +102,17 @@ import {
   migrateGuardianTimestampsEpochMs,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
+  migrateHeartbeatRuns,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
+  migrateLlmUsageAttribution,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryV2ActivationLogs,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -149,14 +154,18 @@ import {
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
+  migrateScheduleRetryPolicy,
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
+  migrateSlackCompactionWatermark,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
+  migrateToolInvocationsMatchedRuleId,
+  migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -390,6 +399,17 @@ export function initializeDb(): void {
     migrate230AcpSessionHistory,
     migrate231RepairMemoryGraphEventDates,
     migrateActivationState,
+    migrateMemoryV2ActivationLogs,
+    migrateCreateDocumentConversations,
+    migrateLlmUsageAttribution,
+    migrateSlackCompactionWatermark,
+    migrateToolInvocationsMatchedRuleId,
+    migrateHeartbeatRuns,
+    function migrateBackfillAppConversationIds() {
+      backfillAppConversationIds();
+    },
+    migrateScheduleRetryPolicy,
+    migrateTraceEventsCreatedAtIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

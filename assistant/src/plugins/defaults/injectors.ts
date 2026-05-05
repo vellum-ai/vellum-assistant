@@ -3,7 +3,7 @@
  * drives the per-turn injection sequence consumed by
  * `applyRuntimeInjections`.
  *
- * Each of the eight default injectors reads its per-turn inputs from
+ * Each default injector reads its per-turn inputs from
  * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
@@ -12,10 +12,12 @@
  *
  * | name                     | order | placement               |
  * | ------------------------ | ----- | ----------------------- |
+ * | `disk-pressure-warning`  | 5     | prepend-user-tail       |
  * | `workspace-context`      | 10    | prepend-user-tail       |
  * | `unified-turn-context`   | 20    | prepend-user-tail       |
  * | `pkb-context`            | 30    | after-memory-prefix     |
  * | `pkb-reminder`           | 35    | after-memory-prefix     |
+ * | `memory-v2-static`       | 38    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
@@ -44,8 +46,11 @@
 
 import { resolve } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
+import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import { searchPkbFiles } from "../../memory/pkb/pkb-search.js";
 import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
@@ -71,7 +76,7 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * Fixed order values for the eight default injectors. Exported so tests —
+ * Fixed order values for the default injectors. Exported so tests —
  * and any future integration code — can assert ordering without re-deriving
  * the constants.
  *
@@ -80,10 +85,12 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * without renumbering the defaults.
  */
 export const DEFAULT_INJECTOR_ORDER = {
+  diskPressureWarning: 5,
   workspaceContext: 10,
   unifiedTurnContext: 20,
   pkbContext: 30,
   pkbReminder: 35,
+  memoryV2Static: 38,
   nowMd: 40,
   subagentStatus: 50,
   slackMessages: 60,
@@ -92,6 +99,47 @@ export const DEFAULT_INJECTOR_ORDER = {
 
 function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
   return ctx.injectionInputs ?? {};
+}
+
+export const DISK_PRESSURE_WARNING_PROMPT = `<disk_pressure_warning>
+Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is at least 95% full.
+
+In your first paragraph, warn the user that storage is critically low and that normal work is suspended until space is freed.
+
+Then help the user clean up storage. Prefer safe inspection steps first, such as checking available space and finding large directories. Ask before deleting files or caches unless the user has already clearly approved the specific cleanup action.
+
+Do not work on unrelated tasks until disk usage drops below the critical threshold or the user explicitly overrides the lock. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
+</disk_pressure_warning>`;
+
+function isSafeStorageLimitsEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
+}
+
+const diskPressureWarningInjector: Injector = {
+  name: "disk-pressure-warning",
+  order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    if (!isSafeStorageLimitsEnabled()) return null;
+    const inputs = readInjectionInputs(ctx);
+    if (!inputs.diskPressureContext?.cleanupModeActive) return null;
+    return {
+      id: "disk-pressure-warning",
+      text: DISK_PRESSURE_WARNING_PROMPT,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
+/**
+ * v2 read-side cutover guard. The `pkb-context` injector silences itself
+ * under v2 because the `<knowledge_base>` block surfaces PKB content the v2
+ * activation block already covers. The `pkb-reminder` injector still fires
+ * (its body is generic recall/remember guidance) but skips the hybrid-search
+ * hints — those name PKB paths v2 is moving away from. NOW.md is workspace
+ * state independent of PKB and fires unchanged.
+ */
+function isPkbInjectionSilencedByV2(): boolean {
+  return isMemoryV2ReadActive(getConfig());
 }
 
 /**
@@ -173,6 +221,7 @@ const pkbContextInjector: Injector = {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
+    if (isPkbInjectionSilencedByV2()) return null;
     if (!inputs.pkbContext) return null;
     return {
       id: "pkb-context",
@@ -203,7 +252,9 @@ const pkbReminderInjector: Injector = {
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
     if (!inputs.pkbActive) return null;
-    const reminder = await buildPkbReminderWithHints(inputs);
+    const reminder = isPkbInjectionSilencedByV2()
+      ? buildPkbReminder([])
+      : await buildPkbReminderWithHints(inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
@@ -297,6 +348,53 @@ async function buildPkbReminderWithHints(
 }
 
 /**
+ * `memory-v2-static` injector — order 38, after-memory-prefix.
+ *
+ * Injects the v2 static memory block (essentials/threads/recent/buffer
+ * concatenated under markdown headings) wrapped in `<memory>...</memory>`
+ * onto the user message. The agent loop only forwards `memoryV2Static` on
+ * full-mode turns (first turn / post-compaction), mirroring the PKB
+ * auto-inject cadence — subsequent turns get `null` and the prior block
+ * stays cached on its original user message.
+ *
+ * Sits between `pkb-reminder` (35) and `now-md` (40) so the rendered order
+ * after the memory prefix is `[pkb-reminder, pkb-context, memory-v2-static,
+ * now-md, ...user text]` when every PKB injector also fires (transitional
+ * state). Once PKB is fully retired under v2 this is the only block
+ * adjacent to the memory prefix.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `memoryV2Static` is a non-null, non-empty string.
+ */
+const memoryV2StaticInjector: Injector = {
+  name: "memory-v2-static",
+  order: DEFAULT_INJECTOR_ORDER.memoryV2Static,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const content = inputs.memoryV2Static;
+    if (!content) return null;
+    return {
+      id: "memory-v2-static",
+      text: buildMemoryV2StaticBlock(content),
+      placement: "after-memory-prefix",
+    };
+  },
+};
+
+/**
+ * Wrap the static memory content in `<memory>...</memory>`. Escapes any
+ * closing `</memory>` inside the content so authored memory files cannot
+ * accidentally break out of the wrapper.
+ */
+function buildMemoryV2StaticBlock(content: string): string {
+  const escaped = content.replace(/<\/memory\s*>/gi, "&lt;/memory&gt;");
+  return `<memory>\n${escaped}\n</memory>`;
+}
+
+/**
  * `now-md` injector — order 40, after-memory-prefix.
  *
  * Injects the NOW.md scratchpad content as
@@ -362,7 +460,7 @@ const subagentStatusInjector: Injector = {
  * Swaps the conversation's `runMessages` array with a pre-rendered
  * chronological Slack transcript built from the persisted message rows.
  * Applied to every Slack conversation (channels and DMs alike). The
- * orchestrator builds the transcript via `loadSlackChronologicalMessages`
+ * orchestrator builds the transcript via `loadSlackChronologicalContext`
  * before the chain runs.
  *
  * Memory-block prepending is preserved across the replacement:
@@ -454,10 +552,12 @@ export const defaultInjectorsPlugin: Plugin = {
     },
   },
   injectors: [
+    diskPressureWarningInjector,
     workspaceContextInjector,
     unifiedTurnContextInjector,
     pkbContextInjector,
     pkbReminderInjector,
+    memoryV2StaticInjector,
     nowMdInjector,
     subagentStatusInjector,
     slackMessagesInjector,

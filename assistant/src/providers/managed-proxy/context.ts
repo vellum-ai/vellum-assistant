@@ -92,8 +92,3 @@ export async function managedFallbackEnabledFor(
   if (!meta?.managed) return false;
   return await hasManagedProxyPrereqs();
 }
-
-/** @internal Test-only: reset the cached managed-proxy-enabled flag. */
-export function _resetManagedProxyEnabledCache(): void {
-  _managedProxyEnabled = false;
-}

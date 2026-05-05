@@ -17,7 +17,7 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from "../../http-types.js";
-import type { ApprovalInterceptionResult } from "../guardian-approval-interception.js";
+import type { ApprovalInterceptionResult } from "../approval-interception-types.js";
 import { deliverStaleApprovalReply } from "../guardian-approval-reply-helpers.js";
 
 const log = getLogger("runtime-http");

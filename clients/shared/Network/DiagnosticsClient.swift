@@ -15,7 +15,7 @@ public struct DiagnosticsClient: DiagnosticsClientProtocol {
     public func fetchEnvVars() async -> EnvVarsResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/diagnostics/env-vars", timeout: 10
+                path: "diagnostics/env-vars", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchEnvVars failed (HTTP \(response.statusCode))")

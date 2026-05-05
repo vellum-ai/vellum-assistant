@@ -5,17 +5,28 @@ import { dirname } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("host-transfer-proxy");
 
-interface PendingTransfer {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+/**
+ * Lightweight entry for the transfers map (keyed by transferId).
+ * Points back to the requestId so route handlers can correlate
+ * content endpoints with the pending interaction.
+ */
+interface TransferEntry {
   requestId: string;
   transferId: string;
   direction: "to_host" | "to_sandbox";
@@ -24,8 +35,14 @@ interface PendingTransfer {
   sizeBytes?: number;
   sha256?: string;
   fileBuffer?: Buffer;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
+  targetClientId?: string;
+  /**
+   * Snapshot of `targetClientId`'s `actorPrincipalId` taken at registration
+   * time. Persisted so the GET/PUT content routes compare against a stable
+   * value rather than the live hub — the target client's SSE subscription
+   * may briefly disconnect between dispatch and content fetch/upload.
+   */
+  targetActorPrincipalId?: string;
 }
 
 /**
@@ -41,6 +58,8 @@ function computeTimeoutMs(sizeBytes?: number): number {
 }
 
 export class HostTransferProxy {
+  private static _instance: HostTransferProxy | null = null;
+
   /**
    * Override for tests: when set, all timeout durations use this value instead
    * of the size-adaptive computation.  Reset to `undefined` after tests.
@@ -48,28 +67,57 @@ export class HostTransferProxy {
    */
   static _testTimeoutOverrideMs: number | undefined;
 
-  /** Pending transfers keyed by requestId (for resolution from client results). */
-  private pending = new Map<string, PendingTransfer>();
-  /** Pending transfers keyed by transferId (for content endpoint lookups). */
-  private transfers = new Map<string, PendingTransfer>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
-
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Lazily-initialized singleton. Availability of an actual desktop
+   * connection is checked at send time via the assistant event hub,
+   * not at construction time.
+   */
+  static get instance(): HostTransferProxy {
+    if (!HostTransferProxy._instance) {
+      log.info("Creating singleton HostTransferProxy");
+      HostTransferProxy._instance = new HostTransferProxy();
+    }
+    return HostTransferProxy._instance;
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostTransferProxy._instance) {
+      HostTransferProxy._instance.dispose();
+      HostTransferProxy._instance = null;
+    }
+  }
+
+  /** For tests. */
+  static reset(): void {
+    HostTransferProxy._instance = null;
+  }
+
+  /** Pending transfers keyed by transferId (for content endpoint lookups). */
+  private transfers = new Map<string, TransferEntry>();
+  /**
+   * Briefly retains size/sha256 of a just-consumed transfer so the GET-content
+   * route's `resolveResponseHeaders` callback (which the HTTP adapter invokes
+   * AFTER the request handler) can still set `Content-Length` and
+   * `X-Transfer-SHA256` headers. Without this, the handler's `getTransferContent`
+   * call deletes the entry before the header resolver runs, and the resolver
+   * silently falls back to default headers — meaning the documented response
+   * headers were never actually sent. Entries here self-clear on read; a 30s
+   * fallback timer prevents long-term retention if the resolver never runs.
+   */
+  private justConsumedMetadata = new Map<
+    string,
+    { sizeBytes: number; sha256: string }
+  >();
+
+  /**
+   * Whether a client with `host_file` capability is connected.
+   * Transfers piggyback on the host_file capability.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_file") != null
+    );
   }
 
   /**
@@ -85,11 +133,55 @@ export class HostTransferProxy {
       destPath: string;
       overwrite: boolean;
       conversationId: string;
+      targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
+    }
+
+    let resolvedTargetClientId: string | undefined = input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -98,7 +190,6 @@ export class HostTransferProxy {
     return new Promise<ToolExecutionResult>((resolve, reject) => {
       readFile(input.sourcePath)
         .then((fileBuffer) => {
-          // Check again after async read in case signal fired during I/O.
           if (signal?.aborted) {
             resolve({ content: "Aborted", isError: true });
             return;
@@ -113,36 +204,40 @@ export class HostTransferProxy {
           let detachAbort: () => void = () => {};
 
           const timer = setTimeout(() => {
-            this.pending.delete(requestId);
             this.transfers.delete(transferId);
-            detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             log.warn(
               { requestId, transferId, direction: "to_host" },
               "Host transfer proxy request timed out",
             );
             resolve({
-              content:
-                "Host transfer proxy timed out waiting for client response",
+              content: resolvedTargetClientId
+                ? `Host transfer proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+                : "Host transfer proxy timed out waiting for client response",
               isError: true,
             });
           }, timeoutMs);
 
           if (signal) {
             const onAbort = () => {
-              if (this.pending.has(requestId)) {
-                clearTimeout(timer);
-                this.pending.delete(requestId);
+              if (pendingInteractions.get(requestId)) {
                 this.transfers.delete(transferId);
-                detachAbort();
-                this.onInternalResolve?.(requestId);
+                pendingInteractions.resolve(requestId);
                 try {
-                  this.sendToClient({
-                    type: "host_transfer_cancel",
-                    requestId,
-                  } as ServerMessage);
+                  broadcastMessage(
+                    {
+                      type: "host_transfer_cancel",
+                      requestId,
+                      conversationId: input.conversationId,
+                      ...(resolvedTargetClientId != null
+                        ? { targetClientId: resolvedTargetClientId }
+                        : {}),
+                    },
+                    input.conversationId,
+                    { targetClientId: resolvedTargetClientId },
+                  );
                 } catch {
-                  // Best-effort cancel notification — connection may already be closed.
+                  // Best-effort cancel notification
                 }
                 resolve({ content: "Aborted", isError: true });
               }
@@ -151,10 +246,7 @@ export class HostTransferProxy {
             detachAbort = () => signal.removeEventListener("abort", onAbort);
           }
 
-          const entry: PendingTransfer = {
-            resolve,
-            reject,
-            timer,
+          this.transfers.set(transferId, {
             requestId,
             transferId,
             direction: "to_host",
@@ -162,29 +254,54 @@ export class HostTransferProxy {
             sizeBytes,
             sha256,
             fileBuffer,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
+          });
+
+          pendingInteractions.register(requestId, {
+            conversationId: input.conversationId,
+            kind: "host_transfer",
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
+            rpcResolve: resolve,
+            rpcReject: reject,
+            timer,
             detachAbort,
-          };
-          this.pending.set(requestId, entry);
-          this.transfers.set(transferId, entry);
+            metadata: { transferId },
+          });
 
           try {
-            this.sendToClient({
-              type: "host_transfer_request",
-              requestId,
-              conversationId: input.conversationId,
-              direction: "to_host",
-              transferId,
-              destPath: input.destPath,
-              sizeBytes,
-              sha256,
-              overwrite: input.overwrite,
-            } as ServerMessage);
+            broadcastMessage(
+              {
+                type: "host_transfer_request",
+                requestId,
+                conversationId: input.conversationId,
+                direction: "to_host",
+                transferId,
+                destPath: input.destPath,
+                sizeBytes,
+                sha256,
+                overwrite: input.overwrite,
+                ...(resolvedTargetClientId != null
+                  ? { targetClientId: resolvedTargetClientId }
+                  : {}),
+              },
+              input.conversationId,
+              { targetClientId: resolvedTargetClientId },
+            );
           } catch (err) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
             this.transfers.delete(transferId);
-            detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             log.warn(
               { requestId, transferId, err },
               "Host transfer proxy send failed",
@@ -218,11 +335,55 @@ export class HostTransferProxy {
       destPath: string;
       overwrite?: boolean;
       conversationId: string;
+      targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
+    }
+
+    let resolvedTargetClientId: string | undefined = input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -234,35 +395,40 @@ export class HostTransferProxy {
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
         this.transfers.delete(transferId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, transferId, direction: "to_sandbox" },
           "Host transfer proxy request timed out",
         );
         resolve({
-          content: "Host transfer proxy timed out waiting for client response",
+          content: resolvedTargetClientId
+            ? `Host transfer proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+            : "Host transfer proxy timed out waiting for client response",
           isError: true,
         });
       }, timeoutMs);
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
+          if (pendingInteractions.get(requestId)) {
             this.transfers.delete(transferId);
-            detachAbort();
-            this.onInternalResolve?.(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
-                type: "host_transfer_cancel",
-                requestId,
-              } as ServerMessage);
+              broadcastMessage(
+                {
+                  type: "host_transfer_cancel",
+                  requestId,
+                  conversationId: input.conversationId,
+                  ...(resolvedTargetClientId != null
+                    ? { targetClientId: resolvedTargetClientId }
+                    : {}),
+                },
+                input.conversationId,
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -271,35 +437,57 @@ export class HostTransferProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      const entry: PendingTransfer = {
-        resolve,
-        reject,
-        timer,
+      this.transfers.set(transferId, {
         requestId,
         transferId,
         direction: "to_sandbox",
         filePath: input.destPath,
         overwrite: input.overwrite,
+        targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
+      });
+
+      pendingInteractions.register(requestId, {
+        conversationId: input.conversationId,
+        kind: "host_transfer",
+        targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
         detachAbort,
-      };
-      this.pending.set(requestId, entry);
-      this.transfers.set(transferId, entry);
+        metadata: { transferId },
+      });
 
       try {
-        this.sendToClient({
-          type: "host_transfer_request",
-          requestId,
-          conversationId: input.conversationId,
-          direction: "to_sandbox",
-          transferId,
-          sourcePath: input.sourcePath,
-        } as ServerMessage);
+        broadcastMessage(
+          {
+            type: "host_transfer_request",
+            requestId,
+            conversationId: input.conversationId,
+            direction: "to_sandbox",
+            transferId,
+            sourcePath: input.sourcePath,
+            ...(resolvedTargetClientId != null
+              ? { targetClientId: resolvedTargetClientId }
+              : {}),
+          },
+          input.conversationId,
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
         this.transfers.delete(transferId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, transferId, err },
           "Host transfer proxy send failed",
@@ -311,9 +499,6 @@ export class HostTransferProxy {
 
   /**
    * Resolve a to_host transfer result from the client.
-   *
-   * Called when the client POSTs the result after downloading content
-   * and writing it to the host filesystem.
    */
   resolveTransferResult(
     requestId: string,
@@ -323,23 +508,21 @@ export class HostTransferProxy {
       errorMessage?: string;
     },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host transfer request for response");
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-    this.transfers.delete(entry.transferId);
+    const transferId = interaction.metadata?.transferId as string | undefined;
+    if (transferId) this.transfers.delete(transferId);
 
     if (result.isError) {
-      entry.resolve({
+      interaction.rpcResolve({
         content: result.errorMessage ?? "Host transfer failed",
         isError: true,
       });
     } else {
-      entry.resolve({
+      interaction.rpcResolve({
         content: `File transferred successfully${result.bytesWritten != null ? ` (${result.bytesWritten} bytes)` : ""}`,
         isError: false,
       });
@@ -364,14 +547,44 @@ export class HostTransferProxy {
     ) {
       return null;
     }
-    // Single-use: consume the transfer from the transfers map.
-    // The pending map entry stays alive for the result resolution.
+    // Stash size/sha256 so the GET-content route's `resolveResponseHeaders`
+    // callback can still set `Content-Length` and `X-Transfer-SHA256` on the
+    // response. The HTTP adapter invokes the handler (this method) BEFORE the
+    // response-header resolver, so without this stash the resolver sees a
+    // deleted entry and silently falls back to default headers.
+    this.justConsumedMetadata.set(transferId, {
+      sizeBytes: entry.sizeBytes,
+      sha256: entry.sha256,
+    });
+    // Fallback cleanup: if the resolver never reads (e.g., handler error after
+    // consume, request abort), drop the metadata after a short grace window.
+    // `unref()` so the timer never holds the process open.
+    setTimeout(() => {
+      this.justConsumedMetadata.delete(transferId);
+    }, 30_000).unref?.();
     this.transfers.delete(transferId);
     return {
       buffer: entry.fileBuffer,
       sizeBytes: entry.sizeBytes,
       sha256: entry.sha256,
     };
+  }
+
+  /**
+   * Returns and clears the size/sha256 metadata for a transfer that was just
+   * consumed by `getTransferContent`. Intended for use by the GET-content
+   * route's `resolveResponseHeaders` callback to populate `Content-Length` and
+   * `X-Transfer-SHA256` response headers. Returns null if no metadata is
+   * cached (e.g., transfer was never consumed, or already read by a previous
+   * resolver call).
+   */
+  takeJustConsumedTransferMetadata(
+    transferId: string,
+  ): { sizeBytes: number; sha256: string } | null {
+    const meta = this.justConsumedMetadata.get(transferId);
+    if (!meta) return null;
+    this.justConsumedMetadata.delete(transferId);
+    return meta;
   }
 
   /**
@@ -407,29 +620,25 @@ export class HostTransferProxy {
 
     const { requestId } = entry;
 
-    // Enforce overwrite policy before writing.
     if (entry.overwrite !== true && existsSync(entry.filePath)) {
       const errorMsg = `Destination file already exists: ${entry.filePath}. Set overwrite to true to replace it.`;
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      this.pending.delete(requestId);
+      const interaction = pendingInteractions.resolve(requestId);
       this.transfers.delete(transferId);
-      entry.resolve({ content: errorMsg, isError: true });
+      interaction?.rpcResolve?.({ content: errorMsg, isError: true });
       return { accepted: false, error: errorMsg };
     }
 
     const cleanup = () => {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      this.pending.delete(requestId);
+      pendingInteractions.resolve(requestId);
       this.transfers.delete(transferId);
     };
 
     try {
       await mkdir(dirname(entry.filePath), { recursive: true });
       await writeFile(entry.filePath, data);
+      const interaction = pendingInteractions.get(requestId);
       cleanup();
-      entry.resolve({
+      interaction?.rpcResolve?.({
         content: `File received and written to ${entry.filePath} (${data.length} bytes)`,
         isError: false,
       });
@@ -440,61 +649,99 @@ export class HostTransferProxy {
         { transferId, filePath: entry.filePath, err },
         "Failed to write received transfer content",
       );
+      const interaction = pendingInteractions.get(requestId);
       cleanup();
-      entry.resolve({ content: errorMsg, isError: true });
+      interaction?.rpcResolve?.({ content: errorMsg, isError: true });
       return { accepted: false, error: errorMsg };
     }
   }
 
   /** Cancel a pending transfer by requestId. */
   cancel(requestId: string): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-    this.transfers.delete(entry.transferId);
-    this.onInternalResolve?.(requestId);
+    const interaction = pendingInteractions.get(requestId);
+    if (!interaction) return;
+    const transferId = interaction.metadata?.transferId as string | undefined;
+    if (transferId) this.transfers.delete(transferId);
+    pendingInteractions.resolve(requestId);
     try {
-      this.sendToClient({
-        type: "host_transfer_cancel",
-        requestId,
-      } as ServerMessage);
+      broadcastMessage(
+        {
+          type: "host_transfer_cancel",
+          requestId,
+          conversationId: interaction.conversationId,
+          ...(interaction.targetClientId != null
+            ? { targetClientId: interaction.targetClientId }
+            : {}),
+        },
+        interaction.conversationId,
+        { targetClientId: interaction.targetClientId },
+      );
     } catch {
-      // Best-effort cancel notification — connection may already be closed.
+      // Best-effort cancel notification
     }
-    entry.resolve({ content: "Transfer cancelled", isError: true });
+    interaction.rpcResolve?.({ content: "Transfer cancelled", isError: true });
   }
 
   hasPendingTransfer(transferId: string): boolean {
     return this.transfers.has(transferId);
   }
 
-  isAvailable(): boolean {
-    return this.clientConnected;
+  /**
+   * Look up the requestId for a given transferId.
+   * Used by route handlers to correlate transfer content endpoints with
+   * pending interactions.
+   */
+  getRequestIdForTransfer(transferId: string): string | null {
+    const entry = this.transfers.get(transferId);
+    return entry?.requestId ?? null;
+  }
+
+  /**
+   * Look up the targetClientId for a given transferId without consuming the entry.
+   * Routes call this to verify ownership without affecting the transfer state.
+   * Returns null when untargeted (no validation needed).
+   */
+  getTargetClientIdForTransfer(transferId: string): string | null {
+    return this.transfers.get(transferId)?.targetClientId ?? null;
+  }
+
+  /**
+   * Look up the persisted `targetActorPrincipalId` for a given transferId
+   * without consuming the entry. Routes call this for the same-actor
+   * binding check so it's stable across brief SSE reconnects.
+   */
+  getTargetActorPrincipalIdForTransfer(transferId: string): string | undefined {
+    return this.transfers.get(transferId)?.targetActorPrincipalId;
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+    for (const entry of pendingInteractions.getByKind("host_transfer")) {
+      const transferId = entry.metadata?.transferId as string | undefined;
+      if (transferId) this.transfers.delete(transferId);
+      pendingInteractions.resolve(entry.requestId);
       try {
-        this.sendToClient({
-          type: "host_transfer_cancel",
-          requestId,
-        } as ServerMessage);
+        broadcastMessage(
+          {
+            type: "host_transfer_cancel",
+            requestId: entry.requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId },
+        );
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError(
           "Host transfer proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
     this.transfers.clear();
   }
 }

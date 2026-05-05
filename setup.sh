@@ -45,39 +45,19 @@ info "Configuring git hooks"
 git config core.hooksPath .githooks
 
 # ---------------------------------------------------------------------------
-# iOS: ensure xcodegen is installed and generate the Xcode project
+# macOS: ensure Sparkle tools are installed for local Sparkle signing
+#
+# build.sh uses sign_update and generate_keys from the Sparkle cask to sign
+# local build ZIPs and generate EdDSA keypairs. Without these tools, local
+# builds still work but Sparkle update verification won't function.
 # ---------------------------------------------------------------------------
-if command -v brew &>/dev/null; then
-  if ! command -v xcodegen &>/dev/null; then
-    info "Installing xcodegen via Homebrew"
-    brew install xcodegen
+if [ "$(uname)" = "Darwin" ] && command -v brew &>/dev/null; then
+  if ! brew list --cask sparkle &>/dev/null; then
+    info "Installing Sparkle tools via Homebrew (for local build signing)"
+    brew install --cask sparkle
   else
-    info "xcodegen already installed"
+    info "Sparkle tools already installed"
   fi
-
-  info "Generating iOS Xcode project"
-  (cd "${REPO_ROOT}/clients/ios" && xcodegen generate)
-else
-  info "Skipping xcodegen (Homebrew not available — not on macOS?)"
-fi
-
-# ---------------------------------------------------------------------------
-# iOS Simulator runtime: ensure the iOS platform is installed for xcodebuild
-#
-# The pre-push hook runs clients/ios/build.sh, which targets an iOS Simulator
-# destination. Without an installed iOS runtime, xcodebuild fails with:
-#   "iOS X.Y is not installed. Please download and install the platform from
-#    Xcode > Settings > Components."
-#
-# `xcodebuild -downloadPlatform iOS` (Xcode 15+) is idempotent — it's a no-op
-# when the latest runtime is already installed and a download otherwise.
-# ---------------------------------------------------------------------------
-if [ "$(uname)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
-  info "Ensuring iOS Simulator runtime is installed (xcodebuild -downloadPlatform iOS)"
-  info "  note: first-time install can be multi-GB and take several minutes"
-  xcodebuild -downloadPlatform iOS
-else
-  info "Skipping iOS Simulator runtime install (xcodebuild not available)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -48,8 +48,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {},
 };
@@ -69,7 +67,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -126,10 +123,6 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
-}));
-
 import { initializeDb } from "../memory/db-init.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -172,8 +165,7 @@ describe("platform-hosted bash auto-approval", () => {
     riskOverride = "medium";
   });
 
-  afterEach(() => {
-  });
+  afterEach(() => {});
 
   test("bash auto-approved in platform-hosted mode", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
@@ -242,19 +234,21 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: false, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: false,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(promptCalled).toBe(true);
   });
 
-  test("bash NOT auto-approved for non-guardian actors via platform path (sandbox bash is allowed)", async () => {
+  test("bash NOT auto-approved for non-guardian actors via platform path (trusted_contact requires grant)", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
 
-    const platformAutoApproveCalled = false;
     const trackingPrompter = {
       prompt: async () => {
-        // If this is called, we know the platform auto-approve did NOT fire
         return { decision: "allow" as const };
       },
       resolveConfirmation: () => {},
@@ -266,14 +260,17 @@ describe("platform-hosted bash auto-approval", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "trusted_contact", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "trusted_contact",
+        requireFreshApproval: true,
+      }),
     );
 
-    // With requireFreshApproval, trusted_contact+bash goes through check()
-    // which returns "prompt" and then the interactive prompter is called.
-    // The platform auto-approve path (guardian-only) is NOT taken.
-    expect(result.isError).toBe(false);
-    void platformAutoApproveCalled; // suppress unused warning
+    // trusted_contact now requires a guardian-scoped grant for side-effect
+    // tools. Without a grant, the pre-execution gate denies the invocation
+    // before the permission checker or prompter is reached.
+    expect(result.isError).toBe(true);
   });
 
   test("bash NOT auto-approved when requireFreshApproval is set", async () => {
@@ -311,7 +308,11 @@ describe("platform-hosted bash auto-approval", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(result.isError).toBe(true);
@@ -362,7 +363,11 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "file_write",
       { path: "/tmp/test.txt", content: "hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isPlatformHosted: true,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(promptCalled).toBe(true);

@@ -61,12 +61,3 @@ export function buildAuthContext(claims: TokenClaims): BuildAuthContextResult {
 
   return { ok: true, context };
 }
-
-/**
- * True when the request was authenticated as the gateway service.
- * Used at endpoints that gate platform-only or trust-mediated behavior
- * on the caller being the gateway rather than an end-user actor.
- */
-export function isServiceGatewayPrincipal(authContext: AuthContext): boolean {
-  return authContext.principalType === "svc_gateway";
-}

@@ -46,6 +46,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
+            && lhs.searchQuery == rhs.searchQuery
     }
 
     // MARK: - Data properties (compared in ==)
@@ -70,6 +71,7 @@ struct MessageListContentView: View, Equatable {
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
     let pinnedLatestTurnAnchorMessageId: UUID?
+    let searchQuery: String
 
     // MARK: - Closures (skipped in ==)
 
@@ -248,7 +250,8 @@ struct MessageListContentView: View, Equatable {
                     selectedModel: selectedModel,
                     configuredProviders: configuredProviders,
                     providerCatalog: providerCatalog,
-                    providerCatalogHash: providerCatalogHash
+                    providerCatalogHash: providerCatalogHash,
+                    searchQuery: searchQuery
                 )
                 .equatable()
             }
@@ -317,16 +320,11 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
-        // WARNING: This LazyVStack uses .transaction { $0.animation = nil } to suppress
+        // WARNING: This VStack uses .transaction { $0.animation = nil } to suppress
         // all insertion/removal animations. Without this, SwiftUI calls motionVectors()
         // during any item insertion, which measures ALL children via sizeThatFits —
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
-        //
-        // `MessageTranscriptStack` is `LazyVStack` by default, and swaps to a
-        // plain `VStack` when the `message-height-cache` flag is on — that's
-        // the experimental path for fixing contentH drift at the cost of
-        // eager layout. Same `.transaction` guard covers both.
         MessageTranscriptStack(spacing: VSpacing.md) {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
@@ -478,13 +476,18 @@ private struct PinnedLatestTurnSection: View {
         // equals visual order: anchor at top, response below, spacer
         // fills remaining viewport, sentinel marks the latest edge.
         //
-        // `.frame(minHeight:)` (not a fixed `containerRelativeFrame` on
-        // the VStack) gives the section a viewport-sized floor while
-        // letting it grow when anchor + response exceeds the viewport.
-        // Without the floor, the `Spacer` below cannot keep the anchor
-        // pinned to the visual top while a short response is streaming.
-        // Without growth, a tall assistant response is capped at the
-        // viewport and the newest content becomes unreachable by scroll.
+        // `TopAlignedMinHeightLayout` gives the section a viewport-sized
+        // floor while letting it grow when anchor + response exceeds the
+        // viewport. Without the floor, the `Spacer` below cannot keep the
+        // anchor pinned to the visual top while a short response streams.
+        // Without growth, a tall response is capped at the viewport and
+        // the newest content becomes unreachable by scroll.
+        //
+        // `.frame(minHeight:alignment: .top)` achieves the same sizing
+        // but creates `_FlexFrameLayout`, whose `placeSubviews` queries
+        // `explicitAlignment` on every descendant — O(n × depth) cascade.
+        // `TopAlignedMinHeightLayout` returns `nil` from
+        // `explicitAlignment`, stopping the cascade in O(1).
         VStack(alignment: .leading, spacing: 0) {
             contentView.transcriptRow(
                 row: anchorRow,
@@ -500,7 +503,7 @@ private struct PinnedLatestTurnSection: View {
 
             contentView.latestEdgeSentinel(isFlipped: false)
         }
-        .frame(minHeight: viewportMinHeight, alignment: .top)
+        .topAlignedMinHeight(viewportMinHeight)
         .background(viewportMinHeightProbe)
         .flipped()
     }

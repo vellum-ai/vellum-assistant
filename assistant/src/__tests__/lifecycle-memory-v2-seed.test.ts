@@ -139,6 +139,23 @@ describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
     expect(state.warnCalls).toHaveLength(0);
   });
 
+  test("re-invocation seeds after flag flips on (deferred-init race recovery)", async () => {
+    // Models the lifecycle-startup race: the synchronous seed call evaluates
+    // the flag while the gateway IPC override fetch is still in flight, falls
+    // through to the registry default (`false`), and skips. Once
+    // `initFeatureFlagOverrides()` resolves, the chained `.then` re-invokes
+    // the seed with the now-populated cache and the flag flips to `true`.
+    state.flagOverrides = { "memory-v2-enabled": false };
+    maybeSeedMemoryV2Skills(makeConfig(true));
+    await flushMicrotasks();
+    expect(state.seedCallCount).toBe(0);
+
+    state.flagOverrides = { "memory-v2-enabled": true };
+    maybeSeedMemoryV2Skills(makeConfig(true));
+    await flushMicrotasks();
+    expect(state.seedCallCount).toBe(1);
+  });
+
   test("swallows seedV2SkillEntries rejections and logs a warning", async () => {
     state.flagOverrides = { "memory-v2-enabled": true };
     state.seedShouldReject = new Error("seed failed");

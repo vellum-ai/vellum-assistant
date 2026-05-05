@@ -25,6 +25,11 @@ import type { ToolExecutionResult } from "../tools/types.js";
 
 const refreshSpy = mock(() => {});
 const updatePublishedSpy = mock(() => Promise.resolve());
+const broadcastSpy = mock(() => {});
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastSpy,
+}));
 
 // Mock session-surfaces so refreshSurfacesForApp is captured
 mock.module("../daemon/conversation-surfaces.js", () => ({
@@ -90,7 +95,6 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-    memoryPolicy: { scopeId: "default" },
     ...overrides,
   };
 }
@@ -120,6 +124,7 @@ const noopLifecycleHandler = mock(() => {});
 describe("session-tool-setup app refresh side effects", () => {
   beforeEach(() => {
     refreshSpy.mockClear();
+    broadcastSpy.mockClear();
     updatePublishedSpy.mockClear();
   });
 
@@ -132,7 +137,6 @@ describe("session-tool-setup app refresh side effects", () => {
         content: '{"id":"app-1"}',
         isError: false,
       });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -140,7 +144,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_refresh", { app_id: "app-1" });
@@ -153,7 +156,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("broadcasts app_files_changed with correct appId", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -161,7 +163,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_refresh", { app_id: "app-42" });
@@ -183,7 +184,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        mock(() => {}),
       );
 
       await toolFn("app_refresh", { app_id: "app-publish" });
@@ -202,7 +202,6 @@ describe("session-tool-setup app refresh side effects", () => {
         content: "Error: not found",
         isError: true,
       });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -210,7 +209,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_refresh", { app_id: "app-err" });
@@ -223,7 +221,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("skips side effects when app_id is missing", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -231,7 +228,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_refresh", {});
@@ -250,7 +246,6 @@ describe("session-tool-setup app refresh side effects", () => {
         content: JSON.stringify({ id: "new-app-1", name: "My App" }),
         isError: false,
       });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -258,7 +253,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_create", { name: "My App", html: "<h1>hi</h1>" });
@@ -273,7 +267,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("skips side effects when app_create result is an error", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -281,7 +274,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_create", { name: "Bad", html: "" });
@@ -305,7 +297,6 @@ describe("session-tool-setup app refresh side effects", () => {
         }),
         isError: false,
       });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -313,7 +304,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_create", { name: "Busted", html: "" });
@@ -334,7 +324,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("broadcasts app_files_changed after app_delete", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -342,7 +331,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_delete", { app_id: "del-app-1" });
@@ -357,7 +345,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("skips side effects when app_delete result is an error", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -365,7 +352,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       await toolFn("app_delete", { app_id: "del-err" });
@@ -384,7 +370,6 @@ describe("session-tool-setup app refresh side effects", () => {
       // hooks as core tools.
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -392,12 +377,12 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       // Simulate calling app_refresh by name (as the agent loop does)
       for (const toolName of ["app_refresh"]) {
         refreshSpy.mockClear();
+        broadcastSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
 
@@ -418,7 +403,6 @@ describe("session-tool-setup app refresh side effects", () => {
     test("other tool names do not trigger app refresh side effects", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
-      const broadcastSpy = mock(() => {});
 
       const toolFn = createToolExecutor(
         executor as unknown as ToolExecutor,
@@ -426,7 +410,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopSecretPrompter,
         ctx,
         noopLifecycleHandler,
-        broadcastSpy,
       );
 
       for (const toolName of [
@@ -440,6 +423,7 @@ describe("session-tool-setup app refresh side effects", () => {
       ]) {
         refreshSpy.mockClear();
         broadcastSpy.mockClear();
+        broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
 
         await toolFn(toolName, { app_id: "app-1" });
@@ -448,31 +432,6 @@ describe("session-tool-setup app refresh side effects", () => {
         expect(broadcastSpy).not.toHaveBeenCalled();
         expect(updatePublishedSpy).not.toHaveBeenCalled();
       }
-    });
-  });
-
-  // ── broadcastToAllClients optional ──────────────────────────────────
-
-  describe("broadcastToAllClients is optional", () => {
-    test("side effects work without broadcastToAllClients callback", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({ content: "{}", isError: false });
-
-      // No broadcast callback provided
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-      );
-
-      // Should not throw even though broadcastToAllClients is undefined
-      const result = await toolFn("app_refresh", { app_id: "app-no-bc" });
-
-      expect(result.isError).toBe(false);
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

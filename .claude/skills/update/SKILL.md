@@ -31,9 +31,9 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    vellum ps
    ```
 
-2. Kill the macOS app and any stale file-watcher processes first (old `build.sh run` watchers will detect git-pulled Swift changes and bounce the app repeatedly):
+2. Kill the macOS app and any stale file-watcher processes first (old `build.sh run` watchers will detect git-pulled Swift changes and bounce the app repeatedly). Use `-f` to match against the full command line, catching all environment variants (`Vellum`, `Vellum Local`, `Vellum Dev`, etc.):
    ```bash
-   pkill -x "Vellum" || true
+   pkill -f "Vellum.*\.app/Contents/MacOS/" || true
    pkill -f "build\.sh run" || true
    ```
 

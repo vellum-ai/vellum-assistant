@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
@@ -13,15 +14,21 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
-} from "../runtime/interactive-ui.js";
+} from "../runtime/interactive-ui-types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
+import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
@@ -39,12 +46,155 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-surfaces");
 
 const MAX_UNDO_DEPTH = 10;
+
+/**
+ * Debounce window for persisting `ui_surface_update` data back to the
+ * message row. Surfaces typically receive bursts of updates (e.g. a
+ * Workspace Health Check ticking off items rapidly) — collapsing them
+ * to a single DB write avoids hammering SQLite while still bounding the
+ * "lost work on crash" window to ~half a second.
+ */
+const SURFACE_PERSIST_DEBOUNCE_MS = 500;
+
+/**
+ * In-flight debounced persist timers keyed by `surfaceId`. Surface IDs
+ * are UUIDs and globally unique, so a module-level map is safe across
+ * conversations. Each entry holds the latest data snapshot — newer
+ * updates clobber older ones since the persisted row carries the full
+ * merged state, not a delta.
+ */
+const pendingSurfacePersists = new Map<
+  string,
+  {
+    timer: ReturnType<typeof setTimeout>;
+    conversationId: string;
+    data: SurfaceData;
+  }
+>();
+
+/**
+ * Persist the latest `data` for a `ui_surface` content block by
+ * scanning the conversation's messages for one containing the given
+ * `surfaceId` and patching its `data` field. Mirrors the scan-and-patch
+ * pattern in `markSurfaceCompleted`.
+ *
+ * Safe to call before the assistant message has been persisted (mid-stream):
+ * the scan simply finds nothing and bails. The next update after
+ * `handleMessageComplete` runs will pick up the now-persisted row.
+ */
+function persistSurfaceData(
+  conversationId: string,
+  surfaceId: string,
+  data: SurfaceData,
+): void {
+  try {
+    const rows = getMessages(conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        // Plain-text content rows — skip and keep scanning.
+        continue;
+      }
+      let found = false;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          rb.data = data;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.debug(
+      { err, surfaceId, conversationId },
+      "Failed to persist surface data update",
+    );
+  }
+}
+
+/**
+ * Schedule a debounced write of the merged surface data back to the
+ * persisted message row. Repeated calls within the debounce window
+ * collapse to a single write carrying the latest data.
+ */
+export function scheduleSurfaceDataPersist(
+  conversationId: string,
+  surfaceId: string,
+  data: SurfaceData,
+): void {
+  const existing = pendingSurfacePersists.get(surfaceId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+  const timer = setTimeout(() => {
+    pendingSurfacePersists.delete(surfaceId);
+    persistSurfaceData(conversationId, surfaceId, data);
+  }, SURFACE_PERSIST_DEBOUNCE_MS);
+  pendingSurfacePersists.set(surfaceId, { timer, conversationId, data });
+}
+
+/**
+ * Force-flush any pending debounced persist for `surfaceId`. Called on
+ * surface completion so the final state is durable before the surface
+ * record transitions to `completed`.
+ */
+export function flushSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
+  persistSurfaceData(pending.conversationId, surfaceId, pending.data);
+}
+
+/**
+ * Cancel all pending debounced persists. Called on conversation
+ * teardown to avoid timers firing against torn-down state.
+ *
+ * Use `flushPendingSurfaceDataPersists` instead on a clean shutdown
+ * path where the latest in-flight surface state should still be
+ * written before teardown.
+ */
+export function cancelPendingSurfaceDataPersists(
+  conversationId?: string,
+): void {
+  for (const [surfaceId, pending] of pendingSurfacePersists) {
+    if (conversationId && pending.conversationId !== conversationId) continue;
+    clearTimeout(pending.timer);
+    pendingSurfacePersists.delete(surfaceId);
+  }
+}
+
+/**
+ * Synchronously flush all pending debounced persists, optionally scoped
+ * to a single conversation. Called on clean conversation teardown so an
+ * update that arrived inside the 500ms debounce window still lands in
+ * the DB before the conversation goes away. Each entry is removed from
+ * the pending map after its write fires.
+ */
+export function flushPendingSurfaceDataPersists(conversationId?: string): void {
+  for (const [surfaceId, pending] of pendingSurfacePersists) {
+    if (conversationId && pending.conversationId !== conversationId) continue;
+    clearTimeout(pending.timer);
+    pendingSurfacePersists.delete(surfaceId);
+    persistSurfaceData(pending.conversationId, surfaceId, pending.data);
+  }
+}
 
 /**
  * Mark a `ui_surface` content block as completed in the database so that
@@ -56,6 +206,10 @@ export function markSurfaceCompleted(
   surfaceId: string,
   summary: string,
 ): void {
+  // Force-flush any pending debounced data persist so the completion
+  // patch lands on top of the latest data instead of racing with it.
+  flushSurfaceDataPersist(surfaceId);
+
   // Update in-memory messages when available so subsequent reads within
   // this session see the change without waiting for DB.
   if (ctx.messages) {
@@ -255,7 +409,6 @@ export interface SurfaceConversationContext {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
   sendToClient(msg: ServerMessage): void;
-  broadcastToAllClients?(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -319,14 +472,23 @@ export interface SurfaceConversationContext {
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
+  /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
+  hostAppControlProxy?: HostAppControlProxy;
+  /**
+   * Setter that lets the resolver detach the conversation's app-control proxy
+   * after `app_control_stop`. Disposes the existing proxy when transitioning
+   * to undefined so subsequent tool calls cleanly fail with "unavailable"
+   * rather than dispatching to a torn-down proxy.
+   */
+  setHostAppControlProxy?(proxy: HostAppControlProxy | undefined): void;
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -338,7 +500,7 @@ export interface SurfaceConversationContext {
   processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -485,9 +647,7 @@ export function showStandaloneSurface(
       // the client side, preventing stale user interactions from reaching
       // handleSurfaceAction and being misrouted to the LLM.
       try {
-        const emitTimeout =
-          ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-        emitTimeout({
+        broadcastMessage({
           type: "ui_surface_complete",
           conversationId: ctx.conversationId,
           surfaceId,
@@ -523,9 +683,7 @@ export function showStandaloneSurface(
       actions,
     });
 
-    // ── Emit to client ──
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    emit({
+    broadcastMessage({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -994,9 +1152,7 @@ export async function handleSurfaceAction(
       summary,
     };
 
-    // Emit ui_surface_complete so the client transitions the surface chip.
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    emit({
+    broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1211,12 +1367,11 @@ export async function handleSurfaceAction(
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    // Use broadcastToAllClients (publishes to the SSE event hub) instead of
-    // sendToClient, which is reset to a no-op between HTTP requests. Without
-    // this, surface action responses are persisted to DB but never reach the
-    // client's SSE stream.
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    const onEvent = (msg: ServerMessage) => emit(msg);
+    // Pass conversationId so events without an inline conversationId (e.g.
+    // text_delta) are published with the correct conversation scope and
+    // reach the SSE subscriber filtered to this conversation.
+    const onEvent = (msg: ServerMessage) =>
+      broadcastMessage(msg, ctx.conversationId);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -1250,7 +1405,7 @@ export async function handleSurfaceAction(
     // Echo the prompt to the client so it appears in the chat UI.
     // Deferred until after rejection check to avoid ghost messages.
     if (prompt) {
-      emit({
+      broadcastMessage({
         type: "user_message_echo",
         text: prompt,
         conversationId: ctx.conversationId,
@@ -1350,16 +1505,11 @@ export async function handleSurfaceAction(
     surfaceData,
   );
 
-  // Use broadcastToAllClients so events reach the SSE hub — sendToClient is
-  // reset to a no-op between HTTP requests (see history-restored path for
-  // full rationale).
-  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-
   // Forms are one-shot surfaces — auto-complete immediately so the client
   // transitions from the "Submitting…" spinner to a completion chip without
   // requiring the LLM to call ui_dismiss.
   if (pending.surfaceType === "form") {
-    emit({
+    broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1455,7 +1605,11 @@ export async function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => emit(msg);
+  // Pass conversationId so events without an inline conversationId (e.g.
+  // text_delta) are published with the correct conversation scope and
+  // reach the SSE subscriber filtered to this conversation.
+  const onEvent = (msg: ServerMessage) =>
+    broadcastMessage(msg, ctx.conversationId);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
@@ -1503,7 +1657,7 @@ export async function handleSurfaceAction(
   // Echo the user's prompt to the client so it appears in the chat UI.
   // Deferred until after rejection check to avoid ghost messages.
   if (shouldRelayPrompt && prompt) {
-    emit({
+    broadcastMessage({
       type: "user_message_echo",
       text: prompt,
       conversationId: ctx.conversationId,
@@ -1567,6 +1721,7 @@ export async function handleSurfaceAction(
       );
       onEvent({
         type: "error",
+        conversationId: ctx.conversationId,
         message: `Failed to process surface action: ${message}`,
       });
     });
@@ -1775,6 +1930,82 @@ export async function surfaceProxyResolver(
     // Record the action and proxy to the connected desktop client
     const reasoning =
       typeof input.reasoning === "string" ? input.reasoning : undefined;
+    let targetClientId: string | undefined =
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
+    // Validate targetClientId existence, capability, and same-user binding
+    // before recordAction so an invalid or cross-user ID does not burn a
+    // step or pollute action history. HostBashProxy / HostFileProxy
+    // validate at the tool-resolution layer for the same reason. The proxy
+    // re-checks same-user (single authoritative gate); using the shared
+    // helper keeps log payload and error wording identical at both layers.
+    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    if (targetClientId != null) {
+      const client = assistantEventHub.getClientById(targetClientId);
+      if (!client) {
+        return {
+          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        };
+      }
+      if (!client.capabilities.includes("host_cu")) {
+        return {
+          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        };
+      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return rejection;
+    }
+
+    // Guard: require explicit targeting when multiple same-user CU-capable
+    // clients are connected. The tool schemas document target_client_id as
+    // "required when multiple clients support host_cu" but nothing enforced
+    // it at runtime until now. Without this guard, the request would
+    // broadcast to all capable clients simultaneously, causing the same CU
+    // action to execute on multiple machines. The filter mirrors
+    // HostFileProxy's auto-resolve: only same-user clients participate, so
+    // a cross-user client connected to the same daemon does not falsely
+    // trigger this ambiguity error.
+    //
+    // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
+    // guard additionally checks `transportInterface != null &&
+    // !supportsHostProxy(transportInterface)` and so only fires for non-host-
+    // proxy transports (web, Slack). For CU that check would be a no-op:
+    // every host_cu-capable client is host-proxy-capable by definition
+    // (host_cu only ships on macOS and the Chrome extension), so there is no
+    // host_cu-capable transport for which auto-routing-to-self would be
+    // appropriate. We therefore fire whenever there is genuine ambiguity.
+    if (targetClientId == null) {
+      const allCuClients = assistantEventHub.listClientsByCapability("host_cu");
+      const sameUserCuClients = allCuClients.filter(
+        (c) => c.actorPrincipalId === sourceActorPrincipalId,
+      );
+      if (sameUserCuClients.length > 1) {
+        return {
+          content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
+          isError: true,
+        };
+      }
+      // When cross-user host_cu clients are connected, we MUST auto-resolve
+      // to the unique same-user client (or fail explicitly) — otherwise the
+      // proxy would broadcast untargeted and the CU action would reach the
+      // cross-user client too. Setting targetClientId here forces the proxy
+      // to deliver only to that client, with the same-user check below as
+      // belt-and-suspenders.
+      if (sameUserCuClients.length === 1 && allCuClients.length > 1) {
+        targetClientId = sameUserCuClients[0].clientId;
+      }
+    }
+
     ctx.hostCuProxy.recordAction(toolName, input, reasoning);
     return ctx.hostCuProxy.request(
       toolName,
@@ -1783,6 +2014,56 @@ export async function surfaceProxyResolver(
       ctx.hostCuProxy.stepCount,
       reasoning,
       signal,
+      targetClientId,
+      sourceActorPrincipalId,
+    );
+  }
+
+  // Route app-control proxy tools (all app_control_* tool variants)
+  if (toolName.startsWith("app_control_")) {
+    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
+      return {
+        content:
+          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+        isError: true,
+      };
+    }
+
+    // `app_control_stop` resolves immediately: tear down the proxy without
+    // a client round-trip. Mirrors CU's terminal-tool short-circuit
+    // (`computer_use_done` / `computer_use_respond`). Clear the
+    // conversation's reference (setter disposes the existing proxy) so a
+    // later `app_control_observe`/etc. cleanly fails with "unavailable"
+    // instead of dispatching against a torn-down proxy, and so a sibling
+    // conversation can acquire the released singleton lock without the
+    // disposed proxy still being addressable.
+    if (toolName === "app_control_stop") {
+      if (ctx.setHostAppControlProxy) {
+        ctx.setHostAppControlProxy(undefined);
+      } else {
+        ctx.hostAppControlProxy.dispose();
+      }
+      return { content: "App control stopped.", isError: false };
+    }
+
+    // The TS `HostAppControlInput` (and the Swift mirror) is a discriminated
+    // union on `tool` ("start" | "observe" | "press" | …). The agent's raw
+    // tool input only carries the action-specific payload (app, x/y, text,
+    // …) — the discriminator is implied by `toolName` (`app_control_<tool>`).
+    // Inject it here so the proxy's session-lock guard (`input.tool ===
+    // "start"`) and the Swift client's discriminated-union decoder both see
+    // the field they require.
+    const tool = toolName.slice("app_control_".length);
+    const inputWithTool = {
+      ...input,
+      tool,
+    } as unknown as HostAppControlInput;
+
+    return ctx.hostAppControlProxy.request(
+      toolName,
+      inputWithTool,
+      ctx.conversationId,
+      signal ?? new AbortController().signal,
     );
   }
 
@@ -1970,6 +2251,12 @@ export async function surfaceProxyResolver(
       ctx.currentTurnSurfaces[idx].data = mergedData;
     }
 
+    // Persist the merged data back to the assistant message's
+    // `ui_surface` content block so a refresh / restart shows the
+    // current state instead of the original creation-time snapshot.
+    // Debounced to coalesce bursts of rapid updates.
+    scheduleSurfaceDataPersist(ctx.conversationId, surfaceId, mergedData);
+
     return { content: "Surface updated", isError: false };
   }
 
@@ -2016,6 +2303,14 @@ export async function surfaceProxyResolver(
     const openMode = input.open_mode as string | undefined;
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
+
+    // Track conversation association (best-effort — failures must not break open flow).
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn({ err, appId }, "Failed to track conversation ID on app_open");
+    }
+
     // Generate a minimal fallback preview from app metadata so that the
     // surface is always rendered as a clickable preview card (not an
     // un-clickable fallback chip) after conversation restart.

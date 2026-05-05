@@ -46,7 +46,6 @@ export type {
   InteractiveUiRequest,
   InteractiveUiResult,
 } from "./interactive-ui-types.js";
-export { RESERVED_ACTION_IDS } from "./interactive-ui-types.js";
 
 const log = getLogger("interactive-ui");
 

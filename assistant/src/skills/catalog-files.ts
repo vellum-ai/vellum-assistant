@@ -64,14 +64,8 @@ function classifyByName(name: string): boolean {
  * depends on `catalog-cache.ts`, which would otherwise be reachable via
  * the handler module.
  */
-export interface SkillFileEntry {
-  path: string; // relative to skill directory root (e.g. "SKILL.md", "tools/foo.ts")
-  name: string; // basename
-  size: number;
-  mimeType: string;
-  isBinary: boolean;
-  content: string | null; // inline text if ≤ 2 MB and text MIME, else null
-}
+import type { SkillFileEntry } from "./skill-file-types.js";
+export type { SkillFileEntry } from "./skill-file-types.js";
 
 // ─── Platform response contracts ─────────────────────────────────────────────
 //

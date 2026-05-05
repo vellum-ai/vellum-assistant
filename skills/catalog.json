@@ -174,7 +174,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:42-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "google-calendar",
@@ -244,7 +244,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:42-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "inbox-management",
@@ -271,7 +271,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-20T18:14:22-04:00"
+      "updatedAt": "2026-05-01T13:55:47-04:00"
     },
     {
       "id": "influencer",
@@ -334,7 +334,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T10:31:03-04:00"
+      "updatedAt": "2026-04-30T11:22:01-04:00"
     },
     {
       "id": "mcp-setup",
@@ -360,7 +360,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-04-27T10:20:03-04:00"
+      "updatedAt": "2026-05-01T11:27:13-04:00"
     },
     {
       "id": "meme-generator",
@@ -502,7 +502,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T10:31:03-04:00"
+      "updatedAt": "2026-04-30T11:22:01-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -558,7 +558,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-26T14:32:17-04:00"
+      "updatedAt": "2026-04-30T20:13:09-04:00"
     },
     {
       "id": "slack",
@@ -601,6 +601,20 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-03-17T03:13:56-04:00"
+    },
+    {
+      "id": "stripe-app-setup",
+      "name": "stripe-app-setup",
+      "description": "Create and configure a Stripe restricted API key so the assistant can manage payments, subscriptions, and customers under its own scoped identity",
+      "metadata": {
+        "emoji": "💳",
+        "vellum": {
+          "display-name": "Stripe App Setup",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-01T04:55:50-04:00"
     },
     {
       "id": "tasks",
@@ -705,14 +719,13 @@
         "emoji": "🌐",
         "vellum": {
           "display-name": "Browser",
-          "feature-flag": "browser",
           "activation-hints": [
             "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T15:26:17-04:00"
+      "updatedAt": "2026-05-01T16:30:23-04:00"
     },
     {
       "id": "vellum-conversation-management",
@@ -740,7 +753,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-04-18T14:30:43-04:00"
+      "updatedAt": "2026-05-03T09:17:10-04:00"
     },
     {
       "id": "vellum-heartbeat",
@@ -777,7 +790,7 @@
     {
       "id": "vellum-self-knowledge",
       "name": "vellum-self-knowledge",
-      "description": "Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active",
+      "description": "Answer questions about Vellum, the assistant's architecture, capabilities, and current configuration by routing to live sources of truth",
       "metadata": {
         "emoji": "🪞",
         "vellum": {
@@ -785,7 +798,8 @@
           "activation-hints": [
             "When the user asks what model the assistant is running on",
             "When the user asks about Vellum, how the assistant works, or its architecture",
-            "When the user asks about the assistant's current configuration or settings"
+            "When the user asks about the assistant's current configuration or settings",
+            "When the user asks what the assistant can do or what skills/tools are available"
           ],
           "avoid-when": [
             "When the user wants to change configuration (use in-chat config instead)"
@@ -793,7 +807,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-25T22:07:21-04:00"
+      "updatedAt": "2026-04-29T08:26:02-04:00"
     },
     {
       "id": "vellum-skills-catalog",

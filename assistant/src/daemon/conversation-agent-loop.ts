@@ -24,9 +24,13 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  contextWindowConfigFromEffective,
+  resolveEffectiveContextWindow,
+} from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -55,6 +59,7 @@ import {
   getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
+  updateConversationSlackContextWatermark,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -66,6 +71,10 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import {
+  readMemoryV2StaticContent,
+  shouldLoadMemoryV2Static,
+} from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -98,6 +107,11 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
+import {
+  hasProactiveArtifactCompleted,
+  runProactiveArtifactJob,
+  tryClaimProactiveArtifactTrigger,
+} from "../proactive-artifact/index.js";
 import type {
   ContentBlock,
   Message,
@@ -105,7 +119,9 @@ import type {
 } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
@@ -118,6 +134,7 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
+import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -153,10 +170,12 @@ import {
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   getPkbAutoInjectList,
+  getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
-  loadSlackChronologicalMessages,
+  loadSlackChronologicalContext,
+  type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -164,6 +183,8 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
+import { getDiskPressureStatus } from "./disk-pressure-guard.js";
+import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -180,6 +201,8 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
+const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -198,6 +221,10 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
+
+function formatDiskPressureBlockedMessage(): string {
+  return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
+}
 
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────
 //
@@ -426,7 +453,6 @@ export interface AgentLoopConversationContext {
   /** Timestamp (ms since epoch) until which the circuit breaker is open. */
   compactionCircuitOpenUntil: number | null;
 
-  readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
   readonly graphMemory: ConversationGraphMemory;
 
   currentActiveSurfaceId?: string;
@@ -482,9 +508,11 @@ export interface AgentLoopConversationContext {
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
+  slackRuntimeContextNotice?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
+  diskPressureCleanupModeActive?: boolean;
   toolsDisabledDepth: number;
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
@@ -638,6 +666,22 @@ export async function runAgentLoopImpl(
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
 
+  const config = getConfig();
+  const effectiveContextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: turnCallSite,
+    overrideProfile: turnOverrideProfile ?? undefined,
+  });
+  const turnContextWindowConfig = contextWindowConfigFromEffective(
+    config.llm.default.contextWindow,
+    effectiveContextWindow,
+  );
+  (
+    ctx.contextWindowManager as ContextWindowManager & {
+      updateConfig?: (config: ContextWindowConfig) => void;
+    }
+  ).updateConfig?.(turnContextWindowConfig);
+
   // Snapshot for `createToolExecutor` to read into `ToolContext.overrideProfile`
   // — see field doc on `AgentLoopConversationContext` for why the tool needs
   // it (nested subagent spawns can't recover the override from a row read).
@@ -678,18 +722,38 @@ export async function runAgentLoopImpl(
     };
   })();
 
+  const isInteractiveResolved =
+    options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+  const diskPressureDecision = classifyDiskPressureTurnPolicy(
+    getDiskPressureStatus(),
+    {
+      conversationType: turnStartConversation?.conversationType ?? null,
+      conversationSource: turnStartConversation?.source ?? null,
+      callSite: turnCallSite,
+      isInteractive: isInteractiveResolved,
+      sourceChannel:
+        ctx.trustContext?.sourceChannel ??
+        capturedTurnChannelContext.userMessageChannel,
+      sourceInterface:
+        ctx.channelCapabilities?.clientOS ??
+        capturedTurnInterfaceContext.userMessageInterface,
+      trustContext: ctx.trustContext
+        ? {
+            sourceChannel: ctx.trustContext.sourceChannel,
+            trustClass: ctx.trustContext.trustClass,
+          }
+        : null,
+    },
+  );
+  const diskPressureContext =
+    diskPressureDecision.action === "allow-cleanup-mode"
+      ? { cleanupModeActive: true }
+      : null;
+  ctx.diskPressureCleanupModeActive =
+    diskPressureDecision.action === "allow-cleanup-mode";
+
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
-
-  // Ensure workspace git repo is initialized before any tools run.
-  try {
-    const getWorkspaceGitServiceFn =
-      ctx.getWorkspaceGitService ?? getWorkspaceGitService;
-    const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
-    await gitService.ensureInitialized();
-  } catch (err) {
-    rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
-  }
 
   ctx.profiler.startRequest();
   let turnStarted = false;
@@ -707,6 +771,51 @@ export async function runAgentLoopImpl(
   });
 
   try {
+    if (diskPressureDecision.action === "block") {
+      const message = formatDiskPressureBlockedMessage();
+      rlog.warn(
+        { reason: diskPressureDecision.reason },
+        "Blocked turn during disk pressure cleanup mode",
+      );
+      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.traceEmitter.emit("request_error", message, {
+        requestId: reqId,
+        status: "error",
+        attributes: {
+          errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
+          errorCode: DISK_PRESSURE_ERROR_CODE,
+          diskPressureReason: diskPressureDecision.reason,
+        },
+      });
+      onEvent({
+        type: "error",
+        conversationId: ctx.conversationId,
+        requestId: reqId,
+        code: DISK_PRESSURE_ERROR_CODE,
+        message,
+        category: DISK_PRESSURE_ERROR_CATEGORY,
+      });
+      onEvent({
+        type: "conversation_error",
+        conversationId: ctx.conversationId,
+        code: DISK_PRESSURE_ERROR_CODE,
+        userMessage: message,
+        retryable: true,
+        errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
+      });
+      return;
+    }
+
+    // Ensure workspace git repo is initialized before any tools run.
+    try {
+      const getWorkspaceGitServiceFn =
+        ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+      const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
+      await gitService.ensureInitialized();
+    } catch (err) {
+      rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+    }
+
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
     // response), so internal turns (subagent notifications, lifecycle
@@ -774,8 +883,138 @@ export async function runAgentLoopImpl(
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
     let compactedThisTurn = false;
+    let slackCompactedThisTurn = false;
+    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
+    let currentSlackContextSummary =
+      turnStartConversation?.contextSummary ?? null;
+    let currentSlackContextCompactedMessageCount =
+      turnStartConversation?.contextCompactedMessageCount ?? 0;
+    let currentSlackContextCompactionWatermarkTs =
+      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
+    const loadCurrentSlackChronologicalContext =
+      (): SlackChronologicalContext | null => {
+        if (!isSlackConversation) return null;
+        return loadSlackChronologicalContext(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+          {
+            trustClass: ctx.trustContext?.trustClass,
+            contextSummary: currentSlackContextSummary,
+            contextCompactedMessageCount:
+              currentSlackContextCompactedMessageCount,
+            slackContextCompactionWatermarkTs:
+              currentSlackContextCompactionWatermarkTs,
+          },
+        );
+      };
+    let slackChronologicalContext: SlackChronologicalContext | null =
+      loadCurrentSlackChronologicalContext();
+    const messagesForStartOfTurnCompaction =
+      slackChronologicalContext?.messages ?? ctx.messages;
+    const getSlackProvenanceContextForCompactionBasis = (
+      messages: Message[],
+      compactedMessages: number,
+    ): SlackChronologicalContext | null => {
+      if (!isSlackConversation || compactedMessages <= 0) return null;
+      const context = slackChronologicalContext;
+      if (!context) return null;
+      if (messages !== context.messages) return null;
+      const end = context.compactableStartIndex + compactedMessages;
+      if (
+        end <= context.compactableStartIndex ||
+        end > context.renderedMessages.length ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
+        return null;
+      }
+      return context;
+    };
+    const projectSlackProvenanceAfterCompaction = (
+      context: SlackChronologicalContext | null,
+      compactedBasis: Message[] | undefined,
+      result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+    ): SlackChronologicalContext | null => {
+      if (
+        !isSlackConversation ||
+        !context ||
+        !compactedBasis ||
+        compactedBasis !== context.messages ||
+        result.compactedMessages <= 0 ||
+        result.messages.length === 0 ||
+        context.renderedMessages.length !== context.messages.length
+      ) {
+        return null;
+      }
 
-    const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
+      const keptStart =
+        context.compactableStartIndex + result.compactedMessages;
+      if (keptStart > context.renderedMessages.length) {
+        return null;
+      }
+
+      const retainedRenderedMessages =
+        context.renderedMessages.slice(keptStart);
+      const retainedResultMessages = result.messages.slice(1);
+      if (retainedResultMessages.length !== retainedRenderedMessages.length) {
+        return null;
+      }
+      for (let index = 0; index < retainedResultMessages.length; index++) {
+        if (
+          retainedResultMessages[index] !==
+          retainedRenderedMessages[index]!.message
+        ) {
+          return null;
+        }
+      }
+
+      return {
+        renderedMessages: [
+          {
+            message: result.messages[0]!,
+            sourceChannelTs: null,
+          },
+          ...retainedRenderedMessages,
+        ],
+        messages: result.messages,
+        compactableStartIndex: 1,
+      };
+    };
+    const applySuccessfulCompaction = (
+      result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
+      compactedBasis?: Message[],
+    ) => {
+      const provenanceContext = compactedBasis
+        ? getSlackProvenanceContextForCompactionBasis(
+            compactedBasis,
+            result.compactedMessages,
+          )
+        : null;
+      const slackWatermarkTs = getSlackCompactionWatermarkForPrefix(
+        provenanceContext,
+        result.compactedMessages,
+      );
+      applyCompactionResult(ctx, result, onEvent, reqId, {
+        slackContextCompactionWatermarkTs: slackWatermarkTs,
+      });
+      currentSlackContextSummary = result.summaryText;
+      currentSlackContextCompactedMessageCount =
+        ctx.contextCompactedMessageCount;
+      if (slackWatermarkTs) {
+        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
+      }
+      if (isSlackConversation) {
+        slackCompactedThisTurn = true;
+      }
+      slackChronologicalContext = projectSlackProvenanceAfterCompaction(
+        provenanceContext,
+        compactedBasis,
+        result,
+      );
+    };
+
+    const compactCheck = ctx.contextWindowManager.shouldCompact(
+      messagesForStartOfTurnCompaction,
+    );
     // Skip auto-compaction while the circuit breaker is open. Force paths
     // and user-initiated /compact bypass this check.
     const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
@@ -787,6 +1026,13 @@ export async function runAgentLoopImpl(
         reqId,
       );
     }
+    const compactionOptions = {
+      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+      precomputedEstimate: compactCheck.estimatedTokens,
+      conversationOriginChannel:
+        getConversationOriginChannel(ctx.conversationId) ?? undefined,
+      overrideProfile: turnOverrideProfile ?? null,
+    };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
     > | null = null;
@@ -798,14 +1044,9 @@ export async function runAgentLoopImpl(
           (args) =>
             defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
           {
-            messages: ctx.messages,
+            messages: messagesForStartOfTurnCompaction,
             signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              precomputedEstimate: compactCheck.estimatedTokens,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-            },
+            options: compactionOptions,
           },
           buildPluginTurnContext(ctx, reqId),
           DEFAULT_TIMEOUTS.compaction,
@@ -839,7 +1080,7 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applyCompactionResult(ctx, compacted, onEvent, reqId);
+      applySuccessfulCompaction(compacted, messagesForStartOfTurnCompaction);
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
@@ -1152,9 +1393,6 @@ export async function runAgentLoopImpl(
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
-    const isInteractiveResolved =
-      options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
@@ -1168,6 +1406,21 @@ export async function runAgentLoopImpl(
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
+    // V2 static memory block (essentials/threads/recent/buffer). Same
+    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
+    // also blocks remote-channel non-guardian actors from inducing the
+    // model to recite private memory; `readMemoryV2StaticContent` self-gates
+    // on the v2 flag + config and returns null when v2 is off, so the file
+    // reads are skipped on non-injection turns.
+    const currentMemoryV2Static = shouldLoadMemoryV2Static({
+      shouldInjectNowAndPkb,
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    })
+      ? readMemoryV2StaticContent()
+      : null;
+    const memoryV2Static = currentMemoryV2Static;
+
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
     // the updated conversation history.
@@ -1179,8 +1432,8 @@ export async function runAgentLoopImpl(
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
     // so post-compaction re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
-    // PKB points live under a single workspace sentinel scope, not the
-    // conversation's memoryPolicy.scopeId. See `PKB_WORKSPACE_SCOPE` for why.
+    // PKB points live under a single workspace sentinel scope.
+    // See `PKB_WORKSPACE_SCOPE` for why.
     const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
@@ -1196,14 +1449,25 @@ export async function runAgentLoopImpl(
     // model sees one channel-wide view instead of the gateway's per-turn
     // hints. DMs render as a flat sequence (no thread tags), channels
     // include sibling threads.
-    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
-    const slackChronologicalMessages = isSlackConversation
-      ? loadSlackChronologicalMessages(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          { trustClass: ctx.trustContext?.trustClass },
-        )
-      : null;
+    const slackConversationForInjection = isSlackConversation
+      ? (getConversation(ctx.conversationId) ?? turnStartConversation)
+      : turnStartConversation;
+    if (isSlackConversation && !slackCompactedThisTurn) {
+      slackChronologicalContext ??= loadSlackChronologicalContext(
+        ctx.conversationId,
+        ctx.channelCapabilities!,
+        {
+          trustClass: ctx.trustContext?.trustClass,
+          contextSummary: slackConversationForInjection?.contextSummary,
+          contextCompactedMessageCount:
+            slackConversationForInjection?.contextCompactedMessageCount,
+          slackContextCompactionWatermarkTs:
+            slackConversationForInjection?.slackContextCompactionWatermarkTs,
+        },
+      );
+    }
+    const slackChronologicalMessages =
+      slackChronologicalContext?.messages ?? null;
 
     // Active-thread focus block: when the inbound user message belongs to
     // a Slack thread, append a non-persisted `<active_thread>` tail block
@@ -1216,7 +1480,13 @@ export async function runAgentLoopImpl(
       ? loadSlackActiveThreadFocusBlock(
           ctx.conversationId,
           ctx.channelCapabilities!,
-          { trustClass: ctx.trustContext?.trustClass },
+          {
+            trustClass: ctx.trustContext?.trustClass,
+            contextCompactedMessageCount:
+              slackConversationForInjection?.contextCompactedMessageCount,
+            slackContextCompactionWatermarkTs:
+              slackConversationForInjection?.slackContextCompactionWatermarkTs,
+          },
         )
       : null;
 
@@ -1230,6 +1500,7 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
+      diskPressureContext,
       activeSurface,
       workspaceTopLevelContext: shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
@@ -1246,9 +1517,11 @@ export async function runAgentLoopImpl(
       pkbAutoInjectList,
       pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
+      memoryV2Static,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
+      slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
       slackChronologicalMessages,
@@ -1327,9 +1600,8 @@ export async function runAgentLoopImpl(
     // After runtime injections are applied, estimate the prompt token count
     // and proactively invoke the reducer if already above budget. This avoids
     // a wasted provider round-trip that would just fail with context_too_large.
-    const config = getConfig();
-    const overflowRecovery = config.llm.default.contextWindow.overflowRecovery;
-    const providerMaxTokens = config.llm.default.contextWindow.maxInputTokens;
+    const overflowRecovery = effectiveContextWindow.overflowRecovery;
+    const providerMaxTokens = effectiveContextWindow.maxInputTokens;
     // Widen safety margin for large conversations where estimation error
     // compounds across many messages with tool results.
     const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
@@ -1406,12 +1678,14 @@ export async function runAgentLoopImpl(
       // injection reassembly, token re-estimation). Registered plugins that
       // wrap the `overflowReduce` slot see each iteration through their own
       // middleware `next` callback.
+      const messagesForPreflightOverflowReduction =
+        slackChronologicalContext?.messages ?? ctx.messages;
       const overflowArgs: OverflowReduceArgs = {
-        messages: ctx.messages,
+        messages: messagesForPreflightOverflowReduction,
         runMessages,
         systemPrompt: ctx.systemPrompt,
         providerName: estimationProviderName,
-        contextWindow: config.llm.default.contextWindow,
+        contextWindow: turnContextWindowConfig,
         preflightBudget,
         toolTokenBudget,
         maxAttempts: overflowRecovery.maxAttempts,
@@ -1442,7 +1716,10 @@ export async function runAgentLoopImpl(
               {
                 messages: msgs,
                 signal,
-                options: opts,
+                options: {
+                  ...(opts ?? {}),
+                  overrideProfile: turnOverrideProfile ?? null,
+                },
               },
               buildPluginTurnContext(ctx, reqId),
               DEFAULT_TIMEOUTS.compaction,
@@ -1484,7 +1761,7 @@ export async function runAgentLoopImpl(
             reqId,
           );
         },
-        onCompactionResult: async (result) => {
+        onCompactionResult: async (result, compactedBasis) => {
           // Track circuit-breaker state whenever the reducer invoked
           // compaction. The reducer's forced_compaction tier uses
           // force:true, so it bypasses the open-circuit check, but we
@@ -1498,7 +1775,7 @@ export async function runAgentLoopImpl(
             await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
-            applyCompactionResult(ctx, result, onEvent, reqId);
+            applySuccessfulCompaction(result, compactedBasis);
             shouldInjectWorkspace = true;
           }
         },
@@ -1526,6 +1803,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
             ...(stepCompacted && { pkbContext: currentPkbContent }),
+            ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
@@ -1723,6 +2001,7 @@ export async function runAgentLoopImpl(
       turnCallSite,
       loopTurnCtx,
       turnOverrideProfile,
+      effectiveContextWindow.maxInputTokens,
     );
 
     rlog.info(
@@ -1789,6 +2068,7 @@ export async function runAgentLoopImpl(
               targetInputTokensOverride: preflightBudget,
               conversationOriginChannel:
                 getConversationOriginChannel(ctx.conversationId) ?? undefined,
+              overrideProfile: turnOverrideProfile ?? null,
             },
           },
           buildPluginTurnContext(ctx, reqId),
@@ -1824,7 +2104,7 @@ export async function runAgentLoopImpl(
         );
       }
       if (midLoopCompact.compacted) {
-        applyCompactionResult(ctx, midLoopCompact, onEvent, reqId);
+        applySuccessfulCompaction(midLoopCompact, rawHistory);
         reducerCompacted = true;
         shouldInjectWorkspace = true;
       }
@@ -1836,6 +2116,7 @@ export async function runAgentLoopImpl(
       const injection = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
+        memoryV2Static: currentMemoryV2Static,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
@@ -1873,6 +2154,7 @@ export async function runAgentLoopImpl(
         turnCallSite,
         loopTurnCtx,
         turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
       );
     }
 
@@ -1929,6 +2211,7 @@ export async function runAgentLoopImpl(
         turnCallSite,
         loopTurnCtx,
         turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
       );
 
       if (state.orderingErrorDetected) {
@@ -2034,18 +2317,22 @@ export async function runAgentLoopImpl(
           "assistant_turn",
           reqId,
         );
+        const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
-          ctx.messages,
+          convergenceCompactionBasis,
           {
             providerName: estimationProviderName,
             systemPrompt: ctx.systemPrompt,
-            contextWindow: config.llm.default.contextWindow,
+            contextWindow: turnContextWindowConfig,
             targetTokens: correctedTarget,
             toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
+            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
+              ...(opts ?? {}),
+              overrideProfile: turnOverrideProfile ?? null,
+            }),
           abortController.signal,
         );
 
@@ -2069,7 +2356,10 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
+          applySuccessfulCompaction(
+            step.compactionResult,
+            convergenceCompactionBasis,
+          );
           shouldInjectWorkspace = true;
           reducerCompacted = true;
         }
@@ -2080,6 +2370,7 @@ export async function runAgentLoopImpl(
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
+          memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
@@ -2116,6 +2407,7 @@ export async function runAgentLoopImpl(
           turnCallSite,
           loopTurnCtx,
           turnOverrideProfile,
+          effectiveContextWindow.maxInputTokens,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -2193,6 +2485,7 @@ export async function runAgentLoopImpl(
                   force: true,
                   minKeepRecentUserTurns: 0,
                   targetInputTokensOverride: correctedTarget,
+                  overrideProfile: turnOverrideProfile ?? null,
                 },
               },
               buildPluginTurnContext(ctx, reqId),
@@ -2229,7 +2522,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact?.compacted) {
-            applyCompactionResult(ctx, emergencyCompact, onEvent, reqId);
+            applySuccessfulCompaction(emergencyCompact, ctx.messages);
             reducerCompacted = true;
             shouldInjectWorkspace = true;
           }
@@ -2239,6 +2532,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
+            memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
@@ -2274,6 +2568,7 @@ export async function runAgentLoopImpl(
             turnCallSite,
             loopTurnCtx,
             turnOverrideProfile,
+            effectiveContextWindow.maxInputTokens,
           );
         }
         // action === "fail_gracefully" falls through to the final error below
@@ -2323,10 +2618,16 @@ export async function runAgentLoopImpl(
       ).map(([toolUseId, result]) => ({
         type: "tool_result",
         tool_use_id: toolUseId,
-        content: result.content,
+        content: redactSecrets(result.content),
         is_error: result.isError,
         ...(result.contentBlocks
-          ? { contentBlocks: result.contentBlocks }
+          ? {
+              contentBlocks: result.contentBlocks.map((block) =>
+                block.type === "text"
+                  ? { ...block, text: redactSecrets(block.text) }
+                  : block,
+              ),
+            }
           : {}),
       }));
       const toolResultMetadata = {
@@ -2409,34 +2710,29 @@ export async function runAgentLoopImpl(
 
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
-    if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
-      try {
-        const conv = getConversation(ctx.conversationId);
-        if (conv) {
-          const convDir = getResolvedConversationDirPath(
-            ctx.conversationId,
-            conv.createdAt,
-          );
-          const { messages: derefMessages, dereferencedCount } =
-            derefToolResultReReads(restoredHistory);
-          const { messages: truncatedMessages, truncatedCount } =
-            postTurnTruncateToolResults(derefMessages, {
-              conversationDir: convDir,
-            });
-          if (truncatedCount > 0 || dereferencedCount > 0) {
-            rlog.info(
-              { truncatedCount, dereferencedCount },
-              "Post-turn tool result truncation applied",
-            );
-          }
-          restoredHistory = truncatedMessages;
-        }
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Post-turn tool result truncation failed (non-fatal)",
+    try {
+      const conv = getConversation(ctx.conversationId);
+      if (conv) {
+        const convDir = getResolvedConversationDirPath(
+          ctx.conversationId,
+          conv.createdAt,
         );
+        const { messages: derefMessages, dereferencedCount } =
+          derefToolResultReReads(restoredHistory);
+        const { messages: truncatedMessages, truncatedCount } =
+          postTurnTruncateToolResults(derefMessages, {
+            conversationDir: convDir,
+          });
+        if (truncatedCount > 0 || dereferencedCount > 0) {
+          rlog.info(
+            { truncatedCount, dereferencedCount },
+            "Post-turn tool result truncation applied",
+          );
+        }
+        restoredHistory = truncatedMessages;
       }
+    } catch (err) {
+      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
     }
 
     // Persist injections in history: runtime-injected context stays on
@@ -2460,7 +2756,11 @@ export async function runAgentLoopImpl(
       state.exchangeLlmCallCount,
       {
         tokens: state.lastCallInputTokens,
-        maxTokens: config.llm.default.contextWindow.maxInputTokens,
+        maxTokens: effectiveContextWindow.maxInputTokens,
+      },
+      {
+        callSite: turnCallSite,
+        overrideProfile: turnOverrideProfile ?? null,
       },
     );
 
@@ -2580,6 +2880,42 @@ export async function runAgentLoopImpl(
             ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
+
+        // Proactive artifact: fire once when the processed turn was the 4th user message.
+        // Only trigger for real user-authored turns (not subagent/system messages).
+        {
+          const paConv = getConversation(ctx.conversationId);
+          if (
+            paConv &&
+            paConv.conversationType === "standard" &&
+            options?.isUserMessage
+          ) {
+            void (async () => {
+              try {
+                if (hasProactiveArtifactCompleted()) return;
+                const userMsg = getMessageById(
+                  userMessageId,
+                  ctx.conversationId,
+                );
+                if (!userMsg) return;
+                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
+                  return;
+                await runProactiveArtifactJob({
+                  conversationId: ctx.conversationId,
+                  userMessageCutoff: userMsg.createdAt,
+                  assistantMessageId: state.lastAssistantMessageId,
+                  suppressAppBuild: state.appBuildToolUsedThisRun,
+                  broadcastMessage,
+                });
+              } catch (err) {
+                log.warn(
+                  { err, conversationId: ctx.conversationId },
+                  "Proactive artifact trigger failed",
+                );
+              }
+            })();
+          }
+        }
       }
     }
 
@@ -2640,6 +2976,7 @@ export async function runAgentLoopImpl(
       });
       onEvent({
         type: "error",
+        conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
       });
@@ -2647,6 +2984,8 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
+      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
+
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
@@ -2691,8 +3030,10 @@ export async function runAgentLoopImpl(
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
+    ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.slackRuntimeContextNotice = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
@@ -2733,6 +3074,10 @@ function emitUsage(
   providerName?: string,
   llmCallCount = 1,
   contextWindow?: { tokens: number; maxTokens: number },
+  attribution?: {
+    callSite: LLMCallSite | null;
+    overrideProfile?: string | null;
+  },
 ): void {
   recordUsage(
     {
@@ -2751,6 +3096,7 @@ function emitUsage(
     rawResponse,
     llmCallCount,
     contextWindow,
+    attribution,
   );
 }
 
@@ -2801,19 +3147,32 @@ export function applyCompactionResult(
     summaryCacheCreationInputTokens?: number;
     summaryCacheReadInputTokens?: number;
     summaryRawResponses?: unknown[];
+    summaryCallSite?: LLMCallSite;
+    summaryOverrideProfile?: string | null;
   },
   onEvent: (msg: ServerMessage) => void,
   reqId: string | null,
+  options: {
+    slackContextCompactionWatermarkTs?: string | null;
+  } = {},
 ): void {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
-  ctx.contextCompactedAt = Date.now();
+  const compactedAt = Date.now();
+  ctx.contextCompactedAt = compactedAt;
   ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
+  if (options.slackContextCompactionWatermarkTs) {
+    updateConversationSlackContextWatermark(
+      ctx.conversationId,
+      options.slackContextCompactionWatermarkTs,
+      compactedAt,
+    );
+  }
   enqueueAutoAnalysisOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
@@ -2848,6 +3207,11 @@ export function applyCompactionResult(
     collapseRawResponses(result.summaryRawResponses),
     undefined /* providerName */,
     1 /* llmCallCount */,
+    undefined /* contextWindow */,
+    {
+      callSite: result.summaryCallSite ?? null,
+      overrideProfile: result.summaryOverrideProfile ?? null,
+    },
   );
 }
 

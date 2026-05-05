@@ -16,10 +16,6 @@
           "initial_content": {
             "type": "string",
             "description": "Initial Markdown content to populate the editor (optional)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -46,10 +42,6 @@
             "type": "string",
             "enum": ["replace", "append"],
             "description": "Whether to replace all content or append to the end. Defaults to append."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["surface_id", "content"]

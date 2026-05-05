@@ -34,7 +34,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func fetchSchedulesList() async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/schedules", timeout: 10
+            path: "schedules", timeout: 10
         )
         guard response.isSuccess else {
             log.error("fetchSchedulesList failed (HTTP \(response.statusCode))")
@@ -45,7 +45,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func toggleSchedule(id: String, enabled: Bool) async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/schedules/\(id)/toggle",
+            path: "schedules/\(id)/toggle",
             json: ["enabled": enabled],
             timeout: 10
         )
@@ -58,7 +58,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func deleteSchedule(id: String) async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/schedules/\(id)", timeout: 10
+            path: "schedules/\(id)", timeout: 10
         )
         guard response.isSuccess else {
             log.error("deleteSchedule failed (HTTP \(response.statusCode))")
@@ -69,7 +69,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func cancelSchedule(id: String) async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/schedules/\(id)/cancel",
+            path: "schedules/\(id)/cancel",
             json: [:],
             timeout: 10
         )
@@ -82,7 +82,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func runNow(id: String) async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/schedules/\(id)/run",
+            path: "schedules/\(id)/run",
             json: [:],
             timeout: 120
         )
@@ -95,7 +95,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func updateSchedule(id: String, updates: [String: Any]) async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/schedules/\(id)",
+            path: "schedules/\(id)",
             json: updates,
             timeout: 10
         )

@@ -55,6 +55,49 @@ export function pruneOldLlmRequestLogsJob(
 }
 
 /**
+ * Delete trace events older than the configured retention period.
+ * Processes in batches to avoid long DB locks and excessive WAL growth.
+ * Re-enqueues itself if more rows remain.
+ */
+export function pruneOldTraceEventsJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): void {
+  const rawRetention = job.payload.retentionDays;
+  const retentionDays =
+    typeof rawRetention === "number" &&
+    Number.isFinite(rawRetention) &&
+    rawRetention >= 0
+      ? rawRetention
+      : config.memory.cleanup.traceEventRetentionDays;
+
+  // 0 means disabled
+  if (retentionDays === 0) return;
+
+  const cutoffMs = Date.now() - retentionDays * 86_400_000;
+
+  rawRun(
+    `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ? LIMIT ?)`,
+    cutoffMs,
+    PRUNE_LOG_BATCH_LIMIT,
+  );
+  const deleted = rawChanges();
+
+  if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
+    enqueueMemoryJob("prune_old_trace_events", { retentionDays });
+  }
+
+  log.info(
+    {
+      deleted,
+      retentionDays,
+      cutoffMs,
+    },
+    "Pruned old trace events",
+  );
+}
+
+/**
  * Delete conversations that have had no activity (updatedAt) for longer than
  * the configured retention period. Processes in batches so a single job doesn't
  * hold the DB lock for too long.

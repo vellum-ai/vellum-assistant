@@ -4,10 +4,7 @@ import { createInterface } from "readline";
 import { watch } from "fs";
 import { join } from "path";
 
-import {
-  findAssistantByName,
-  loadLatestAssistant,
-} from "../lib/assistant-config";
+import { resolveAssistant } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getLogDir } from "../lib/xdg-log";
@@ -593,9 +590,7 @@ async function showAwsLogs(
 export async function logs(): Promise<void> {
   const opts = parseArgs();
 
-  const entry = opts.name
-    ? findAssistantByName(opts.name)
-    : loadLatestAssistant();
+  const entry = resolveAssistant(opts.name);
 
   if (!entry) {
     if (opts.name) {

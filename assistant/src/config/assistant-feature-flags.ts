@@ -17,7 +17,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantConfig } from "./schema.js";
+
+const log = getLogger("assistant-feature-flags");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,13 +135,29 @@ let cachedOverridesFromGateway = false;
  * timeout, parse error). No auth needed — the IPC socket is
  * access-controlled by file-system permissions on the shared volume.
  */
-async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
+async function fetchOverridesFromGateway(
+  timeoutMs?: number,
+): Promise<Record<string, boolean>> {
   try {
-    return await ipcGetFeatureFlags();
+    return await ipcGetFeatureFlags(timeoutMs);
   } catch {
     return {};
   }
 }
+
+/**
+ * Default backoff schedule (ms) between `initFeatureFlagOverrides` retries
+ * when the gateway IPC fetch returns empty. The daemon and gateway start
+ * as sibling child processes of the macOS app, so the daemon can race
+ * ahead of the gateway binding `gateway.sock`. Each delay is the
+ * *additional* wait before the next attempt, so total worst-case latency
+ * is the sum: 250 + 500 + 1000 + 2000 + 4000 = 7.75s. All retries run in
+ * the background (lifecycle.ts fires `initFeatureFlagOverrides`
+ * non-blocking), so this never delays startup.
+ */
+const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
+  250, 500, 1000, 2000, 4000,
+];
 
 /**
  * Pre-populate the override cache from the gateway (async).
@@ -148,26 +167,74 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * uses the gateway. In local mode, falls back to the local file when
  * the gateway is unreachable.
  *
- * On failure, the cache is left unset so subsequent sync calls return an
- * empty override map (registry defaults only).
+ * Retries the gateway IPC fetch on empty/failed results — the gateway
+ * may not have bound its IPC socket yet when the daemon races ahead at
+ * startup. After exhausting retries, the cache is left unset so
+ * subsequent sync calls return an empty override map (registry defaults
+ * only).
+ *
+ * Pass `retryBackoffsMs: []` to disable retries (used by unit tests that
+ * intentionally simulate an unreachable gateway and want immediate
+ * fallback without waiting through the production schedule).
  *
  * No-ops when the cache is already populated — callers that want to
  * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
  * tests preseed flag state via `_setOverridesForTesting()` without the
  * gateway IPC call clobbering their setup.
  */
-export async function initFeatureFlagOverrides(): Promise<void> {
+export async function initFeatureFlagOverrides(options?: {
+  retryBackoffsMs?: readonly number[];
+  /**
+   * Timeout (ms) for each IPC call to the gateway. When omitted the
+   * transport defaults apply (3 s connect + 5 s call). CLI callers should
+   * pass a small value (e.g. 200) so a slow/absent gateway fails fast
+   * instead of blocking startup.
+   */
+  callTimeoutMs?: number;
+}): Promise<void> {
   if (cachedOverridesFromGateway) return;
 
-  const gatewayOverrides = await fetchOverridesFromGateway();
-  if (Object.keys(gatewayOverrides).length > 0) {
-    cachedOverrides = gatewayOverrides;
-    cachedOverridesFromGateway = true;
-    return;
+  const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
+  const callTimeoutMs = options?.callTimeoutMs;
+
+  // First attempt has no preceding delay; subsequent attempts wait per the
+  // backoff schedule. An empty result is treated as a transient miss
+  // (gateway not yet bound) and triggers a retry — a healthy gateway
+  // always returns at least the registry-merged flags.
+  for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+    if (attempt > 0) {
+      const delay = backoffs[attempt - 1]!;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      // Re-check after the wait: a concurrent caller (e.g. a test using
+      // `_setOverridesForTesting`) may have populated the cache while we
+      // were sleeping. Bail out so we don't clobber their setup.
+      if (cachedOverridesFromGateway) return;
+    }
+
+    const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
+    if (Object.keys(gatewayOverrides).length > 0) {
+      cachedOverrides = gatewayOverrides;
+      cachedOverridesFromGateway = true;
+      if (attempt > 0) {
+        log.info(
+          { attempt: attempt + 1 },
+          "Feature flag overrides loaded from gateway after retry",
+        );
+      }
+      return;
+    }
   }
 
-  // Gateway returned empty or failed — leave cache unset so loadOverrides()
-  // returns an empty map on subsequent sync reads.
+  // Exhausted retries — leave cache unset so loadOverrides() returns an
+  // empty map on subsequent sync reads. Flag checks fall through to the
+  // registry default (`defaultEnabled`), which biases toward off for
+  // newer assistant-scope flags.
+  if (backoffs.length > 0) {
+    log.warn(
+      { attempts: backoffs.length + 1 },
+      "Feature flag overrides empty after all retries; falling back to registry defaults",
+    );
+  }
 }
 
 /**

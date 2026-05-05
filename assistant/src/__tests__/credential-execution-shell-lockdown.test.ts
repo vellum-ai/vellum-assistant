@@ -6,15 +6,12 @@
  * - Untrusted bash rejects non-empty credential-ref mode when lockdown is active.
  * - VELLUM_UNTRUSTED_SHELL env flag is injected for untrusted actors.
  * - host_bash sets forcePromptSideEffects for untrusted actors under lockdown.
- * - Protected paths are passed to the sandbox when lockdown is active.
  * - CLI commands deny raw secret/token reveal when VELLUM_UNTRUSTED_SHELL=1.
  */
 
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
-import { getProtectedDir, getWorkspaceDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Trust class categorization (foundational for lockdown decisions)
@@ -112,41 +109,5 @@ describe("CES shell lockdown activation", () => {
       const active = flagEnabled && isUntrustedTrustClass(trustClass);
       expect(active).toBe(expected);
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Sandbox deny-read paths
-// ---------------------------------------------------------------------------
-
-describe("CES protected paths for sandbox deny-read", () => {
-  test("protected paths include the protected dir and db dir", () => {
-    // The buildCesProtectedPaths function constructs paths from getProtectedDir()
-    // and getWorkspaceDir(). We verify the pattern: paths should be absolute and clean.
-    const expectedPaths = [
-      getProtectedDir(),
-      join(getWorkspaceDir(), "data", "db"),
-    ];
-
-    // Each expected path should be a valid absolute path pattern
-    for (const p of expectedPaths) {
-      expect(p.startsWith("/") || p.match(/^[A-Z]:\\/)).toBeTruthy();
-      expect(p.includes("..")).toBe(false);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Native sandbox backend deny-read integration
-// ---------------------------------------------------------------------------
-
-describe("NativeBackend deny-read paths", () => {
-  test("WrapOptions accepts denyReadPaths", () => {
-    // Type-level check: ensure the WrapOptions interface includes denyReadPaths.
-    const opts: import("../tools/terminal/backends/types.js").WrapOptions = {
-      networkMode: "off",
-      denyReadPaths: ["/home/test/.vellum/protected"],
-    };
-    expect(opts.denyReadPaths).toHaveLength(1);
   });
 });

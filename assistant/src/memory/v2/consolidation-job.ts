@@ -32,15 +32,18 @@
  *      emit an `activity.failed` notification on transient failures —
  *      consolidation runs on tight intervals, so a network blip or model
  *      hiccup should not spam the home feed. Sentry-side reporting is
- *      unchanged.
- *   6. On success, enqueue `memory_v2_rebuild_edges` (regenerate frontmatter
- *      from `edges.json`) and `memory_v2_reembed` (re-index any pages the
- *      agent touched). Tracking touched pages via mtime would be more precise
- *      but is fragile across filesystems; the embedder's content-hash cache
- *      makes a conservative full-reembed effectively free. On failure no
- *      follow-ups are enqueued — the agent's writes may be partial and
- *      re-embedding partial state would be misleading.
- *   7. Release the lock.
+ *      unchanged. The prompt body is loaded via `resolveConsolidationPrompt`
+ *      which bounds any operator-provided override to a regular file under
+ *      1 MiB before substitution.
+ *   6. On success, enqueue `memory_v2_reembed` (re-index any pages the agent
+ *      touched). Tracking touched pages via mtime would be more precise but
+ *      is fragile across filesystems; the embedder's content-hash cache makes
+ *      a conservative full-reembed effectively free. On failure no follow-ups
+ *      are enqueued — the agent's writes may be partial and re-embedding
+ *      partial state would be misleading.
+ *   7. Release the lock. If a prior holder's PID is no longer running, the
+ *      stale lock is taken over automatically (single-writer per workspace,
+ *      so a holder whose process died is unambiguously stale).
  *
  * The handler never propagates exceptions from the run path — `runBackgroundJob`
  * absorbs them and returns a structured result. A thrown error before the
@@ -63,12 +66,14 @@ import type { AssistantConfig } from "../../config/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
-import { renderConsolidationPrompt } from "./prompts/consolidation.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
+import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
 
@@ -87,15 +92,13 @@ const JOB_NAME = "memory.consolidate";
 const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
- * Follow-up jobs to fan out after a successful consolidation. Both are stubs
- * from PR 6 today; PR 21 will replace them with real handlers.
+ * Follow-up jobs to fan out after a successful consolidation.
  *
  * Conservatively re-embeds every page rather than tracking which pages the
  * agent touched: mtime-diffing is fragile across filesystems, and the
  * embedder's content-hash cache makes unchanged pages effectively free.
  */
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [
-  "memory_v2_rebuild_edges",
   "memory_v2_reembed",
 ] as const;
 
@@ -159,10 +162,19 @@ export async function memoryV2ConsolidateJob(
     // notification on transient failures. Consolidation runs on tight
     // intervals; a network blip or model hiccup should not spam the feed.
     // Sentry-side reporting is unchanged.
+    //
+    // The prompt body comes from `resolveConsolidationPrompt`, which honors
+    // the `memory.v2.consolidation_prompt_path` config override but bounds
+    // it to a regular file under 1 MiB before substitution so a stray path
+    // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
+    // bytes through the wake hint.
     const runResult = await runBackgroundJob({
       jobName: JOB_NAME,
       source: JOB_SOURCE,
-      prompt: renderConsolidationPrompt(cutoff),
+      prompt: resolveConsolidationPrompt(
+        config.memory.v2.consolidation_prompt_path,
+        cutoff,
+      ),
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       callSite: "mainAgent",
       timeoutMs: CONSOLIDATION_TIMEOUT_MS,
@@ -236,14 +248,20 @@ function readBufferContent(bufferPath: string): string {
 /**
  * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. Returns
  * `null` on success, or the current holder string (file contents, typically
- * `pid timestamp`) when the file already exists — the holder is surfaced for
- * log diagnostics so operators can identify a stuck lock without re-reading.
+ * `pid timestamp`) when the file already exists and the holder is still alive.
  *
- * Crash recovery: if the prior daemon died with the lock held, the file will
- * still be on disk on the next start. PR 20 keeps the lock simple per the
- * plan instructions; a future iteration can probe liveness via `kill(pid, 0)`
- * the way `snapshot-lock.ts` does. Until then, an operator can clear a
- * stale lock by removing the file.
+ * Stale-lock takeover: if the file exists but its holder PID is not running,
+ * unlink the stale file and retry the create exactly once. This recovers
+ * automatically from a crashed daemon that died with the lock held —
+ * otherwise every subsequent scheduled consolidation would skip with `locked`
+ * indefinitely until an operator manually removed the file.
+ *
+ * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
+ * full rename-aside dance) because only the assistant's jobs worker calls
+ * this lock, and at most one assistant process runs per workspace at any
+ * time. A holder with an unparseable / empty payload is treated as stale —
+ * the only writers ever produce a `<pid> <timestamp>` line, so an
+ * unparseable file is corruption from a partial write that crashed.
  */
 function tryAcquireLock(lockPath: string): string | null {
   // The workspace migration seeds `memory/.v2-state/`, but tests and
@@ -251,9 +269,40 @@ function tryAcquireLock(lockPath: string): string | null {
   // is idempotent, so the call is cheap when the dir already exists.
   mkdirSync(dirname(lockPath), { recursive: true });
 
+  const firstHolder = tryCreate(lockPath);
+  if (firstHolder === null) return null;
+  if (!isHolderStale(firstHolder)) return firstHolder;
+
+  log.info(
+    { lockPath, holder: firstHolder },
+    "consolidation: taking over stale lock (holder not running)",
+  );
+  try {
+    unlinkSync(lockPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      log.warn(
+        { err, lockPath },
+        "consolidation: failed to unlink stale lock; reporting as locked",
+      );
+      return firstHolder;
+    }
+  }
+  // After unlink, the next `wx` create should succeed. If a third party
+  // raced in and re-acquired (vanishingly unlikely with one writer per
+  // workspace), surface their holder string rather than overwriting.
+  return tryCreate(lockPath);
+}
+
+/**
+ * Atomically create the lock file. Returns `null` on success, or the holder
+ * string read from the file when it already exists (`"unknown"` if the read
+ * itself fails). Rethrows any non-EEXIST errno from `openSync`.
+ */
+function tryCreate(lockPath: string): string | null {
   let fd: number;
   try {
-    // `wx` = create-if-not-exists, fail with EEXIST if it does.
     fd = openSync(lockPath, "wx");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
@@ -263,13 +312,10 @@ function tryAcquireLock(lockPath: string): string | null {
       return "unknown";
     }
   }
-
-  // Best-effort PID + timestamp payload so a stale lock can be diagnosed.
-  // The worker only cares that the file exists; the contents are advisory.
   try {
     writeSync(fd, `${process.pid} ${Date.now()}\n`);
   } catch {
-    // best-effort
+    // best-effort — payload is advisory, the file's existence is the lock
   } finally {
     try {
       closeSync(fd);
@@ -278,6 +324,21 @@ function tryAcquireLock(lockPath: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * A holder string is stale when its PID parses to a non-running process.
+ * The payload format is `<pid> <timestamp>` (see `tryCreate`'s write), but
+ * an unparseable / empty / `"unknown"` payload is also treated as stale:
+ * the only writer is `tryCreate` itself, so corruption indicates a partial
+ * write from a crashed prior holder rather than a live writer mid-flush.
+ */
+function isHolderStale(holder: string): boolean {
+  const match = /^\d+/.exec(holder);
+  if (!match) return true;
+  const pid = Number.parseInt(match[0], 10);
+  if (!Number.isFinite(pid) || pid <= 0) return true;
+  return !isProcessAlive(pid);
 }
 
 /**

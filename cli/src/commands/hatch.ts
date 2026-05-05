@@ -15,7 +15,7 @@ import {
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
-import { buildInitialConfig } from "../lib/config-utils";
+import { buildNestedConfig } from "../lib/config-utils";
 import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -32,7 +32,7 @@ export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
-  vellum: 2 * 60 * 1000,
+  vellum: 5 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
 };
 const DEFAULT_SPECIES: Species = "vellum";
@@ -123,11 +123,7 @@ export async function buildStartupScript(
   // and export the env var so the daemon reads it on first boot.
   let configWriteBlock = "";
   if (Object.keys(configValues).length > 0) {
-    const configJson = JSON.stringify(
-      buildInitialConfig(configValues),
-      null,
-      2,
-    );
+    const configJson = JSON.stringify(buildNestedConfig(configValues), null, 2);
     configWriteBlock = `
 echo "Writing default workspace config..."
 VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH="/tmp/vellum-initial-config-$$.json"

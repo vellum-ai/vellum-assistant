@@ -156,6 +156,19 @@ export interface SendMessageConfig {
    * silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Internal per-request HTTP headers for managed-proxy usage attribution.
+   * Provider clients may pass these through SDK request options only when the
+   * transport is Vellum-managed, and must never include this object in provider
+   * JSON request bodies.
+   */
+  usageAttributionHeaders?: Record<string, string>;
+  /**
+   * Controls local usage-ledger writes for attributed provider calls.
+   * Defaults to `auto`; conversation paths that aggregate usage separately
+   * set `manual` to avoid double-counting.
+   */
+  usageTracking?: "auto" | "manual";
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";

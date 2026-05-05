@@ -99,7 +99,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
 
     public func getFeatureFlags() async throws -> [AssistantFeatureFlag] {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/feature-flags", timeout: 10
+            path: "feature-flags", timeout: 10
         )
         guard response.isSuccess else {
             log.error("getFeatureFlags failed (HTTP \(response.statusCode))")
@@ -137,7 +137,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
 
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/feature-flags/\(key)",
+            path: "feature-flags/\(key)",
             json: ["enabled": enabled],
             timeout: 10
         )
@@ -149,7 +149,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
 
     public func getPrivacyConfig() async throws -> PrivacyConfig {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/config/privacy",
+            path: "config/privacy",
             timeout: 10
         )
         guard response.isSuccess else {
@@ -176,7 +176,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
         }
 
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/config/privacy",
+            path: "config/privacy",
             json: body,
             timeout: 10
         )

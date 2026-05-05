@@ -125,7 +125,7 @@ export function classifyKind(mimeType: string): "image" | "video" | "document" {
 // Validation / cap enforcement
 // ---------------------------------------------------------------------------
 
-export interface ValidatedDrafts {
+interface ValidatedDrafts {
   accepted: AssistantAttachmentDraft[];
   warnings: string[];
 }
@@ -171,13 +171,13 @@ export interface DirectiveRequest {
   mimeType: string | undefined;
 }
 
-export interface DirectiveParseResult {
+interface DirectiveParseResult {
   cleanText: string;
   directiveRequests: DirectiveRequest[];
   parseWarnings: string[];
 }
 
-export interface DirectiveDisplayDrainResult {
+interface DirectiveDisplayDrainResult {
   emitText: string;
   bufferedRemainder: string;
 }
@@ -362,7 +362,7 @@ export function drainDirectiveDisplayBuffer(
 // Sandbox file resolution
 // ---------------------------------------------------------------------------
 
-export interface ResolveResult {
+interface ResolveResult {
   draft: AssistantAttachmentDraft | null;
   warning: string | null;
 }

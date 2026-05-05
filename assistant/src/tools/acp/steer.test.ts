@@ -16,8 +16,7 @@ let steerImpl: (acpSessionId: string, instruction: string) => Promise<void> =
   defaultSteer;
 
 // Spread the real module's exports so transitive importers that pull other
-// names from `../../acp/index.js` (e.g. `broadcastToAllClients` from the
-// HTTP route layer) still resolve at parse time. Bun's `mock.module` is
+// names from `../../acp/index.js` still resolve at parse time. Bun's `mock.module` is
 // process-global and returns *exactly* the keys the factory returns.
 const realAcpModule = await import("../../acp/index.js");
 mock.module("../../acp/index.js", () => ({

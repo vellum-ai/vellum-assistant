@@ -19,9 +19,8 @@ struct OnboardingFlowView: View {
     @State private var completionDelayTask: Task<Void, Never>?
     @State private var isShowingPreChat = false
 
-    private static let appIcon: NSImage? = {
-        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
-        return NSImage(contentsOfFile: path)
+    private static let appIcon: NSImage = {
+        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     private var managedSignInEnabled: Bool {
@@ -90,15 +89,13 @@ struct OnboardingFlowView: View {
                         // Step 0 only: top inset + app icon
                         Color.clear.frame(height: 80)
 
-                        if let nsImage = Self.appIcon {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
-                                .padding(.bottom, 78)
-                        }
+                        Image(nsImage: Self.appIcon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
+                            .padding(.bottom, 78)
                     } else {
                         // Steps 1–3: top inset only (no icon)
                         Color.clear.frame(height: VSpacing.xxxl)
@@ -109,7 +106,7 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                             case 0:
-                                if managedSignInEnabled && authManager.isAuthenticated {
+                                if authManager.isAuthenticated {
                                     // Already authenticated — show a brief loading
                                     // state while the .task advances to Setup.
                                     HStack(spacing: VSpacing.sm) {
@@ -122,9 +119,9 @@ struct OnboardingFlowView: View {
                                 } else {
                                     WakeUpStepView(
                                         state: state,
-                                        authManager: managedSignInEnabled ? authManager : nil,
+                                        authManager: authManager,
                                         isAdvancing: isAdvancingFromWakeUp,
-                                        managedSignInEnabled: managedSignInEnabled,
+                                        managedSignInEnabled: true,
                                         onStartWithAPIKey: {
                                             guard !isAdvancingFromWakeUp else { return }
                                             isAdvancingFromWakeUp = true
@@ -200,14 +197,14 @@ struct OnboardingFlowView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
-            if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
+            if authManager.isAuthenticated && state.currentStep == 0 {
                 await continueManagedOnboardingAfterAuthentication()
             }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
                 isAdvancingFromWakeUp = false
-                if managedSignInEnabled && authManager.isAuthenticated {
+                if authManager.isAuthenticated {
                     Task {
                         await continueManagedOnboardingAfterAuthentication()
                     }
@@ -222,7 +219,7 @@ struct OnboardingFlowView: View {
             log.info(
                 "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
             )
-            if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
+            if !isAuthenticated && state.currentStep > 0 {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
                 completionDelayTask?.cancel()
                 didCallComplete = false
@@ -245,7 +242,7 @@ struct OnboardingFlowView: View {
             }
             if isAuthenticated {
                 if let assistant = currentAssistant {
-                    if assistant.isManaged && managedSignInEnabled && state.currentStep == 0 {
+                    if assistant.isManaged && state.currentStep == 0 {
                         log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); advancing to hosting selector")
                         state.advance()
                     } else if assistant.isManaged {
@@ -261,7 +258,7 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
-                    if managedSignInEnabled && state.currentStep == 0 {
+                    if state.currentStep == 0 {
                         Task {
                             await continueManagedOnboardingAfterAuthentication()
                         }
@@ -282,13 +279,9 @@ struct OnboardingFlowView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
-                    if preChatOnboardingEnabled {
-                        PreChatOnboardingState.clearPersistedState()
-                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-                            isShowingPreChat = true
-                        }
-                    } else {
-                        onComplete()
+                    PreChatOnboardingState.clearPersistedState()
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        isShowingPreChat = true
                     }
                 }
             }
@@ -311,7 +304,6 @@ struct OnboardingFlowView: View {
 
     private func continueManagedOnboardingAfterAuthentication() async {
         guard managedBootstrapEnabled,
-              managedSignInEnabled,
               authManager.isAuthenticated,
               state.currentStep == 0,
               !isResolvingAssociatedManagedAssistant else {
@@ -352,6 +344,20 @@ struct OnboardingFlowView: View {
     /// `activateManagedAssistant()` surface in the same view via the shared
     /// `hatchFailed` / `hatchFailureReason` path that the health-poll uses.
     private func performManagedBootstrap() async {
+        // Apple Guideline 5.1.2(i): AI Data Sharing consent must be explicitly
+        // checked by the user. Bootstrap can be triggered via the auth-change
+        // path (line ~251) which doesn't route through onboarding step 3, so
+        // we re-check consent here as the load-bearing enforcement point.
+        // The HatchingStepView gate remains as defense-in-depth for non-managed
+        // (CLI) hatch flows.
+        let tosOk = UserDefaults.standard.bool(forKey: "tosAccepted")
+        let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
+        guard tosOk && aiOk else {
+            log.info("Managed bootstrap aborted: AI Data Sharing consent missing — bouncing to privacy step")
+            state.bounceToConsentStep()
+            return
+        }
+
         log.info("Beginning managed assistant bootstrap")
         state.hasExistingManagedAssistant = false
         state.hatchFailed = false
@@ -366,7 +372,13 @@ struct OnboardingFlowView: View {
         state.isHatching = true
 
         do {
-            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+            let coordinator = ManagedAssistantConnectionCoordinator()
+            let activation: ManagedAssistantConnectionResult
+            if state.isRehatch {
+                activation = try await coordinator.activateNewManagedAssistant()
+            } else {
+                activation = try await coordinator.activateManagedAssistant()
+            }
             let assistant = activation.assistant
             state.hasExistingManagedAssistant = activation.reusedExisting
 
@@ -426,7 +438,7 @@ struct OnboardingFlowView: View {
         while clock.now < deadline {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/health",
+                    path: "health",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {

@@ -14,6 +14,7 @@
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { findConversation } from "../daemon/conversation-store.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -118,6 +119,12 @@ export type ResolverResult =
       applied: true;
       grantMinted?: boolean;
       guardianReplyText?: string;
+      activatedContact?: {
+        sourceChannel: string;
+        externalUserId: string;
+        externalChatId?: string;
+        displayName?: string;
+      };
     }
   | { ok: false; reason: string };
 
@@ -202,7 +209,14 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision: UserDecision =
       decision.action === "reject" ? "deny" : "allow";
-    resolved.conversation!.handleConfirmationResponse(
+    const conversation = findConversation(resolved.conversationId);
+    if (!conversation) {
+      return {
+        ok: false,
+        reason: `conversation_not_found: ${resolved.conversationId}`,
+      };
+    }
+    conversation.handleConfirmationResponse(
       request.id,
       userDecision,
       undefined,
@@ -472,21 +486,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
-      try {
-        upsertContactChannel({
-          sourceChannel: "phone",
-          externalUserId: requesterExternalUserId,
-          externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
-        });
-      } catch (err) {
-        log.error(
-          { err, requesterExternalUserId },
-          "Access request resolver: failed to activate voice caller as trusted contact",
-        );
-      }
-
       log.info(
         {
           event: "resolver_access_request_voice_approved",
@@ -497,7 +496,16 @@ const accessRequestResolver: GuardianRequestResolver = {
         "Access request resolver: voice approval — direct trusted-contact activation (no verification session)",
       );
 
-      return { ok: true, applied: true };
+      return {
+        ok: true,
+        applied: true,
+        activatedContact: {
+          sourceChannel: "phone",
+          externalUserId: requesterExternalUserId,
+          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
+          ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
+        },
+      };
     }
 
     // Non-voice approvals: mint an identity-bound verification session so the
@@ -896,7 +904,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
 const resolverRegistry = new Map<string, GuardianRequestResolver>();
 
 /** Register a resolver for a given request kind. */
-export function registerResolver(resolver: GuardianRequestResolver): void {
+function registerResolver(resolver: GuardianRequestResolver): void {
   resolverRegistry.set(resolver.kind, resolver);
 }
 

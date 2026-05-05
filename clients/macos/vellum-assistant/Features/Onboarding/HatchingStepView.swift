@@ -29,9 +29,6 @@ struct HatchingStepView: View {
     private var hatchColor: AvatarColor {
         state.hatchAvatarColor ?? .allCases[0]
     }
-    private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
-    }
     @State private var showFooterCharacters = false
     @State private var completionTask: Task<Void, Never>?
     @State private var healthCheckTask: Task<Void, Never>?
@@ -89,6 +86,16 @@ struct HatchingStepView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
         .onAppear {
+            // Apple Guideline 5.1.2(i): AI Data Sharing consent must be explicitly
+            // checked by the user. If either consent flag is missing, bounce back
+            // to the privacy step (step 3) instead of starting the hatch.
+            let tosOk = UserDefaults.standard.bool(forKey: "tosAccepted")
+            let aiOk = UserDefaults.standard.bool(forKey: "aiDataConsent")
+            guard tosOk && aiOk else {
+                state.bounceToConsentStep()
+                return
+            }
+
             // Eagerly initialize avatar traits so computed getters don't
             // mutate @Observable state during body evaluation.
             if state.hatchAvatarBodyShape == nil {
@@ -224,10 +231,6 @@ struct HatchingStepView: View {
 
     // MARK: - Status Text
 
-    private var isCustomHardware: Bool {
-        state.cloudProvider == "customHardware"
-    }
-
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
@@ -251,11 +254,7 @@ struct HatchingStepView: View {
                     }
                 }
             } else if state.hatchCompleted {
-                Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentDefault)
-            } else if isCustomHardware {
-                Text("Pairing\u{2026}")
+                Text("Your assistant is ready!")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else {
@@ -275,7 +274,7 @@ struct HatchingStepView: View {
     // MARK: - Progress Bar
 
     private var showProgressBar: Bool {
-        !state.hatchFailed && !isCustomHardware && state.hatchStepLabel != nil
+        !state.hatchFailed && state.hatchStepLabel != nil
             && (!state.hatchCompleted || isAnimatingProgress)
     }
 
@@ -342,18 +341,7 @@ struct HatchingStepView: View {
     private func goBack() {
         healthCheckTask?.cancel()
         isCheckingHealth = false
-        state.isHatching = false
-        state.isManagedHatch = false
-        state.hasExistingManagedAssistant = false
-        state.hatchFailed = false
-        state.hatchFailureReason = nil
-        state.hatchLogLines = []
-        state.hatchProgressTarget = 0.0
-        state.hatchProgressDisplay = 0.0
-        state.hatchStepLabel = nil
-        state.hatchTotalSteps = 1
-        state.hatchCurrentStep = 0
-        state.hatchProcessStarted = false
+        state.resetHatchTransientState()
         progressStartDate = nil
         segmentStartDate = nil
         segmentStartValue = 0
@@ -395,7 +383,7 @@ struct HatchingStepView: View {
             if Task.isCancelled { return false }
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                    path: "assistants/{assistantId}/health",
+                    path: "health",
                     timeout: 5
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess { return true }
@@ -435,22 +423,20 @@ struct HatchingStepView: View {
     }
 
     /// Called when the CLI process finishes successfully or when the success
-    /// sentinel is detected in CLI output. Saves the random avatar (for
-    /// non-pairing flows) then signals completion after a brief delay.
-    /// Idempotent — safe to call multiple times.
+    /// sentinel is detected in CLI output. Saves the random avatar then signals
+    /// completion after a brief delay. Idempotent — safe to call multiple times.
     private func handleHatchSuccess() {
         guard !state.hatchCompleted && !state.hatchFailed && completionTask == nil else { return }
 
         log.info("Hatch success detected — starting completion transition")
 
-        // Save the randomly-generated avatar as the user's avatar, but only for
-        // non-pairing flows and only if one hasn't already been uploaded/generated
-        // (preserves existing avatars when replaying onboarding during development).
+        // Save the randomly-generated avatar as the user's avatar, but only if
+        // one hasn't already been uploaded/generated (preserves existing avatars
+        // when replaying onboarding during development).
         // skipWorkspaceSync: the guardian token hasn't been imported yet so gateway
         // requests would 401. The workspace sync happens later in
         // syncOnboardingAvatarIfNeeded() after the daemon connection is authenticated.
-        if !isCustomHardware,
-           AvatarAppearanceManager.shared.customAvatarImage == nil,
+        if AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
             AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor, skipWorkspaceSync: true)
         }
@@ -515,7 +501,7 @@ struct HatchingStepView: View {
             return value
         }
 
-        // Non-managed flows (local / docker / apple-container / pairing) use a
+        // Non-managed flows (local / docker / apple-container) use a
         // time-based asymptotic curve so the bar always appears to be moving.
         if state.hatchCompleted, let compTime = completionTime, let baseProgress = progressAtCompletion {
             // Ease-out ramp from current position to 100%
@@ -538,7 +524,7 @@ struct HatchingStepView: View {
         return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
     }
 
-    // MARK: - Hatching / Pairing
+    // MARK: - Hatching
 
     private func startHatching() {
         // Managed assistants handle daemon connection in OnboardingFlowView;
@@ -546,8 +532,6 @@ struct HatchingStepView: View {
         if state.isManagedHatch { return }
         if state.cloudProvider == "apple-container" {
             startAppleContainerHatch()
-        } else if isCustomHardware {
-            startPairing()
         } else {
             startRemoteHatch()
         }
@@ -591,8 +575,10 @@ struct HatchingStepView: View {
     private static let dockerReadySentinel = "Docker containers are up and running"
 
     /// Build the --config key=value pairs for the onboarding selections.
-    /// When managed sign-in is enabled and the user did not skip auth, set all
-    /// services to managed mode so they route through the platform proxy.
+    /// Build config overrides to pass as --config flags during hatch.
+    ///
+    /// Most config default values are determined by the daemon process and may
+    /// depend on whether the assistant is hatched on the Vellum Platform or not.
     private func buildOnboardingConfigValues() -> [String: String] {
         var configValues: [String: String] = [:]
         if !state.selectedProvider.isEmpty {
@@ -600,16 +586,6 @@ struct HatchingStepView: View {
         }
         if !state.selectedModel.isEmpty {
             configValues["llm.default.model"] = state.selectedModel
-        }
-        if managedSignInEnabled && !state.skippedAuth {
-            configValues["services.inference.mode"] = "managed"
-            configValues["services.image-generation.mode"] = "managed"
-            configValues["services.web-search.mode"] = "managed"
-            configValues["services.google-oauth.mode"] = "managed"
-            configValues["services.outlook-oauth.mode"] = "managed"
-            configValues["services.linear-oauth.mode"] = "managed"
-            configValues["services.github-oauth.mode"] = "managed"
-            configValues["services.notion-oauth.mode"] = "managed"
         }
         return configValues
     }
@@ -666,24 +642,6 @@ struct HatchingStepView: View {
                 handleHatchSuccess()
             } catch {
                 log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")
-                state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                state.hatchFailureReason = friendlyErrorMessage(from: error)
-                state.hatchFailed = true
-            }
-        }
-    }
-
-    private func startPairing() {
-        Task {
-            do {
-                try await cliLauncher.runPair(qrCodeImageData: state.customQRCodeImageData) { line in
-                    Task { @MainActor in
-                        state.hatchLogLines.append(line)
-                    }
-                }
-                handleHatchSuccess()
-            } catch {
-                log.error("Pairing failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 state.hatchFailureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true

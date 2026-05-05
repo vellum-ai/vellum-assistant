@@ -5,12 +5,14 @@ import VellumAssistantShared
 @MainActor
 public final class AppServices {
     public let connectionManager: GatewayConnectionManager
-    let diskPressureMonitor: DiskPressureMonitor
+    let featureFlagStore: AssistantFeatureFlagStore
+    let diskPressureStatusStore: DiskPressureStatusStore
 
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
     let secretPromptManager = SecretPromptManager()
+    let contactPromptManager = ContactPromptManager()
     let zoomManager = ZoomManager()
 
     /// Shared observable store for ACP (Agent Client Protocol) sessions.
@@ -27,10 +29,13 @@ public final class AppServices {
 
     public init() {
         let connectionManager = GatewayConnectionManager()
+        let featureFlagStore = AssistantFeatureFlagStore()
         self.connectionManager = connectionManager
-        diskPressureMonitor = DiskPressureMonitor(
-            isConnectedProvider: { [weak connectionManager] in
-                connectionManager?.isConnected ?? false
+        self.featureFlagStore = featureFlagStore
+        diskPressureStatusStore = DiskPressureStatusStore(
+            eventStreamClient: connectionManager.eventStreamClient,
+            featureFlagEnabled: { key in
+                featureFlagStore.isEnabled(key)
             }
         )
     }

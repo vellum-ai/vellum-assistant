@@ -177,7 +177,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([
       {
         type: "text",
-        text: "<memory __injected>\nremember: alice\n</memory>",
+        text: "<memory>\nremember: alice\n</memory>",
       },
       { type: "text", text: "Hi" },
     ]);
@@ -215,7 +215,7 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     expect(messages).toHaveLength(3);
     // m1 is historical (not tail) — all three blocks should rehydrate in the
-    // documented shape: [<turn_context>, <memory __injected>, <system_reminder>, ...original]
+    // documented shape: [<turn_context>, <memory>, <system_reminder>, ...original]
     expect(messages[0].role).toBe("user");
     expect(messages[0].content).toEqual([
       {
@@ -224,7 +224,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       },
       {
         type: "text",
-        text: "<memory __injected>\nmem payload\n</memory>",
+        text: "<memory>\nmem payload\n</memory>",
       },
       {
         type: "text",
@@ -271,7 +271,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([
       {
         type: "text",
-        text: "<memory __injected>\nmem payload\n</memory>",
+        text: "<memory>\nmem payload\n</memory>",
       },
       { type: "text", text: "Tail turn" },
     ]);
@@ -306,6 +306,42 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages).toHaveLength(3);
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
     expect(messages[2].content).toEqual([{ type: "text", text: "Second" }]);
+  });
+
+  test("historical wrapped memoryInjectedBlock rehydrates singly-wrapped", async () => {
+    // Historical v2 rows persisted `injectedBlockText` already wrapped in
+    // `<memory>...</memory>`. After unifying v2's storage with v1's
+    // unwrapped contract, the rehydrate path must defensively strip any
+    // pre-existing wrapper so old rows don't render double-wrapped.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "<memory>\nremember: alice\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(2);
+    const firstBlock = messages[0].content[0];
+    expect(firstBlock).toEqual({
+      type: "text",
+      text: "<memory>\nremember: alice\n</memory>",
+    });
+    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
   test("malformed metadata is tolerated: load does not throw, content unchanged", async () => {

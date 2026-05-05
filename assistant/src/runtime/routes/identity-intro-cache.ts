@@ -48,6 +48,36 @@ function readWorkspaceFile(name: string): string {
   }
 }
 
+function parseIdentityIntroSection(content: string): string | null {
+  let inSection = false;
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (/^#+\s/.test(trimmed)) {
+      inSection = trimmed.toLowerCase().includes("identity intro");
+      continue;
+    }
+    if (inSection && trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Read the explicit `## Identity Intro` section from workspace prompt files.
+ *
+ * BOOTSTRAP.md instructs the assistant to write this section in IDENTITY.md.
+ * SOUL.md remains a fallback for older workspaces that stored the intro there.
+ */
+export function readWorkspaceIdentityIntro(): string | null {
+  return (
+    parseIdentityIntroSection(readWorkspaceFile("IDENTITY.md")) ??
+    parseIdentityIntroSection(readWorkspaceFile("SOUL.md"))
+  );
+}
+
 /** Compute a SHA-256 hex hash of the concatenated identity file contents. */
 export function computeIdentityContentHash(): string {
   const staticFiles = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");

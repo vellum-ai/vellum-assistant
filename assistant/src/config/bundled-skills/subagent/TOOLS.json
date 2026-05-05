@@ -33,10 +33,6 @@
             "type": "string",
             "enum": ["general", "researcher", "coder", "planner"],
             "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default). Ignored when fork: true (forks always use general)."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["label", "objective"]
@@ -59,10 +55,6 @@
           "label": {
             "type": "string",
             "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -85,10 +77,6 @@
           "label": {
             "type": "string",
             "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -115,10 +103,6 @@
           "content": {
             "type": "string",
             "description": "The message content to send to the subagent."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["content"]
@@ -145,10 +129,6 @@
           "last_n": {
             "type": "integer",
             "description": "Number of recent assistant messages to return. Omit to return all messages (current behavior)."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []

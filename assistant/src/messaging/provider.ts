@@ -11,6 +11,7 @@ import type {
   ConnectionInfo,
   Conversation,
   HistoryOptions,
+  HistoryPageResult,
   ListOptions,
   Message,
   SearchOptions,
@@ -60,6 +61,12 @@ export interface MessagingProvider {
     threadId: string,
     options?: HistoryOptions,
   ): Promise<Message[]>;
+  getThreadRepliesPage?(
+    connection: OAuthConnection | undefined,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<HistoryPageResult>;
   markRead?(
     connection: OAuthConnection | undefined,
     conversationId: string,

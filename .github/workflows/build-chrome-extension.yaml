@@ -1,0 +1,107 @@
+name: Build Chrome Extension
+
+# Manually triggered build of the Chrome extension against a target branch.
+# Mirrors the build-chrome-extension job in release.yml and produces the same
+# two artifacts (chrome-extension-crx, chrome-extension-zip) for download from
+# the workflow run page.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'VELLUM_ENVIRONMENT to bake into the bundle'
+        required: false
+        type: choice
+        default: 'production'
+        options:
+          - production
+          - staging
+          - dev
+          - local
+      version:
+        description: 'Version to stamp in manifest.json (defaults to the value already in manifest.json on the target branch)'
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: build-chrome-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-chrome-extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install Chrome for CRX signing
+        uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1.7.3
+        with:
+          chrome-version: stable
+
+      - name: Resolve version
+        id: resolve-version
+        working-directory: clients/chrome-extension
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION=$(jq -r '.version' manifest.json)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Using version: $VERSION"
+
+      - name: Write CRX signing key
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          if [ -n "$CRX_PRIVATE_KEY" ]; then
+            echo "$CRX_PRIVATE_KEY" > clients/chrome-extension/privatekey.pem
+            chmod 600 clients/chrome-extension/privatekey.pem
+          else
+            echo "::warning::CRX_PRIVATE_KEY secret not set — CRX signing will be skipped"
+          fi
+
+      - name: Build extension
+        working-directory: clients/chrome-extension
+        env:
+          VERSION: ${{ steps.resolve-version.outputs.version }}
+          VELLUM_ENVIRONMENT: ${{ inputs.environment }}
+        run: bash build.sh
+
+      - name: Verify manifest version
+        working-directory: clients/chrome-extension
+        run: |
+          EXPECTED="${{ steps.resolve-version.outputs.version }}"
+          # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
+          # to satisfy Chrome's version format requirement. Match that here.
+          EXPECTED="${EXPECTED%%-*}"
+          ACTUAL=$(jq -r '.version' dist/manifest.json)
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Manifest version mismatch: expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Clean up signing key
+        if: always()
+        run: rm -f clients/chrome-extension/privatekey.pem
+
+      - name: Upload extension CRX
+        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chrome-extension-crx
+          path: clients/chrome-extension/vellum-browser-relay.crx
+          retention-days: 90
+
+      - name: Upload extension zip
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chrome-extension-zip
+          path: clients/chrome-extension/vellum-browser-relay.zip
+          retention-days: 90

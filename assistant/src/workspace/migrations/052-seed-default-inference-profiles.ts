@@ -28,9 +28,9 @@ import type { WorkspaceMigration } from "./types.js";
  * Existing values are never overwritten:
  *   - A pre-existing profile by any of the three names is left intact.
  *   - A pre-existing `activeProfile` is preserved on Anthropic workspaces.
- *   - `llm.callSites` entries are not touched — they continue to win at
- *     resolver layer 5 over both `activeProfile` and per-site `profile`
- *     references.
+ *   - `llm.callSites` entries are not touched. Non-main-agent call sites
+ *     continue to win over profiles; `mainAgent` profiles now win over static
+ *     call-site defaults because they are the user's chat-model selection.
  *
  * **Skip when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set.** Like
  * migration 040, a platform-provided default-config overlay (applied

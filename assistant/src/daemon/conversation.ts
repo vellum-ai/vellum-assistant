@@ -9,13 +9,13 @@
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
- * - conversation-history.ts      — undo, regenerate, consolidateAssistantMessages
+ * - conversation-history.ts      — undo, consolidateAssistantMessages
  * - conversation-surfaces.ts     — handleSurfaceAction, handleSurfaceUndo
  * - conversation-workspace.ts    — refreshWorkspaceTopLevelContext
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
   InterfaceId,
@@ -23,8 +23,13 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  contextWindowConfigFromEffective,
+  resolveEffectiveContextWindow,
+} from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -36,7 +41,6 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
 import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
-import { registerToolNotificationListener } from "../events/tool-notification-listener.js";
 import { registerToolPermissionTelemetryListener } from "../events/tool-permission-telemetry-listener.js";
 import {
   registerToolProfilingListener,
@@ -47,6 +51,7 @@ import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-st
 import {
   getConversation,
   getConversationOriginChannel,
+  getConversationOverrideProfileFromRow,
 } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -58,6 +63,7 @@ import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -72,10 +78,7 @@ import {
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import {
-  regenerate as regenerateImpl,
-  undo as undoImpl,
-} from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -96,10 +99,15 @@ import {
 } from "./conversation-process.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
-import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
+import {
+  type ChannelCapabilities,
+  getSlackCompactionWatermarkForPrefix,
+  loadSlackChronologicalContext,
+} from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
+  flushPendingSurfaceDataPersists,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
@@ -111,11 +119,8 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import { HostBashProxy } from "./host-bash-proxy.js";
-import type { CuObservationResult } from "./host-cu-proxy.js";
+import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { HostFileProxy } from "./host-file-proxy.js";
-import { HostTransferProxy } from "./host-transfer-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -132,17 +137,6 @@ import type {
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
-
-export interface ConversationMemoryPolicy {
-  scopeId: string;
-  includeDefaultFallback: boolean;
-}
-
-export const DEFAULT_MEMORY_POLICY: Readonly<ConversationMemoryPolicy> =
-  Object.freeze({
-    scopeId: "default",
-    includeDefaultFallback: false,
-  });
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
 export type {
@@ -167,6 +161,7 @@ export class Conversation {
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
+  /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
@@ -201,10 +196,15 @@ export class Conversation {
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
-  /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
-  /** @internal */ hostFileProxy?: HostFileProxy;
-  /** @internal */ hostTransferProxy?: HostTransferProxy;
+  /**
+   * Per-conversation host app-control proxy. Set via
+   * `setHostAppControlProxy` and disposed in `dispose()`. The
+   * `/v1/host-app-control-result` route forwards result payloads to the
+   * awaiting promise via this reference.
+   * @internal
+   */
+  hostAppControlProxy?: HostAppControlProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -224,6 +224,7 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /** @internal */ slackRuntimeContextNotice?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -281,7 +282,6 @@ export class Conversation {
     string,
     ReturnType<typeof setTimeout>
   >();
-  /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
     surfaceId: string;
@@ -312,10 +312,8 @@ export class Conversation {
   hostUsername?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
-  public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
-  /** @internal */ memoryScopeId?: string;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -347,11 +345,9 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number,
+    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    broadcastToAllClients?: (msg: ServerMessage) => void,
-    memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
     cacheTtl?: "5m" | "1h",
@@ -362,14 +358,7 @@ export class Conversation {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
-    this.broadcastToAllClients = broadcastToAllClients;
-    this.memoryPolicy = memoryPolicy
-      ? { ...memoryPolicy }
-      : { ...DEFAULT_MEMORY_POLICY };
-    this.graphMemory = new ConversationGraphMemory(
-      this.memoryPolicy.scopeId,
-      conversationId,
-    );
+    this.graphMemory = new ConversationGraphMemory(conversationId);
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
@@ -402,10 +391,7 @@ export class Conversation {
         );
       }
     });
-    this.secretPrompter = new SecretPrompter(
-      sendToClient,
-      broadcastToAllClients,
-    );
+    this.secretPrompter = new SecretPrompter();
 
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
@@ -414,9 +400,6 @@ export class Conversation {
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
-    registerToolNotificationListener(this.eventBus, (msg) =>
-      this.sendToClient(msg),
-    );
     registerToolTraceListener(this.eventBus, this.traceEmitter);
     registerToolProfilingListener(this.eventBus, this.profiler);
     registerToolPermissionTelemetryListener(this.eventBus);
@@ -437,7 +420,6 @@ export class Conversation {
       this.secretPrompter,
       this as ToolSetupContext,
       handleToolLifecycleEvent,
-      broadcastToAllClients,
     );
 
     const config = getConfig();
@@ -485,8 +467,10 @@ export class Conversation {
                 ),
               });
             })(),
-        maxTokens: configuredMaxTokens,
       };
+      if (configuredMaxTokens !== undefined) {
+        resolved.maxTokens = configuredMaxTokens;
+      }
       if (resolvedModel !== undefined) {
         resolved.model = resolvedModel;
       }
@@ -496,20 +480,31 @@ export class Conversation {
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? config.llm.default.speed;
     const llmDefault = config.llm.default;
+    const initialContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite: "mainAgent",
+    });
+    const initialContextWindowConfig = contextWindowConfigFromEffective(
+      llmDefault.contextWindow,
+      initialContextWindow,
+    );
+
+    const agentLoopConfig: Partial<AgentLoopConfig> = {
+      thinking: llmDefault.thinking,
+      effort: llmDefault.effort,
+      ...(fastModeEnabled && resolvedSpeed === "fast"
+        ? { speed: resolvedSpeed }
+        : {}),
+      ...(cacheTtl ? { cacheTtl } : {}),
+    };
+    if (configuredMaxTokens !== undefined) {
+      agentLoopConfig.maxTokens = configuredMaxTokens;
+    }
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      {
-        maxTokens,
-        maxInputTokens: llmDefault.contextWindow.maxInputTokens,
-        thinking: llmDefault.thinking,
-        effort: llmDefault.effort,
-        ...(fastModeEnabled && resolvedSpeed === "fast"
-          ? { speed: resolvedSpeed }
-          : {}),
-        ...(cacheTtl ? { cacheTtl } : {}),
-      },
+      agentLoopConfig,
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
@@ -518,7 +513,7 @@ export class Conversation {
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
-      config: llmDefault.contextWindow,
+      config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
   }
@@ -573,7 +568,11 @@ export class Conversation {
 
     provider
       .sendMessage([warmMessage], tools, systemPrompt, {
-        config: { max_tokens: 1, callSite: "mainAgent" },
+        config: {
+          max_tokens: 1,
+          callSite: "mainAgent",
+          usageTracking: "manual",
+        },
         signal: abort.signal,
       })
       .then(() => {
@@ -643,19 +642,11 @@ export class Conversation {
   updateClient(
     sendToClient: (msg: ServerMessage) => void,
     hasNoClient = false,
-    opts?: { skipProxySenderUpdate?: boolean },
   ): void {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
-    if (!opts?.skipProxySenderUpdate) {
-      this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostTransferProxy?.updateSender(sendToClient, !hasNoClient);
-    }
 
     // Replay last activity state so a reconnecting client sees the current phase
     // instead of being stuck on the last state it received before disconnection.
@@ -674,24 +665,6 @@ export class Conversation {
   /** Returns the current sendToClient reference for identity comparison. */
   getCurrentSender(): (msg: ServerMessage) => void {
     return this.sendToClient;
-  }
-
-  /** Mark host proxies as unavailable so tool execution uses local fallback. */
-  clearProxyAvailability(): void {
-    this.hostBashProxy?.updateSender(this.sendToClient, false);
-    this.hostCuProxy?.updateSender(this.sendToClient, false);
-    this.hostFileProxy?.updateSender(this.sendToClient, false);
-    this.hostTransferProxy?.updateSender(this.sendToClient, false);
-  }
-
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void {
-    if (!this.hasNoClient) {
-      this.hostBashProxy?.updateSender(this.sendToClient, true);
-      this.hostCuProxy?.updateSender(this.sendToClient, true);
-      this.hostFileProxy?.updateSender(this.sendToClient, true);
-      this.hostTransferProxy?.updateSender(this.sendToClient, true);
-    }
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
@@ -757,12 +730,10 @@ export class Conversation {
     // cancellation instead of hanging forever. Emit dismiss notifications
     // to the client so surfaces don't remain visually active if the client
     // reconnects after dispose.
-    const emitDispose =
-      this.broadcastToAllClients ?? this.sendToClient.bind(this);
     for (const [surfaceId, entry] of this.pendingStandaloneSurfaces) {
       clearTimeout(entry.timer);
       try {
-        emitDispose({
+        broadcastMessage({
           type: "ui_surface_dismiss",
           conversationId: this.conversationId,
           surfaceId,
@@ -782,15 +753,21 @@ export class Conversation {
       clearTimeout(timer);
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
-    this.hostBashProxy?.dispose();
+    // Flush any pending debounced surface-data persists for this
+    // conversation so updates that arrived inside the debounce window
+    // still land in the DB before teardown. Flushing also clears the
+    // pending entries, so no separate cancel call is needed.
+    flushPendingSurfaceDataPersists(this.conversationId);
+    // Only dispose the per-conversation CU and app-control proxies.
+    // Bash/File/Transfer are singletons — their lifecycle is managed by
+    // static disposeInstance().
     this.hostCuProxy?.dispose();
-    this.hostFileProxy?.dispose();
-    this.hostTransferProxy?.dispose();
+    this.hostAppControlProxy?.dispose();
+    this.hostAppControlProxy = undefined;
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
-    this.memoryScopeId = this.memoryPolicy.scopeId;
     this.graphMemory.persistState();
     disposeConversation(this);
   }
@@ -812,8 +789,8 @@ export class Conversation {
   enqueueMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
-    requestId: string,
+    onEvent?: (msg: ServerMessage) => void,
+    requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
@@ -826,8 +803,8 @@ export class Conversation {
       this,
       content,
       attachments,
-      onEvent,
-      requestId,
+      onEvent ?? this.sendToClient,
+      requestId ?? crypto.randomUUID(),
       activeSurfaceId,
       currentPage,
       metadata,
@@ -868,15 +845,6 @@ export class Conversation {
 
   hasPendingSecret(requestId: string): boolean {
     return this.secretPrompter.hasPendingRequest(requestId);
-  }
-
-  /**
-   * Returns true if the given secret requestId was already delivered via
-   * broadcastToAllClients. Callers (e.g. voice-session-bridge) can use this
-   * to skip redundant publishToHub calls that would duplicate the prompt.
-   */
-  wasSecretBroadcast(requestId: string): boolean {
-    return this.secretPrompter.wasBroadcast(requestId);
   }
 
   handleConfirmationResponse(
@@ -966,70 +934,18 @@ export class Conversation {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
-  resolveHostBash(
-    requestId: string,
-    response: {
-      stdout: string;
-      stderr: string;
-      exitCode: number | null;
-      timedOut: boolean;
-    },
-  ): void {
-    this.hostBashProxy?.resolve(requestId, response);
-  }
-
-  setHostBashProxy(proxy: HostBashProxy | undefined): void {
-    if (this.hostBashProxy && this.hostBashProxy !== proxy) {
-      this.hostBashProxy.dispose();
-    }
-    this.hostBashProxy = proxy;
-  }
-
-  resolveHostFile(
-    requestId: string,
-    response: { content: string; isError: boolean; imageData?: string },
-  ): void {
-    this.hostFileProxy?.resolve(requestId, response);
-  }
-
-  setHostFileProxy(proxy: HostFileProxy | undefined): void {
-    if (this.hostFileProxy && this.hostFileProxy !== proxy) {
-      this.hostFileProxy.dispose();
-    }
-    this.hostFileProxy = proxy;
-  }
-
-  resolveHostTransfer(
-    requestId: string,
-    result: {
-      isError: boolean;
-      bytesWritten?: number;
-      errorMessage?: string;
-    },
-  ): void {
-    this.hostTransferProxy?.resolveTransferResult(requestId, result);
-  }
-
-  setHostTransferProxy(proxy: HostTransferProxy | undefined): void {
-    if (this.hostTransferProxy && this.hostTransferProxy !== proxy) {
-      this.hostTransferProxy.dispose();
-    }
-    this.hostTransferProxy = proxy;
-  }
-
-  getHostTransferProxy(): HostTransferProxy | undefined {
-    return this.hostTransferProxy;
-  }
-
-  resolveHostCu(requestId: string, observation: CuObservationResult): void {
-    this.hostCuProxy?.resolve(requestId, observation);
-  }
-
   setHostCuProxy(proxy: HostCuProxy | undefined): void {
     if (this.hostCuProxy && this.hostCuProxy !== proxy) {
       this.hostCuProxy.dispose();
     }
     this.hostCuProxy = proxy;
+  }
+
+  setHostAppControlProxy(proxy: HostAppControlProxy | undefined): void {
+    if (this.hostAppControlProxy && this.hostAppControlProxy !== proxy) {
+      this.hostAppControlProxy.dispose();
+    }
+    this.hostAppControlProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
@@ -1081,14 +997,51 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    const conversationRow = getConversation(this.conversationId);
+    const overrideProfile =
+      getConversationOverrideProfileFromRow(conversationRow) ?? null;
+    const config = getConfig();
+    const effectiveContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite: "mainAgent",
+      overrideProfile: overrideProfile ?? undefined,
+    });
+    (
+      this.contextWindowManager as ContextWindowManager & {
+        updateConfig?: (config: ContextWindowConfig) => void;
+      }
+    ).updateConfig?.(
+      contextWindowConfigFromEffective(
+        config.llm.default.contextWindow,
+        effectiveContextWindow,
+      ),
+    );
+    const slackChronologicalContext =
+      this.channelCapabilities?.channel === "slack"
+        ? loadSlackChronologicalContext(
+            this.conversationId,
+            this.channelCapabilities,
+            {
+              trustClass: this.trustContext?.trustClass,
+              contextSummary: conversationRow?.contextSummary,
+              contextCompactedMessageCount:
+                conversationRow?.contextCompactedMessageCount,
+              slackContextCompactionWatermarkTs:
+                conversationRow?.slackContextCompactionWatermarkTs,
+            },
+          )
+        : null;
+    const messagesToCompact =
+      slackChronologicalContext?.messages ?? this.messages;
     const result = await this.contextWindowManager.maybeCompact(
-      this.messages,
+      messagesToCompact,
       this.abortController?.signal ?? undefined,
       {
         force: true,
         lastCompactedAt: this.contextCompactedAt ?? undefined,
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
+        overrideProfile,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1104,7 +1057,12 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null);
+      applyCompactionResult(this, result, this.sendToClient, null, {
+        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
+          slackChronologicalContext,
+          result.compactedMessages,
+        ),
+      });
     }
     return result;
   }
@@ -1139,6 +1097,10 @@ export class Conversation {
 
   setTransportHints(hints: string[] | undefined): void {
     this.transportHints = hints;
+  }
+
+  setSlackRuntimeContextNotice(notice: string | undefined): void {
+    this.slackRuntimeContextNotice = notice;
   }
 
   /**
@@ -1252,7 +1214,7 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -1269,7 +1231,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
-    return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
+    return runAgentLoopImpl(
+      this,
+      content,
+      userMessageId,
+      onEvent ?? this.sendToClient,
+      options,
+    );
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
@@ -1279,7 +1247,7 @@ export class Conversation {
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
@@ -1292,7 +1260,7 @@ export class Conversation {
       this as ProcessConversationContext,
       content,
       attachments,
-      onEvent,
+      onEvent ?? this.sendToClient,
       requestId,
       activeSurfaceId,
       currentPage,
@@ -1309,17 +1277,6 @@ export class Conversation {
 
   undo(): number {
     return undoImpl(this as HistoryConversationContext);
-  }
-
-  async regenerate(
-    onEvent: (msg: ServerMessage) => void,
-    requestId?: string,
-  ): Promise<void> {
-    return regenerateImpl(
-      this as HistoryConversationContext,
-      onEvent,
-      requestId,
-    );
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────

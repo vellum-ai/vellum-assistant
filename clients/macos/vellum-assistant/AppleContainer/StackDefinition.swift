@@ -121,7 +121,6 @@ enum VellumContainerEnv {
             "GATEWAY_PORT": String(VellumContainerPorts.gatewayHTTP),
             "ASSISTANT_HOST": "localhost",
             "RUNTIME_HTTP_PORT": String(VellumContainerPorts.assistantHTTP),
-            "RUNTIME_PROXY_ENABLED": "true",
             "CES_CREDENTIAL_URL": "http://localhost:\(VellumContainerPorts.cesHTTP)",
             "GATEWAY_IPC_SOCKET_DIR": VellumMountPaths.gatewayIpcSocketDir,
             "ASSISTANT_IPC_SOCKET_DIR": VellumMountPaths.assistantIpcSocketDir,

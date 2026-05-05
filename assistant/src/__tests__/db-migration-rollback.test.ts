@@ -57,6 +57,7 @@ import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
 import {
   migrateJobDeferrals,
+  migrateLlmUsageAttribution,
   migrateMemoryEntityRelationDedup,
   migrateMemoryItemsFingerprintScopeUnique,
   migrateMemoryItemsScopeSaltedFingerprints,
@@ -1764,6 +1765,106 @@ describe("memory migration down() functions", () => {
 
       downLlmUsageEventsDropAssistantId(db);
       downLlmUsageEventsDropAssistantId(db);
+    });
+  });
+
+  describe("migrateLlmUsageAttribution", () => {
+    test("adds nullable attribution columns without rewriting existing usage rows", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE llm_usage_events (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          conversation_id TEXT,
+          run_id TEXT,
+          request_id TEXT,
+          actor TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          cache_creation_input_tokens INTEGER,
+          cache_read_input_tokens INTEGER,
+          estimated_cost_usd REAL,
+          pricing_status TEXT NOT NULL,
+          llm_call_count INTEGER,
+          metadata_json TEXT
+        );
+        INSERT INTO llm_usage_events (
+          id,
+          created_at,
+          actor,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          pricing_status
+        ) VALUES (
+          'usage-1',
+          1000,
+          'main_agent',
+          'anthropic',
+          'claude-sonnet-4-20250514',
+          100,
+          50,
+          'priced'
+        );
+      `);
+
+      migrateLlmUsageAttribution(db);
+
+      const row = raw
+        .query(
+          /*sql*/ `
+          SELECT call_site, inference_profile, inference_profile_source
+          FROM llm_usage_events
+          WHERE id = 'usage-1'
+        `,
+        )
+        .get() as {
+        call_site: string | null;
+        inference_profile: string | null;
+        inference_profile_source: string | null;
+      };
+      expect(row.call_site).toBeNull();
+      expect(row.inference_profile).toBeNull();
+      expect(row.inference_profile_source).toBeNull();
+    });
+
+    test("idempotency: calling migration twice does not throw", () => {
+      const db = createTestDb();
+      const raw = getRaw(db);
+
+      raw.exec(/*sql*/ `
+        CREATE TABLE llm_usage_events (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          actor TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          pricing_status TEXT NOT NULL
+        )
+      `);
+
+      migrateLlmUsageAttribution(db);
+      migrateLlmUsageAttribution(db);
+
+      for (const column of [
+        "call_site",
+        "inference_profile",
+        "inference_profile_source",
+      ]) {
+        const found = raw
+          .query(
+            `SELECT 1 FROM pragma_table_info('llm_usage_events') WHERE name = '${column}'`,
+          )
+          .get();
+        expect(found).toBeTruthy();
+      }
     });
   });
 

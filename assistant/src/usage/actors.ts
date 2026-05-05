@@ -9,4 +9,5 @@ export type UsageActor =
   | "ambient_analyzer"
   | "suggestion_generator"
   | "computer_use_agent"
-  | "memory_embedding";
+  | "memory_embedding"
+  | "llm_call_site";

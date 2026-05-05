@@ -84,7 +84,8 @@ extension MessageListView {
             assistantActivityReason: assistantActivityReason,
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount,
-            firstVisibleMessageId: liveMessages.first?.id
+            firstVisibleMessageId: liveMessages.first?.id,
+            highlightedMessageId: highlightedMessageId
         )
 
         // Return cached projection when the key matches and the row count
@@ -171,6 +172,7 @@ extension MessageListView {
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
             pinnedLatestTurnAnchorMessageId: scrollState.pinnedLatestTurnAnchorMessageId,
+            searchQuery: searchQuery,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
             onAlwaysAllow: onAlwaysAllow,

@@ -62,14 +62,12 @@ export class ConversationGraphMemory {
   private initialized = false;
   private needsReload = false;
   private stateRestored = false;
-  private scopeId: string;
   private conversationId: string;
   private lastInjectedBlock: string | null = null;
   private lastInjectedNodeIds: string[] = [];
   private lastInjectedImages: Map<string, ResolvedImage> = new Map();
 
-  constructor(scopeId: string, conversationId: string) {
-    this.scopeId = scopeId;
+  constructor(conversationId: string) {
     this.conversationId = conversationId;
   }
 
@@ -147,7 +145,6 @@ export class ConversationGraphMemory {
       const db = getDb();
       const baseWhere = and(
         eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeId, this.scopeId),
         ne(memorySummaries.scopeKey, this.conversationId),
       );
 
@@ -235,7 +232,7 @@ export class ConversationGraphMemory {
     }
     // Re-track node IDs since onCompacted evicted them
     this.tracker.add(this.lastInjectedNodeIds);
-    // Strip any existing <memory __injected> blocks from the last user message
+    // Strip any existing <memory> blocks from the last user message
     // before re-injecting, so compaction sites don't end up with duplicates.
     const cleaned = stripExistingMemoryInjections(messages);
 
@@ -264,7 +261,7 @@ export class ConversationGraphMemory {
    * Re-register cached node IDs with the InContextTracker after compaction
    * WITHOUT modifying messages. Use this at post-agent-loop compaction sites
    * where the memory block already survives on the original user message
-   * (since `<memory __injected>` is not stripped by stripInjectionsForCompaction).
+   * (since `<memory>` is not stripped by stripInjectionsForCompaction).
    *
    * Calling reinjectCachedMemory at these sites would inject a duplicate
    * onto the last user message — which after tool calls is a tool_result,
@@ -386,7 +383,7 @@ export class ConversationGraphMemory {
     onEvent: (msg: ServerMessage) => void,
   ) {
     const result = await loadContextMemory({
-      scopeId: this.scopeId,
+      scopeId: "default",
       recentSummaries,
       userQuery,
       config,
@@ -403,12 +400,19 @@ export class ConversationGraphMemory {
     // assistantMessage is empty: context-load fires on turn 1 / post-
     // compaction, so there is no immediately-prior assistant turn to
     // weight the activation against.
+    //
+    // Use the raw user text (no >10-char filter) so even short greetings
+    // ("hi") get a fresh top-K activation dump on the first user message.
+    // The activation pipeline is robust to weak ANN signal — it still falls
+    // back to spreading + nowText to surface candidates.
+    const rawUserText = readRawUserText(messages[messages.length - 1]);
     const v2 = await this.maybeRouteV2Injection(
       messages,
       config,
       "context-load",
-      userQuery ?? "",
+      rawUserText ?? userQuery ?? "",
       "",
+      signal,
     );
     if (v2.routed) {
       this.lastInjectedBlock = v2.injectedBlockText;
@@ -541,7 +545,7 @@ export class ConversationGraphMemory {
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
-      scopeId: this.scopeId,
+      scopeId: "default",
       config,
       tracker: this.tracker,
       signal,
@@ -558,6 +562,7 @@ export class ConversationGraphMemory {
       "per-turn",
       userLast,
       assistantLast,
+      signal,
     );
     if (v2.routed) {
       this.lastInjectedBlock = v2.injectedBlockText;
@@ -652,6 +657,7 @@ export class ConversationGraphMemory {
     mode: InjectMemoryV2Mode,
     userMessage: string,
     assistantMessage: string,
+    signal: AbortSignal,
   ): Promise<{
     routed: boolean;
     runMessages: Message[];
@@ -677,6 +683,7 @@ export class ConversationGraphMemory {
       messageId: `${this.conversationId}:turn:${currentTurn}`,
       mode,
       config,
+      signal,
     });
 
     if (!result.block) {
@@ -685,7 +692,7 @@ export class ConversationGraphMemory {
 
     return {
       routed: true,
-      runMessages: prependMemoryV2Block(messages, result.block),
+      runMessages: injectTextBlock(messages, result.block),
       injectedBlockText: result.block,
     };
   }
@@ -699,7 +706,7 @@ export class ConversationGraphMemory {
  * Count the leading content blocks on a user message that were added by
  * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
  * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory __injected>…</memory>` text block. A legacy
+ * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted). A legacy
  * 2-block image pattern (no closing tag) is also accepted for backward
  * compatibility. The injection prefix is always contiguous at the start,
  * so we stop at the first non-memory block.
@@ -712,7 +719,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
     const block = content[firstNonMemory];
     if (
       block.type === "text" &&
-      block.text.startsWith("<memory __injected>\n")
+      (block.text.startsWith("<memory>\n") ||
+        block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
@@ -747,7 +755,7 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
  *
  * `injectMemoryBlock` always prepends blocks in this order:
  *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
- *   2. `<memory __injected>…</memory>` text block
+ *   2. `<memory>…</memory>` text block
  *
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
@@ -795,7 +803,7 @@ function injectTextBlock(messages: Message[], text: string): Message[] {
       content: [
         {
           type: "text" as const,
-          text: `<memory __injected>\n${text}\n</memory>`,
+          text: `<memory>\n${text}\n</memory>`,
         },
         ...userTail.content,
       ],
@@ -839,7 +847,7 @@ function injectMemoryBlock(
 
   blocks.push({
     type: "text" as const,
-    text: `<memory __injected>\n${text}\n</memory>`,
+    text: `<memory>\n${text}\n</memory>`,
   });
 
   return [
@@ -848,37 +856,29 @@ function injectMemoryBlock(
   ];
 }
 
-/** Extract text content from a user message. */
+/**
+ * Extract text content from a user message for v1's `loadContextMemory`,
+ * skipping very short messages because v1's path embeds a single dense
+ * vector and short queries produce vague results.
+ */
 function extractUserText(message: Message): string | null {
+  const joined = readRawUserText(message);
+  if (!joined) return null;
+  return joined.length > 10 ? joined : null;
+}
+
+/**
+ * Raw user-text reader (no length filter). The v2 activation pipeline can
+ * use even short queries because it spreads activation through the edge
+ * graph and combines user/assistant/now signals, so the ≤10-char guard
+ * v1 needs would unnecessarily starve v2 on short greetings.
+ */
+function readRawUserText(message: Message | undefined): string | null {
+  if (!message) return null;
   const texts = message.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
     .map((b) => b.text.trim())
     .filter((t) => t.length > 0);
   if (texts.length === 0) return null;
-  const joined = texts.join(" ");
-  // Skip very short messages ("hi", "yes") — they produce vague embeddings
-  return joined.length > 10 ? joined : null;
-}
-
-/**
- * Prepend a pre-rendered `<memory __injected>` block (produced by
- * `injectMemoryV2Block`) to the last user message. Unlike v1's
- * {@link injectMemoryBlock}, the input here is already wrapped — we
- * just need to attach it as a leading text block. We still strip any
- * pre-existing memory injections first so the layer is idempotent
- * across compaction-driven re-injection.
- */
-function prependMemoryV2Block(messages: Message[], block: string): Message[] {
-  if (block.trim().length === 0) return messages;
-  if (messages.length === 0) return messages;
-  const cleaned = stripExistingMemoryInjections(messages);
-  const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
-  return [
-    ...cleaned.slice(0, -1),
-    {
-      ...userTail,
-      content: [{ type: "text" as const, text: block }, ...userTail.content],
-    },
-  ];
+  return texts.join(" ");
 }

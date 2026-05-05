@@ -15,10 +15,16 @@ final class PreChatOnboardingState {
     var assistantName: String
     var skippedAll: Bool = false
 
-    /// Random subset of `NameExchangeView.assistantNamePool` displayed as
-    /// quick-tap suggestion pills. Sampled once per state instance so the pills
-    /// remain stable across re-renders and back-navigation within a session.
-    /// Not persisted to UserDefaults — a fresh sample is drawn on each run.
+    /// The currently selected personality group ID, or `nil` for no selection.
+    var selectedGroupID: String?
+
+    /// Number of name suggestion pills to display.
+    static let suggestionLimit = 6
+
+    /// Names shown as quick-tap pills for this onboarding session. Sampled
+    /// once at state creation from the full `PersonalityGroup.allNames` pool
+    /// and held stable for the rest of the flow — picking a vibe does not
+    /// refresh the suggestions, since names are no longer tied to vibes.
     let displayedAssistantNames: [String]
 
     // MARK: - Persistence Keys
@@ -29,21 +35,34 @@ final class PreChatOnboardingState {
     private static let tasksKey = "\(prefix)selectedTasks"
     private static let userNameKey = "\(prefix)userName"
     private static let assistantNameKey = "\(prefix)assistantName"
+    private static let selectedGroupIDKey = "\(prefix)selectedGroupID"
+    private static let displayedNamesKey = "\(prefix)displayedAssistantNames"
 
     private static let allKeys: [String] = [
         screenKey, toolsKey, tasksKey,
         userNameKey, assistantNameKey,
+        selectedGroupIDKey, displayedNamesKey,
     ]
 
     // MARK: - Init (restore from UserDefaults)
 
     init() {
-        let sampled = NameExchangeView.sampleAssistantNames()
-        self.displayedAssistantNames = sampled
-        self.assistantName = sampled.first ?? "Pax"
+        self.assistantName = ""
         self.userName = ""
 
         let defaults = UserDefaults.standard
+
+        // Restore the same suggestion sample across launches mid-flow; otherwise
+        // sample a fresh `suggestionLimit` names from the full pool. Sampling
+        // happens here (not lazily) so picking a vibe later does not perturb it.
+        if let persisted = defaults.stringArray(forKey: Self.displayedNamesKey),
+           persisted.count == Self.suggestionLimit {
+            self.displayedAssistantNames = persisted
+        } else {
+            let sampled = Array(PersonalityGroup.allNames.shuffled().prefix(Self.suggestionLimit))
+            self.displayedAssistantNames = sampled
+            defaults.set(sampled, forKey: Self.displayedNamesKey)
+        }
 
         currentScreen = min(defaults.integer(forKey: Self.screenKey), 2)
 
@@ -64,6 +83,8 @@ final class PreChatOnboardingState {
            !name.hasPrefix("vellum-") {
             assistantName = name
         }
+
+        selectedGroupID = defaults.string(forKey: Self.selectedGroupIDKey)
     }
 
     // MARK: - Persist
@@ -75,6 +96,7 @@ final class PreChatOnboardingState {
         defaults.set(Array(selectedTasks), forKey: Self.tasksKey)
         defaults.set(userName, forKey: Self.userNameKey)
         defaults.set(assistantName, forKey: Self.assistantNameKey)
+        defaults.set(selectedGroupID, forKey: Self.selectedGroupIDKey)
     }
 
     // MARK: - Clear

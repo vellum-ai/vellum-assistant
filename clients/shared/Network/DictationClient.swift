@@ -38,7 +38,7 @@ public struct DictationClient: DictationClientProtocol {
         do {
             let encodedRequest = try JSONEncoder().encode(request)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/dictation",
+                path: "dictation",
                 body: encodedRequest,
                 timeout: Self.requestTimeout
             )

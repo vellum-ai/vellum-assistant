@@ -125,12 +125,54 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
+const mockDiskPressureStatus = {
+  enabled: true,
+  state: "critical",
+  locked: true,
+  acknowledged: true,
+  overrideActive: false,
+  effectivelyLocked: true,
+  lockId: "disk-pressure-test",
+  usagePercent: 98,
+  thresholdPercent: 95,
+  path: "/workspace",
+  lastCheckedAt: "2026-05-05T00:00:00.000Z",
+  blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+  error: null,
+};
+let mockDiskPressureDecision: Record<string, unknown> = {
+  action: "allow-normal",
+};
+const classifyDiskPressureTurnPolicyMock = mock(
+  (_status: unknown, _metadata: unknown) => mockDiskPressureDecision,
+);
+mock.module("../daemon/disk-pressure-guard.js", () => ({
+  getDiskPressureStatus: () => mockDiskPressureStatus,
+}));
+mock.module("../daemon/disk-pressure-policy.js", () => ({
+  classifyDiskPressureTurnPolicy: classifyDiskPressureTurnPolicyMock,
+}));
+
 const updateMessageMetadataMock = mock(
   (_id: string, _updates: Record<string, unknown>) => {},
 );
 const clearStrippedInjectionMetadataForConversationMock = mock(
   (_conversationId: string) => {},
 );
+const updateConversationSlackContextWatermarkMock = mock(
+  (_conversationId: string, _watermarkTs: string, _compactedAt?: number) => {},
+);
+let mockConversationRow: Record<string, unknown> = {
+  id: "conv-1",
+  contextSummary: null,
+  contextCompactedMessageCount: 0,
+  slackContextCompactionWatermarkTs: null,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalEstimatedCost: 0,
+  title: null,
+};
+let mockMessageById: Record<string, unknown> | null = null;
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
@@ -138,15 +180,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   clearStrippedInjectionMetadataForConversation:
     clearStrippedInjectionMetadataForConversationMock,
   getMessages: () => [],
-  getConversation: () => ({
-    id: "conv-1",
-    contextSummary: null,
-    contextCompactedMessageCount: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalEstimatedCost: 0,
-    title: null,
-  }),
+  getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
     trustContext: undefined,
@@ -155,9 +189,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   deleteMessageById: () => {},
   updateConversationContextWindow: () => {},
+  updateConversationSlackContextWatermark:
+    updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
-  getMessageById: () => null,
+  getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
 }));
 
@@ -230,10 +266,45 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
-const applyRuntimeInjectionsMock = mock(async (msgs: Message[]) => ({
-  messages: msgs,
-  blocks: { ...mockInjectionBlocks },
-}));
+const applyRuntimeInjectionsMock = mock(
+  async (msgs: Message[], _options?: unknown) => ({
+    messages: msgs,
+    blocks: { ...mockInjectionBlocks },
+  }),
+);
+let mockSlackChronologicalContext: {
+  renderedMessages: Array<{
+    message: Message;
+    sourceChannelTs: string | null;
+  }>;
+  messages: Message[];
+  compactableStartIndex: number;
+} | null = null;
+const loadSlackChronologicalContextMock = mock(
+  (
+    _conversationId: string,
+    _capabilities: unknown,
+    _options?: Record<string, unknown>,
+  ) => mockSlackChronologicalContext,
+);
+const getSlackCompactionWatermarkForPrefixMock = mock(
+  (
+    context: typeof mockSlackChronologicalContext,
+    compactedRenderedMessages: number,
+  ) => {
+    if (!context || compactedRenderedMessages <= 0) return null;
+    const start = context.compactableStartIndex;
+    const end = Math.min(
+      context.renderedMessages.length,
+      start + compactedRenderedMessages,
+    );
+    const values = context.renderedMessages
+      .slice(start, end)
+      .map((entry) => entry.sourceChannelTs)
+      .filter((value): value is string => value !== null);
+    return values.length > 0 ? values[values.length - 1]! : null;
+  },
+);
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
@@ -247,6 +318,9 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     "buffer.md",
   ],
   isSlackChannelConversation: () => false,
+  getSlackCompactionWatermarkForPrefix:
+    getSlackCompactionWatermarkForPrefixMock,
+  loadSlackChronologicalContext: loadSlackChronologicalContextMock,
   loadSlackChronologicalMessages: () => null,
   loadSlackActiveThreadFocusBlock: () => null,
   assembleSlackChronologicalMessages: () => null,
@@ -371,10 +445,22 @@ mock.module("../memory/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
 }));
 
+let mockHasProactiveArtifactCompleted = true;
+let mockTryClaimProactiveArtifactTrigger = false;
+const runProactiveArtifactJobMock = mock(
+  async (_params: Record<string, unknown>) => {},
+);
+mock.module("../proactive-artifact/index.js", () => ({
+  hasProactiveArtifactCompleted: () => mockHasProactiveArtifactCompleted,
+  tryClaimProactiveArtifactTrigger: () => mockTryClaimProactiveArtifactTrigger,
+  runProactiveArtifactJob: runProactiveArtifactJobMock,
+}));
+
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import {
   type AgentLoopConversationContext,
+  applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 
@@ -382,7 +468,7 @@ import {
 
 type AgentLoopRun = (
   messages: Message[],
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: AgentEvent) => void | Promise<void>,
   signal?: AbortSignal,
   requestId?: string,
   onCheckpoint?: (
@@ -526,6 +612,8 @@ beforeEach(() => {
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
+  mockDiskPressureDecision = { action: "allow-normal" };
+  classifyDiskPressureTurnPolicyMock.mockClear();
   mockInjectionBlocks = {};
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
@@ -533,11 +621,30 @@ beforeEach(() => {
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
+  updateConversationSlackContextWatermarkMock.mockClear();
+  updateConversationSlackContextWatermarkMock.mockImplementation(() => {});
+  mockConversationRow = {
+    id: "conv-1",
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    slackContextCompactionWatermarkTs: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  };
+  mockMessageById = null;
+  mockHasProactiveArtifactCompleted = true;
+  mockTryClaimProactiveArtifactTrigger = false;
+  runProactiveArtifactJobMock.mockClear();
   clearStrippedInjectionMetadataForConversationMock.mockClear();
   clearStrippedInjectionMetadataForConversationMock.mockImplementation(
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
+  mockSlackChronologicalContext = null;
+  loadSlackChronologicalContextMock.mockClear();
+  getSlackCompactionWatermarkForPrefixMock.mockClear();
   // Orchestrator pipelines (overflowReduce, persistence, …) run through the
   // plugin registry; reset and re-register every default so the pipelines
   // dispatch to middleware backed by the mocked collaborators these tests
@@ -554,6 +661,304 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+  });
+
+  describe("proactive artifact trigger", () => {
+    test("suppresses proactive app build when the foreground turn used app tools", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        id: "test-conv",
+        conversationType: "standard",
+      };
+      mockMessageById = {
+        id: "user-msg-1",
+        conversationId: "test-conv",
+        createdAt: 1000,
+      };
+      mockHasProactiveArtifactCompleted = false;
+      mockTryClaimProactiveArtifactTrigger = true;
+
+      const agentLoopRun: AgentLoopRun = async (
+        messages,
+        onEvent,
+        _signal,
+        _requestId,
+        onCheckpoint,
+      ) => {
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "I'll build that app." }],
+          },
+        });
+        await onEvent({
+          type: "tool_use",
+          id: "tool-1",
+          name: "app_create",
+          input: { name: "Flow" },
+        });
+        await onEvent({
+          type: "tool_result",
+          toolUseId: "tool-1",
+          content: "{}",
+          isError: false,
+        });
+        await onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: messages,
+        });
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+          },
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "Done." }],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        conversationId: "test-conv",
+        agentLoopRun,
+      });
+      await runAgentLoopImpl(
+        ctx,
+        "build a kanban app",
+        "user-msg-1",
+        () => {},
+        {
+          isUserMessage: true,
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(1);
+      expect(runProactiveArtifactJobMock.mock.calls[0]?.[0]).toMatchObject({
+        conversationId: "test-conv",
+        suppressAppBuild: true,
+      });
+    });
+  });
+
+  describe("disk pressure injection context", () => {
+    test("passes cleanup context into runtime injections for cleanup-mode turns", async () => {
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "guardian",
+      };
+      mockConversationRow = {
+        ...mockConversationRow,
+        conversationType: "standard",
+        source: "user",
+      };
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "telegram",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "private",
+        },
+        trustContext: {
+          sourceChannel: "telegram",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+      });
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(classifyDiskPressureTurnPolicyMock).toHaveBeenCalledWith(
+        mockDiskPressureStatus,
+        expect.objectContaining({
+          callSite: "mainAgent",
+          conversationSource: "user",
+          conversationType: "standard",
+          isInteractive: true,
+          sourceChannel: "telegram",
+          sourceInterface: "web",
+          trustContext: {
+            sourceChannel: "telegram",
+            trustClass: "guardian",
+          },
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        diskPressureContext?: { cleanupModeActive: boolean } | null;
+      };
+      expect(firstInjectionOptions.diskPressureContext).toEqual({
+        cleanupModeActive: true,
+      });
+    });
+
+    test("passes cleanup context into runtime injections for local-owner turns", async () => {
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "local-owner",
+      };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(classifyDiskPressureTurnPolicyMock).toHaveBeenCalledWith(
+        mockDiskPressureStatus,
+        expect.objectContaining({
+          sourceChannel: "vellum",
+          sourceInterface: "web",
+          trustContext: null,
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        diskPressureContext?: { cleanupModeActive: boolean } | null;
+      };
+      expect(firstInjectionOptions.diskPressureContext).toEqual({
+        cleanupModeActive: true,
+      });
+    });
+
+    test("keeps cleanup context on overflow recovery reinjection", async () => {
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "guardian",
+      };
+      mockEstimateTokens = 96000;
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 50000,
+      });
+      const ctx = makeCtx({
+        trustContext: {
+          sourceChannel: "telegram",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+      });
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
+      for (const call of applyRuntimeInjectionsMock.mock.calls) {
+        const options = call[1] as {
+          diskPressureContext?: { cleanupModeActive: boolean } | null;
+        };
+        expect(options.diskPressureContext).toEqual({
+          cleanupModeActive: true,
+        });
+      }
+    });
+
+    test("blocks policy-denied turns before runtime injection or model execution", async () => {
+      mockDiskPressureDecision = {
+        action: "block",
+        reason: "trusted-contact",
+      };
+      const events: ServerMessage[] = [];
+      const agentLoopRun = mock(async (_messages: Message[]) => {
+        throw new Error("agent loop should not run");
+      });
+      const activityStates: unknown[][] = [];
+      const traceEvents: unknown[][] = [];
+      const ctx = makeCtx({
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        traceEmitter: {
+          emit: (...args: unknown[]) => {
+            traceEvents.push(args);
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+      ctx.agentLoop.run = agentLoopRun as AgentLoopRun;
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(agentLoopRun).not.toHaveBeenCalled();
+      expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
+      expect(activityStates).toContainEqual([
+        "idle",
+        "error_terminal",
+        "global",
+        "test-req",
+      ]);
+      expect(traceEvents[0]).toEqual([
+        "request_error",
+        expect.stringContaining("Storage is critically low"),
+        expect.objectContaining({
+          requestId: "test-req",
+          status: "error",
+          attributes: expect.objectContaining({
+            errorCategory: "disk_pressure",
+            errorCode: "DISK_SPACE_CRITICAL",
+            diskPressureReason: "trusted-contact",
+          }),
+        }),
+      ]);
+      expect(events.find((event) => event.type === "error")).toMatchObject({
+        type: "error",
+        conversationId: "test-conv",
+        requestId: "test-req",
+        code: "DISK_SPACE_CRITICAL",
+        category: "disk_pressure",
+        message: expect.stringContaining("remote messages are ignored"),
+      });
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toMatchObject({
+        type: "conversation_error",
+        conversationId: "test-conv",
+        code: "DISK_SPACE_CRITICAL",
+        retryable: true,
+        errorCategory: "disk_pressure",
+        userMessage: expect.stringContaining("remote messages are ignored"),
+      });
+    });
+
+    test("blocked background turns clear processing state and drain the queue", async () => {
+      mockDiskPressureDecision = {
+        action: "block",
+        reason: "background",
+      };
+      const drainQueue = mock(async (_reason: unknown) => {});
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        drainQueue,
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "background task", "msg-1", () => {}, {
+        callSite: "memoryConsolidation",
+        isInteractive: false,
+      });
+
+      expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
+      expect(ctx.processing).toBe(false);
+      expect(ctx.abortController).toBeNull();
+      expect(ctx.currentRequestId).toBeUndefined();
+      expect(drainQueue).toHaveBeenCalledWith("loop_complete");
+      expect(activityStates).toContainEqual([
+        "idle",
+        "error_terminal",
+        "global",
+        "test-req",
+      ]);
     });
   });
 
@@ -886,6 +1291,159 @@ describe("session-agent-loop", () => {
         undefined,
         "openai",
       ]);
+    });
+  });
+
+  describe("llm_call_started / llm_call_finished trace coherence", () => {
+    // Regression: the started event was emitted by emitLlmCallStartedIfNeeded
+    // using deps.ctx.provider.name (the default), while the finished event used
+    // event.actualProvider. For routed calls (e.g. gpt-5.5 via openai from an
+    // anthropic-default conversation) this caused started="anthropic" /
+    // finished="openai". The fix passes providerName explicitly from handleUsage
+    // so both events always agree, even when text_delta never fires (tool-only).
+
+    test("started and finished use the same provider name for a streaming response", async () => {
+      // In the real routing scenario, text_delta fires while
+      // CallSiteRoutingProvider's AsyncLocalStorage context holds the active
+      // transport name (covered by call-site-routing-provider.test.ts). Here we
+      // verify the loop wiring: when text_delta fires before usage, the started
+      // event reflects the provider that will also appear on finished.
+      const traceEvents: Array<{
+        label: string;
+        attrs: Record<string, unknown>;
+      }> = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({ type: "text_delta", text: "Hi." });
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          model: "gpt-5.5-2026-04-23",
+          actualProvider: "openai",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        // Provider name matches actualProvider so both paths agree.
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+        traceEmitter: {
+          emit: (
+            event: string,
+            label: string,
+            payload: { attributes?: Record<string, unknown> },
+          ) => {
+            if (event === "llm_call_started" || event === "llm_call_finished") {
+              traceEvents.push({ label, attrs: payload.attributes ?? {} });
+            }
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const started = traceEvents.find(
+        (e) =>
+          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
+      );
+      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
+
+      expect(started).toBeDefined();
+      expect(finished).toBeDefined();
+      expect(started!.attrs["provider"]).toBe("openai");
+      expect(finished!.attrs["provider"]).toBe("openai");
+    });
+
+    test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
+      // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
+      // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
+      // context in CallSiteRoutingProvider has already exited. Without passing
+      // providerName explicitly it would say "anthropic".
+      const traceEvents: Array<{
+        label: string;
+        attrs: Record<string, unknown>;
+      }> = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // No text_delta — pure tool-call response
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          model: "gpt-5.5-2026-04-23",
+          actualProvider: "openai",
+          providerDurationMs: 100,
+        });
+        return messages;
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "anthropic",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+        traceEmitter: {
+          emit: (
+            event: string,
+            label: string,
+            payload: { attributes?: Record<string, unknown> },
+          ) => {
+            if (event === "llm_call_started" || event === "llm_call_finished") {
+              traceEvents.push({ label, attrs: payload.attributes ?? {} });
+            }
+          },
+        } as unknown as AgentLoopConversationContext["traceEmitter"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const started = traceEvents.find(
+        (e) =>
+          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
+      );
+      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
+
+      expect(started).toBeDefined();
+      expect(finished).toBeDefined();
+      expect(started!.attrs["provider"]).toBe("openai");
+      expect(finished!.attrs["provider"]).toBe("openai");
     });
   });
 
@@ -2274,6 +2832,759 @@ describe("session-agent-loop", () => {
         turnContextBlock: turnContext,
         pkbSystemReminderBlock: reminder,
       });
+    });
+  });
+
+  describe("Slack compaction watermarks", () => {
+    test("start-of-turn Slack compaction derives and persists watermark from rendered context", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+          ][index]!,
+        })),
+        compactableStartIndex: 0,
+      };
+      const shouldCompactInputs: Message[][] = [];
+      const maybeCompactInputs: Message[][] = [];
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: (messages: Message[]) => {
+            shouldCompactInputs.push(messages);
+            return { needed: true, estimatedTokens: 95_000 };
+          },
+          maybeCompact: async (messages: Message[]) => {
+            maybeCompactInputs.push(messages);
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "text", text: "summary" }],
+                },
+                messages[2]!,
+              ],
+              compactedPersistedMessages: 2,
+              previousEstimatedInputTokens: 95_000,
+              estimatedInputTokens: 5_000,
+              maxInputTokens: 100_000,
+              thresholdTokens: 80_000,
+              compactedMessages: 2,
+              summaryCalls: 1,
+              summaryInputTokens: 100,
+              summaryOutputTokens: 20,
+              summaryModel: "mock-model",
+              summaryText: "summary",
+              summaryFailed: false,
+            };
+          },
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
+
+      expect(shouldCompactInputs[0]).toBe(renderedSlackMessages);
+      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
+      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
+        mockSlackChronologicalContext,
+        2,
+      );
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
+    });
+
+    test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+          ][index]!,
+        })),
+        compactableStartIndex: 0,
+      };
+      mockEstimateTokens = 120_000;
+      mockReducerStepFn = (_msgs: Message[]) => ({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "summary" }],
+          },
+          renderedSlackMessages[2]!,
+        ],
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5_000,
+        compactionResult: {
+          compacted: true,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "summary" }],
+            },
+            renderedSlackMessages[2]!,
+          ],
+          compactedPersistedMessages: 2,
+          previousEstimatedInputTokens: 120_000,
+          estimatedInputTokens: 5_000,
+          maxInputTokens: 100_000,
+          thresholdTokens: 80_000,
+          compactedMessages: 2,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryFailed: false,
+        },
+      });
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-overflow", () => {});
+
+      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
+        mockSlackChronologicalContext,
+        2,
+      );
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
+        (call) => {
+          const options = call[1] as {
+            slackChronologicalMessages?: Message[] | null;
+          };
+          return options.slackChronologicalMessages === null;
+        },
+      )?.[1] as { slackChronologicalMessages?: Message[] | null } | undefined;
+      expect(reinjectionOptions?.slackChronologicalMessages).toBeNull();
+    });
+
+    test("same-turn Slack compaction updates watermark from projected provenance", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "third rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+            "1700000040.000000",
+          ][index]!,
+        })),
+        compactableStartIndex: 0,
+      };
+
+      const firstSummaryMessage: Message = {
+        role: "user",
+        content: [{ type: "text", text: "first summary" }],
+      };
+      const firstCompactedMessages: Message[] = [
+        firstSummaryMessage,
+        renderedSlackMessages[2]!,
+        renderedSlackMessages[3]!,
+      ];
+      const secondSummaryMessage: Message = {
+        role: "user",
+        content: [{ type: "text", text: "second summary" }],
+      };
+      const secondCompactedMessages: Message[] = [
+        secondSummaryMessage,
+        renderedSlackMessages[3]!,
+      ];
+      const reducerInputs: Message[][] = [];
+      mockEstimateTokens = 120_000;
+      mockReducerStepFn = (msgs: Message[]) => {
+        reducerInputs.push(msgs);
+        mockEstimateTokens = 1000;
+        return {
+          messages: secondCompactedMessages,
+          tier: "forced_compaction",
+          state: {
+            appliedTiers: ["forced_compaction"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5_000,
+          compactionResult: {
+            compacted: true,
+            messages: secondCompactedMessages,
+            compactedPersistedMessages: 1,
+            previousEstimatedInputTokens: 120_000,
+            estimatedInputTokens: 5_000,
+            maxInputTokens: 100_000,
+            thresholdTokens: 80_000,
+            compactedMessages: 1,
+            summaryCalls: 1,
+            summaryInputTokens: 100,
+            summaryOutputTokens: 20,
+            summaryModel: "mock-model",
+            summaryText: "second summary",
+            summaryFailed: false,
+          },
+        };
+      };
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
+          maybeCompact: async (messages: Message[]) => {
+            expect(messages).toBe(renderedSlackMessages);
+            return {
+              compacted: true,
+              messages: firstCompactedMessages,
+              compactedPersistedMessages: 2,
+              previousEstimatedInputTokens: 120_000,
+              estimatedInputTokens: 60_000,
+              maxInputTokens: 100_000,
+              thresholdTokens: 80_000,
+              compactedMessages: 2,
+              summaryCalls: 1,
+              summaryInputTokens: 100,
+              summaryOutputTokens: 20,
+              summaryModel: "mock-model",
+              summaryText: "first summary",
+              summaryFailed: false,
+            };
+          },
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-repeat", () => {});
+
+      expect(reducerInputs[0]).toBe(firstCompactedMessages);
+      expect(getSlackCompactionWatermarkForPrefixMock.mock.calls).toEqual([
+        [mockSlackChronologicalContext, 2],
+        [
+          {
+            renderedMessages: [
+              {
+                message: firstSummaryMessage,
+                sourceChannelTs: null,
+              },
+              mockSlackChronologicalContext.renderedMessages[2],
+              mockSlackChronologicalContext.renderedMessages[3],
+            ],
+            messages: firstCompactedMessages,
+            compactableStartIndex: 1,
+          },
+          1,
+        ],
+      ]);
+      expect(updateConversationSlackContextWatermarkMock.mock.calls).toEqual([
+        ["test-conv", "1700000020.000000", expect.any(Number)],
+        ["test-conv", "1700000030.000000", expect.any(Number)],
+      ]);
+      expect(loadSlackChronologicalContextMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("mid-loop Slack compaction does not persist watermark from mismatched loaded context", async () => {
+      const renderedSlackMessages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "first rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "second rendered Slack row" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "retained Slack row" }],
+        },
+      ];
+      mockSlackChronologicalContext = {
+        messages: renderedSlackMessages,
+        renderedMessages: renderedSlackMessages.map((message, index) => ({
+          message,
+          sourceChannelTs: [
+            "1700000010.000000",
+            "1700000020.000000",
+            "1700000030.000000",
+          ][index]!,
+        })),
+        compactableStartIndex: 0,
+      };
+
+      const rawMidLoopBasis: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "fresh DB basis user row" }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "partial assistant response" }],
+        },
+      ];
+      const maybeCompactInputs: Message[][] = [];
+      let runCount = 0;
+      const agentLoopRun: AgentLoopRun = async (
+        messages,
+        _onEvent,
+        _signal,
+        _reqId,
+        onCheckpoint,
+      ) => {
+        runCount++;
+        if (runCount === 1) {
+          mockEstimateTokens = 90_000;
+          const decision = await onCheckpoint?.({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
+          mockEstimateTokens = 1000;
+          if (decision === "yield") {
+            return rawMidLoopBasis;
+          }
+        }
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: "final response" }],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async (messages: Message[]) => {
+            maybeCompactInputs.push(messages);
+            if (messages === renderedSlackMessages) {
+              return {
+                compacted: false,
+                messages,
+                compactedPersistedMessages: 0,
+                previousEstimatedInputTokens: 1000,
+                estimatedInputTokens: 1000,
+                maxInputTokens: 100_000,
+                thresholdTokens: 80_000,
+                compactedMessages: 0,
+                summaryCalls: 0,
+                summaryInputTokens: 0,
+                summaryOutputTokens: 0,
+                summaryModel: "",
+                summaryText: "",
+              };
+            }
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "text", text: "summary" }],
+                },
+              ],
+              compactedPersistedMessages: 2,
+              previousEstimatedInputTokens: 90_000,
+              estimatedInputTokens: 5_000,
+              maxInputTokens: 100_000,
+              thresholdTokens: 80_000,
+              compactedMessages: 2,
+              summaryCalls: 1,
+              summaryInputTokens: 100,
+              summaryOutputTokens: 20,
+              summaryModel: "mock-model",
+              summaryText: "summary",
+              summaryFailed: false,
+            };
+          },
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-mid-loop", () => {});
+
+      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
+      expect(maybeCompactInputs[1]).toBe(rawMidLoopBasis);
+      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
+        null,
+        2,
+      );
+      expect(
+        updateConversationSlackContextWatermarkMock,
+      ).not.toHaveBeenCalled();
+    });
+
+    test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        contextSummary: "## Summary\n- compacted Slack context",
+        contextCompactedMessageCount: 12,
+        slackContextCompactionWatermarkTs: "1700000010.000000",
+      };
+      mockSlackChronologicalContext = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context_summary>\n## Summary\n- compacted Slack context\n</context_summary>",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "after watermark reply" }],
+          },
+        ],
+        renderedMessages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "<context_summary>\n## Summary\n- compacted Slack context\n</context_summary>",
+                },
+              ],
+            },
+            sourceChannelTs: null,
+          },
+          {
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "after watermark reply" }],
+            },
+            sourceChannelTs: "1700000020.000000",
+          },
+        ],
+        compactableStartIndex: 1,
+      };
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+      });
+
+      await runAgentLoopImpl(ctx, "next reply", "user-msg-1", () => {});
+
+      expect(loadSlackChronologicalContextMock).toHaveBeenCalledWith(
+        "test-conv",
+        ctx.channelCapabilities,
+        expect.objectContaining({
+          contextSummary: "## Summary\n- compacted Slack context",
+          contextCompactedMessageCount: 12,
+          slackContextCompactionWatermarkTs: "1700000010.000000",
+          trustClass: "guardian",
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      expect(firstInjectionOptions.slackChronologicalMessages).toBe(
+        mockSlackChronologicalContext.messages,
+      );
+      const rendered = firstInjectionOptions
+        .slackChronologicalMessages!.flatMap((message) => message.content)
+        .filter((block): block is { type: "text"; text: string } => {
+          return block.type === "text";
+        })
+        .map((block) => block.text)
+        .join("\n");
+      expect(rendered).toContain("compacted Slack context");
+      expect(rendered).toContain("after watermark reply");
+      expect(rendered).not.toContain("before watermark");
+    });
+
+    test("subsequent Slack turn keeps long-thread compaction summary and filtered tail", async () => {
+      mockConversationRow = {
+        ...mockConversationRow,
+        contextSummary: "## Summary\n- compacted long Slack thread",
+        contextCompactedMessageCount: 81,
+        slackContextCompactionWatermarkTs: "1700000080.000000",
+      };
+      mockSlackChronologicalContext = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context_summary>\n## Summary\n- compacted long Slack thread\n</context_summary>",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "[11/14/23 22:34 @carol → Mabc123]: reply after compaction",
+              },
+            ],
+          },
+        ],
+        renderedMessages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "<context_summary>\n## Summary\n- compacted long Slack thread\n</context_summary>",
+                },
+              ],
+            },
+            sourceChannelTs: null,
+          },
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[11/14/23 22:34 @carol → Mabc123]: reply after compaction",
+                },
+              ],
+            },
+            sourceChannelTs: "1700000121.000000",
+          },
+        ],
+        compactableStartIndex: 1,
+      };
+
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+        getTurnChannelContext: () => ({
+          userMessageChannel: "slack" as const,
+          assistantMessageChannel: "slack" as const,
+        }),
+      });
+
+      await runAgentLoopImpl(
+        ctx,
+        "reply after compaction",
+        "user-msg-2",
+        () => {},
+      );
+
+      expect(loadSlackChronologicalContextMock).toHaveBeenCalledWith(
+        "test-conv",
+        ctx.channelCapabilities,
+        expect.objectContaining({
+          contextSummary: "## Summary\n- compacted long Slack thread",
+          contextCompactedMessageCount: 81,
+          slackContextCompactionWatermarkTs: "1700000080.000000",
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        slackChronologicalMessages?: Message[] | null;
+      };
+      const rendered = firstInjectionOptions
+        .slackChronologicalMessages!.flatMap((message) => message.content)
+        .filter((block): block is { type: "text"; text: string } => {
+          return block.type === "text";
+        })
+        .map((block) => block.text)
+        .join("\n");
+      expect(rendered).toContain("compacted long Slack thread");
+      expect(rendered).toContain("reply after compaction");
+      expect(rendered).not.toContain("pre-compaction");
+      expect(rendered).not.toContain("original root");
+    });
+
+    test("applyCompactionResult records Slack timestamp watermark when provided", () => {
+      const ctx = makeCtx();
+      const events: ServerMessage[] = [];
+
+      applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "summary" }],
+            },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+        },
+        (event) => events.push(event),
+        "req-1",
+        { slackContextCompactionWatermarkTs: "1700000020.000000" },
+      );
+
+      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
+        "test-conv",
+        "1700000020.000000",
+        expect.any(Number),
+      );
+      expect(events.some((event) => event.type === "context_compacted")).toBe(
+        true,
+      );
     });
   });
 

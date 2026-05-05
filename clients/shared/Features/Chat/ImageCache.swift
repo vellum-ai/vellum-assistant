@@ -1,9 +1,5 @@
 import Foundation
-#if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 /// Thread-safe, NSCache-backed image cache that coalesces duplicate in-flight requests.
 /// Used by ``AnimatedImageView`` to avoid redundant downloads during streaming re-renders.

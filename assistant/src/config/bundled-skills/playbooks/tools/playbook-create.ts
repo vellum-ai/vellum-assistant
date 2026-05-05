@@ -18,7 +18,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookCreate(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const trigger = input.trigger as string;
   const action = input.action as string;
@@ -58,7 +58,7 @@ export async function executePlaybookCreate(
   const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
   const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
   const content = `${subject}\n${statement}`;
-  const scopeId = context.memoryScopeId ?? "default";
+  const scopeId = "default";
 
   try {
     const db = getDb();

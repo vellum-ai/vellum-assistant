@@ -1,12 +1,17 @@
 /**
  * Tests for `assistant/src/memory/v2/skill-store.ts`.
  *
- * Coverage matrix from PR 5 acceptance criteria:
+ * Coverage matrix:
  *   - `seedV2SkillEntries` enumerates the catalog and calls
- *     `upsertSkillEmbedding` for each enabled skill.
+ *     `upsertConceptPageEmbedding` with `slug: "skills/<id>"` for each
+ *     enabled skill in the unified `memory_v2_concept_pages` collection.
  *   - It skips skills whose declared feature flag is disabled.
- *   - It calls `pruneSkillsExcept` with the active id list.
- *   - It populates the `entries` cache so `getSkillCapability` returns each entry.
+ *   - It calls `pruneSlugsWithPrefixExcept("skills/", ...)` with the active
+ *     id list as suffixes, so stale skill slugs in the unified collection
+ *     get pruned without touching concept-page slugs.
+ *   - It populates the `entries` cache so `getSkillCapability` returns each
+ *     entry — accepting both bare ids (`"example-skill"`) and unified-collection
+ *     slugs (`"skills/example-skill"`).
  *   - It swallows errors from the embedding backend — the function resolves
  *     and the cache is unchanged from prior state.
  *
@@ -29,6 +34,18 @@ mock.module("../../../util/logger.js", () => ({
 // Programmable test state — drives every mocked dependency below.
 // ---------------------------------------------------------------------------
 
+interface UpsertCall {
+  slug: string;
+  dense: number[];
+  sparse: { indices: number[]; values: number[] };
+  updatedAt: number;
+}
+
+interface PruneCall {
+  prefix: string;
+  activeSuffixes: readonly string[];
+}
+
 interface TestState {
   catalog: SkillSummary[];
   resolved: ResolvedSkill[];
@@ -38,14 +55,8 @@ interface TestState {
   embedThrows: Error | null;
   embedReturn: number[][];
   sparseReturn: { indices: number[]; values: number[] };
-  upsertCalls: Array<{
-    id: string;
-    content: string;
-    dense: number[];
-    sparse: { indices: number[]; values: number[] };
-    updatedAt: number;
-  }>;
-  pruneCalls: Array<readonly string[]>;
+  upsertCalls: UpsertCall[];
+  pruneCalls: PruneCall[];
   upsertThrows: Error | null;
 }
 
@@ -99,13 +110,16 @@ mock.module("../../embedding-backend.js", () => ({
   generateSparseEmbedding: () => state.sparseReturn,
 }));
 
-mock.module("../skill-qdrant.js", () => ({
-  upsertSkillEmbedding: async (params: TestState["upsertCalls"][number]) => {
+mock.module("../qdrant.js", () => ({
+  upsertConceptPageEmbedding: async (params: UpsertCall) => {
     if (state.upsertThrows) throw state.upsertThrows;
     state.upsertCalls.push(params);
   },
-  pruneSkillsExcept: async (ids: readonly string[]) => {
-    state.pruneCalls.push(ids);
+  pruneSlugsWithPrefixExcept: async (
+    prefix: string,
+    activeSuffixes: readonly string[],
+  ) => {
+    state.pruneCalls.push({ prefix, activeSuffixes });
   },
 }));
 
@@ -160,7 +174,7 @@ afterEach(resetState);
 // ---------------------------------------------------------------------------
 
 describe("seedV2SkillEntries", () => {
-  test("enumerates the catalog and upserts one point per enabled skill", async () => {
+  test("upserts each enabled skill into the unified collection under skills/<id>", async () => {
     const skillA = makeSummary({
       id: "example-skill-a",
       displayName: "Skill A",
@@ -182,15 +196,16 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(2);
-    const ids = state.upsertCalls.map((c) => c.id).sort();
-    expect(ids).toEqual(["example-skill-a", "example-skill-b"]);
+    const slugs = state.upsertCalls.map((c) => c.slug).sort();
+    expect(slugs).toEqual(["skills/example-skill-a", "skills/example-skill-b"]);
 
-    // Each upsert carries the per-skill dense + sparse + content payload.
-    const callA = state.upsertCalls.find((c) => c.id === "example-skill-a")!;
+    // Each upsert carries the per-skill dense + sparse + updatedAt payload,
+    // keyed under the unified `skills/<id>` slug.
+    const callA = state.upsertCalls.find(
+      (c) => c.slug === "skills/example-skill-a",
+    )!;
     expect(callA.dense).toEqual([0.1, 0.2, 0.3]);
     expect(callA.sparse).toEqual(state.sparseReturn);
-    expect(callA.content).toContain("Skill A");
-    expect(callA.content).toContain("(example-skill-a)");
     expect(callA.updatedAt).toBeGreaterThan(0);
   });
 
@@ -207,12 +222,11 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(1);
-    expect(state.upsertCalls[0].id).toBe("example-skill-a");
+    expect(state.upsertCalls[0].slug).toBe("skills/example-skill-a");
   });
 
   test("does not re-seed an installed-but-disabled skill from the remote catalog", async () => {
-    // Regression for https://github.com/vellum-ai/vellum-assistant/pull/28635
-    // (Codex P1): if `seenIds` is built only from enabled skills, a locally
+    // Regression: if `seenIds` is built only from enabled skills, a locally
     // installed-but-disabled skill falls through to the catalog loop and gets
     // embedded as if it were a discoverable uninstalled skill — contradicting
     // the user's explicit disablement.
@@ -223,8 +237,6 @@ describe("seedV2SkillEntries", () => {
       { summary: enabledSkill, state: "enabled" },
       { summary: disabledSkill, state: "disabled" },
     ];
-    // The remote catalog also contains the disabled skill (same id) — the
-    // seed function must NOT pull it back in via `getCatalog()`.
     state.fullCatalog = [
       {
         id: "example-skill-b",
@@ -237,7 +249,7 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(1);
-    expect(state.upsertCalls[0].id).toBe("example-skill-a");
+    expect(state.upsertCalls[0].slug).toBe("skills/example-skill-a");
   });
 
   test("seeds genuinely uninstalled catalog skills alongside enabled installed skills", async () => {
@@ -263,8 +275,11 @@ describe("seedV2SkillEntries", () => {
 
     await seedV2SkillEntries();
 
-    const ids = state.upsertCalls.map((c) => c.id).sort();
-    expect(ids).toEqual(["example-skill-a", "uninstalled-skill"]);
+    const slugs = state.upsertCalls.map((c) => c.slug).sort();
+    expect(slugs).toEqual([
+      "skills/example-skill-a",
+      "skills/uninstalled-skill",
+    ]);
   });
 
   test("skips skills whose declared feature flag is disabled", async () => {
@@ -284,10 +299,10 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(1);
-    expect(state.upsertCalls[0].id).toBe("example-skill-b");
+    expect(state.upsertCalls[0].slug).toBe("skills/example-skill-b");
   });
 
-  test("calls pruneSkillsExcept with the active id list", async () => {
+  test("calls pruneSlugsWithPrefixExcept with the active id list and the skills/ prefix", async () => {
     const skillA = makeSummary({ id: "example-skill-a" });
     const skillB = makeSummary({ id: "example-skill-b" });
     state.catalog = [skillA, skillB];
@@ -309,13 +324,14 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.pruneCalls).toHaveLength(1);
-    expect([...state.pruneCalls[0]].sort()).toEqual([
+    expect(state.pruneCalls[0].prefix).toBe("skills/");
+    expect([...state.pruneCalls[0].activeSuffixes].sort()).toEqual([
       "example-skill-a",
       "example-skill-b",
     ]);
   });
 
-  test("passes only the active (post-flag-filter) ids to pruneSkillsExcept", async () => {
+  test("passes only the active (post-flag-filter) ids to pruneSlugsWithPrefixExcept", async () => {
     const flagged = makeSummary({
       id: "example-skill-a",
       featureFlag: "off-flag",
@@ -327,8 +343,6 @@ describe("seedV2SkillEntries", () => {
       { summary: unflagged, state: "enabled" },
     ];
     state.flagsEnabled = { "off-flag": false };
-    // Remote catalog must be non-empty so catalogAvailable is true and
-    // pruning is not skipped.
     state.fullCatalog = [
       { id: "example-skill-a", name: "example-skill-a", description: "A" },
       { id: "example-skill-b", name: "example-skill-b", description: "B" },
@@ -338,44 +352,35 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.pruneCalls).toHaveLength(1);
-    expect([...state.pruneCalls[0]]).toEqual(["example-skill-b"]);
+    expect(state.pruneCalls[0].prefix).toBe("skills/");
+    expect([...state.pruneCalls[0].activeSuffixes]).toEqual([
+      "example-skill-b",
+    ]);
   });
 
-  test("populates the entries cache so getSkillCapability returns each entry", async () => {
+  test("populates the entries cache so getSkillCapability resolves both bare id and unified slug", async () => {
     const skillA = makeSummary({
       id: "example-skill-a",
       displayName: "Skill A",
     });
-    const skillB = makeSummary({
-      id: "example-skill-b",
-      displayName: "Skill B",
-    });
-    state.catalog = [skillA, skillB];
-    state.resolved = [
-      { summary: skillA, state: "enabled" },
-      { summary: skillB, state: "enabled" },
-    ];
-    state.embedReturn = [
-      [0.1, 0.2, 0.3],
-      [0.4, 0.5, 0.6],
-    ];
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
 
     expect(getSkillCapability("example-skill-a")).toBeNull();
 
     await seedV2SkillEntries();
 
-    const entryA = getSkillCapability("example-skill-a");
-    const entryB = getSkillCapability("example-skill-b");
-    expect(entryA).not.toBeNull();
-    expect(entryA?.id).toBe("example-skill-a");
-    expect(entryA?.content).toContain("Skill A");
+    // Bare id and unified-slug forms both resolve to the same entry.
+    const byId = getSkillCapability("example-skill-a");
+    const bySlug = getSkillCapability("skills/example-skill-a");
+    expect(byId).not.toBeNull();
+    expect(byId?.id).toBe("example-skill-a");
+    expect(byId?.content).toContain("Skill A");
+    expect(bySlug).toEqual(byId);
 
-    expect(entryB).not.toBeNull();
-    expect(entryB?.id).toBe("example-skill-b");
-    expect(entryB?.content).toContain("Skill B");
-
-    // Unknown ids return null even when the cache is populated.
     expect(getSkillCapability("unknown-skill")).toBeNull();
+    expect(getSkillCapability("skills/unknown-skill")).toBeNull();
   });
 
   test("swallows errors from embedWithBackend and leaves prior cache intact", async () => {
@@ -426,9 +431,10 @@ describe("seedV2SkillEntries", () => {
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(1);
-    expect(state.upsertCalls[0].id).toBe("remote-only");
+    expect(state.upsertCalls[0].slug).toBe("skills/remote-only");
     expect(state.pruneCalls).toHaveLength(1);
-    expect([...state.pruneCalls[0]]).toEqual(["remote-only"]);
+    expect(state.pruneCalls[0].prefix).toBe("skills/");
+    expect([...state.pruneCalls[0].activeSuffixes]).toEqual(["remote-only"]);
   });
 
   test("skips pruning when catalog fetch returns empty (network failure guard)", async () => {

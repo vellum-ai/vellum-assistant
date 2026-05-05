@@ -60,6 +60,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool { false }
         func fetchConfig() async -> [String: Any]? { nil }
         func checkApiKeyExists(provider: String) async -> Bool { false }
+        func fetchCallSiteCatalog() async -> CallSiteCatalogResponse? { nil }
     }
 
     private var connectionManager: GatewayConnectionManager!
@@ -143,7 +144,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             "/commands foo",
             "/models foo",
             "/status foo",
-            "/pair foo",
             "/btw",
         ]
 
@@ -165,7 +165,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             "/COMMANDS",
             "/MODELS",
             "/STATUS",
-            "/PAIR",
             "/BTW follow up",
         ]
 

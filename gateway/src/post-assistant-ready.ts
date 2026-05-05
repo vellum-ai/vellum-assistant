@@ -8,7 +8,9 @@
  * assistant DB doesn't exist yet.
  *
  * This module polls the assistant IPC health route and, once the assistant
- * is ready, runs all deferred startup tasks.
+ * is ready, runs data migrations and other deferred tasks. It is awaited
+ * during startup — the HTTP server does not start until this completes,
+ * preventing auth traffic from racing with data migrations.
  */
 
 import type { Database } from "bun:sqlite";
@@ -28,7 +30,7 @@ function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
-async function waitForAssistant(): Promise<boolean> {
+export async function waitForAssistant(): Promise<boolean> {
   const deadline = Date.now() + MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
@@ -50,7 +52,7 @@ async function waitForAssistant(): Promise<boolean> {
 
 /**
  * Wait for the assistant runtime to become healthy, then run deferred
- * startup tasks. Fire-and-forget from the main startup path.
+ * startup tasks. Awaited at startup — blocks Bun.serve().
  */
 export async function runPostAssistantReady(): Promise<void> {
   const ready = await waitForAssistant();
@@ -58,14 +60,14 @@ export async function runPostAssistantReady(): Promise<void> {
 
   // 1. Data migrations (some read/write the assistant DB)
   try {
-    runDataMigrations(getRawDb(getGatewayDb()));
+    await runDataMigrations(getRawDb(getGatewayDb()));
   } catch (err) {
     log.error({ err }, "Post-ready data migrations failed");
   }
 
   // 2. Guardian binding backfill
   try {
-    ensureVellumGuardianBinding();
+    await ensureVellumGuardianBinding();
   } catch (err) {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }

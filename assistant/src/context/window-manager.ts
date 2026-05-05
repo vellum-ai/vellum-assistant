@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -21,6 +22,7 @@ import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 const log = getLogger("context-window");
 
 export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
+const CONVERSATION_SUMMARY_CALL_SITE: LLMCallSite = "conversationSummarization";
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
@@ -241,6 +243,8 @@ export interface ContextWindowResult {
   summaryInputTokens: number;
   summaryOutputTokens: number;
   summaryModel: string;
+  summaryCallSite?: LLMCallSite;
+  summaryOverrideProfile?: string | null;
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
@@ -279,6 +283,11 @@ export interface ContextWindowCompactOptions {
    */
   conversationOriginChannel?: string;
   /**
+   * Per-conversation inference-profile override forwarded to the summary LLM
+   * call and usage attribution.
+   */
+  overrideProfile?: string | null;
+  /**
    * Override the target input token budget used for keep-boundary
    * projected-fit checks. Clamped to no looser than `config.targetInputTokens`
    * — i.e. the override may only demand a *stricter* fit. Passing a looser
@@ -305,7 +314,7 @@ export interface ContextWindowManagerOptions {
 export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
-  private readonly config: ContextWindowConfig;
+  private config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
   /**
    * Number of leading messages that are non-persisted (injected inherited
@@ -337,6 +346,10 @@ export class ContextWindowManager {
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
+  }
+
+  updateConfig(config: ContextWindowConfig): void {
+    this.config = config;
   }
 
   /**
@@ -480,6 +493,7 @@ export class ContextWindowManager {
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
       force: options?.force,
+      previousEstimatedInputTokens,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
@@ -672,6 +686,7 @@ export class ContextWindowManager {
       transcriptBlocks,
       retainedThreadRefs,
       signal,
+      options?.overrideProfile ?? null,
     );
     const summary = summaryUpdate.summary;
     const summaryInputTokens = summaryUpdate.inputTokens;
@@ -748,6 +763,8 @@ export class ContextWindowManager {
       summaryInputTokens,
       summaryOutputTokens,
       summaryModel,
+      summaryCallSite: CONVERSATION_SUMMARY_CALL_SITE,
+      summaryOverrideProfile: options?.overrideProfile ?? null,
       summaryCacheCreationInputTokens,
       summaryCacheReadInputTokens,
       summaryRawResponses,
@@ -771,6 +788,7 @@ export class ContextWindowManager {
       targetInputTokensOverride?: number;
       conversationOriginChannel?: string;
       force?: boolean;
+      previousEstimatedInputTokens?: number;
     },
   ): { keepFromIndex: number; keepTurns: number } {
     // Slack-originated conversations rely on multi-turn thread context
@@ -852,6 +870,20 @@ export class ContextWindowManager {
       while (lo > 0 && projectedTokensForKeep(lo) > targetTokens) {
         lo--;
       }
+    }
+
+    // The projection's summary-swap and tool_result truncation can make
+    // projectedTokensForKeep(hi) optimistically fit even when the live
+    // conversation is well over target — sending /compact through the
+    // "already fits" skip path as a no-op. Clamp lo so summarization runs.
+    if (
+      opts?.force &&
+      floorIsImplicitDefault &&
+      lo === userTurnStarts.length &&
+      lo > 0 &&
+      (opts?.previousEstimatedInputTokens ?? 0) > targetTokens
+    ) {
+      lo -= 1;
     }
 
     const keepTurns = lo;
@@ -994,6 +1026,7 @@ export class ContextWindowManager {
     transcriptBlocks: ContentBlock[],
     retainedThreadRefs: string[],
     signal?: AbortSignal,
+    overrideProfile?: string | null,
   ): Promise<{
     summary: string;
     inputTokens: number;
@@ -1025,15 +1058,20 @@ export class ContextWindowManager {
     const summaryMessage: Message = { role: "user", content: contentBlocks };
     let failed = false;
     try {
+      const providerConfig: Record<string, unknown> = {
+        callSite: CONVERSATION_SUMMARY_CALL_SITE,
+        usageTracking: "manual",
+        max_tokens: this.summaryMaxTokens,
+      };
+      if (overrideProfile) {
+        providerConfig.overrideProfile = overrideProfile;
+      }
       const response = await this.provider.sendMessage(
         [summaryMessage],
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: {
-            callSite: "conversationSummarization" as const,
-            max_tokens: this.summaryMaxTokens,
-          },
+          config: providerConfig,
           signal,
         },
       );

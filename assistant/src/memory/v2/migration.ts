@@ -5,9 +5,9 @@
  * synthesizes a concept page per cluster via the configured LLM, promotes
  * high-significance nodes to `essentials.md` / active follow-ups to
  * `threads.md` / low-significance episodes to `archive/migrated-<date>.md`,
- * collapses v1 weighted directional edges into the v2 unweighted-undirected
- * `memory/edges.json`, and enqueues `embed_concept_page` jobs for each new
- * page. A sentinel file at `memory/.v2-state/.migration-complete-v1-to-v2`
+ * preserves v1 weighted directional edges as outgoing-edge entries on each
+ * source page's frontmatter, and enqueues `embed_concept_page` jobs for each
+ * new page. A sentinel file at `memory/.v2-state/.migration-complete-v1-to-v2`
  * gates re-runs — `force: true` is required to overwrite.
  *
  * The migration is structured as a sequence of small helpers — `gatherV1State`,
@@ -31,9 +31,8 @@ import type { Provider } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
-import { writeEdges } from "./edges.js";
 import { slugify, writePage } from "./page-store.js";
-import type { ConceptPage, EdgesIndex } from "./types.js";
+import type { ConceptPage } from "./types.js";
 
 const log = getLogger("memory-v2-migration");
 
@@ -56,7 +55,6 @@ export interface MigrationResult {
   threadsLines: number;
   archiveLines: number;
   embedsEnqueued: number;
-  rebuildEdgesJobId: string;
   sentinelWritten: boolean;
 }
 
@@ -86,8 +84,9 @@ export interface V1Item {
 }
 
 /**
- * v1 weighted directional edge — collapsed in stage 5 into v2's unweighted
- * undirected canonical pairs.
+ * v1 weighted directional edge. v2 preserves direction (an edge A→B in v1
+ * becomes an outgoing-edge entry on A's page in v2), so the migration just
+ * has to map node ids to slugs and group by source.
  */
 export interface V1Edge {
   sourceNodeId: string;
@@ -409,31 +408,38 @@ function formatPromotionLine(item: V1Item): string {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 5 — Collapse v1 edges into v2 edges.json
+// Stage 5 — Map v1 edges to per-page outgoing edges
 // ---------------------------------------------------------------------------
 
 /**
- * Map every v1 graph-node id to a v2 concept-page slug, then rewrite v1
- * edges as canonical v2 tuples. Edges with either endpoint missing from
- * `slugMap` are dropped silently — those endpoints didn't survive
- * synthesis (e.g. their cluster produced no usable page).
+ * Map every v1 graph-node id to a v2 concept-page slug and group v1 edges by
+ * source slug. Edges with either endpoint missing from `slugMap` are dropped
+ * silently — those endpoints didn't survive synthesis (e.g. their cluster
+ * produced no usable page). Self-loops are dropped; duplicate `(source, target)`
+ * pairs collapse via the `Set<string>`.
  *
- * The returned `EdgesIndex` is canonicalized + deduped by `writeEdges`'s
- * own write-time normalization, so callers can pass it straight through.
+ * The returned map keys are source slugs and the values are sets of target
+ * slugs — i.e. each entry is a page's outgoing-edge list. The runner writes
+ * these into the source page's frontmatter.
  */
 export function collapseEdges(
   v1Edges: V1Edge[],
   slugMap: Map<string, string>,
-): EdgesIndex {
-  const tuples: [string, string][] = [];
+): Map<string, Set<string>> {
+  const outgoing = new Map<string, Set<string>>();
   for (const edge of v1Edges) {
-    const a = slugMap.get(edge.sourceNodeId);
-    const b = slugMap.get(edge.targetNodeId);
-    if (!a || !b) continue;
-    if (a === b) continue;
-    tuples.push([a, b]);
+    const from = slugMap.get(edge.sourceNodeId);
+    const to = slugMap.get(edge.targetNodeId);
+    if (!from || !to) continue;
+    if (from === to) continue;
+    let targets = outgoing.get(from);
+    if (!targets) {
+      targets = new Set<string>();
+      outgoing.set(from, targets);
+    }
+    targets.add(to);
   }
-  return { version: 1, edges: tuples };
+  return outgoing;
 }
 
 // ---------------------------------------------------------------------------
@@ -476,8 +482,8 @@ export interface RunMemoryV2MigrationParams {
  * Re-runs are gated by the sentinel file
  * `memory/.v2-state/.migration-complete-v1-to-v2`. Without `force: true`, a
  * second invocation throws `MigrationAlreadyAppliedError` without mutating
- * anything; with `force: true`, the migration overwrites pages and
- * `edges.json` and re-appends to the prose files.
+ * anything; with `force: true`, the migration overwrites pages and re-appends
+ * to the prose files.
  */
 export class MigrationAlreadyAppliedError extends Error {
   constructor() {
@@ -548,41 +554,46 @@ export async function runMemoryV2Migration(
     }
   }
 
+  // Resolve outgoing edges per source slug, then attach them to each page's
+  // frontmatter before writing. The page is the source of truth for its own
+  // outgoing edges — there is no separate edges-index file.
+  const outgoingBySource = collapseEdges(v1Edges, slugMap);
+  const finalizedPages: ConceptPage[] = pages.map((page) => {
+    const targets = outgoingBySource.get(page.slug);
+    if (!targets || targets.size === 0) return page;
+    return {
+      ...page,
+      frontmatter: {
+        ...page.frontmatter,
+        edges: [...targets].sort(),
+      },
+    };
+  });
+
   // Page writes hit different filenames so they're safe to fan out.
-  await Promise.all(pages.map((page) => writePage(workspaceDir, page)));
+  await Promise.all(
+    finalizedPages.map((page) => writePage(workspaceDir, page)),
+  );
 
   const promotions = derivePromotions(items);
   await appendPromotions(workspaceDir, promotions);
 
-  const edgesIdx = collapseEdges(v1Edges, slugMap);
-  await writeEdges(workspaceDir, edgesIdx);
-
-  const embedsEnqueued = enqueueEmbeds(pages.map((p) => p.slug));
-
-  // Page bodies are written with empty `edges:` frontmatter (the schema is a
-  // derived view of `edges.json`). Without this enqueue the frontmatter would
-  // stay empty until the next consolidation run, but consolidation bails on an
-  // empty buffer — so a freshly-migrated workspace can sit indefinitely with
-  // out-of-date frontmatter. The rebuild-edges job propagates `edges.json` into
-  // every page's frontmatter and is idempotent, so pairing it with the
-  // migration is safe even when nothing else has run yet.
-  const rebuildEdgesJobId = enqueueMemoryJob("memory_v2_rebuild_edges", {});
+  const embedsEnqueued = enqueueEmbeds(finalizedPages.map((p) => p.slug));
 
   await writeSentinel(workspaceDir);
 
-  // Re-read after writeEdges so the count reflects post-canonicalization
-  // dedup (collapseEdges can produce duplicate tuples when v1 had multiple
-  // weighted edges between the same pair).
-  const finalEdges = await readPersistedEdgeCount(workspaceDir);
+  let edgesWritten = 0;
+  for (const targets of outgoingBySource.values()) {
+    edgesWritten += targets.size;
+  }
 
   return {
-    pagesCreated: pages.length,
-    edgesWritten: finalEdges,
+    pagesCreated: finalizedPages.length,
+    edgesWritten,
     essentialsLines: promotions.essentials.length,
     threadsLines: promotions.threads.length,
     archiveLines: promotions.archive.length,
     embedsEnqueued,
-    rebuildEdgesJobId,
     sentinelWritten: true,
   };
 }
@@ -633,22 +644,4 @@ async function writeSentinel(workspaceDir: string): Promise<void> {
   const sentinelPath = join(workspaceDir, MIGRATION_SENTINEL_RELATIVE);
   await mkdir(join(workspaceDir, "memory", ".v2-state"), { recursive: true });
   await writeFile(sentinelPath, `${new Date().toISOString()}\n`, "utf-8");
-}
-
-/**
- * Read `memory/edges.json` after writing and return the edge count. Used
- * only to populate the result summary — the file has already been
- * canonicalized by `writeEdges`, so this is just a count, not validation.
- */
-async function readPersistedEdgeCount(workspaceDir: string): Promise<number> {
-  try {
-    const raw = await readFile(
-      join(workspaceDir, "memory", "edges.json"),
-      "utf-8",
-    );
-    const parsed = JSON.parse(raw) as { edges?: unknown[] };
-    return Array.isArray(parsed.edges) ? parsed.edges.length : 0;
-  } catch {
-    return 0;
-  }
 }

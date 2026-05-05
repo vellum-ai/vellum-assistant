@@ -5,11 +5,45 @@
  * point between the agent loop and the HostCuProxy.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
-import { surfaceProxyResolver } from "../daemon/conversation-surfaces.js";
-import { HostCuProxy } from "../daemon/host-cu-proxy.js";
+const sentMessages: unknown[] = [];
+let mockHasClient = true; // Default to true for CU unified flow tests
+// Default principal id used for both ctx.trustContext and clients in the
+// existing single-user tests. Tests that exercise cross-user behaviour
+// override this on individual clients and on the SurfaceConversationContext.
+const DEFAULT_PRINCIPAL = "user-1";
+let mockCuClients: Array<{
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+}> = [
+  {
+    clientId: "mock-client-1",
+    capabilities: ["host_cu"],
+    actorPrincipalId: DEFAULT_PRINCIPAL,
+  },
+];
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+    listClientsByCapability: (cap: string) =>
+      cap === "host_cu" ? mockCuClients : [],
+    getClientById: (id: string) =>
+      mockCuClients.find((c) => c.clientId === id) ?? null,
+    getActorPrincipalIdForClient: (id: string) =>
+      mockCuClients.find((c) => c.clientId === id)?.actorPrincipalId,
+  },
+}));
+
+const { surfaceProxyResolver } =
+  await import("../daemon/conversation-surfaces.js");
+const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
+type SurfaceConversationContext =
+  import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -18,12 +52,25 @@ import { HostCuProxy } from "../daemon/host-cu-proxy.js";
 /**
  * Build a minimal SurfaceConversationContext with optional hostCuProxy.
  * Only the fields required by the CU routing path are populated.
+ *
+ * `trustContext` defaults to a guardian context owned by `DEFAULT_PRINCIPAL`.
+ * Pass `null` to omit the field entirely (used to verify same-user
+ * enforcement when the conversation has no source actor principal).
  */
 function buildMockContext(
-  hostCuProxy?: HostCuProxy,
+  hostCuProxy?: InstanceType<typeof HostCuProxy>,
+  trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
 ): SurfaceConversationContext {
   return {
     conversationId: "test-session",
+    trustContext:
+      trustGuardianPrincipalId != null
+        ? {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+            guardianPrincipalId: trustGuardianPrincipalId,
+          }
+        : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
@@ -47,15 +94,19 @@ function buildMockContext(
 // ---------------------------------------------------------------------------
 
 describe("surfaceProxyResolver — CU tool routing", () => {
-  let sentMessages: unknown[];
-  let proxy: HostCuProxy;
+  let proxy: InstanceType<typeof HostCuProxy>;
 
   function setupProxy(maxSteps?: number): SurfaceConversationContext {
-    sentMessages = [];
-    const sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(sendToClient as never, undefined, maxSteps);
-    // Mark client as connected so requests are sent
-    proxy.updateSender(sendToClient as never, true);
+    sentMessages.length = 0;
+    mockHasClient = true;
+    mockCuClients = [
+      {
+        clientId: "mock-client-1",
+        capabilities: ["host_cu"],
+        actorPrincipalId: DEFAULT_PRINCIPAL,
+      },
+    ];
+    proxy = new HostCuProxy(maxSteps);
     return buildMockContext(proxy);
   }
 
@@ -93,9 +144,8 @@ describe("surfaceProxyResolver — CU tool routing", () => {
     });
 
     test("returns error when proxy exists but client not connected", async () => {
-      const sendToClient = () => {};
-      const proxyObj = new HostCuProxy(sendToClient as never);
-      // Default clientConnected is false — do NOT call updateSender with true
+      mockHasClient = false;
+      const proxyObj = new HostCuProxy();
       const ctx = buildMockContext(proxyObj);
       const result = await surfaceProxyResolver(ctx, "computer_use_click", {
         element_id: 1,
@@ -222,7 +272,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
 
       // Simulate client resolving with observation
       const requestId = sent.requestId as string;
-      proxy.resolve(requestId, {
+      proxy.processObservation(requestId, {
         axTree: "SubmitButton [1]\nTextField [2]",
         executionResult: "Clicked element 42",
       });
@@ -248,7 +298,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       expect(sent.type).toBe("host_cu_request");
       expect(sent.toolName).toBe("computer_use_screenshot");
 
-      proxy.resolve(sent.requestId as string, {
+      proxy.processObservation(sent.requestId as string, {
         axTree: "Window [1]",
         screenshot: "base64screenshot",
         screenshotWidthPx: 1920,
@@ -285,7 +335,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "Type into search box",
       });
 
-      proxy.resolve(sent.requestId as string, {
+      proxy.processObservation(sent.requestId as string, {
         axTree: "SearchBox [1] value='Hello world'",
         executionResult: "Typed text",
       });
@@ -309,7 +359,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "Check what's on screen",
       });
       const sent1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent1.requestId as string, {
+      proxy.processObservation(sent1.requestId as string, {
         axTree: "LoginButton [1]\nUsernameField [2]",
       });
       const r1 = await p1;
@@ -323,7 +373,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "Click login button",
       });
       const sent2 = sentMessages[1] as Record<string, unknown>;
-      proxy.resolve(sent2.requestId as string, {
+      proxy.processObservation(sent2.requestId as string, {
         axTree: "PasswordField [1]\nSubmitButton [2]",
         axDiff: "+ PasswordField [1]\n+ SubmitButton [2]\n- LoginButton [1]",
         executionResult: "Clicked element 1",
@@ -352,6 +402,301 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // -------------------------------------------------------------------------
   // Step limit enforced through resolver
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Multi-client ambiguity guard
+  // -------------------------------------------------------------------------
+
+  describe("multi-client ambiguity guard", () => {
+    test("returns error when multiple same-user CU clients connected and no target_client_id given", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-b",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("multiple clients support host_cu");
+      expect(result.content).toContain("target_client_id");
+      // No message should have been dispatched
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("proceeds when multiple clients connected and target_client_id is given", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-b",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "client-a",
+      });
+
+      // Should have dispatched the request
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBe("client-a");
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("proceeds normally when exactly one CU client is connected", async () => {
+      const ctx = setupProxy();
+      // mockCuClients already has 1 entry from setupProxy
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 2,
+        reasoning: "safe click",
+      });
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("multi-client guard does not apply to terminal tools (computer_use_done)", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "client-a", capabilities: ["host_cu"] },
+        { clientId: "client-b", capabilities: ["host_cu"] },
+      ];
+
+      // Terminal tools short-circuit before the ambiguity check
+      const result = await surfaceProxyResolver(ctx, "computer_use_done", {
+        summary: "all done",
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("all done");
+      expect(sentMessages).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // targetClientId validation (lives at resolver layer so step count and
+  // action history are not mutated when validation rejects the request).
+  // -------------------------------------------------------------------------
+
+  describe("targetClientId validation", () => {
+    test("returns fast error when targetClientId does not match any connected client", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [{ clientId: "real-client", capabilities: ["host_cu"] }];
+      const stepCountBefore = proxy.stepCount;
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "nonexistent-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("nonexistent-client");
+      expect(result.content).toContain("host_cu");
+      // Critical: validation must run BEFORE recordAction. stepCount and
+      // actionHistory must be unchanged when rejection fires — otherwise
+      // every invalid target_client_id burns a step and leaves a ghost
+      // entry the LLM can reason about.
+      expect(proxy.stepCount).toBe(stepCountBefore);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("returns fast error when targetClientId points to a client without host_cu capability", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        { clientId: "no-cu-client", capabilities: ["host_bash"] }, // bash, not cu
+      ];
+      const stepCountBefore = proxy.stepCount;
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "no-cu-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("no-cu-client");
+      expect(result.content).toContain("host_cu");
+      // No step burned, no ghost in history.
+      expect(proxy.stepCount).toBe(stepCountBefore);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("dispatches and records action when targetClientId is valid", async () => {
+      const ctx = setupProxy();
+      mockCuClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        // Second client present to ensure target_client_id resolves
+        // unambiguously and would otherwise trip the ambiguity guard.
+        {
+          clientId: "client-b",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 5,
+        reasoning: "click",
+        target_client_id: "cu-client",
+      });
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBe("cu-client");
+      // recordAction did fire on the success path.
+      expect(proxy.stepCount).toBe(1);
+      expect(proxy.actionHistory).toHaveLength(1);
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Same-user enforcement (dispatch layer)
+  //
+  // The proxy enforces this internally as well — these tests verify the
+  // dispatch performs the same-user rejection before the proxy is invoked
+  // (so no step is burned and no action history mutated), and uses the
+  // canonical rejection message.
+  // -------------------------------------------------------------------------
+
+  describe("same-user enforcement", () => {
+    test("rejects targeted CU dispatch from a different actor principal", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, DEFAULT_PRINCIPAL);
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "cu-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      // No state mutation, no dispatch.
+      expect(proxy.stepCount).toBe(0);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("rejects when the conversation has no source actor principal", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, null);
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        target_client_id: "cu-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("auto-resolves to the unique same-user CU client when cross-user clients are present", async () => {
+      // Regression: previously the dispatch counted only same-user clients
+      // for the multi-client guard, so 1 same-user + 1 cross-user passed the
+      // guard with no targetClientId — and the proxy then broadcast to ALL
+      // host_cu subscribers, including the cross-user one.
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-mine",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "cu-other",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, DEFAULT_PRINCIPAL);
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        // Intentionally no target_client_id — exercises auto-resolve.
+      });
+
+      // Broadcast happens, but with the same-user clientId set so only
+      // that client receives it.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("cu-mine");
+
+      // Manually resolve to clean up the pending promise.
+      proxy.processObservation(sent.requestId as string, {
+        executionResult: "ok",
+      });
+      await resultPromise;
+    });
+  });
 
   describe("step limit enforcement through resolver", () => {
     test("rejects action tools when step limit exceeded", async () => {
@@ -406,7 +751,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       const sent = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, {
+      proxy.processObservation(sent.requestId as string, {
         executionError: "Element 999 not found in AX tree",
         axTree: "Window [1]",
       });
@@ -435,7 +780,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       expect(sent.reasoning).toBe("Submit the form");
 
       // Resolve to avoid unhandled rejection on dispose
-      proxy.resolve(sent.requestId as string, { axTree: "..." });
+      proxy.processObservation(sent.requestId as string, { axTree: "..." });
       await resultPromise;
     });
 
@@ -452,7 +797,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
 
       // Resolve to avoid hanging
       const sent = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, { axTree: "..." });
+      proxy.processObservation(sent.requestId as string, { axTree: "..." });
     });
   });
 
@@ -498,7 +843,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "first",
       });
       const s1 = sentMessages[0] as Record<string, unknown>;
-      proxy.resolve(s1.requestId as string, { axTree: "A" });
+      proxy.processObservation(s1.requestId as string, { axTree: "A" });
       await p1;
       expect(proxy.stepCount).toBe(1);
 
@@ -508,7 +853,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "second",
       });
       const s2 = sentMessages[1] as Record<string, unknown>;
-      proxy.resolve(s2.requestId as string, { axTree: "B" });
+      proxy.processObservation(s2.requestId as string, { axTree: "B" });
       await p2;
       expect(proxy.stepCount).toBe(2);
 
@@ -519,7 +864,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         reasoning: "third",
       });
       const s3 = sentMessages[2] as Record<string, unknown>;
-      proxy.resolve(s3.requestId as string, { axTree: "C" });
+      proxy.processObservation(s3.requestId as string, { axTree: "C" });
       await p3;
       expect(proxy.stepCount).toBe(3);
 

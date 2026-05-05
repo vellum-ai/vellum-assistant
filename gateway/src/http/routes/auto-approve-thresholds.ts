@@ -48,12 +48,14 @@ export function createGlobalThresholdGetHandler() {
         return Response.json({
           interactive: "medium",
           autonomous: "low",
+          headless: "none",
         });
       }
 
       return Response.json({
         interactive: row.interactive,
         autonomous: row.autonomous,
+        headless: row.headless,
       });
     } catch (err) {
       log.error({ err }, "Failed to read global thresholds");
@@ -85,7 +87,10 @@ export function createGlobalThresholdPutHandler() {
       );
     }
 
-    const { interactive, autonomous } = body as Record<string, unknown>;
+    const { interactive, autonomous, headless } = body as Record<
+      string,
+      unknown
+    >;
 
     if (interactive !== undefined && !isValidThreshold(interactive)) {
       return Response.json(
@@ -103,6 +108,14 @@ export function createGlobalThresholdPutHandler() {
         { status: 400 },
       );
     }
+    if (headless !== undefined && !isValidThreshold(headless)) {
+      return Response.json(
+        {
+          error: `"headless" must be one of: ${VALID_THRESHOLDS.join(", ")}`,
+        },
+        { status: 400 },
+      );
+    }
 
     try {
       const db = getGatewayDb();
@@ -112,12 +125,14 @@ export function createGlobalThresholdPutHandler() {
           id: 1,
           ...(interactive ? { interactive } : {}),
           ...(autonomous ? { autonomous } : {}),
+          ...(headless ? { headless } : {}),
         })
         .onConflictDoUpdate({
           target: autoApproveThresholds.id,
           set: {
             ...(interactive ? { interactive } : {}),
             ...(autonomous ? { autonomous } : {}),
+            ...(headless ? { headless } : {}),
             updatedAt: sql`datetime('now')`,
           },
         })
@@ -127,6 +142,7 @@ export function createGlobalThresholdPutHandler() {
       return Response.json({
         interactive: row.interactive,
         autonomous: row.autonomous,
+        headless: row.headless,
       });
     } catch (err) {
       log.error({ err }, "Failed to upsert global thresholds");

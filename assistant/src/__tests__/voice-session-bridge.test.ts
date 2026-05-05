@@ -944,14 +944,15 @@ describe("voice-session-bridge", () => {
       decision: string;
     }> = [];
     const publishedMessages: ServerMessage[] = [];
-    const subscription = assistantEventHub.subscribe(
-      {
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: {
         conversationId: conversation.id,
       },
-      (event) => {
+      callback: (event) => {
         publishedMessages.push(event.message);
       },
-    );
+    });
 
     const session = {
       isProcessing: () => false,
@@ -1151,7 +1152,6 @@ describe("voice-session-bridge", () => {
       ) => {
         handleSecretCalls.push({ requestId, value, delivery });
       },
-      wasSecretBroadcast: () => false,
       abort: () => {},
     } as unknown as Conversation;
 

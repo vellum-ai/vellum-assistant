@@ -119,17 +119,17 @@ describe('cloudUrlsForEnvironment', () => {
   }> = [
     {
       env: 'production',
-      expectedApiBaseUrl: 'https://api.vellum.ai',
+      expectedApiBaseUrl: 'https://platform.vellum.ai',
       expectedWebBaseUrl: 'https://www.vellum.ai',
     },
     {
       env: 'staging',
-      expectedApiBaseUrl: 'https://staging-api.vellum.ai',
+      expectedApiBaseUrl: 'https://staging-platform.vellum.ai',
       expectedWebBaseUrl: 'https://staging-assistant.vellum.ai',
     },
     {
       env: 'dev',
-      expectedApiBaseUrl: 'https://dev-api.vellum.ai',
+      expectedApiBaseUrl: 'https://dev-platform.vellum.ai',
       expectedWebBaseUrl: 'https://dev-assistant.vellum.ai',
     },
     {
@@ -153,8 +153,7 @@ describe('cloudUrlsForEnvironment', () => {
 
   test('production parity: "prod" alias and "production" resolve to same URLs', () => {
     const fromProd = cloudUrlsForEnvironment('production');
-    // Verify the canonical production values match what worker.ts currently uses
-    expect(fromProd.apiBaseUrl).toBe('https://api.vellum.ai');
+    expect(fromProd.apiBaseUrl).toBe('https://platform.vellum.ai');
     expect(fromProd.webBaseUrl).toBe('https://www.vellum.ai');
   });
 });

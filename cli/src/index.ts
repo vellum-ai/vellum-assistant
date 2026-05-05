@@ -11,7 +11,6 @@ import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
 import { message } from "./commands/message";
-import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { restore } from "./commands/restore";
@@ -26,12 +25,7 @@ import { tunnel } from "./commands/tunnel";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
-import {
-  getActiveAssistant,
-  findAssistantByName,
-  loadLatestAssistant,
-  setActiveAssistant,
-} from "./lib/assistant-config";
+import { resolveAssistant, setActiveAssistant } from "./lib/assistant-config";
 import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
 
@@ -47,7 +41,6 @@ const commands = {
   logout,
   logs,
   message,
-  pair,
   ps,
   recover,
   restore,
@@ -82,7 +75,6 @@ function printHelp(): void {
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");
-  console.log("  pair     Pair with a remote assistant via QR code");
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",
   );
@@ -129,10 +121,7 @@ function applyNoColorFlags(argv: string[]): void {
  * Otherwise return false so the caller can fall back to help text.
  */
 async function tryLaunchClient(): Promise<boolean> {
-  const activeName = getActiveAssistant();
-  const entry = activeName
-    ? findAssistantByName(activeName)
-    : loadLatestAssistant();
+  const entry = resolveAssistant();
 
   if (!entry) return false;
 

@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "app_create",
-      "description": "Create a persistent app with a name, optional description, JSON schema, and HTML definition.",
+      "description": "Create a persistent multi-file TSX app scaffold with a name, optional description, and JSON schema. Write source files under src/ with file tools, then call app_refresh.",
       "category": "apps",
       "risk": "low",
       "input_schema": {
@@ -20,17 +20,6 @@
           "schema_json": {
             "type": "string",
             "description": "JSON schema defining the app data structure"
-          },
-          "html": {
-            "type": "string",
-            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via file_write."
-          },
-          "pages": {
-            "type": "object",
-            "description": "Optional additional pages as a mapping of filename to HTML content (e.g. {\"settings.html\": \"<html>...</html>\"}). Navigate between pages with <a href=\"settings.html\">. Do not include index.html here \u2014 use the html parameter instead.",
-            "additionalProperties": {
-              "type": "string"
-            }
           },
           "auto_open": {
             "type": "boolean",
@@ -78,10 +67,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name"]
@@ -104,10 +89,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'chore: delete unused app'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -130,10 +111,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add dark mode toggle', 'fix: form validation'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -160,10 +137,6 @@
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: generate app icon'). Used as the version history entry."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]

@@ -4,9 +4,9 @@ import {
   AVATAR_DEVICE_ENV_VAR,
   dockerResourceNames,
   resolveAvatarDevicePath,
-  serviceDockerRunArgs,
   type ServiceName,
 } from "../docker.js";
+import { buildServiceRunArgs } from "../statefulset.js";
 
 const instanceName = "test-instance";
 const imageTags: Record<ServiceName, string> = {
@@ -16,10 +16,10 @@ const imageTags: Record<ServiceName, string> = {
 };
 
 function buildAssistantArgs(
-  overrides: Partial<Parameters<typeof serviceDockerRunArgs>[0]> = {},
+  overrides: Partial<Parameters<typeof buildServiceRunArgs>[0]> = {},
 ): string[] {
   const res = dockerResourceNames(instanceName);
-  const builders = serviceDockerRunArgs({
+  const builders = buildServiceRunArgs({
     gatewayPort: 7830,
     imageTags,
     instanceName,
@@ -29,48 +29,39 @@ function buildAssistantArgs(
   return builders.assistant();
 }
 
-describe("serviceDockerRunArgs — assistant", () => {
-  test("grants the minimum capability set needed for DinD (SYS_ADMIN + NET_ADMIN) rather than --privileged", () => {
+function buildGatewayArgs(
+  overrides: Partial<Parameters<typeof buildServiceRunArgs>[0]> = {},
+): string[] {
+  const res = dockerResourceNames(instanceName);
+  const builders = buildServiceRunArgs({
+    gatewayPort: 7830,
+    imageTags,
+    instanceName,
+    res,
+    ...overrides,
+  });
+  return builders.gateway();
+}
+
+describe("buildServiceRunArgs — assistant", () => {
+  test("does not grant elevated capabilities or disable security profiles", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("--privileged");
-    // --cap-add SYS_ADMIN and --cap-add NET_ADMIN are each passed as two
-    // adjacent args: "--cap-add" followed by the capability name.
-    const sysAdminIdx = args.indexOf("SYS_ADMIN");
-    expect(sysAdminIdx).toBeGreaterThan(0);
-    expect(args[sysAdminIdx - 1]).toBe("--cap-add");
-    const netAdminIdx = args.indexOf("NET_ADMIN");
-    expect(netAdminIdx).toBeGreaterThan(0);
-    expect(args[netAdminIdx - 1]).toBe("--cap-add");
+    expect(args).not.toContain("--cap-add");
+    expect(args).not.toContain("SYS_ADMIN");
+    expect(args).not.toContain("NET_ADMIN");
+    expect(args).not.toContain("seccomp=unconfined");
+    expect(args).not.toContain("apparmor=unconfined");
   });
 
-  test("disables the default seccomp and AppArmor profiles so the inner dockerd can mount overlayfs and run pivot_root", () => {
+  test("does not mount a dockerd data volume", () => {
     const args = buildAssistantArgs();
-    const seccompIdx = args.indexOf("seccomp=unconfined");
-    expect(seccompIdx).toBeGreaterThan(0);
-    expect(args[seccompIdx - 1]).toBe("--security-opt");
-    const apparmorIdx = args.indexOf("apparmor=unconfined");
-    expect(apparmorIdx).toBeGreaterThan(0);
-    expect(args[apparmorIdx - 1]).toBe("--security-opt");
+    expect(args.some((a) => a.includes("/var/lib/docker"))).toBe(false);
   });
 
-  test("mounts a dedicated named volume at /var/lib/docker for the inner dockerd data store", () => {
-    const args = buildAssistantArgs();
-    const spec = `${instanceName}-dockerd-data:/var/lib/docker`;
-    const mountIndex = args.indexOf(spec);
-    expect(mountIndex).toBeGreaterThan(0);
-    expect(args[mountIndex - 1]).toBe("-v");
-  });
-
-  test("does NOT bind-mount the host Docker socket (DinD replaces host-socket access)", () => {
+  test("does NOT bind-mount the host Docker socket", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
-  });
-
-  test("does NOT set VELLUM_WORKSPACE_VOLUME_NAME (legacy Phase 1.8 hint, no longer needed in DinD)", () => {
-    const args = buildAssistantArgs();
-    expect(
-      args.some((a) => a.startsWith("VELLUM_WORKSPACE_VOLUME_NAME=")),
-    ).toBe(false);
   });
 
   test("keeps existing workspace and socket volume mounts intact", () => {
@@ -109,6 +100,33 @@ describe("serviceDockerRunArgs — assistant", () => {
     expect(args.some((a) => a.startsWith("GUARDIAN_BOOTSTRAP_SECRET="))).toBe(
       false,
     );
+  });
+});
+
+describe("buildServiceRunArgs — gateway", () => {
+  const savedVelayBaseUrl = process.env.VELAY_BASE_URL;
+
+  beforeEach(() => {
+    delete process.env.VELAY_BASE_URL;
+  });
+
+  afterEach(() => {
+    if (savedVelayBaseUrl === undefined) delete process.env.VELAY_BASE_URL;
+    else process.env.VELAY_BASE_URL = savedVelayBaseUrl;
+  });
+
+  test("passes VELAY_BASE_URL into the gateway container when set", () => {
+    process.env.VELAY_BASE_URL = "http://host.docker.internal:8501";
+
+    expect(buildGatewayArgs()).toContain(
+      "VELAY_BASE_URL=http://host.docker.internal:8501",
+    );
+  });
+
+  test("omits VELAY_BASE_URL from gateway args when unset", () => {
+    expect(
+      buildGatewayArgs().some((arg) => arg.startsWith("VELAY_BASE_URL=")),
+    ).toBe(false);
   });
 });
 

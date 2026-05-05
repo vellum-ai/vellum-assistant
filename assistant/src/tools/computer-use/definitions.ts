@@ -21,12 +21,6 @@ function proxyExecute(): Promise<ToolExecutionResult> {
   );
 }
 
-const activityProperty = {
-  type: "string" as const,
-  description:
-    "Brief non-technical explanation of why this tool is being called",
-};
-
 // ---------------------------------------------------------------------------
 // click (unified - click_type selects single / double / right)
 // ---------------------------------------------------------------------------
@@ -69,7 +63,11 @@ export const computerUseClickTool: Tool = {
             description:
               "Explanation of what you see and why you are clicking here",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["reasoning"],
       },
@@ -106,7 +104,11 @@ export const computerUseTypeTextTool: Tool = {
             type: "string",
             description: "Explanation of what you are typing and why",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["text", "reasoning"],
       },
@@ -144,7 +146,11 @@ export const computerUseKeyTool: Tool = {
             type: "string",
             description: "Explanation of why you are pressing this key",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["key", "reasoning"],
       },
@@ -199,7 +205,11 @@ export const computerUseScrollTool: Tool = {
             type: "string",
             description: "Explanation of why you are scrolling",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["direction", "amount", "reasoning"],
       },
@@ -260,7 +270,11 @@ export const computerUseDragTool: Tool = {
             type: "string",
             description: "Explanation of what you are dragging and why",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["reasoning"],
       },
@@ -296,7 +310,11 @@ export const computerUseWaitTool: Tool = {
             type: "string",
             description: "Explanation of what you are waiting for",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["duration_ms", "reasoning"],
       },
@@ -335,7 +353,11 @@ export const computerUseOpenAppTool: Tool = {
             description:
               "Explanation of why you need to open or switch to this app",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["app_name", "reasoning"],
       },
@@ -373,7 +395,11 @@ export const computerUseRunAppleScriptTool: Tool = {
             description:
               "Explanation of what this script does and why AppleScript is better than UI interaction for this step",
           },
-          activity: activityProperty,
+          target_client_id: {
+            type: "string",
+            description:
+              "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+          },
         },
         required: ["script", "reasoning"],
       },
@@ -406,7 +432,6 @@ export const computerUseDoneTool: Tool = {
             type: "string",
             description: "Human-readable summary of what was accomplished",
           },
-          activity: activityProperty,
         },
         required: ["summary"],
       },
@@ -443,7 +468,6 @@ export const computerUseRespondTool: Tool = {
             type: "string",
             description: "Explanation of how you determined the answer",
           },
-          activity: activityProperty,
         },
         required: ["answer", "reasoning"],
       },
@@ -471,10 +495,8 @@ const computerUseObserveTool: Tool = {
       description: this.description,
       input_schema: {
         type: "object",
-        properties: {
-          activity: activityProperty,
-        },
-        required: ["activity"],
+        properties: {},
+        required: [],
       },
     };
   },

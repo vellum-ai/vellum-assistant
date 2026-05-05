@@ -26,6 +26,8 @@ import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.j
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
+import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
+import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
@@ -35,18 +37,22 @@ import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes
 import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
+import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
+import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
+import { ROUTES as HOST_APP_CONTROL_ROUTES } from "./host-app-control-routes.js";
 import { ROUTES as HOST_BASH_ROUTES } from "./host-bash-routes.js";
 import { ROUTES as HOST_BROWSER_ROUTES } from "./host-browser-routes.js";
 import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
@@ -61,13 +67,16 @@ import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERFACE_ROUTES } from "./interface-routes.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
+import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
+import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
+import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
@@ -119,27 +128,33 @@ export const ROUTES: RouteDefinition[] = [
   ...BTW_ROUTES,
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
+  ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
   ...CONVERSATION_MESSAGE_ROUTES,
+  ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
+  ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
+  ...DISK_PRESSURE_ROUTES,
   ...DOCUMENT_ROUTES,
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
+  ...GATEWAY_LOG_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
+  ...HOST_APP_CONTROL_ROUTES,
   ...HOST_BASH_ROUTES,
   ...HOST_BROWSER_ROUTES,
   ...HOST_CU_ROUTES,
@@ -148,8 +163,11 @@ export const ROUTES: RouteDefinition[] = [
   ...IDENTITY_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
+  ...MCP_AUTH_ROUTES,
+  ...OAUTH_CONNECT_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
+  ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,

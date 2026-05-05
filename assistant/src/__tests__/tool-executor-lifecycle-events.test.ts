@@ -29,8 +29,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {
     mode: "workspace" as const,
@@ -48,7 +46,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -158,15 +155,14 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
-}));
-
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { ToolError } from "../util/errors.js";
 
-function makeContext(events: ToolLifecycleEvent[], extra: Record<string, unknown> = {}) {
+function makeContext(
+  events: ToolLifecycleEvent[],
+  extra: Record<string, unknown> = {},
+) {
   return {
     workingDir: "/tmp/project",
     conversationId: "conversation-1",

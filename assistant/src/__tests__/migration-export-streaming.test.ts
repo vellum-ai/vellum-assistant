@@ -55,12 +55,12 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
+import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import {
   buildExportVBundle,
   streamExportVBundle,
 } from "../runtime/migrations/vbundle-builder.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
-
 // Test fixture data: a minimal SQLite header to simulate a real database file
 const SQLITE_HEADER = new Uint8Array([
   0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74,
@@ -146,6 +146,7 @@ describe("streamExportVBundle", () => {
   test("returns a temp file that exists on disk", async () => {
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     try {
@@ -159,13 +160,14 @@ describe("streamExportVBundle", () => {
   test("manifest contains correct SHA-256 checksums for all files", async () => {
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     try {
       const archiveData = new Uint8Array(readFileSync(result.tempPath));
       const entries = parseTarEntries(archiveData);
 
-      for (const fileEntry of result.manifest.files) {
+      for (const fileEntry of result.manifest.contents) {
         const tarEntry = entries.find((e) => e.name === fileEntry.path);
         expect(tarEntry).toBeDefined();
         expect(sha256Hex(tarEntry!.data)).toBe(fileEntry.sha256);
@@ -178,11 +180,13 @@ describe("streamExportVBundle", () => {
   test("decompressed archive produces same files as buildExportVBundle", async () => {
     const streamResult = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     try {
       const syncResult = buildExportVBundle({
         workspaceDir: testDir,
+        ...defaultV1Options(),
       });
 
       const streamArchiveData = new Uint8Array(
@@ -212,10 +216,10 @@ describe("streamExportVBundle", () => {
       }
 
       // Same manifest file entries (excluding timing fields)
-      const streamManifestFiles = streamResult.manifest.files
+      const streamManifestFiles = streamResult.manifest.contents
         .slice()
         .sort((a, b) => a.path.localeCompare(b.path));
-      const syncManifestFiles = syncResult.manifest.files
+      const syncManifestFiles = syncResult.manifest.contents
         .slice()
         .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -225,8 +229,8 @@ describe("streamExportVBundle", () => {
       expect(streamManifestFiles.map((f) => f.sha256)).toEqual(
         syncManifestFiles.map((f) => f.sha256),
       );
-      expect(streamManifestFiles.map((f) => f.size)).toEqual(
-        syncManifestFiles.map((f) => f.size),
+      expect(streamManifestFiles.map((f) => f.size_bytes)).toEqual(
+        syncManifestFiles.map((f) => f.size_bytes),
       );
     } finally {
       await streamResult.cleanup();
@@ -236,6 +240,7 @@ describe("streamExportVBundle", () => {
   test("cleanup removes the temp file", async () => {
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     expect(existsSync(result.tempPath)).toBe(true);
@@ -252,6 +257,7 @@ describe("streamExportVBundle round-trip", () => {
   test("streaming archive passes validateVBundle with matching manifest", async () => {
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     try {
@@ -266,15 +272,15 @@ describe("streamExportVBundle round-trip", () => {
       expect(validationResult.manifest!.schema_version).toBe(
         result.manifest.schema_version,
       );
-      expect(validationResult.manifest!.manifest_sha256).toBe(
-        result.manifest.manifest_sha256,
+      expect(validationResult.manifest!.checksum).toBe(
+        result.manifest.checksum,
       );
 
       // Verify file entries match
       const validatedFiles = validationResult
-        .manifest!.files.slice()
+        .manifest!.contents.slice()
         .sort((a, b) => a.path.localeCompare(b.path));
-      const resultFiles = result.manifest.files
+      const resultFiles = result.manifest.contents
         .slice()
         .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -316,6 +322,7 @@ describe("streamExportVBundle config sanitization", () => {
 
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     try {
@@ -359,6 +366,7 @@ describe("streamExportVBundle cleanup", () => {
   test("calling cleanup twice does not throw", async () => {
     const result = await streamExportVBundle({
       workspaceDir: testDir,
+      ...defaultV1Options(),
     });
 
     await result.cleanup();

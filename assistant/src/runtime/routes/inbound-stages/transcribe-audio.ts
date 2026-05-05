@@ -2,21 +2,20 @@
  * Auto-transcribe audio attachments from channel inbound messages.
  *
  * Returns a discriminated result type so callers can handle each outcome
- * (transcribed, no audio, disabled, no provider, error) without exceptions.
+ * (transcribed, no audio, no provider, error) without exceptions.
  * Never throws — failures are represented as result variants so that message
  * delivery is never blocked by transcription issues.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
-import { getConfig } from "../../../config/loader.js";
-import { getAttachmentById, getAttachmentsByIds } from "../../../memory/attachments-store.js";
+import {
+  getAttachmentById,
+  getAttachmentsByIds,
+} from "../../../memory/attachments-store.js";
 import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("transcribe-audio");
-
-const VOICE_TRANSCRIPTION_FLAG_KEY = "channel-voice-transcription" as const;
 
 /** Timeout for the entire transcription pipeline (all attachments). */
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
@@ -28,7 +27,6 @@ const TRANSCRIPTION_TIMEOUT_MS = 30_000;
 export type TranscribeResult =
   | { status: "transcribed"; text: string }
   | { status: "no_audio" }
-  | { status: "disabled" }
   | { status: "no_provider"; reason: string }
   | { status: "error"; reason: string };
 
@@ -40,12 +38,6 @@ export async function tryTranscribeAudioAttachments(
   attachmentIds: string[],
 ): Promise<TranscribeResult> {
   try {
-    // Check feature flag
-    const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled(VOICE_TRANSCRIPTION_FLAG_KEY, config)) {
-      return { status: "disabled" };
-    }
-
     // Look up attachments and filter to audio MIME types
     const resolved = getAttachmentsByIds(attachmentIds);
     const audioAttachments = resolved.filter((a) =>

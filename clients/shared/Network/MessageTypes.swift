@@ -42,6 +42,14 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ HostAppControlRequest           │ Discriminated-union input enum; code    │
+// │                                 │ generator cannot express it             │
+// │ HostAppControlInput (enum)      │ Custom Codable for tool-tagged variants │
+// │ HostAppControlCancel            │ Hand-maintained alongside               │
+// │                                 │ HostAppControlRequest                   │
+// │ HostAppControlState (enum)      │ String enum; codegen cannot emit it     │
+// │ HostAppControlResultPayload     │ Posted back to daemon; hand-maintained  │
+// │                                 │ alongside HostAppControlRequest         │
 // │ HostBrowserRequest              │ Uses AnyCodable for `cdpParams`; client │
 // │                                 │ decodes only to keep SSE healthy        │
 // │ HostBrowserCancelRequest        │ Hand-maintained alongside               │
@@ -214,13 +222,7 @@ private func buildConversationTransportMetadata(
 
 extension ConversationCreateRequest {
     private static var defaultTransportInterface: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
     }
 
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: ConversationTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
@@ -229,20 +231,12 @@ extension ConversationCreateRequest {
 
     /// The host home directory, populated automatically on macOS.
     private static var defaultHostHomeDir: String? {
-        #if os(macOS)
         return NSHomeDirectory()
-        #else
-        return nil
-        #endif
     }
 
     /// The host username, populated automatically on macOS.
     private static var defaultHostUsername: String? {
-        #if os(macOS)
         return NSUserName()
-        #else
-        return nil
-        #endif
     }
 
     public init(
@@ -295,13 +289,7 @@ extension UserMessage {
 
     /// Platform-derived default interface identifier.
     private static var defaultInterface: String {
-        #if os(macOS)
         return "macos"
-        #elseif os(iOS)
-        return "ios"
-        #else
-        return "vellum"
-        #endif
     }
 
     public init(conversationId: String, content: String, attachments: [Attachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, automated: Bool? = nil) {
@@ -324,7 +312,6 @@ extension AuthMessage {
         self.init(type: "auth", token: token)
     }
 }
-
 
 extension PingMessage {
     public init() {
@@ -817,7 +804,6 @@ extension DictationRequest {
 /// Backed by generated `OpenUrl`.
 public typealias OpenUrlMessage = OpenUrl
 
-
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
@@ -956,7 +942,6 @@ extension DeleteQueuedMessage {
         self.init(type: "delete_queued_message", conversationId: conversationId, requestId: requestId)
     }
 }
-
 
 extension ErrorMessage {
     public init(message: String, category: String? = nil) {
@@ -1284,7 +1269,6 @@ extension SkillsInspectResponseData {
 /// Backed by generated `SkillsInspectResponse`.
 public typealias SkillsInspectResponseMessage = SkillsInspectResponse
 
-
 /// Response containing the list of past conversations.
 /// Backed by generated `ConversationListResponse`.
 public typealias ConversationListResponseMessage = ConversationListResponse
@@ -1420,6 +1404,7 @@ public struct TraceEventsHistoryResponse: Decodable, Sendable {
 public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
+    case managedUsageLimit = "MANAGED_USAGE_LIMIT"
     case providerOverloaded = "PROVIDER_OVERLOADED"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
@@ -1526,6 +1511,9 @@ public typealias SecretRequestMessage = SecretRequest
 /// Backed by generated `ConfirmationRequest`.
 public typealias ConfirmationRequestMessage = ConfirmationRequest
 
+/// Contact channel address request from daemon.
+/// Backed by generated `ContactRequest`.
+public typealias ContactRequestMessage = ContactRequest
 
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
@@ -1563,6 +1551,9 @@ public struct HostBashRequest: Decodable, Sendable {
     public let timeoutSeconds: Double?
     /// Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL).
     public let env: [String: String]?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostBashProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1572,6 +1563,7 @@ public struct HostBashRequest: Decodable, Sendable {
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
         case env
+        case targetClientId
     }
 }
 
@@ -1627,6 +1619,9 @@ public struct HostFileRequest: Decodable, Sendable {
     public let oldString: String?
     public let newString: String?
     public let replaceAll: Bool?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostFileProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, operation, path
@@ -1634,6 +1629,7 @@ public struct HostFileRequest: Decodable, Sendable {
         case oldString = "old_string"
         case newString = "new_string"
         case replaceAll = "replace_all"
+        case targetClientId
     }
 }
 
@@ -1672,6 +1668,9 @@ public struct HostCuRequest: Decodable, Sendable {
     public let input: [String: AnyCodable]
     public let stepNumber: Int
     public let reasoning: String?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostCuProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1681,6 +1680,7 @@ public struct HostCuRequest: Decodable, Sendable {
         case input
         case stepNumber
         case reasoning
+        case targetClientId
     }
 }
 
@@ -1689,6 +1689,283 @@ public struct HostCuRequest: Decodable, Sendable {
 public struct HostCuCancelRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
+}
+
+// MARK: - Host App Control
+
+/// Request from the daemon to execute an app-control action on the host.
+/// Mirrors the TypeScript `HostAppControlRequest` shape: a wire message that
+/// the desktop client receives via SSE, executes locally (start/observe/press/
+/// type/click/drag/etc. against a target macOS app), and POSTs the result back.
+public struct HostAppControlRequest: Codable, Equatable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let input: HostAppControlInput
+
+    public init(
+        type: String,
+        requestId: String,
+        conversationId: String,
+        input: HostAppControlInput
+    ) {
+        self.type = type
+        self.requestId = requestId
+        self.conversationId = conversationId
+        self.input = input
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case conversationId
+        case input
+    }
+}
+
+/// A single step inside `.sequence`: one key press with optional modifiers,
+/// hold duration, and post-press gap. Mirrors the TypeScript
+/// `HostAppControlSequenceStep` shape — snake_case wire keys mapped to Swift
+/// camelCase via explicit raw values.
+public struct HostAppControlSequenceStep: Codable, Equatable, Sendable {
+    public let key: String
+    public let modifiers: [String]?
+    public let durationMs: Int?
+    public let gapMs: Int?
+
+    public init(
+        key: String,
+        modifiers: [String]? = nil,
+        durationMs: Int? = nil,
+        gapMs: Int? = nil
+    ) {
+        self.key = key
+        self.modifiers = modifiers
+        self.durationMs = durationMs
+        self.gapMs = gapMs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case modifiers
+        case durationMs = "duration_ms"
+        case gapMs = "gap_ms"
+    }
+}
+
+/// Discriminated-union payload for `HostAppControlRequest.input`. The wire
+/// shape is `{ "tool": "<variant>", ...fields }` for each variant — Swift
+/// hides the discriminator inside the enum case.
+public enum HostAppControlInput: Codable, Equatable, Sendable {
+    case start(app: String, args: [String]?)
+    case observe(app: String, settleMs: Int?)
+    case press(app: String, key: String, modifiers: [String]?, durationMs: Int?)
+    case combo(app: String, keys: [String], durationMs: Int?)
+    case sequence(app: String, steps: [HostAppControlSequenceStep])
+    case type(app: String, text: String)
+    case click(app: String, x: Double, y: Double, button: String?, double: Bool?)
+    case drag(app: String, fromX: Double, fromY: Double, toX: Double, toY: Double, button: String?)
+    case stop(app: String?, reason: String?)
+
+    private enum CodingKeys: String, CodingKey {
+        case tool
+        case app
+        case args
+        case key
+        case keys
+        case modifiers
+        // Wire format uses snake_case for multi-word fields (driven by
+        // TOOLS.json schema property names). Map explicitly — without these
+        // raw values, decode silently misses `duration_ms` / `from_x` / etc.
+        // and hold-durations and drag coordinates fall through to defaults.
+        case durationMs = "duration_ms"
+        case settleMs = "settle_ms"
+        case steps
+        case text
+        case x
+        case y
+        case button
+        case double
+        case fromX = "from_x"
+        case fromY = "from_y"
+        case toX = "to_x"
+        case toY = "to_y"
+        case reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let tool = try container.decode(String.self, forKey: .tool)
+        switch tool {
+        case "start":
+            let app = try container.decode(String.self, forKey: .app)
+            let args = try container.decodeIfPresent([String].self, forKey: .args)
+            self = .start(app: app, args: args)
+        case "observe":
+            let app = try container.decode(String.self, forKey: .app)
+            let settleMs = try container.decodeIfPresent(Int.self, forKey: .settleMs)
+            self = .observe(app: app, settleMs: settleMs)
+        case "press":
+            let app = try container.decode(String.self, forKey: .app)
+            let key = try container.decode(String.self, forKey: .key)
+            let modifiers = try container.decodeIfPresent([String].self, forKey: .modifiers)
+            let durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+            self = .press(app: app, key: key, modifiers: modifiers, durationMs: durationMs)
+        case "combo":
+            let app = try container.decode(String.self, forKey: .app)
+            let keys = try container.decode([String].self, forKey: .keys)
+            let durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+            self = .combo(app: app, keys: keys, durationMs: durationMs)
+        case "sequence":
+            let app = try container.decode(String.self, forKey: .app)
+            let steps = try container.decode([HostAppControlSequenceStep].self, forKey: .steps)
+            self = .sequence(app: app, steps: steps)
+        case "type":
+            let app = try container.decode(String.self, forKey: .app)
+            let text = try container.decode(String.self, forKey: .text)
+            self = .type(app: app, text: text)
+        case "click":
+            let app = try container.decode(String.self, forKey: .app)
+            let x = try container.decode(Double.self, forKey: .x)
+            let y = try container.decode(Double.self, forKey: .y)
+            let button = try container.decodeIfPresent(String.self, forKey: .button)
+            let double = try container.decodeIfPresent(Bool.self, forKey: .double)
+            self = .click(app: app, x: x, y: y, button: button, double: double)
+        case "drag":
+            let app = try container.decode(String.self, forKey: .app)
+            let fromX = try container.decode(Double.self, forKey: .fromX)
+            let fromY = try container.decode(Double.self, forKey: .fromY)
+            let toX = try container.decode(Double.self, forKey: .toX)
+            let toY = try container.decode(Double.self, forKey: .toY)
+            let button = try container.decodeIfPresent(String.self, forKey: .button)
+            self = .drag(app: app, fromX: fromX, fromY: fromY, toX: toX, toY: toY, button: button)
+        case "stop":
+            let app = try container.decodeIfPresent(String.self, forKey: .app)
+            let reason = try container.decodeIfPresent(String.self, forKey: .reason)
+            self = .stop(app: app, reason: reason)
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .tool,
+                in: container,
+                debugDescription: "Unknown HostAppControlInput tool: \(tool)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .start(let app, let args):
+            try container.encode("start", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encodeIfPresent(args, forKey: .args)
+        case .observe(let app, let settleMs):
+            try container.encode("observe", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encodeIfPresent(settleMs, forKey: .settleMs)
+        case .press(let app, let key, let modifiers, let durationMs):
+            try container.encode("press", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(key, forKey: .key)
+            try container.encodeIfPresent(modifiers, forKey: .modifiers)
+            try container.encodeIfPresent(durationMs, forKey: .durationMs)
+        case .combo(let app, let keys, let durationMs):
+            try container.encode("combo", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(keys, forKey: .keys)
+            try container.encodeIfPresent(durationMs, forKey: .durationMs)
+        case .sequence(let app, let steps):
+            try container.encode("sequence", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(steps, forKey: .steps)
+        case .type(let app, let text):
+            try container.encode("type", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(text, forKey: .text)
+        case .click(let app, let x, let y, let button, let double):
+            try container.encode("click", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encodeIfPresent(button, forKey: .button)
+            try container.encodeIfPresent(double, forKey: .double)
+        case .drag(let app, let fromX, let fromY, let toX, let toY, let button):
+            try container.encode("drag", forKey: .tool)
+            try container.encode(app, forKey: .app)
+            try container.encode(fromX, forKey: .fromX)
+            try container.encode(fromY, forKey: .fromY)
+            try container.encode(toX, forKey: .toX)
+            try container.encode(toY, forKey: .toY)
+            try container.encodeIfPresent(button, forKey: .button)
+        case .stop(let app, let reason):
+            try container.encode("stop", forKey: .tool)
+            try container.encodeIfPresent(app, forKey: .app)
+            try container.encodeIfPresent(reason, forKey: .reason)
+        }
+    }
+}
+
+/// Cancellation signal from the daemon telling the client to abort an
+/// in-flight host app-control action identified by `requestId`.
+public struct HostAppControlCancel: Codable, Equatable, Sendable {
+    public let type: String
+    public let requestId: String
+
+    public init(type: String, requestId: String) {
+        self.type = type
+        self.requestId = requestId
+    }
+}
+
+/// Lifecycle state of the target app at the moment of observation.
+public enum HostAppControlState: String, Codable, Equatable, Sendable {
+    case running
+    case missing
+    case minimized
+}
+
+/// Window bounds in points for the focused window of the target app.
+public struct WindowBounds: Codable, Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host app-control
+/// action. `pngBase64` and `windowBounds` are present when a screenshot/
+/// observation was captured; `executionResult`/`executionError` carry the
+/// outcome of the executed action.
+public struct HostAppControlResultPayload: Codable, Equatable, Sendable {
+    public let requestId: String
+    public let state: HostAppControlState
+    public let pngBase64: String?
+    public let windowBounds: WindowBounds?
+    public let executionResult: String?
+    public let executionError: String?
+
+    public init(
+        requestId: String,
+        state: HostAppControlState,
+        pngBase64: String? = nil,
+        windowBounds: WindowBounds? = nil,
+        executionResult: String? = nil,
+        executionError: String? = nil
+    ) {
+        self.requestId = requestId
+        self.state = state
+        self.pngBase64 = pngBase64
+        self.windowBounds = windowBounds
+        self.executionResult = executionResult
+        self.executionError = executionError
+    }
 }
 
 // MARK: - Host Browser Proxy
@@ -1768,11 +2045,15 @@ public struct HostTransferRequest: Decodable, Sendable {
     public let sizeBytes: Int?
     public let sha256: String?
     public let overwrite: Bool?
+    /// When set, this request is targeted at a specific client ID. Non-nil only for
+    /// cross-client proxy requests routed through HostTransferProxy.
+    public let targetClientId: String?
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, direction
         case transferId, destPath, sourcePath, sizeBytes
         case sha256, overwrite
+        case targetClientId
     }
 }
 
@@ -2025,7 +2306,6 @@ public struct HostCuResultPayload: Codable, Sendable {
 /// Backed by generated `AssistantActivityState`.
 public typealias AssistantActivityStateMessage = AssistantActivityState
 
-
 /// Request a follow-up suggestion for the current conversation.
 /// Backed by generated `SuggestionRequest`.
 public typealias SuggestionRequestMessage = SuggestionRequest
@@ -2141,7 +2421,6 @@ public typealias ToolNamesListResponseMessage = ToolNamesListResponse
 /// Backed by generated `OpenBundleResponse`.
 public typealias OpenBundleResponseMessage = OpenBundleResponse
 
-
 // MARK: - Publish / Unpublish Page Messages
 
 /// Sent to publish a static page via Vercel.
@@ -2186,7 +2465,6 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
         self.platform = platform
     }
 }
-
 
 // MARK: - Cloud Sharing Messages (Manual)
 
@@ -2543,6 +2821,7 @@ public enum ServerMessage: Decodable, Sendable {
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
     case dictationResponse(DictationResponseMessage)
+    case diskPressureStatusChanged(DiskPressureStatusChanged)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
@@ -2555,6 +2834,7 @@ public enum ServerMessage: Decodable, Sendable {
     case confirmationRequest(ConfirmationRequestMessage)
     case confirmationStateChanged(ConfirmationStateChangedMessage)
     case secretRequest(SecretRequestMessage)
+    case contactRequest(ContactRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -2649,9 +2929,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
-    case pairingApprovalRequest(PairingApprovalRequestMessage)
-    case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
-    case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
     case recordingPause(RecordingPause)
     case recordingResume(RecordingResume)
@@ -2678,6 +2955,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case hostAppControlRequest(HostAppControlRequest)
+    case hostAppControlCancel(HostAppControlCancel)
     case hostBrowserRequest(HostBrowserRequest)
     case hostBrowserCancel(HostBrowserCancelRequest)
     case hostTransferRequest(HostTransferRequest)
@@ -2770,6 +3049,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
+        case "disk_pressure_status_changed":
+            let message = try DiskPressureStatusChanged(from: decoder)
+            self = .diskPressureStatusChanged(message)
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
@@ -2821,6 +3103,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "secret_request":
             let message = try SecretRequestMessage(from: decoder)
             self = .secretRequest(message)
+        case "contact_request":
+            let message = try ContactRequestMessage(from: decoder)
+            self = .contactRequest(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)
@@ -3095,15 +3380,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
-        case "pairing_approval_request":
-            let message = try PairingApprovalRequestMessage(from: decoder)
-            self = .pairingApprovalRequest(message)
-        case "approved_devices_list_response":
-            let message = try ApprovedDevicesListResponseMessage(from: decoder)
-            self = .approvedDevicesListResponse(message)
-        case "approved_device_remove_response":
-            let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
-            self = .approvedDeviceRemoveResponse(message)
         case "guardian_actions_pending_response":
             let message = try GuardianActionsPendingResponseMessage(from: decoder)
             self = .guardianActionsPendingResponse(message)
@@ -3182,6 +3458,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "host_app_control_request":
+            let message = try HostAppControlRequest(from: decoder)
+            self = .hostAppControlRequest(message)
+        case "host_app_control_cancel":
+            let message = try HostAppControlCancel(from: decoder)
+            self = .hostAppControlCancel(message)
         case "host_browser_request":
             let message = try HostBrowserRequest(from: decoder)
             self = .hostBrowserRequest(message)
@@ -3314,66 +3596,6 @@ public struct SlotContentWire: Decodable, Sendable {
     public let surfaceId: String?
 }
 
-// MARK: - Pairing Messages
-
-/// Server → Client: daemon asks macOS to show a pairing approval prompt.
-public struct PairingApprovalRequestMessage: Decodable, Sendable {
-    public let pairingRequestId: String
-    public let deviceId: String
-    public let deviceName: String
-}
-
-/// Server → Client: list of always-allowed devices.
-public struct ApprovedDevicesListResponseMessage: Decodable, Sendable {
-    public struct Device: Decodable, Sendable {
-        public let hashedDeviceId: String
-        public let deviceName: String
-        public let lastPairedAt: Int
-    }
-    public let devices: [Device]
-}
-
-/// Server → Client: confirmation of device removal.
-public struct ApprovedDeviceRemoveResponseMessage: Decodable, Sendable {
-    public let success: Bool
-}
-
-/// Client → Server: Mac user's decision on a pairing request.
-public struct PairingApprovalResponseMessage: Encodable, Sendable {
-    public let type: String = "pairing_approval_response"
-    public let pairingRequestId: String
-    public let decision: String
-
-    public init(pairingRequestId: String, decision: String) {
-        self.pairingRequestId = pairingRequestId
-        self.decision = decision
-    }
-}
-
-/// Client → Server: request list of always-allowed devices.
-public struct ApprovedDevicesListMessage: Encodable, Sendable {
-    public let type: String = "approved_devices_list"
-
-    public init() {}
-}
-
-/// Client → Server: revoke a device's always-allow status.
-public struct ApprovedDeviceRemoveMessage: Encodable, Sendable {
-    public let type: String = "approved_device_remove"
-    public let hashedDeviceId: String
-
-    public init(hashedDeviceId: String) {
-        self.hashedDeviceId = hashedDeviceId
-    }
-}
-
-/// Client → Server: clear all approved devices.
-public struct ApprovedDevicesClearMessage: Encodable, Sendable {
-    public let type: String = "approved_devices_clear"
-
-    public init() {}
-}
-
 // MARK: - Guardian Action Messages
 
 /// A single action button a guardian can press.
@@ -3482,9 +3704,7 @@ extension ContactsRequest {
 /// Backed by generated `ContactsResponse`.
 public typealias ContactsResponseMessage = ContactsResponse
 
-
 extension ContactPayload: Identifiable {}
-
 
 extension ContactChannelPayload: Identifiable {}
 

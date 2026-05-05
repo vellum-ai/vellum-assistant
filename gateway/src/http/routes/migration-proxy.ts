@@ -499,8 +499,7 @@ export function createMigrationImportStatusProxyHandler(
  * request transparently — no job-tracking wrapping is required.
  *
  * They're registered as explicit routes (rather than relying on the runtime
- * proxy catch-all) so local/docker teleport works regardless of whether
- * `runtimeProxyEnabled` is set on the deployment.
+ * proxy catch-all) so they get dedicated auth and timeout handling.
  */
 
 /**

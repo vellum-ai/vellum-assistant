@@ -1,9 +1,9 @@
 // Skill management types.
 
-import type { PartnerAudit } from "../../skills/skillssh-registry.js";
+import type { PartnerAudit } from "../../skills/skillssh-audit-types.js";
 
 // Re-export so consumers can access the audit types from this module.
-export type { PartnerAudit } from "../../skills/skillssh-registry.js";
+export type { PartnerAudit } from "../../skills/skillssh-audit-types.js";
 
 // === Client → Server ===
 

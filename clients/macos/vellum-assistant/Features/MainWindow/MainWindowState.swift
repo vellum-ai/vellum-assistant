@@ -318,6 +318,18 @@ public final class MainWindowState {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    /// Hide the right slot, optionally only when it is showing a specific
+    /// native panel. Preserves the current slot content and width so reopening
+    /// restores the user's existing panel size.
+    func hideRightSlot(_ panel: NativePanelId? = nil) {
+        if let panel, layoutConfig.right.content != .native(panel) {
+            return
+        }
+
+        layoutConfig.right.visible = false
+        LayoutConfigStore.save(layoutConfig)
+    }
+
     /// Replace the right slot's content and force the slot visible. Used by
     /// client-side deep links (e.g. tapping an inline `acp_spawn` tool block
     /// to open the Coding Agents panel). Unlike ``toggleRightSlot(_:)`` this

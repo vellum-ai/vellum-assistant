@@ -26,6 +26,11 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
+const _conversationMocks = new Map<string, unknown>();
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => _conversationMocks.get(id),
+}));
+
 mock.module("../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadata: () => undefined,
   upsertCredentialMetadata: () => {},
@@ -39,10 +44,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import {
-  createGuardianBinding,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -62,6 +64,7 @@ import {
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-message-handler.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
@@ -435,12 +438,12 @@ function seedPendingGuardianApprovalForReaction(
   // Register a pending interaction so applyGuardianDecision finds the
   // requester-side hook to drive `allow`.
   const handleConfirmationResponse = mock(() => {});
-  const mockSession = {
+  const _mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
   } as unknown as Conversation;
+  _conversationMocks.set(conversationId, _mockSession);
   pendingInteractions.register(requestId, {
-    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {

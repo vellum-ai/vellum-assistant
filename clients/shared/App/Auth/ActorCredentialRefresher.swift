@@ -37,7 +37,8 @@ public class ActorCredentialRefresher {
                 path: "guardian/refresh",
                 json: body,
                 timeout: 15,
-                skipRetry: true
+                skipRetry: true,
+                unprefixed: true
             )
 
             if response.isSuccess {

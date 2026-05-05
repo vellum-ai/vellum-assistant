@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray, or } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "../memory/db-connection.js";
 import { taskRuns, tasks, workItems } from "../memory/schema.js";
@@ -27,7 +27,6 @@ export interface TaskRun {
   finishedAt: number | null;
   error: string | null;
   principalId: string | null;
-  memoryScopeId: string | null;
   createdAt: number;
 }
 
@@ -109,7 +108,6 @@ export function createTaskRun(taskId: string): TaskRun {
     finishedAt: null,
     error: null,
     principalId: null,
-    memoryScopeId: null,
     createdAt: now,
   };
   db.insert(taskRuns).values(run).run();
@@ -125,7 +123,6 @@ export function updateTaskRun(
       | "conversationId"
       | "error"
       | "principalId"
-      | "memoryScopeId"
       | "startedAt"
       | "finishedAt"
     >
@@ -153,31 +150,4 @@ export interface ActionableWorkItem {
   status: string;
   priorityTier: number;
   updatedAt: number;
-}
-
-/**
- * Return actionable work items — those that are queued, running, or
- * awaiting review. Ordered by priority (high first) then most-recently-updated.
- */
-export function getActionableWorkItems(): ActionableWorkItem[] {
-  const db = getDb();
-  return db
-    .select({
-      id: workItems.id,
-      taskId: workItems.taskId,
-      title: workItems.title,
-      status: workItems.status,
-      priorityTier: workItems.priorityTier,
-      updatedAt: workItems.updatedAt,
-    })
-    .from(workItems)
-    .where(
-      or(
-        eq(workItems.status, "queued"),
-        eq(workItems.status, "running"),
-        eq(workItems.status, "awaiting_review"),
-      ),
-    )
-    .orderBy(asc(workItems.priorityTier), desc(workItems.updatedAt))
-    .all();
 }

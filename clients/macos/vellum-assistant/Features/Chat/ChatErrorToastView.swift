@@ -125,7 +125,7 @@ struct ChatConversationErrorToast: View {
             }
         }
         .foregroundStyle(VColor.auxWhite) // Intentional: always white on solid accent background
-        .frame(minHeight: 32)
+        .centerAlignedMinHeight(32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)
         .padding(.vertical, VSpacing.xs)
@@ -142,7 +142,7 @@ struct ChatConversationErrorToast: View {
         switch category {
         case .providerNetwork:
             return .wifiOff
-        case .rateLimit:
+        case .rateLimit, .managedUsageLimit:
             return .clockAlert
         case .providerOverloaded:
             return .cloudOff
@@ -173,7 +173,7 @@ struct ChatConversationErrorToast: View {
     /// red for hard failures.
     private static func accentColor(for category: ConversationErrorCategory) -> Color {
         switch category {
-        case .rateLimit:
+        case .rateLimit, .managedUsageLimit:
             return VColor.systemMidStrong
         case .providerNetwork:
             return VColor.systemMidStrong
@@ -191,7 +191,7 @@ struct ChatConversationErrorToast: View {
     /// Action button label tailored to the error category.
     private static func actionLabel(for category: ConversationErrorCategory) -> String {
         switch category {
-        case .rateLimit:
+        case .rateLimit, .managedUsageLimit:
             return "Retry"
         case .regenerateFailed:
             return "Retry"
@@ -220,7 +220,9 @@ struct CreditsExhaustedBanner: View {
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
 
             VButton(label: "Add Funds", style: .primary) {
                 onAddFunds()
@@ -238,94 +240,6 @@ struct CreditsExhaustedBanner: View {
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .layoutHangSignpost("chat.creditsExhaustedBanner")
-    }
-}
-
-// MARK: - Disk Pressure Banner
-
-/// Inline banner shown while the active assistant is reporting high disk usage.
-struct DiskPressureBanner: View {
-    let alert: DiskPressureAlert
-    let onReviewDiskUsage: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: VSpacing.xl) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Self.title)
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentEmphasized)
-                Text(Self.subtitle(for: alert))
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
-
-            Spacer(minLength: VSpacing.lg)
-
-            HStack(spacing: VSpacing.sm) {
-                VButton(label: "Review Disk Usage", style: .primary) {
-                    onReviewDiskUsage()
-                }
-
-                VButton(
-                    label: "Dismiss disk space alert",
-                    iconOnly: VIcon.x.rawValue,
-                    style: .ghost,
-                    size: .compact,
-                    tooltip: "Dismiss"
-                ) {
-                    onDismiss()
-                }
-            }
-        }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceActive)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: VRadius.lg,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: VRadius.lg
-            )
-        )
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .layoutHangSignpost("chat.diskPressureBanner")
-    }
-
-    static let title = "💾 It looks like you're running out of disk space."
-
-    static func subtitle(for alert: DiskPressureAlert) -> String {
-        "Storage is \(alert.displayPercent)% full. Try cleaning up unused data, like logs."
-    }
-}
-
-enum DiskPressureBannerDismissalStore {
-    static let dismissalDuration: TimeInterval = 24 * 60 * 60
-
-    private static let keyPrefix = "diskPressureBanner.dismissedUntil."
-
-    static func dismiss(alertId: String, now: Date = Date(), userDefaults: UserDefaults = .standard) {
-        let dismissedUntil = now.addingTimeInterval(dismissalDuration)
-        userDefaults.set(dismissedUntil.timeIntervalSince1970, forKey: key(for: alertId))
-    }
-
-    static func dismissedUntil(for alertId: String, userDefaults: UserDefaults = .standard) -> Date? {
-        let timestamp = userDefaults.double(forKey: key(for: alertId))
-        guard timestamp > 0 else { return nil }
-        return Date(timeIntervalSince1970: timestamp)
-    }
-
-    static func isDismissed(alertId: String, now: Date = Date(), userDefaults: UserDefaults = .standard) -> Bool {
-        guard let dismissedUntil = dismissedUntil(for: alertId, userDefaults: userDefaults) else { return false }
-        guard dismissedUntil > now else {
-            userDefaults.removeObject(forKey: key(for: alertId))
-            return false
-        }
-        return true
-    }
-
-    private static func key(for alertId: String) -> String {
-        keyPrefix + alertId
     }
 }
 
@@ -356,7 +270,7 @@ struct CompactionCircuitOpenBanner: View {
                 .textSelection(.enabled)
         }
         .foregroundStyle(VColor.auxWhite) // Intentional: white on solid accent background.
-        .frame(minHeight: 32)
+        .centerAlignedMinHeight(32)
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.lg))
         .background(VColor.systemMidStrong)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -399,10 +313,9 @@ struct MissingApiKeyBanner: View {
                     .foregroundStyle(VColor.contentSecondary)
             }
 
-            VButton(label: "Open Settings", style: .primary) {
+            VButton(label: "Open Settings", style: .primary, isFullWidth: true) {
                 onOpenSettings()
             }
-            .frame(maxWidth: .infinity)
         }
         .padding(VSpacing.lg)
         .background(VColor.surfaceActive)

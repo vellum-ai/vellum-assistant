@@ -324,6 +324,11 @@ export interface SuggestTrustRuleRequest {
   directoryScopeOptions?: DirectoryScopeOption[];
   currentThreshold: string; // "low" | "medium" | "high"
   intent: "auto_approve" | "escalate";
+  existingRule?: {
+    id: string;
+    pattern: string;
+    risk: string;
+  };
 }
 
 export interface SuggestTrustRuleResponse {
@@ -343,10 +348,9 @@ export interface SuggestTrustRuleResponse {
 export async function ipcSuggestTrustRule(
   params: SuggestTrustRuleRequest,
 ): Promise<SuggestTrustRuleResponse> {
-  const result = await ipcCallAssistant(
-    "suggest_trust_rule",
-    { body: params } as unknown as Record<string, unknown>,
-  );
+  const result = await ipcCallAssistant("suggest_trust_rule", {
+    body: params,
+  } as unknown as Record<string, unknown>);
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw new Error("ipcSuggestTrustRule: unexpected response shape");
   }

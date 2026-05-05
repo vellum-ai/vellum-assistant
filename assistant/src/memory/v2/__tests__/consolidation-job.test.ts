@@ -131,10 +131,13 @@ const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
 // `isAssistantFeatureFlagEnabled` ignores the `config` argument it receives
-// (resolution is purely from the overrides + registry caches), so we hand
-// the handler a minimal stand-in instead of materializing the full default
-// config.
-const CONFIG = {} as Parameters<typeof memoryV2ConsolidateJob>[1];
+// (resolution is purely from the overrides + registry caches), and the
+// resolver only reads `config.memory.v2.consolidation_prompt_path` — so a
+// minimal stand-in covers both call sites without materializing the full
+// default config.
+const CONFIG = {
+  memory: { v2: { consolidation_prompt_path: null } },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
   return {
@@ -270,20 +273,34 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
     expect(prompt).toContain(`${new Date().getFullYear()}`);
   });
 
-  test("enqueues memory_v2_rebuild_edges and memory_v2_reembed follow-up jobs on success", async () => {
+  test("honors memory.v2.consolidation_prompt_path override when set", async () => {
+    writeFileSync(
+      join(tmpWorkspace, "custom-prompt.md"),
+      "CUSTOM CONSOLIDATION at {{CUTOFF}}\n",
+    );
+    const overrideConfig = {
+      memory: { v2: { consolidation_prompt_path: "custom-prompt.md" } },
+    } as Parameters<typeof memoryV2ConsolidateJob>[1];
+
+    const result = await memoryV2ConsolidateJob(makeJob(), overrideConfig);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).toMatch(/^CUSTOM CONSOLIDATION at \d{4}-/);
+    expect(prompt).not.toContain("You are running memory consolidation");
+    expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
+  });
+
+  test("enqueues the memory_v2_reembed follow-up job on success", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
     if (result.kind === "invoked") {
-      expect(result.followUpJobIds).toEqual(["job-1", "job-2"]);
+      expect(result.followUpJobIds).toEqual(["job-1"]);
     }
 
-    expect(enqueuedJobs).toHaveLength(2);
+    expect(enqueuedJobs).toHaveLength(1);
     expect(enqueuedJobs[0]).toEqual({
-      type: "memory_v2_rebuild_edges",
-      payload: {},
-    });
-    expect(enqueuedJobs[1]).toEqual({
       type: "memory_v2_reembed",
       payload: {},
     });
@@ -344,24 +361,54 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
   });
 
-  test("a stale lock file blocks a second concurrent invocation", async () => {
-    // Pre-seed a lock file as if a prior run was still in flight. The
-    // simple wx-based lock has no liveness probe, so this also covers
-    // stale-lock-on-disk behavior — operators clear stale locks manually.
+  test("a live lock holder blocks a second concurrent invocation", async () => {
+    // Pre-seed a lock file with the current process's PID so the liveness
+    // probe sees a running holder and the second invocation correctly
+    // reports `locked` rather than taking over.
     mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
-    writeFileSync(lockPath(), "9999 1700000000000\n");
+    writeFileSync(lockPath(), `${process.pid} 1700000000000\n`);
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("locked");
     if (result.kind === "locked") {
-      expect(result.holder).toContain("9999");
+      expect(result.holder).toContain(`${process.pid}`);
     }
     expect(runnerCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // The pre-seeded lock must NOT be removed by a contender — only the
-    // owner releases it.
+    // The live holder's lock must NOT be removed by a contender.
     expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
+    // PID 999999 is well outside the typical kernel max_pid range on macOS
+    // and Linux, so kill(pid, 0) reliably returns ESRCH. The takeover path
+    // must unlink the stale file, retry the wx create, and bootstrap the
+    // background conversation as if the lock had been free all along.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), "999999 1700000000000\n");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
+    // Lock is released in the finally block after a successful run.
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("an empty / corrupted lock file is treated as stale and taken over", async () => {
+    // A zero-byte file simulates a prior holder that crashed between the
+    // O_EXCL create and the PID write. With only one writer ever, an
+    // unparseable payload is unambiguously corruption, not a live
+    // mid-write — take it over.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), "");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
+    expect(existsSync(lockPath())).toBe(false);
   });
 });
 

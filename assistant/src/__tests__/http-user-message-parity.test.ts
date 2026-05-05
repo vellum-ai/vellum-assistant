@@ -124,8 +124,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     secretDetection: {
       enabled: true,
-      customPatterns: [],
-      entropyThreshold: 3.5,
     },
     model: "test",
     provider: "test",
@@ -206,12 +204,9 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     setTrustContext: () => {},
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},

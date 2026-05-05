@@ -11,12 +11,12 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 "conversation-starters"
 ```
 
-The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. macOS-scope flags follow the same convention:
+The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. client-scope flags follow the same convention:
 
 ```
 "user-hosted-enabled"
-"mobile-pairing"
 "quick-input"
+"expand-completed-steps"
 ```
 
 **Do not** use a `feature_flags.` prefix, `.enabled` suffix, or snake_case. The old canonical format (`feature_flags.<id>.enabled` / `snake_case_key`) is being retired.

@@ -40,6 +40,11 @@ interface SuggestTrustRuleRequest {
   directoryScopeOptions?: DirectoryScopeOption[];
   currentThreshold: string;
   intent: "auto_approve" | "escalate";
+  existingRule?: {
+    id: string;
+    pattern: string;
+    risk: string;
+  };
 }
 
 interface SuggestTrustRuleResponse {
@@ -107,7 +112,16 @@ broadest). You may select one of these or generate your own pattern that better
 captures the intent. The goal is a pattern specific enough to be meaningful but
 broad enough to cover similar future invocations.
 
-Respond using the suggest_trust_rule tool only.`;
+Respond using the suggest_trust_rule tool only.
+
+When \`existingRule\` is provided, you are in refinement mode:
+- The user has an existing rule (pattern, risk) that already governs this tool.
+- The pattern of an existing rule cannot be changed — only risk and description.
+- Your job: suggest a NARROWER pattern the user could add as a new override rule
+  (e.g. existing: "bash *" → suggest "bash rm -rf *" for this specific invocation).
+- Pick the narrowest scopeOption that still covers the command invocation shown.
+- Risk suggestion: suggest the risk level for this narrower pattern specifically.
+  If the existing rule's risk level is appropriate for the narrow pattern too, keep it.`;
 
 // ── User message builder ─────────────────────────────────────────────
 
@@ -132,6 +146,16 @@ function buildUserMessage(req: SuggestTrustRuleRequest): string {
     for (const opt of req.directoryScopeOptions) {
       lines.push(`- ${opt.scope} — ${opt.label}`);
     }
+  }
+
+  if (req.existingRule) {
+    lines.push("");
+    lines.push(
+      `Existing rule: "${req.existingRule.pattern}" → ${req.existingRule.risk}`,
+    );
+    lines.push(
+      `(This rule auto-approved the command above. Suggest a narrower override if applicable.)`,
+    );
   }
 
   lines.push("");
@@ -215,6 +239,13 @@ const RequestSchema = z.object({
   directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
   currentThreshold: z.string(),
   intent: z.enum(["auto_approve", "escalate"]),
+  existingRule: z
+    .object({
+      id: z.string(),
+      pattern: z.string(),
+      risk: z.string(),
+    })
+    .optional(),
 });
 
 const ResponseSchema = z.object({

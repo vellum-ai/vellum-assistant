@@ -225,14 +225,16 @@ struct ComposerThresholdPicker: View {
             currentPreset = preset
         }
 
-        // Keep draft state in sync immediately so first-send bootstrap carries
-        // the current selection even before any network write completes.
-        onDraftInteractiveOverrideChange?(
-            Self.stagedDraftOverride(
-                for: preset,
-                globalInteractive: globalInteractive
+        // Keep draft state in sync only while this is still a draft chat.
+        // Existing conversations must rely on persisted per-conversation state.
+        if assistantConversationId == nil {
+            onDraftInteractiveOverrideChange?(
+                Self.stagedDraftOverride(
+                    for: preset,
+                    globalInteractive: globalInteractive
+                )
             )
-        )
+        }
 
         // Serialize writes instead of canceling in-flight network calls.
         // Cancellation doesn't guarantee the underlying HTTP request stops,
@@ -279,13 +281,26 @@ struct ComposerThresholdPicker: View {
                     let conversationOverride = try await thresholdClient.getConversationOverride(
                         conversationId: conversationIdString
                     )
-                    // During first-send bootstrap, the client can receive a
-                    // conversation ID before the server has persisted the new
-                    // override row. Fall back to the staged draft value to
-                    // avoid a one-frame flash to the global default.
-                    override = conversationOverride ?? draftInteractiveOverride
+                    if let diagnostic = Self.displayOverrideDiagnostic(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: conversationOverride,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    ) {
+                        log.debug(
+                            "Threshold picker ignoring draft override for existing conversation (\(diagnostic, privacy: .public))"
+                        )
+                    }
+                    override = Self.displayOverride(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: conversationOverride,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    )
                 } else {
-                    override = draftInteractiveOverride
+                    override = Self.displayOverride(
+                        assistantConversationId: assistantConversationId,
+                        conversationOverride: nil,
+                        draftInteractiveOverride: draftInteractiveOverride
+                    )
                 }
 
                 guard !Task.isCancelled else { return }
@@ -356,5 +371,35 @@ struct ComposerThresholdPicker: View {
         case .set(let threshold): threshold
         case .clear: nil
         }
+    }
+
+    /// Returns the override string to display in the picker for the current
+    /// context. Draft override state only applies before a conversation exists.
+    static func displayOverride(
+        assistantConversationId: String?,
+        conversationOverride: String?,
+        draftInteractiveOverride: String?
+    ) -> String? {
+        if canonicalConversationId(assistantConversationId) == nil {
+            return draftInteractiveOverride
+        }
+        return conversationOverride
+    }
+
+    /// Optional debug diagnostic when draft threshold state exists for an
+    /// existing conversation and disagrees with persisted conversation state.
+    static func displayOverrideDiagnostic(
+        assistantConversationId: String?,
+        conversationOverride: String?,
+        draftInteractiveOverride: String?
+    ) -> String? {
+        guard canonicalConversationId(assistantConversationId) != nil else { return nil }
+        guard let draftInteractiveOverride else { return nil }
+        if let conversationOverride {
+            return conversationOverride == draftInteractiveOverride
+                ? nil
+                : "draft_conflicts_with_conversation_override"
+        }
+        return "draft_present_without_conversation_override"
     }
 }

@@ -4,13 +4,13 @@ import type { RecallEvidence, RecallSource } from "./types.js";
 
 export type RecallAgentConfidence = "high" | "medium" | "low";
 
-export interface RecallAgentToolDefinition {
+interface RecallAgentToolDefinition {
   name: string;
   description: string;
   input_schema: Record<string, unknown>;
 }
 
-export interface RecallAgentPromptOptions {
+interface RecallAgentPromptOptions {
   query: string;
   availableSources?: readonly RecallSource[];
   evidence: readonly RecallEvidence[];
@@ -18,7 +18,7 @@ export interface RecallAgentPromptOptions {
   maxSearchCalls?: number;
 }
 
-export interface RecallAgentPromptBundle {
+interface RecallAgentPromptBundle {
   prompt: string;
   evidence: RecallEvidence[];
 }
@@ -30,14 +30,14 @@ export interface RecallAgentFinish {
   unresolved?: string[];
 }
 
-export type RecallFinishFallbackReason =
+type RecallFinishFallbackReason =
   | "malformed_finish_payload"
   | "invalid_confidence"
   | "invalid_citation_ids"
   | "unknown_citation_ids"
   | "empty_answer";
 
-export type RecallFinishValidationResult =
+type RecallFinishValidationResult =
   | { ok: true; finish: RecallAgentFinish }
   | {
       ok: false;
@@ -46,7 +46,7 @@ export type RecallFinishValidationResult =
       missingCitationIds?: string[];
     };
 
-export interface RecallCitationValidationResult {
+interface RecallCitationValidationResult {
   ok: boolean;
   validCitationIds: string[];
   missingCitationIds: string[];

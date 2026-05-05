@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
-import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -29,6 +28,29 @@ let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+// Mock the IPC proxy so guardian-bootstrap reads/writes the local test DB
+let testAssistantDb: Database | null = null;
+
+mock.module("../db/assistant-db-proxy.js", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbQuery(sql: string, bind?: any[]) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    const stmt = testAssistantDb.prepare(sql);
+    return bind ? stmt.all(...bind) : stmt.all();
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async assistantDbRun(sql: string, bind?: any[]) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    const stmt = testAssistantDb.prepare(sql);
+    const result = bind ? stmt.run(...bind) : stmt.run();
+    return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
+  },
+  async assistantDbExec(sql: string) {
+    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
+    testAssistantDb.exec(sql);
+  },
 }));
 
 const { createChannelVerificationSessionProxyHandler } =
@@ -98,7 +120,8 @@ async function setupTestDirs(): Promise<void> {
     )
   `);
 
-  db.close();
+  // Keep the DB open for the IPC proxy mock
+  testAssistantDb = db;
 
   // Point gateway at temp dirs
   process.env.VELLUM_WORKSPACE_DIR = testRoot;
@@ -115,7 +138,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
@@ -141,10 +163,13 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  closeAssistantDb();
   resetGatewayDb();
   fetchMock = mock(async () => new Response());
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+  if (testAssistantDb) {
+    try { testAssistantDb.close(); } catch { /* best effort */ }
+    testAssistantDb = null;
+  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {
@@ -333,9 +358,12 @@ describe("guardian/init one-time-use lockfile", () => {
     const body = await res.json();
 
     // Verify contact records were written to the assistant DB
-    const assistantDb = new Database(join(testRoot, "data", "db", "assistant.db"), {
-      readonly: true,
-    });
+    const assistantDb = new Database(
+      join(testRoot, "data", "db", "assistant.db"),
+      {
+        readonly: true,
+      },
+    );
 
     const contact = assistantDb
       .query<
@@ -555,6 +583,7 @@ describe("guardian/reset-bootstrap", () => {
 describe("guardian/init bare-metal loopback gating", () => {
   test("rejects non-loopback clients in bare-metal mode", async () => {
     delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    delete process.env.IS_PLATFORM;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -572,6 +601,7 @@ describe("guardian/init bare-metal loopback gating", () => {
 
   test("allows loopback clients in bare-metal mode", async () => {
     delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    delete process.env.IS_PLATFORM;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -605,6 +635,28 @@ describe("guardian/init bare-metal loopback gating", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.accessToken).toBeTruthy();
+  });
+
+  test("skips loopback check in platform-managed mode (IS_PLATFORM=true)", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    process.env.IS_PLATFORM = "true";
+    try {
+      const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+      const res = await handler.handleGuardianInit(
+        new Request("http://localhost:7830/v1/guardian/init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "web", deviceId: "platform-abc123" }),
+        }),
+        "::ffff:10.112.1.68",
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.accessToken).toBeTruthy();
+    } finally {
+      delete process.env.IS_PLATFORM;
+    }
   });
 });
 

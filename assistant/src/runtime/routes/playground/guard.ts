@@ -15,7 +15,7 @@ import { RouteError } from "../errors.js";
  */
 const PLAYGROUND_DISABLED_CODE = "playground_disabled";
 
-export function isPlaygroundEnabled(): boolean {
+function isPlaygroundEnabled(): boolean {
   return isAssistantFeatureFlagEnabled("compaction-playground", getConfig());
 }
 

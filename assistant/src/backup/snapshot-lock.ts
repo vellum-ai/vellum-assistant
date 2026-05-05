@@ -32,10 +32,10 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { kill } from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { getLogger } from "../util/logger.js";
+import { isProcessAlive } from "../util/process-liveness.js";
 import { getLocalBackupsDir } from "./paths.js";
 
 const log = getLogger("snapshot-lock");
@@ -86,29 +86,6 @@ const EMPTY_FILE_MAX_RETRIES = 3;
  */
 export function getSnapshotLockPath(): string {
   return join(dirname(getLocalBackupsDir()), ".snapshot.lock");
-}
-
-/**
- * Check whether a PID refers to a live process. Uses `kill(pid, 0)`, which
- * does not send any signal — it just probes for existence and permission.
- *
- * Returns `false` for obviously invalid PIDs (<= 0) and for any error that
- * indicates the process is gone. Returns `true` for ESRCH-negative results
- * (meaning a process exists) and for EPERM (process exists but is owned by
- * another user — still a live process, still should not be taken over).
- */
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    // EPERM means the PID exists but we cannot signal it — treat as alive so
-    // we don't accidentally take over another user's lock.
-    if (code === "EPERM") return true;
-    return false;
-  }
 }
 
 /**
@@ -348,9 +325,7 @@ export async function acquireSnapshotLock(
     }
 
     if (isProcessAlive(holder.pid)) {
-      throw new Error(
-        `snapshot in progress (locked by pid ${holder.pid})`,
-      );
+      throw new Error(`snapshot in progress (locked by pid ${holder.pid})`);
     }
 
     // --- Step 3: stale takeover via rename-aside ---

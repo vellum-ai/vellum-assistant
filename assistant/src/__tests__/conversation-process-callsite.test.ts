@@ -12,14 +12,28 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+
+// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
+// (registry default `true`) flips memory routing to v2 — disable it here so
+// the v1 paths under test stay active.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.
-const captured: { callSite?: string } = {};
+const captured: {
+  callSite?: string;
+  constructorMaxTokens?: unknown;
+  resolvedMaxTokens?: unknown;
+  resolvedHasMaxTokens?: boolean;
+} = {};
 
 function clearCaptured(): void {
   captured.callSite = undefined;
+  captured.constructorMaxTokens = undefined;
+  captured.resolvedMaxTokens = undefined;
+  captured.resolvedHasMaxTokens = undefined;
 }
 
 mock.module("../util/logger.js", () => ({
@@ -97,6 +111,14 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolvePersonaContext: () => ({
+    userPersona: undefined,
+    channelPersona: undefined,
+    userSlug: undefined,
+  }),
+}));
+
 mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
@@ -165,7 +187,22 @@ mock.module("../memory/retriever.js", () => ({
 // The 6th positional parameter is `callSite` (see assistant/src/agent/loop.ts).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
-    constructor() {}
+    constructor(
+      _provider: unknown,
+      _systemPrompt: string,
+      config?: Record<string, unknown>,
+      _tools?: unknown,
+      _toolExecutor?: unknown,
+      _resolveTools?: unknown,
+      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>,
+    ) {
+      captured.constructorMaxTokens = config?.maxTokens;
+      const resolved = resolveSystemPrompt?.([]);
+      captured.resolvedMaxTokens = resolved?.maxTokens;
+      captured.resolvedHasMaxTokens =
+        resolved !== undefined &&
+        Object.prototype.hasOwnProperty.call(resolved, "maxTokens");
+    }
     getToolTokenBudget() {
       return 0;
     }
@@ -234,6 +271,10 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import {
+  clearAllActiveConversations,
+  getOrCreateConversation,
+} from "../daemon/conversation-store.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -304,5 +345,47 @@ describe("processMessage callSite threading", () => {
     await conversation.processMessage("Plain user message", [], () => {});
 
     expect(captured.callSite).toBe("mainAgent");
+  });
+
+  test("does not pin default maxTokens when maxResponseTokens is absent", async () => {
+    mockConversation = {
+      id: "conv-store-default",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    await getOrCreateConversation("conv-store-default");
+
+    expect(captured.constructorMaxTokens).toBeUndefined();
+    expect(captured.resolvedMaxTokens).toBeUndefined();
+    expect(captured.resolvedHasMaxTokens).toBe(false);
+  });
+
+  test("preserves explicit maxResponseTokens at conversation creation", async () => {
+    mockConversation = {
+      id: "conv-store-explicit",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    await getOrCreateConversation("conv-store-explicit", {
+      maxResponseTokens: 1234,
+    });
+
+    expect(captured.constructorMaxTokens).toBe(1234);
+    expect(captured.resolvedMaxTokens).toBe(1234);
+    expect(captured.resolvedHasMaxTokens).toBe(true);
   });
 });

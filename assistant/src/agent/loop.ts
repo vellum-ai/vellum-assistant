@@ -93,9 +93,13 @@ export type AgentEvent =
       contentBlocks?: ContentBlock[];
       riskLevel?: string;
       riskReason?: string;
+      matchedTrustRuleId?: string;
       isContainerized?: boolean;
       riskScopeOptions?: Array<{ pattern: string; label: string }>;
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+      approvalMode?: string;
+      approvalReason?: string;
+      riskThreshold?: string;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -275,9 +279,13 @@ export type LoopToolExecutor = (
   yieldToUser?: boolean;
   riskLevel?: string;
   riskReason?: string;
+  matchedTrustRuleId?: string;
   isContainerized?: boolean;
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+  approvalMode?: string;
+  approvalReason?: string;
+  riskThreshold?: string;
 }>;
 
 export class AgentLoop {
@@ -364,6 +372,7 @@ export class AgentLoop {
      * default for the lifetime of an agent loop run.
      */
     overrideProfile?: string,
+    effectiveMaxInputTokens?: number,
   ): Promise<Message[]> {
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -462,6 +471,7 @@ export class AgentLoop {
         // analyze, etc.) pass their own `callSite`.
         if (callSite) {
           providerConfig.callSite = callSite;
+          providerConfig.usageTracking = "manual";
         }
 
         // Per-call inference-profile override. The resolver layers
@@ -919,7 +929,8 @@ export class AgentLoop {
         // plugin pipeline so downstream plugins can swap in a smarter
         // truncation strategy (e.g. a summariser) while the default
         // middleware preserves the historical tail-drop behaviour.
-        const contextWindowTokens = this.config.maxInputTokens ?? 180_000;
+        const contextWindowTokens =
+          effectiveMaxInputTokens ?? this.config.maxInputTokens ?? 180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
         const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
 
@@ -987,9 +998,13 @@ export class AgentLoop {
             contentBlocks: result.contentBlocks,
             riskLevel: result.riskLevel,
             riskReason: result.riskReason,
+            matchedTrustRuleId: result.matchedTrustRuleId,
             isContainerized: result.isContainerized,
             riskScopeOptions: result.riskScopeOptions,
             riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
+            approvalMode: result.approvalMode,
+            approvalReason: result.approvalReason,
+            riskThreshold: result.riskThreshold,
           });
         }
 

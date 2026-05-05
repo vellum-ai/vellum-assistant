@@ -56,9 +56,8 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
 
     // ── Auth ──
     // STT streaming is an authenticated, assistant-scoped path. The
-    // client must present a valid edge JWT (actor principal). Unlike
-    // browser-relay, STT streaming does not have an auth-bypass mode —
-    // fail closed.
+    // client must present a valid edge JWT (actor principal). There is
+    // no auth-bypass mode — fail closed.
     if (!config.runtimeProxyRequireAuth) {
       // When runtime proxy auth is globally disabled (dev bypass), we
       // still allow the upgrade but skip token validation.

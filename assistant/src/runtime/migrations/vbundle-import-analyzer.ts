@@ -44,9 +44,9 @@ const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 // Public types
 // ---------------------------------------------------------------------------
 
-export type ImportAction = "create" | "overwrite" | "unchanged" | "skip";
+type ImportAction = "create" | "overwrite" | "unchanged" | "skip";
 
-export interface ImportFileReport {
+interface ImportFileReport {
   /** Archive path (e.g. "data/db/assistant.db") */
   path: string;
   /** What would happen to this file on import */
@@ -61,7 +61,7 @@ export interface ImportFileReport {
   current_sha256: string | null;
 }
 
-export interface ImportConflict {
+interface ImportConflict {
   code: string;
   message: string;
   path?: string;
@@ -112,7 +112,9 @@ export class DefaultPathResolver implements PathResolver {
   constructor(
     private workspaceDir?: string,
     private hooksDir?: string,
-    private guardianPersonaPathResolver: () => string | null = resolveGuardianPersonaPath,
+    private guardianPersonaPathResolver: () =>
+      | string
+      | null = resolveGuardianPersonaPath,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -229,7 +231,7 @@ function sha256Hex(data: Uint8Array): string {
 // Core analyzer
 // ---------------------------------------------------------------------------
 
-export interface AnalyzeImportOptions {
+interface AnalyzeImportOptions {
   /** The parsed and validated manifest from the bundle */
   manifest: ManifestType;
   /** Resolves archive paths to disk paths for comparison */
@@ -247,7 +249,7 @@ export function analyzeImport(
   const files: ImportFileReport[] = [];
   const conflicts: ImportConflict[] = [];
 
-  for (const fileEntry of manifest.files) {
+  for (const fileEntry of manifest.contents) {
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     // Credential entries are handled separately by the credential import
@@ -256,7 +258,7 @@ export function analyzeImport(
       files.push({
         path: fileEntry.path,
         action: "skip",
-        bundle_size: fileEntry.size,
+        bundle_size: fileEntry.size_bytes,
         bundle_sha256: fileEntry.sha256,
         current_size: null,
         current_sha256: null,
@@ -278,7 +280,7 @@ export function analyzeImport(
         files.push({
           path: fileEntry.path,
           action: "skip",
-          bundle_size: fileEntry.size,
+          bundle_size: fileEntry.size_bytes,
           bundle_sha256: fileEntry.sha256,
           current_size: null,
           current_sha256: null,
@@ -295,7 +297,7 @@ export function analyzeImport(
       files.push({
         path: fileEntry.path,
         action: "skip",
-        bundle_size: fileEntry.size,
+        bundle_size: fileEntry.size_bytes,
         bundle_sha256: fileEntry.sha256,
         current_size: null,
         current_sha256: null,
@@ -324,7 +326,7 @@ export function analyzeImport(
         files.push({
           path: fileEntry.path,
           action,
-          bundle_size: fileEntry.size,
+          bundle_size: fileEntry.size_bytes,
           bundle_sha256: fileEntry.sha256,
           current_size: currentSize,
           current_sha256: currentSha256,
@@ -344,7 +346,7 @@ export function analyzeImport(
     files.push({
       path: fileEntry.path,
       action,
-      bundle_size: fileEntry.size,
+      bundle_size: fileEntry.size_bytes,
       bundle_sha256: fileEntry.sha256,
       current_size: currentSize,
       current_sha256: currentSha256,

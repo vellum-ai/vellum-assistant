@@ -100,6 +100,23 @@ const orgIdCache = new Map<string, { orgId: string; expiresAt: number }>();
 const ORG_ID_CACHE_TTL_MS = 60_000; // 60 seconds
 
 /**
+ * Drop the cached org ID for a given (token, platformUrl) pair. Used by the
+ * one-shot 401-retry path: a 401 on a session-token request frequently means
+ * the cached `Vellum-Organization-Id` header is stale (e.g. user switched
+ * orgs in another tab). Clearing the entry forces the next `authHeaders`
+ * call to refetch the org ID from the platform.
+ *
+ * Exported so other modules (e.g. local-runtime-client) can implement the
+ * same retry pattern without needing direct access to the cache map.
+ */
+export function invalidateOrgIdCache(
+  token: string,
+  platformUrl?: string,
+): void {
+  orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
+}
+
+/**
  * Returns the full set of headers needed for an authenticated platform
  * API request:
  *
@@ -196,6 +213,7 @@ export async function ensureSelfHostedLocalRegistration(
   clientPlatform: string,
   assistantVersion?: string,
   platformUrl?: string,
+  publicBaseUrl?: string,
 ): Promise<EnsureRegistrationResponse> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const body: Record<string, string> = {
@@ -205,6 +223,9 @@ export async function ensureSelfHostedLocalRegistration(
   };
   if (assistantVersion) {
     body.assistant_version = assistantVersion;
+  }
+  if (publicBaseUrl) {
+    body.public_ingress_url = publicBaseUrl;
   }
 
   const response = await fetch(
@@ -468,6 +489,7 @@ export async function hatchAssistant(
     method: "POST",
     headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({}),
+    signal: AbortSignal.timeout(300_000),
   });
 
   if (response.ok) {
@@ -666,180 +688,8 @@ export async function rollbackPlatformAssistant(
 }
 
 // ---------------------------------------------------------------------------
-// Migration export
-// ---------------------------------------------------------------------------
-
-export async function platformInitiateExport(
-  token: string,
-  description?: string,
-  platformUrl?: string,
-): Promise<{ jobId: string; status: string }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/migrations/export/`, {
-    method: "POST",
-    headers: await authHeaders(token, platformUrl),
-    body: JSON.stringify({ description: description ?? "CLI backup" }),
-  });
-
-  if (response.status !== 201) {
-    const body = (await response.json().catch(() => ({}))) as {
-      detail?: string;
-    };
-    throw new Error(
-      body.detail ??
-        `Export initiation failed: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    job_id: string;
-    status: string;
-  };
-  return { jobId: body.job_id, status: body.status };
-}
-
-export async function platformPollExportStatus(
-  jobId: string,
-  token: string,
-  platformUrl?: string,
-): Promise<{ status: string; downloadUrl?: string; error?: string }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
-    `${resolvedUrl}/v1/migrations/export/${jobId}/status/`,
-    {
-      headers: await authHeaders(token, platformUrl),
-    },
-  );
-
-  if (response.status === 404) {
-    throw new Error("Export job not found");
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Export status check failed: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    status: string;
-    download_url?: string;
-    error?: string;
-  };
-  return {
-    status: body.status,
-    downloadUrl: body.download_url,
-    error: body.error,
-  };
-}
-
-export async function platformDownloadExport(
-  downloadUrl: string,
-): Promise<Response> {
-  const response = await fetch(downloadUrl);
-  if (!response.ok) {
-    throw new Error(
-      `Download failed: ${response.status} ${response.statusText}`,
-    );
-  }
-  return response;
-}
-
-// ---------------------------------------------------------------------------
-// Migration import
-// ---------------------------------------------------------------------------
-
-export async function platformImportPreflight(
-  bundleData: Uint8Array<ArrayBuffer>,
-  token: string,
-  platformUrl?: string,
-): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
-    `${resolvedUrl}/v1/migrations/import-preflight/`,
-    {
-      method: "POST",
-      headers: {
-        ...(await authHeaders(token, platformUrl)),
-        "Content-Type": "application/octet-stream",
-      },
-      body: new Blob([bundleData]),
-      signal: AbortSignal.timeout(120_000),
-    },
-  );
-
-  const body = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  return { statusCode: response.status, body };
-}
-
-export async function platformImportBundle(
-  bundleData: Uint8Array<ArrayBuffer>,
-  token: string,
-  platformUrl?: string,
-): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/migrations/import/`, {
-    method: "POST",
-    headers: {
-      ...(await authHeaders(token, platformUrl)),
-      "Content-Type": "application/octet-stream",
-    },
-    body: new Blob([bundleData]),
-    signal: AbortSignal.timeout(300_000),
-  });
-
-  const body = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  return { statusCode: response.status, body };
-}
-
-// ---------------------------------------------------------------------------
 // Signed-URL upload flow
 // ---------------------------------------------------------------------------
-
-export async function platformRequestUploadUrl(
-  token: string,
-  platformUrl?: string,
-): Promise<{ uploadUrl: string; bundleKey: string; expiresAt: string }> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/migrations/upload-url/`, {
-    method: "POST",
-    headers: await authHeaders(token, platformUrl),
-    body: JSON.stringify({ content_type: "application/octet-stream" }),
-  });
-
-  if (response.status === 201) {
-    const body = (await response.json()) as {
-      upload_url: string;
-      bundle_key: string;
-      expires_at: string;
-    };
-    return {
-      uploadUrl: body.upload_url,
-      bundleKey: body.bundle_key,
-      expiresAt: body.expires_at,
-    };
-  }
-
-  if (response.status === 404 || response.status === 503) {
-    throw new Error(
-      "Signed uploads are not available on this platform instance",
-    );
-  }
-
-  const errorBody = (await response.json().catch(() => ({}))) as {
-    detail?: string;
-  };
-  throw new Error(
-    errorBody.detail ??
-      `Failed to request upload URL: ${response.status} ${response.statusText}`,
-  );
-}
 
 export async function platformUploadToSignedUrl(
   uploadUrl: string,
@@ -911,46 +761,6 @@ export async function platformImportBundleFromGcs(
   return { statusCode: response.status, body };
 }
 
-export async function platformPollImportStatus(
-  jobId: string,
-  token: string,
-  platformUrl?: string,
-): Promise<{
-  status: string;
-  result?: Record<string, unknown>;
-  error?: string;
-}> {
-  const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
-    `${resolvedUrl}/v1/migrations/import/${jobId}/status/`,
-    {
-      headers: await authHeaders(token, platformUrl),
-    },
-  );
-
-  if (response.status === 404) {
-    throw new Error("Import job not found");
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Import status check failed: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    status: string;
-    job_id?: string;
-    result?: Record<string, unknown>;
-    error?: string;
-  };
-  return {
-    status: body.status,
-    result: body.result,
-    error: body.error,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Unified signed-url + job-status endpoints (teleport-gcs-unify)
 // ---------------------------------------------------------------------------
@@ -1017,6 +827,45 @@ export function parseUnifiedJobStatus(
   };
 }
 
+export interface BundleCompatibility {
+  min_runtime_version: string;
+  max_runtime_version: string | null;
+}
+
+/**
+ * Thrown by platformRequestSignedUrl when the platform rejects a download
+ * signed-URL request because the target runtime version is outside the
+ * ExportJob's [min_runtime_version, max_runtime_version] band. Terminal
+ * — callers must NOT retry; surface to the user and abort the
+ * teleport/restore wizard.
+ */
+export class VersionMismatchError extends Error {
+  readonly bundleCompat: BundleCompatibility;
+  readonly targetRuntimeVersion: string;
+
+  constructor(bundleCompat: BundleCompatibility, targetRuntimeVersion: string) {
+    super(
+      VersionMismatchError.formatMessage(bundleCompat, targetRuntimeVersion),
+    );
+    this.name = "VersionMismatchError";
+    this.bundleCompat = bundleCompat;
+    this.targetRuntimeVersion = targetRuntimeVersion;
+  }
+
+  static formatMessage(
+    compat: BundleCompatibility,
+    targetRuntimeVersion: string,
+  ): string {
+    const range = compat.max_runtime_version
+      ? `${compat.min_runtime_version}–${compat.max_runtime_version}`
+      : `${compat.min_runtime_version}+`;
+    return (
+      `Cannot import: bundle requires runtime ${range}, but this runtime is ${targetRuntimeVersion}. ` +
+      `Update your runtime before importing.`
+    );
+  }
+}
+
 /**
  * Request a signed URL from the platform for either uploading a new bundle
  * or downloading an existing one. Calls `POST /v1/migrations/signed-url/`.
@@ -1027,8 +876,10 @@ export function parseUnifiedJobStatus(
  *   runtime can GET the bundle from during an import-from-GCS flow.
  *
  * Retries once with a fresh org-ID cache on 401 to match the retry pattern
- * used by other authenticated platform helpers. 503 is bubbled up so
- * callers can decide to fall back (e.g. legacy inline upload).
+ * used by other authenticated platform helpers.
+ *
+ * Throws {@link VersionMismatchError} on a 422 `version_mismatch` response,
+ * which is terminal — callers must NOT retry.
  */
 export async function platformRequestSignedUrl(
   params: {
@@ -1036,6 +887,11 @@ export async function platformRequestSignedUrl(
     bundleKey?: string;
     contentType?: string;
     contentLength?: number;
+    // Source-side, upload only: runtime version that produced the bundle.
+    minRuntimeVersion?: string;
+    maxRuntimeVersion?: string | null;
+    // Target-side, download only: runtime version that will import.
+    targetRuntimeVersion?: string;
   },
   token: string,
   platformUrl?: string,
@@ -1052,6 +908,17 @@ export async function platformRequestSignedUrl(
   if (params.contentLength !== undefined) {
     body.content_length = params.contentLength;
   }
+  if (params.minRuntimeVersion !== undefined) {
+    body.min_runtime_version = params.minRuntimeVersion;
+  }
+  if (params.maxRuntimeVersion !== undefined) {
+    // Explicit null is the documented "no upper bound" sentinel; keep it
+    // in the payload rather than stripping to undefined.
+    body.max_runtime_version = params.maxRuntimeVersion;
+  }
+  if (params.targetRuntimeVersion !== undefined) {
+    body.target_runtime_version = params.targetRuntimeVersion;
+  }
 
   const doRequest = async (): Promise<Response> =>
     fetch(`${resolvedUrl}/v1/migrations/signed-url/`, {
@@ -1067,7 +934,7 @@ export async function platformRequestSignedUrl(
     // lookup. For session-token callers, a 401 frequently means the
     // cached org ID is stale — calling doRequest() again without clearing
     // the cache would just send the same stale header and fail again.
-    orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
+    invalidateOrgIdCache(token, platformUrl);
     response = await doRequest();
   }
 
@@ -1086,15 +953,28 @@ export async function platformRequestSignedUrl(
     };
   }
 
-  if (response.status === 503) {
-    throw new Error(
-      `Signed URL endpoint unavailable (503) — caller may fall back`,
+  // Non-success body. Read once and reuse for both the 422 version-mismatch
+  // branch and the generic-error fallthrough — `response.json()` consumes
+  // the body, so a second read would always return undefined.
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+    reason?: string;
+    bundle_compat?: BundleCompatibility;
+    target_runtime_version?: string;
+  };
+
+  if (
+    response.status === 422 &&
+    errorBody.reason === "version_mismatch" &&
+    errorBody.bundle_compat &&
+    typeof errorBody.target_runtime_version === "string"
+  ) {
+    throw new VersionMismatchError(
+      errorBody.bundle_compat,
+      errorBody.target_runtime_version,
     );
   }
 
-  const errorBody = (await response.json().catch(() => ({}))) as {
-    detail?: string;
-  };
   throw new Error(
     errorBody.detail ??
       `Failed to request signed URL: ${response.status} ${response.statusText}`,

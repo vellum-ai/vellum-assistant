@@ -61,7 +61,6 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: (raw: Record<string, unknown>) => {
     configStore = structuredClone(raw);
   },
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
   setNestedValue,
 }));
@@ -438,11 +437,7 @@ describe("Slack channel config handler", () => {
   });
 
   test("POST rejects user token with invalid prefix", async () => {
-    const result = await setSlackChannelConfig(
-      undefined,
-      undefined,
-      "abc-123",
-    );
+    const result = await setSlackChannelConfig(undefined, undefined, "abc-123");
     expect(result.success).toBe(false);
     expect(result.error).toContain("xoxp-");
     // Nothing was stored.
@@ -660,9 +655,7 @@ describe("Slack channel config handler", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBe("xoxp-still-valid");
-    expect(
-      getCredentialMetadata("slack_channel", "user_token"),
-    ).toBeDefined();
+    expect(getCredentialMetadata("slack_channel", "user_token")).toBeDefined();
 
     // No warning about user_token removal — nothing was removed.
     expect(result.warning ?? "").not.toContain("User token");
@@ -697,10 +690,10 @@ describe("Slack channel config handler", () => {
       }
       if (auth === "Bearer xoxp-workspace-a") {
         // Workspace mismatch — handler will try to clear the user_token.
-        return new Response(
-          JSON.stringify({ ok: true, team_id: "T_A" }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ ok: true, team_id: "T_A" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected auth header: ${auth}`);
     }) as unknown as typeof globalThis.fetch;
@@ -808,7 +801,9 @@ describe("Slack channel config handler", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBeUndefined();
-    expect(getCredentialMetadata("slack_channel", "user_token")).toBeUndefined();
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeUndefined();
   });
 
   test("clearSlackUserToken leaves bot+app tokens and oauth_connection intact", async () => {

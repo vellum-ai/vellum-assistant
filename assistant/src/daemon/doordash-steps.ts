@@ -6,8 +6,8 @@
  */
 
 import { isPlainObject } from "../util/object.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import type { CardSurfaceData } from "./message-protocol.js";
+import type { ToolSetupContext } from "./tool-setup-types.js";
 
 interface DoordashStep {
   label: string;

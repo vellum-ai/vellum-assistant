@@ -107,6 +107,8 @@ struct ComposerView: View, Equatable {
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
+    /// Assistant-resolved effective budget for this conversation's active
+    /// profile/call site. Display as-is; do not substitute catalog maximums.
     var contextWindowMaxTokens: Int? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
@@ -439,37 +441,19 @@ struct ComposerView: View, Equatable {
         }
     }
 
-    /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
+    /// Bottom action bar: settings + context window on the left,
+    /// attach/mic/send on the right.
     @ViewBuilder
     private var composerActionBar: some View {
         HStack(spacing: VSpacing.xs) {
-            // Left side
-            if !isAssistantBusy || hasPendingConfirmation {
-                VButton(
-                    label: "Attach file",
-                    iconOnly: VIcon.paperclip.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onAttach() }
-                )
-                .vTooltip("Attach file")
-            }
-
-            if showThresholdPicker {
-                ComposerThresholdPicker(
+            // Left side: settings menu + context window indicator
+            if showThresholdPicker || inferenceProfilePicker != nil {
+                ComposerSettingsMenu(
+                    showThresholdSection: showThresholdPicker,
                     assistantConversationId: assistantConversationId,
                     draftInteractiveOverride: draftThresholdOverride,
-                    onDraftInteractiveOverrideChange: onDraftThresholdOverrideChange
-                )
-            }
-
-            if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {
-                ChatProfilePicker(
-                    isEnabled: true,
-                    current: inferenceProfilePicker.current,
-                    profiles: inferenceProfilePicker.profiles,
-                    activeProfile: inferenceProfilePicker.activeProfile,
-                    onSelect: inferenceProfilePicker.onSelect
+                    onDraftInteractiveOverrideChange: onDraftThresholdOverrideChange,
+                    inferenceProfilePicker: inferenceProfilePicker
                 )
             }
 
@@ -481,7 +465,7 @@ struct ComposerView: View, Equatable {
 
             Spacer()
 
-            // Right side
+            // Right side: attach, stop/voice/mic, send
             if isAssistantBusy && !hasPendingConfirmation {
                 VButton(
                     label: "Stop generation",
@@ -491,8 +475,18 @@ struct ComposerView: View, Equatable {
                     action: onStop
                 )
             } else if inputText.isEmpty && !hasPendingConfirmation {
+                if !isAssistantBusy {
+                    VButton(
+                        label: "Attach file",
+                        iconOnly: VIcon.paperclip.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
+                        action: { onAttach() }
+                    )
+                    .vTooltip("Attach file")
+                }
+
                 if onVoiceModeToggle != nil {
-                    // Live voice button
                     VButton(
                         label: "Voice mode",
                         iconOnly: VIcon.audioWaveform.rawValue,
@@ -503,7 +497,6 @@ struct ComposerView: View, Equatable {
                     .vTooltip("Live voice conversation")
                 }
 
-                // Dictate / stop button
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
                     iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
@@ -514,7 +507,6 @@ struct ComposerView: View, Equatable {
                 .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
                 if !isRecording {
-                    // Send button (hidden during recording)
                     VButton(
                         label: "Send message",
                         iconOnly: VIcon.arrowUp.rawValue,
@@ -528,7 +520,15 @@ struct ComposerView: View, Equatable {
                     .vTooltip("Type a message to send")
                 }
             } else if !hasPendingConfirmation {
-                // Mic / stop button
+                VButton(
+                    label: "Attach file",
+                    iconOnly: VIcon.paperclip.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onAttach() }
+                )
+                .vTooltip("Attach file")
+
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
                     iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
@@ -539,7 +539,6 @@ struct ComposerView: View, Equatable {
                 .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
                 if !isRecording {
-                    // Send button (hidden during recording)
                     VButton(
                         label: "Send message",
                         iconOnly: VIcon.arrowUp.rawValue,
@@ -553,7 +552,16 @@ struct ComposerView: View, Equatable {
                     .vTooltip(canSend ? "Send" : "Type a message to send")
                 }
             } else {
-                // Pending confirmation — show same buttons as empty-input state
+                // Pending confirmation
+                VButton(
+                    label: "Attach file",
+                    iconOnly: VIcon.paperclip.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onAttach() }
+                )
+                .vTooltip("Attach file")
+
                 if onVoiceModeToggle != nil {
                     VButton(
                         label: "Voice mode",

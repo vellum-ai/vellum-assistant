@@ -20,8 +20,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: true,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
 };
@@ -30,7 +28,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -42,15 +39,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-// Pass through without actual sandboxing so tests can run bun directly
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (command: string, _workingDir: string, _config: unknown) => ({
-    command: "bash",
-    args: ["-c", "--", command],
-    sandboxed: false,
-  }),
 }));
 
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";

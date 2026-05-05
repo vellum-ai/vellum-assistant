@@ -1,6 +1,5 @@
 import * as Sentry from "@sentry/node";
 
-import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { McpServerManager } from "../mcp/manager.js";
@@ -21,11 +20,10 @@ export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
-  filing: FilingService;
+  filing: FilingService | null;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
   getMemoryWorker: () => { stop(): void } | null;
-  getBackupWorker: () => BackupWorkerHandle | null;
   getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
   telemetryReporter: { stop(): Promise<void> } | null;
@@ -60,7 +58,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
-    await deps.filing.stop();
+    if (deps.filing) await deps.filing.stop();
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)
     // before stopping the server so any HTTP round-trips and SSE emissions
@@ -121,7 +119,6 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     cleanupShellOutputTempFiles();
     deps.scheduler.stop();
     deps.getMemoryWorker()?.stop();
-    deps.getBackupWorker()?.stop();
 
     if (deps.mcpManager) {
       try {

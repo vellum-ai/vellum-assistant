@@ -27,6 +27,7 @@ import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
+import { registerGatewayCommand } from "./commands/gateway.js";
 import { registerImageGenerationCommand } from "./commands/image-generation.js";
 import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
@@ -35,10 +36,12 @@ import { registerMemoryCommand } from "./commands/memory.js";
 import { registerMemoryV2Command } from "./commands/memory-v2.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
+import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerStatusCommand } from "./commands/status.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
@@ -54,7 +57,7 @@ import { log } from "./logger.js";
  * the gateway so flag-gated commands are registered correctly.
  */
 export async function buildCliProgram(): Promise<Command> {
-  await initFeatureFlagOverrides();
+  await initFeatureFlagOverrides({ retryBackoffsMs: [], callTimeoutMs: 200 });
   const program = new Command();
 
   program
@@ -95,6 +98,7 @@ Examples:
     registerDomainCommand(program);
     registerEmailCommand(program);
   }
+  registerGatewayCommand(program);
   registerImageGenerationCommand(program);
   registerInferenceCommand(program);
   registerKeysCommand(program);
@@ -103,9 +107,11 @@ Examples:
   registerMemoryV2Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
+  registerPendingCommand(program);
   registerPlatformCommand(program);
   registerRoutesCommand(program);
   registerSequenceCommand(program);
+  registerStatusCommand(program);
   registerSkillsCommand(program);
   registerSttCommand(program);
   registerTaskCommand(program);
@@ -122,7 +128,7 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions"]);
+  const workspaceExemptCommands = new Set(["completions", "status"]);
   program.hook("preAction", (_thisCommand, actionCommand) => {
     if (workspaceExemptCommands.has(actionCommand.name())) {
       return;

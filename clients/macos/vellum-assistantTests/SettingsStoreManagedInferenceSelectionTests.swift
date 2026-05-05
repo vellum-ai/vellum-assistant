@@ -236,6 +236,36 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: "openai/gpt-5"))
     }
 
+    // MARK: - BYOK Auto-Reset Condition
+
+    func testAutoResetDoesNotFireWhenDaemonReportsKeyConfigured() {
+        // Verify the task-block auto-reset condition for gemini in "your-own"
+        // mode when the daemon reports a key is configured. The reset guard
+        // evaluates !hasConfiguredKey, so the reset must NOT fire here.
+        let requiresKey = store.dynamicProviderApiKeyPlaceholder("gemini") != nil
+        let isManagedCapable = store.isManagedCapable("gemini")
+        let hasConfiguredKey = true  // daemon reports key present
+
+        XCTAssertTrue(requiresKey, "gemini requires an API key")
+        XCTAssertTrue(isManagedCapable, "gemini supports managed mode")
+
+        let wouldResetToManaged = isManagedCapable && requiresKey && !hasConfiguredKey
+        XCTAssertFalse(wouldResetToManaged,
+            "auto-reset must not fire when daemon reports key is configured")
+    }
+
+    func testAutoResetFiresWhenDaemonReportsNoKeyConfigured() {
+        // Verify the task-block auto-reset condition fires when the daemon
+        // reports no key is configured for a managed-capable, key-required provider.
+        let requiresKey = store.dynamicProviderApiKeyPlaceholder("gemini") != nil
+        let isManagedCapable = store.isManagedCapable("gemini")
+        let hasConfiguredKey = false  // daemon reports key absent
+
+        let wouldResetToManaged = isManagedCapable && requiresKey && !hasConfiguredKey
+        XCTAssertTrue(wouldResetToManaged,
+            "auto-reset must fire when daemon reports no key is configured for managed-capable provider")
+    }
+
     // MARK: - Model Validation Against Selected Provider
 
     func testOpenAIModelsAreAvailableForOpenAIProvider() {

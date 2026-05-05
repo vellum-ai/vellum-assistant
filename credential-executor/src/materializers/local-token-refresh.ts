@@ -88,20 +88,24 @@ async function resolveRefreshConfig(
 
     // 1. Look up the connection to get oauth_app_id and provider_key
     const conn = db
-      .query<OAuthConnectionRow, [string, string]>(
-        `SELECT id, oauth_app_id, provider_key FROM oauth_connections WHERE id = ? AND status = ? LIMIT 1`,
-      )
+      .query<
+        OAuthConnectionRow,
+        [string, string]
+      >(`SELECT id, oauth_app_id, provider_key FROM oauth_connections WHERE id = ? AND status = ? LIMIT 1`)
       .get(connectionId, "active");
 
     if (!conn) {
-      return { error: `No active OAuth connection found for "${connectionId}"` };
+      return {
+        error: `No active OAuth connection found for "${connectionId}"`,
+      };
     }
 
     // 2. Look up the app to get client_id and client_secret_credential_path
     const app = db
-      .query<OAuthAppRow, [string]>(
-        `SELECT id, provider_key, client_id, client_secret_credential_path FROM oauth_apps WHERE id = ? LIMIT 1`,
-      )
+      .query<
+        OAuthAppRow,
+        [string]
+      >(`SELECT id, provider_key, client_id, client_secret_credential_path FROM oauth_apps WHERE id = ? LIMIT 1`)
       .get(conn.oauth_app_id);
 
     if (!app) {
@@ -110,9 +114,10 @@ async function resolveRefreshConfig(
 
     // 3. Look up the provider to get token_url and auth method
     const provider = db
-      .query<OAuthProviderRow, [string]>(
-        `SELECT provider_key, token_url, refresh_url, token_endpoint_auth_method, token_exchange_body_format FROM oauth_providers WHERE provider_key = ? LIMIT 1`,
-      )
+      .query<
+        OAuthProviderRow,
+        [string]
+      >(`SELECT provider_key, token_url, refresh_url, token_endpoint_auth_method, token_exchange_body_format FROM oauth_providers WHERE provider_key = ? LIMIT 1`)
       .get(conn.provider_key);
 
     if (!provider) {
@@ -123,7 +128,9 @@ async function resolveRefreshConfig(
     const tokenUrl = provider.refresh_url || provider.token_url;
 
     if (!tokenUrl || !app.client_id) {
-      return { error: `Missing OAuth2 refresh config for "${conn.provider_key}"` };
+      return {
+        error: `Missing OAuth2 refresh config for "${conn.provider_key}"`,
+      };
     }
 
     // 4. Retrieve the client secret from secure storage
@@ -131,8 +138,11 @@ async function resolveRefreshConfig(
       app.client_secret_credential_path,
     );
 
-    const authMethod = (provider.token_endpoint_auth_method as TokenEndpointAuthMethod | null) ?? "client_secret_post";
-    const bodyFormat = (provider.token_exchange_body_format as "form" | "json" | null) ?? "form";
+    const authMethod =
+      (provider.token_endpoint_auth_method as TokenEndpointAuthMethod | null) ??
+      "client_secret_post";
+    const bodyFormat =
+      (provider.token_exchange_body_format as "form" | "json" | null) ?? "form";
 
     return {
       tokenUrl,
@@ -238,10 +248,10 @@ async function performTokenRefresh(
  * @param secureKeyBackend - Backend for retrieving the OAuth client secret.
  */
 export function createLocalTokenRefreshFn(
-  vellumRoot: string,
+  workspaceDir: string,
   secureKeyBackend: SecureKeyBackend,
 ): TokenRefreshFn {
-  const dbPath = join(vellumRoot, "workspace", "data", "db", "assistant.db");
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
 
   return async (
     connectionId: string,

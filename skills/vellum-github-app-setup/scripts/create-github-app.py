@@ -35,8 +35,8 @@ parser.add_argument("--name", required=True, help="App name (e.g. Credence)")
 parser.add_argument("--description", default="AI assistant bot", help="App description")
 parser.add_argument("--url", default="https://github.com", help="Homepage URL for the app")
 parser.add_argument("--port", type=int, default=29170, help="Local callback server port (default: 29170)")
-parser.add_argument("--permissions", default="contents:write,pull_requests:write",
-                    help="Comma-separated permission:level pairs (default: contents:write,pull_requests:write)")
+parser.add_argument("--permissions", default="contents:write,pull_requests:write,checks:read,metadata:read",
+                    help="Comma-separated permission:level pairs (default: contents:write,pull_requests:write,checks:read,metadata:read)")
 parser.add_argument("--output", default="./github-app-credentials.json",
                     help="Where to save credentials JSON (default: ./github-app-credentials.json)")
 parser.add_argument("--no-open", action="store_true", help="Don't auto-open the browser")

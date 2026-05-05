@@ -174,9 +174,12 @@ public struct VCollapsibleStepRow<LeadingAccessory: View, TrailingAccessory: Vie
             EmptyView()
         case .succeeded, .failed, .denied:
             if let startedAt, let completedAt {
-                Text(VCollapsibleStepRowDurationFormatter.format(completedAt.timeIntervalSince(startedAt)))
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
+                let seconds = completedAt.timeIntervalSince(startedAt)
+                if seconds >= 0.05 {
+                    Text(VCollapsibleStepRowDurationFormatter.format(seconds))
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
         }
     }

@@ -1,0 +1,63 @@
+import type {
+  MemoryV2ConceptRowRecord,
+  MemoryV2ConfigSnapshot,
+} from "../../memory-v2-activation-log-store.js";
+
+export const sampleConcepts: MemoryV2ConceptRowRecord[] = [
+  {
+    slug: "concept-a",
+    finalActivation: 0.9,
+    ownActivation: 0.7,
+    priorActivation: 0.5,
+    simUser: 0.6,
+    simAssistant: 0.4,
+    simNow: 0.3,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0.2,
+    source: "both",
+    status: "injected",
+  },
+  {
+    slug: "skills/skill-1",
+    finalActivation: 0.8,
+    ownActivation: 0.8,
+    priorActivation: 0,
+    simUser: 0.5,
+    simAssistant: 0.4,
+    simNow: 0.3,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0,
+    source: "ann_top50",
+    status: "injected",
+  },
+  {
+    slug: "concept-b",
+    finalActivation: 0.4,
+    ownActivation: 0.3,
+    priorActivation: 0.1,
+    simUser: 0.2,
+    simAssistant: 0.1,
+    simNow: 0.05,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0.0,
+    source: "ann_top50",
+    status: "not_injected",
+  },
+];
+
+export const sampleConfig: MemoryV2ConfigSnapshot = {
+  d: 0.85,
+  c_user: 1.0,
+  c_assistant: 0.5,
+  c_now: 0.25,
+  k: 5,
+  hops: 2,
+  top_k: 10,
+  epsilon: 0.001,
+};

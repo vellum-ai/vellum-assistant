@@ -438,11 +438,14 @@ describe("regenerate with web_search_tool_result", () => {
     let agentLoopContent = "";
     let agentLoopUserMessageId = "";
 
+    const events: Array<{ type: string; message?: string }> = [];
+
     const session: HistoryConversationContext = {
       conversationId,
       traceEmitter: {
         emit: () => {},
       } as unknown as HistoryConversationContext["traceEmitter"],
+      sendToClient: (msg) => events.push(msg),
       messages: [...inMemoryMessages],
       processing: false,
       abortController: null,
@@ -453,9 +456,7 @@ describe("regenerate with web_search_tool_result", () => {
       },
     };
 
-    const events: Array<{ type: string; message?: string }> = [];
-
-    await regenerate(session, (msg) => events.push(msg));
+    await regenerate(session);
 
     // regenerate should find the real user message (msg-u1) and skip the
     // web_search_tool_result-only message (msg-ws).

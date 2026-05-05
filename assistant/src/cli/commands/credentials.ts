@@ -15,6 +15,7 @@ import {
 import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
+  getActiveBackendInfoAsync,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
 } from "../../security/secure-keys.js";
@@ -394,6 +395,61 @@ Examples:
     });
 
   // -------------------------------------------------------------------------
+  // status
+  // -------------------------------------------------------------------------
+
+  credential
+    .command("status")
+    .description("Show the active credential backend and its configuration")
+    .addHelpText(
+      "after",
+      `
+Shows which credential storage backend this process is using and backend-specific
+path or connection details. Run this to diagnose credential lookup mismatches —
+for example, when the CLI and the daemon are reading from different stores.
+
+Backend types:
+  encrypted-store   Direct file read from keys.enc (standalone CLI, no daemon)
+  ces-rpc           Delegates to the running CES process via stdio RPC (daemon)
+  ces-http          Delegates to CES sidecar over HTTP (containerized/Docker mode)
+
+Also shows the CREDENTIAL_SECURITY_DIR, GATEWAY_SECURITY_DIR, and
+VELLUM_WORKSPACE_DIR env vars so you can confirm which instance directory this
+process is scoped to.
+
+Examples:
+  $ assistant credentials status
+  $ assistant credentials status --json`,
+    )
+    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      try {
+        const info = await getActiveBackendInfoAsync();
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, ...info });
+        } else {
+          log.info(`Backend: ${info.backend}`);
+          if (info.backend === "encrypted-store") {
+            log.info(
+              `  Store path:  ${info.storePath} [${info.storeExists ? "exists" : "missing"}]`,
+            );
+            log.info(
+              `  Key path:    ${info.storeKeyPath} [${info.storeKeyExists ? "exists" : "missing"}]`,
+            );
+          } else if (info.backend === "ces-rpc") {
+            log.info(`  RPC ready:   ${info.ready}`);
+          } else if (info.backend === "ces-http") {
+            log.info(`  URL:         ${info.url}`);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeError(cmd, message);
+        process.exitCode = 1;
+      }
+    });
+
+  // -------------------------------------------------------------------------
   // set
   // -------------------------------------------------------------------------
 
@@ -439,13 +495,17 @@ Examples:
 
           assertMetadataWritable();
 
-          const stored = await setSecureKeyViaDaemon(
+          const setResult = await setSecureKeyViaDaemon(
             "credential",
             `${service}:${field}`,
             value,
           );
-          if (!stored) {
-            writeError(cmd, `Failed to store secret for ${service}:${field}`);
+          if (!setResult.ok) {
+            const detail = setResult.error ? `: ${setResult.error}` : "";
+            writeError(
+              cmd,
+              `Failed to store credential ${service}:${field}${detail}`,
+            );
             process.exitCode = 1;
             return;
           }
@@ -506,12 +566,16 @@ Examples:
 
         assertMetadataWritable();
 
-        const secretResult = await deleteSecureKeyViaDaemon(
+        const deleteResult = await deleteSecureKeyViaDaemon(
           "credential",
           `${service}:${field}`,
         );
-        if (secretResult === "error") {
-          writeError(cmd, "Failed to delete credential from secure storage");
+        if (deleteResult.result === "error") {
+          const detail = deleteResult.error ? `: ${deleteResult.error}` : "";
+          writeError(
+            cmd,
+            `Failed to delete credential ${service}:${field}${detail}`,
+          );
           process.exitCode = 1;
           return;
         }
@@ -537,7 +601,7 @@ Examples:
         }
 
         if (
-          secretResult !== "deleted" &&
+          deleteResult.result !== "deleted" &&
           !metadataDeleted &&
           oauthResult !== "disconnected"
         ) {

@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-/// Unifies assistant-scoped and macOS-scoped flags so the developer tab can
+/// Unifies assistant-scoped and client-scoped flags so the developer tab can
 /// render them in a single list.
 private struct UnifiedFeatureFlag: Identifiable, Equatable {
     let id: String
@@ -35,7 +35,7 @@ struct FeatureFlagsCard: View {
     @State private var unifiedFlags: [UnifiedFeatureFlag] = []
 
     var body: some View {
-        SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and macOS app.") {
+        SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and client apps.") {
             HStack(spacing: VSpacing.sm) {
                 VSearchBar(placeholder: "Search flags...", text: $searchText)
                 VDropdown(
@@ -44,7 +44,7 @@ struct FeatureFlagsCard: View {
                     options: [
                         (label: "All", value: "all"),
                         (label: "Assistant", value: "assistant"),
-                        (label: "macOS", value: "macos")
+                        (label: "Client", value: "client")
                     ],
                     maxWidth: 130
                 )
@@ -99,8 +99,8 @@ struct FeatureFlagsCard: View {
         var flags = unifiedFlags
         if scopeFilter == "assistant" {
             flags = flags.filter { $0.scope == .assistant }
-        } else if scopeFilter == "macos" {
-            flags = flags.filter { $0.scope == .macos }
+        } else if scopeFilter == "client" {
+            flags = flags.filter { $0.scope == .client }
         }
         if !searchText.isEmpty {
             flags = flags.filter { flag in
@@ -119,8 +119,8 @@ struct FeatureFlagsCard: View {
         )
     }
 
-    /// Merge assistant-scoped and macOS-scoped flags into a single sorted list.
-    /// If a flag key exists in both scopes, the macOS entry wins and the
+    /// Merge assistant-scoped and client-scoped flags into a single sorted list.
+    /// If a flag key exists in both scopes, the client entry wins and the
     /// assistant duplicate is dropped.
     private static func buildUnifiedFlags(
         assistantFlags: [AssistantFeatureFlag],
@@ -145,7 +145,7 @@ struct FeatureFlagsCard: View {
                 description: state.description,
                 defaultEnabled: state.defaultEnabled,
                 enabled: state.enabled,
-                scope: .macos
+                scope: .client
             )
         }
         let macOSKeys = Set(fromMacOS.map { $0.key })
@@ -160,7 +160,7 @@ struct FeatureFlagsCard: View {
                 switch flag.scope {
                 case .assistant:
                     return assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
-                case .macos:
+                case .client:
                     return macOSFlagStates.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
                 }
             },
@@ -168,7 +168,7 @@ struct FeatureFlagsCard: View {
                 switch flag.scope {
                 case .assistant:
                     setAssistantFlag(key: flag.key, enabled: newValue, flag: flag)
-                case .macos:
+                case .client:
                     setMacOSFlag(key: flag.key, enabled: newValue)
                 }
             }
@@ -182,7 +182,7 @@ struct FeatureFlagsCard: View {
                     Text(flag.label)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
-                    VBadge(label: flag.scope == .assistant ? "Assistant" : "macOS",
+                    VBadge(label: flag.scope == .assistant ? "Assistant" : "Client",
                            tone: flag.scope == .assistant ? .accent : .neutral,
                            emphasis: .subtle)
                 }

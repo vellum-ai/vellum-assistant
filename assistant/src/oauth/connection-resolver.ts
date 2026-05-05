@@ -5,10 +5,10 @@ import {
   ServicesSchema,
 } from "../config/schemas/services.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
+import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -96,10 +96,11 @@ export async function resolveOAuthConnection(
     );
   }
 
-  const accessToken = await getSecureKeyAsync(
-    `oauth_connection/${conn.id}/access_token`,
-  );
-  if (!accessToken) {
+  const tokenResult = await getConnectionAccessTokenResult({
+    provider,
+    connectionId: conn.id,
+  });
+  if (!tokenResult.value) {
     throw new Error(
       `OAuth connection for "${provider}" exists but has no access token. Re-authorize with \`assistant oauth connect ${provider}\`.`,
     );
@@ -115,9 +116,63 @@ export async function resolveOAuthConnection(
   return new BYOOAuthConnection({
     id: conn.id,
     provider: conn.provider,
-    baseUrl,
+    baseUrl: resolveEffectiveBaseUrl(conn.provider, baseUrl, conn.metadata),
     accountInfo: conn.accountInfo,
   });
+}
+
+/**
+ * Resolve the effective API base URL for a connection, preferring per-tenant
+ * values stored on the connection's `metadata` over the provider's static
+ * seed value when applicable.
+ *
+ * Salesforce is the only provider that needs this: every org has its own
+ * API instance host (``acme.my.salesforce.com``, ``na162.salesforce.com``)
+ * which is returned in the OAuth token response as ``instance_url`` and
+ * captured into ``oauth_connection.metadata`` by ``storeOAuth2Tokens``.
+ * The seed's ``baseUrl`` for Salesforce is the login domain
+ * (``https://login.salesforce.com``) — correct for the OAuth handshake but
+ * wrong for REST API calls. Pulling the per-connection ``instance_url``
+ * here avoids forcing every caller to override ``baseUrl`` per-request.
+ *
+ * For all other providers the seed value is correct (single API domain),
+ * so we return it unchanged.
+ *
+ * If a future provider needs the same treatment, generalize via a
+ * declarative ``baseUrlMetadataKey`` field on the seed entry rather than
+ * adding more provider-name branches here.
+ */
+export function resolveEffectiveBaseUrl(
+  provider: string,
+  fallbackBaseUrl: string,
+  rawMetadata: unknown,
+): string {
+  if (provider !== "salesforce") return fallbackBaseUrl;
+
+  const metadata = parseConnectionMetadata(rawMetadata);
+  const instanceUrl = metadata?.instance_url;
+  if (typeof instanceUrl === "string" && instanceUrl.length > 0) {
+    return instanceUrl;
+  }
+  return fallbackBaseUrl;
+}
+
+function parseConnectionMetadata(
+  raw: unknown,
+): Record<string, unknown> | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === "object") {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------

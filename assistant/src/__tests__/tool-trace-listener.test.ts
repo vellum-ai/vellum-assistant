@@ -158,23 +158,6 @@ describe("registerToolTraceListener", () => {
     });
   });
 
-  test("emits secret_detected trace with warning status", async () => {
-    await bus.emit("tool.secret.detected", {
-      conversationId: "conv-1",
-      requestId: "req-6",
-      toolName: "file_read",
-      action: "redact",
-      matches: [{ type: "AWS Key", redactedValue: "<redacted />" }],
-      detectedAtMs: 6000,
-    });
-
-    expect(traces).toHaveLength(1);
-    expect(traces[0].kind).toBe("secret_detected");
-    expect(traces[0].summary).toBe("Secret detected in file_read output");
-    expect(traces[0].opts?.status).toBe("warning");
-    expect(traces[0].opts?.attributes).toEqual({ toolName: "file_read" });
-  });
-
   test("passes requestId from domain event payload", async () => {
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",

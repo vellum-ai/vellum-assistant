@@ -39,6 +39,13 @@ export interface CloudSession {
   environment: ExtensionEnvironment;
   /** The user's active organization ID (first org from the API). */
   organizationId: string | null;
+  /**
+   * Allauth session token (= Django session key) returned by the OAuth
+   * callback in the URL fragment.  Sent as X-Session-Token on platform API
+   * calls because SameSite=Lax prevents session cookies from being sent
+   * cross-site from the extension service worker.
+   */
+  sessionToken?: string;
   /** Timestamp when the session was created. */
   createdAt: number;
 }
@@ -155,7 +162,7 @@ export async function startCloudLogin(
 
   // The result URL may contain an error fragment (e.g. missing_assistant_id)
   // because we didn't pass assistant_id. That's fine — the user's session
-  // is now authenticated. Parse any email from the fragment if available.
+  // is now authenticated. Parse the session token and email from the fragment.
   const fragment = new URL(resultUrl).hash.slice(1);
   const fragmentParams = new URLSearchParams(fragment);
 
@@ -166,35 +173,49 @@ export async function startCloudLogin(
     throw new Error(`Login failed: ${desc}`);
   }
 
-  // Session is now active. Try to get user info via the allauth session API.
-  let email = 'signed in';
+  // The OAuth callback returns the allauth session token and user email in
+  // the fragment.  The token is required because SameSite=Lax session cookies
+  // are not sent cross-site from the extension service worker.
+  const sessionToken = fragmentParams.get('session_token') ?? undefined;
+  let email = fragmentParams.get('email') ?? 'signed in';
 
-  try {
-    const sessionResponse = await fetch(`${apiBaseUrl}/_allauth/browser/v1/auth/session`, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    });
-    if (sessionResponse.ok) {
-      const sessionData = (await sessionResponse.json()) as {
-        data?: { user?: { email?: string } };
-      };
-      if (sessionData.data?.user?.email) {
-        email = sessionData.data.user.email;
+  // Fall back to the allauth session API if the fragment didn't include an
+  // email (e.g. against older platform deployments).
+  if (email === 'signed in') {
+    try {
+      const sessionResponse = await fetch(`${apiBaseUrl}/_allauth/browser/v1/auth/session`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (sessionResponse.ok) {
+        const sessionData = (await sessionResponse.json()) as {
+          data?: { user?: { email?: string } };
+        };
+        if (sessionData.data?.user?.email) {
+          email = sessionData.data.user.email;
+        }
       }
+    } catch {
+      // Non-fatal: we still have a valid session, just can't get the email.
     }
-  } catch {
-    // Non-fatal: we still have a valid session, just can't get the email.
   }
+
+  // Store the token immediately so cloudApiFetch can send X-Session-Token
+  // on the upcoming /v1/organizations/ bootstrap call.  We update the stored
+  // session with the org ID once we have it.
+  const partialSession: CloudSession = {
+    email,
+    environment,
+    organizationId: null,
+    sessionToken,
+    createdAt: Date.now(),
+  };
+  await storeSession(partialSession);
 
   // Resolve the user's organization ID for subsequent API calls.
   const organizationId = await fetchOrganizationId(environment);
 
-  const session: CloudSession = {
-    email,
-    environment,
-    organizationId,
-    createdAt: Date.now(),
-  };
+  const session: CloudSession = { ...partialSession, organizationId };
   await storeSession(session);
   return session;
 }

@@ -64,15 +64,18 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       conversationId?: string;
       profile?: string | null;
     }> = [];
-    const subscription = assistantEventHub.subscribe({}, (event) => {
-      received.push({
-        type: event.message.type,
-        conversationId: event.conversationId,
-        profile:
-          event.message.type === "conversation_inference_profile_updated"
-            ? event.message.profile
-            : undefined,
-      });
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push({
+          type: event.message.type,
+          conversationId: event.conversationId,
+          profile:
+            event.message.type === "conversation_inference_profile_updated"
+              ? event.message.profile
+              : undefined,
+        });
+      },
     });
 
     const result = profileRoute.handler({
@@ -125,10 +128,13 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     expect(getConversation(conversation.id)?.inferenceProfile).toBe("balanced");
 
     const received: Array<{ profile?: string | null }> = [];
-    const subscription = assistantEventHub.subscribe({}, (event) => {
-      if (event.message.type === "conversation_inference_profile_updated") {
-        received.push({ profile: event.message.profile });
-      }
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        if (event.message.type === "conversation_inference_profile_updated") {
+          received.push({ profile: event.message.profile });
+        }
+      },
     });
 
     const result = profileRoute.handler({
@@ -160,10 +166,13 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
 
     const received: Array<{ profile?: string | null }> = [];
-    const subscription = assistantEventHub.subscribe({}, (event) => {
-      if (event.message.type === "conversation_inference_profile_updated") {
-        received.push({ profile: event.message.profile });
-      }
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        if (event.message.type === "conversation_inference_profile_updated") {
+          received.push({ profile: event.message.profile });
+        }
+      },
     });
 
     const result = profileRoute.handler({

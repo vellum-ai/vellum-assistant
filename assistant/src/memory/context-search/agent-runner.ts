@@ -5,6 +5,7 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "../../providers/types.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import {
   buildRecallAgentPromptBundle,
   FINISH_RECALL_TOOL_DEFINITION,
@@ -42,7 +43,7 @@ import type {
   RecallSource,
 } from "./types.js";
 
-export type AgenticRecallFallbackReason =
+type AgenticRecallFallbackReason =
   | "no_provider"
   | "provider_error"
   | "timeout"
@@ -51,7 +52,7 @@ export type AgenticRecallFallbackReason =
   | "citation_validation_failed"
   | "finish_answer_validation_failed";
 
-export interface AgenticRecallSearchDebug {
+interface AgenticRecallSearchDebug {
   round: number;
   query: string;
   sources: RecallSource[];
@@ -61,7 +62,7 @@ export interface AgenticRecallSearchDebug {
   error?: string;
 }
 
-export interface AgenticRecallInspectDebug {
+interface AgenticRecallInspectDebug {
   round: number;
   paths: string[];
   reason: string;
@@ -69,7 +70,7 @@ export interface AgenticRecallInspectDebug {
   errors?: Array<{ path: string; reason: string }>;
 }
 
-export interface AgenticRecallDebug {
+interface AgenticRecallDebug {
   mode: "agentic" | "deterministic_fallback";
   normalizedInput: NormalizedRecallInput;
   roundLimit: number;
@@ -86,12 +87,12 @@ export interface AgenticRecallDebug {
   fallbackDetail?: string;
 }
 
-export interface AgenticRecallAnswer extends RecallAnswer {
+interface AgenticRecallAnswer extends RecallAnswer {
   content: string;
   debug: AgenticRecallDebug;
 }
 
-export interface RunAgenticRecallOptions {
+interface RunAgenticRecallOptions {
   searchOptions?: DeterministicRecallSearchOptions;
 }
 
@@ -305,7 +306,17 @@ export async function runAgenticRecall(
         [...RECALL_AGENT_TOOL_DEFINITIONS],
         undefined,
         {
-          config: { callSite: "recall", temperature: 0 },
+          // `thinking: disabled` is required because we set `temperature: 0`
+          // explicitly. Anthropic 400s on `temperature` ≠ 1 whenever thinking
+          // is enabled or in adaptive mode; without this, profiles that
+          // resolve thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.)
+          // would fail. Recall is tool-call-heavy reasoning where determinism
+          // matters more than extended chain-of-thought.
+          config: {
+            callSite: "recall",
+            temperature: 0,
+            thinking: { type: "disabled" },
+          },
           signal: context.signal,
         },
       );
@@ -414,6 +425,30 @@ export async function runAgenticRecall(
   );
 }
 
+/**
+ * Redact secrets from workspace-sourced evidence excerpts before they are
+ * serialised into a prompt that will be sent to an external LLM provider.
+ *
+ * Memory, PKB, and conversation evidence is already controlled content —
+ * only workspace files can contain arbitrary secrets (API keys, tokens, etc.)
+ * written by the user or by tools. This runs the same pattern-based scanner
+ * used for shell command summaries and approval prompts, replacing any
+ * detected secrets with `<redacted type="…" />` markers.
+ *
+ * The original evidence array is not mutated; citations and local fallback
+ * paths continue to reference unredacted values.
+ */
+export function redactWorkspaceEvidence(
+  evidence: readonly RecallEvidence[],
+): readonly RecallEvidence[] {
+  return evidence.map((item) => {
+    if (item.source !== "workspace") return item;
+    const redacted = redactSecrets(item.excerpt);
+    if (redacted === item.excerpt) return item;
+    return { ...item, excerpt: redacted };
+  });
+}
+
 function buildPromptBundle(
   input: NormalizedRecallInput,
   evidence: readonly RecallEvidence[],
@@ -422,7 +457,7 @@ function buildPromptBundle(
   return buildRecallAgentPromptBundle({
     query: input.query,
     availableSources: input.sources,
-    evidence,
+    evidence: redactWorkspaceEvidence(evidence),
     maxSearchCalls: roundLimit,
   });
 }
@@ -572,7 +607,14 @@ async function tryFinalFinishRecall(options: {
       [FINISH_RECALL_TOOL_DEFINITION],
       undefined,
       {
-        config: { callSite: "recall", temperature: 0 },
+        // `thinking: disabled` required for the same reason as the agent
+        // round above — Anthropic 400s on `temperature` ≠ 1 whenever
+        // thinking is enabled or in adaptive mode.
+        config: {
+          callSite: "recall",
+          temperature: 0,
+          thinking: { type: "disabled" },
+        },
         signal: options.context.signal,
       },
     );

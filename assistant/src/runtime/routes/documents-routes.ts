@@ -6,10 +6,13 @@
  */
 import { z } from "zod";
 
-import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
+import { saveDocument } from "../../documents/document-store.js";
+import { rawAll, rawGet } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
+import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 const log = getLogger("documents-routes");
 
@@ -24,49 +27,6 @@ interface DocumentRow {
 }
 
 type DocumentListRow = Omit<DocumentRow, "content">;
-
-// ---------------------------------------------------------------------------
-// Shared business logic (used by both message handlers and HTTP routes)
-// ---------------------------------------------------------------------------
-
-function saveDocument(params: {
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  content: string;
-  wordCount: number;
-}): { success: true; surfaceId: string } | { success: false; error: string } {
-  try {
-    const now = Date.now();
-    rawRun(
-      `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(surface_id) DO UPDATE SET
-         title = excluded.title,
-         content = excluded.content,
-         word_count = excluded.word_count,
-         updated_at = excluded.updated_at`,
-      params.surfaceId,
-      params.conversationId,
-      params.title,
-      params.content,
-      params.wordCount,
-      now,
-      now,
-    );
-    log.info(
-      { surfaceId: params.surfaceId, title: params.title },
-      "Saved document",
-    );
-    return { success: true, surfaceId: params.surfaceId };
-  } catch (error) {
-    log.error({ err: error, surfaceId: params.surfaceId }, "Save error");
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
 
 function loadDocument(surfaceId: string):
   | {
@@ -123,20 +83,29 @@ function listDocuments(conversationId?: string): Array<{
   updatedAt: number;
 }> {
   try {
-    let query = /*sql*/ `
-      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
-      FROM documents
-    `;
-    const params: string[] = [];
+    let results: DocumentListRow[];
 
     if (conversationId) {
-      query += " WHERE conversation_id = ?";
-      params.push(conversationId);
+      // Query via junction table so we return the *matched* conversation_id
+      // (not the origin conversation_id from the documents table).
+      results = rawAll<DocumentListRow>(
+        /*sql*/ `
+        SELECT d.surface_id, dc.conversation_id AS conversation_id,
+               d.title, d.word_count, d.created_at, d.updated_at
+        FROM documents d
+        INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
+        WHERE dc.conversation_id = ?
+        ORDER BY d.updated_at DESC
+        `,
+        conversationId,
+      );
+    } else {
+      results = rawAll<DocumentListRow>(/*sql*/ `
+        SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+        FROM documents
+        ORDER BY updated_at DESC
+        `);
     }
-
-    query += " ORDER BY updated_at DESC";
-
-    const results = rawAll<DocumentListRow>(query, ...params);
 
     log.info({ count: results.length }, "Listed documents");
     return results.map((row) => ({
@@ -233,13 +202,8 @@ export const ROUTES: RouteDefinition[] = [
       surfaceId: z.string(),
     }),
     handler: ({ body }) => {
-      const {
-        surfaceId,
-        conversationId,
-        title,
-        content,
-        wordCount,
-      } = (body ?? {}) as {
+      const { surfaceId, conversationId, title, content, wordCount } = (body ??
+        {}) as {
         surfaceId?: string;
         conversationId?: string;
         title?: string;
@@ -275,6 +239,34 @@ export const ROUTES: RouteDefinition[] = [
         throw new InternalError(result.error);
       }
       return result;
+    },
+  },
+
+  {
+    operationId: "exportDocumentPDF",
+    endpoint: "documents/:id/pdf",
+    method: "GET",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "Export a document as PDF",
+    description: "Render a document to PDF and return the binary content.",
+    tags: ["documents"],
+    handler: async ({ pathParams }) => {
+      const result = loadDocument(pathParams!.id);
+      if (!result.success) {
+        throw new NotFoundError(result.error);
+      }
+      const pdfBuffer = await renderMarkdownToPDF(result.title, result.content);
+      const filename =
+        result.title
+          .replace(/[^a-zA-Z0-9_-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "") || "document";
+      return new RouteResponse(new Uint8Array(pdfBuffer), {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}.pdf"`,
+        "Content-Length": String(pdfBuffer.length),
+      });
     },
   },
 ];

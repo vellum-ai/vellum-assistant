@@ -1,5 +1,9 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  resolveUsageAttribution,
+  sanitizeUsageMetadataValue,
+} from "../usage/attribution.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -23,6 +27,14 @@ import {
 } from "./types.js";
 
 const log = getLogger("retry");
+
+const USAGE_ATTRIBUTION_HEADER_NAMES = {
+  callSite: "X-Vellum-LLM-Call-Site",
+  inferenceProfile: "X-Vellum-Inference-Profile",
+  inferenceProfileSource: "X-Vellum-Inference-Profile-Source",
+  resolvedProvider: "X-Vellum-Resolved-Provider",
+  resolvedModel: "X-Vellum-Resolved-Model",
+} as const;
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
@@ -118,11 +130,17 @@ function isRetryableError(error: unknown): boolean {
 function normalizeSendMessageOptions(
   providerName: string,
   options?: SendMessageOptions,
+  normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
   if (!config) return options;
 
   const nextConfig: Record<string, unknown> = { ...config };
+
+  // Internal metadata must be derived here, not accepted from callers, and it
+  // must never leak into provider JSON request bodies.
+  delete nextConfig.usageAttributionHeaders;
+  delete nextConfig.usageTracking;
 
   // `overrideProfile` is a routing/resolution-time concern (consumed by the
   // resolver below and `CallSiteRoutingProvider`'s provider selection); it is
@@ -134,6 +152,10 @@ function normalizeSendMessageOptions(
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
       overrideProfile: config.overrideProfile,
     });
+    const attribution = resolveUsageAttribution({
+      callSite: config.callSite,
+      overrideProfile: config.overrideProfile,
+    });
 
     const explicitModel =
       typeof config.model === "string" && config.model.trim().length > 0
@@ -143,6 +165,18 @@ function normalizeSendMessageOptions(
     // Routing key is consumed by the resolver above and must not leak
     // downstream as a wire-format field.
     delete nextConfig.callSite;
+    if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      const usageAttributionHeaders = buildUsageAttributionHeaders({
+        callSite: attribution.callSite,
+        appliedProfile: attribution.appliedProfile,
+        profileSource: attribution.profileSource,
+        resolvedProvider: attribution.resolvedProvider,
+        resolvedModel: attribution.resolvedModel,
+      });
+      if (Object.keys(usageAttributionHeaders).length > 0) {
+        nextConfig.usageAttributionHeaders = usageAttributionHeaders;
+      }
+    }
 
     // Apply resolved values, letting per-call explicit fields win where set.
     nextConfig.model = explicitModel ?? resolved.model;
@@ -194,12 +228,11 @@ function normalizeSendMessageOptions(
       nextConfig.openrouter = { only: resolved.openrouter.only };
     }
     // `contextWindow` and `provider` are server-side concerns, not provider
-    // request parameters: `contextWindow` is consumed by the agent loop's
-    // overflow recovery and the conversation manager directly from
-    // `config.llm.default.contextWindow.*`; `provider` selection is handled
-    // by `CallSiteRoutingProvider` upstream. Forwarding them as per-call
-    // config leaks unknown fields into provider request bodies — Anthropic
-    // (and other strict-schema clients) reject the request with
+    // request parameters: effective context is resolved per call site/profile
+    // by the agent/conversation path, while `provider` selection is handled by
+    // `CallSiteRoutingProvider` upstream. Forwarding them as per-call config
+    // leaks unknown fields into provider request bodies — Anthropic (and other
+    // strict-schema clients) reject the request with
     // "Extra inputs are not permitted".
   }
 
@@ -240,6 +273,56 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
+  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // combine extended thinking with `temperature` ≠ 1. From the API:
+  //   "`temperature` may only be set to 1 when thinking is enabled or in
+  //   adaptive mode."
+  //
+  // Defense-in-depth: callers that hardcode a non-default temperature in
+  // their per-call config are easy to miss when reviewing — we already had
+  // this bug ship in three places (reply suggestions, recall agent
+  // round, recall fallback finalize). Drop the offending temperature with
+  // a warn log so the request goes through with Anthropic's default
+  // (which is 1 in thinking mode anyway). We keep `thinking` rather than
+  // `temperature` because thinking is the more deliberate, profile-level
+  // choice — silently downgrading reasoning capacity for an unrelated
+  // per-call hint would be the worse failure mode.
+  //
+  // Scope:
+  // - Anthropic: always.
+  // - OpenRouter fronting `anthropic/*`: same wire constraint applies.
+  // - Other providers: not our problem here (e.g. OpenAI reasoning models
+  //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
+  //   models don't have this exact constraint).
+  const isThinkingTemperatureConflict = (() => {
+    if (nextConfig.thinking == null) return false;
+    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    const temp = nextConfig.temperature;
+    if (typeof temp !== "number") return false;
+    if (temp === 1) return false;
+    if (providerName === "anthropic") return true;
+    if (providerName === "openrouter") {
+      const model =
+        typeof nextConfig.model === "string" ? nextConfig.model : "";
+      return model.startsWith("anthropic/");
+    }
+    return false;
+  })();
+  if (isThinkingTemperatureConflict) {
+    log.warn(
+      {
+        providerName,
+        callSite: config.callSite,
+        droppedTemperature: nextConfig.temperature,
+      },
+      "Dropping `temperature` because thinking is enabled — Anthropic only " +
+        "accepts `temperature: 1` (or unset) when thinking/adaptive mode is " +
+        "on. Set `thinking: { type: 'disabled' }` on the call site if you " +
+        "need a specific temperature.",
+    );
+    delete nextConfig.temperature;
+  }
+
   // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
   if (
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
@@ -274,6 +357,55 @@ function normalizeSendMessageOptions(
   };
 }
 
+function buildUsageAttributionHeaders(input: {
+  callSite: string | null;
+  appliedProfile: string | null;
+  profileSource: string;
+  resolvedProvider: string;
+  resolvedModel: string;
+}): Record<string, string> {
+  const headers: Record<string, string> = {};
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.callSite,
+    input.callSite,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfile,
+    input.appliedProfile,
+  );
+  if (input.appliedProfile) {
+    addSanitizedHeader(
+      headers,
+      USAGE_ATTRIBUTION_HEADER_NAMES.inferenceProfileSource,
+      input.profileSource,
+    );
+  }
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedProvider,
+    input.resolvedProvider,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedModel,
+    input.resolvedModel,
+  );
+  return headers;
+}
+
+function addSanitizedHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: unknown,
+): void {
+  const sanitized = sanitizeUsageMetadataValue(value);
+  if (sanitized != null) {
+    headers[name] = sanitized;
+  }
+}
+
 /**
  * `RetryProvider` sets `retriesExhausted = true` on the final thrown error
  * when the retry loop burned through all attempts against a retryable error
@@ -289,7 +421,10 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
-  constructor(private readonly inner: Provider) {
+  constructor(
+    private readonly inner: Provider,
+    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+  ) {
     this.name = inner.name;
   }
 
@@ -302,7 +437,10 @@ export class RetryProvider implements Provider {
     let lastError: unknown;
     let didRetry = false;
 
-    const normalizedOptions = normalizeSendMessageOptions(this.name, options);
+    const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
+      forwardUsageAttributionHeaders:
+        this.options.forwardUsageAttributionHeaders === true,
+    });
 
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {

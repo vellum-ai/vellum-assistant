@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
@@ -21,6 +20,7 @@ import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../memory/conversation-key-store.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -92,6 +92,10 @@ let _conversationFactory: (() => Conversation) | undefined;
 let _approvalGenerator: unknown;
 
 mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: () => {
+    if (!_conversationFactory) return undefined;
+    return _conversationFactory();
+  },
   getOrCreateConversation: async (..._args: unknown[]) => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -154,12 +158,9 @@ function makeCompletingConversation(): Conversation {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -214,12 +215,9 @@ function makeHangingConversation(): Conversation {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -302,12 +300,9 @@ function makePendingApprovalConversation(
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
@@ -425,12 +420,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     // Subscribe on the module-level singleton that the route handler publishes to
     const { assistantEventHub: routeEventHub } =
       await import("../runtime/assistant-event-hub.js");
-    routeEventHub.subscribe(
-      {},
-      (event: AssistantEvent) => {
+    routeEventHub.subscribe({
+      type: "process",
+      callback: (event: AssistantEvent) => {
         publishedEvents.push(event);
       },
-    );
+    });
 
     const res = await fetch(messagesUrl(), {
       method: "POST",
@@ -468,7 +463,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -528,7 +522,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -596,7 +589,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -656,7 +648,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true, { queueDepth: 2 });
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -716,7 +707,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -774,7 +764,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     );
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -969,7 +958,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });

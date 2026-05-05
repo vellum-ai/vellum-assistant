@@ -74,8 +74,9 @@ export const defaultOverflowReduceMiddleware: Middleware<
     attempts++;
     args.emitActivityState();
 
+    const basisMessages = messages;
     const step = await reduceContextOverflow(
-      messages,
+      basisMessages,
       {
         providerName: args.providerName,
         systemPrompt: args.systemPrompt,
@@ -101,7 +102,7 @@ export const defaultOverflowReduceMiddleware: Middleware<
     // Let the orchestrator apply compaction side effects (circuit-breaker
     // tracking, event emission, ctx mutation) before we re-inject.
     if (step.compactionResult) {
-      await args.onCompactionResult(step.compactionResult);
+      await args.onCompactionResult(step.compactionResult, basisMessages);
       if (stepCompacted) {
         reducerCompacted = true;
       }

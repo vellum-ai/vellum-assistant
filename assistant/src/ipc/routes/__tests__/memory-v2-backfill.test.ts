@@ -8,7 +8,7 @@
  * Coverage:
  *   1. method name is the public verb expected by the CLI.
  *   2. unknown params are rejected (defensive — the schema is `.strict()`).
- *   3. each of the four ops dispatches to the correct `MemoryJobType`.
+ *   3. each of the three ops dispatches to the correct `MemoryJobType`.
  *   4. `migrate` with `force: true` propagates the flag in the payload.
  *   5. `migrate` without `force` (and ops that ignore `force`) sends an
  *      empty payload — the `false` default never reaches the queue.
@@ -133,27 +133,22 @@ describe("memory_v2_backfill route", () => {
     expect(enqueueCalls).toEqual([{ type: "memory_v2_migrate", payload: {} }]);
   });
 
-  test("rebuild-edges enqueues memory_v2_rebuild_edges with empty payload", async () => {
-    await runRoute({ op: "rebuild-edges" });
-
-    expect(enqueueCalls).toEqual([
-      { type: "memory_v2_rebuild_edges", payload: {} },
-    ]);
-  });
-
-  test("rebuild-edges ignores force flag", async () => {
-    // `force` only has meaning for `migrate`. For other ops we still accept
-    // the field (so a single CLI flag works across all ops without
-    // branching) but never forward it to the queue.
-    await runRoute({ op: "rebuild-edges", force: true });
-
-    expect(enqueueCalls).toEqual([
-      { type: "memory_v2_rebuild_edges", payload: {} },
-    ]);
+  test("rebuild-edges op is rejected (no longer supported)", async () => {
+    await expect(runRoute({ op: "rebuild-edges" })).rejects.toThrow();
+    expect(enqueueCalls).toEqual([]);
   });
 
   test("reembed enqueues memory_v2_reembed with empty payload", async () => {
     await runRoute({ op: "reembed" });
+
+    expect(enqueueCalls).toEqual([{ type: "memory_v2_reembed", payload: {} }]);
+  });
+
+  test("reembed ignores force flag", async () => {
+    // `force` only has meaning for `migrate`. For other ops we still accept
+    // the field (so a single CLI flag works across all ops without
+    // branching) but never forward it to the queue.
+    await runRoute({ op: "reembed", force: true });
 
     expect(enqueueCalls).toEqual([{ type: "memory_v2_reembed", payload: {} }]);
   });
@@ -167,8 +162,8 @@ describe("memory_v2_backfill route", () => {
   });
 
   test("returns the jobId emitted by enqueueMemoryJob", async () => {
-    const first = await runRoute({ op: "rebuild-edges" });
-    const second = await runRoute({ op: "reembed" });
+    const first = await runRoute({ op: "reembed" });
+    const second = await runRoute({ op: "activation-recompute" });
 
     expect(first.jobId).toBe("test-job-1");
     expect(second.jobId).toBe("test-job-2");

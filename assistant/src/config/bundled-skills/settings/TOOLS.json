@@ -22,10 +22,6 @@
           },
           "value": {
             "description": "The new value for the setting. For tts_provider: one of elevenlabs, fish-audio, deepgram, xai. For tts_voice_id: an alphanumeric ElevenLabs voice ID. For fish_audio_reference_id: a Fish Audio voice reference ID. For conversation_timeout: seconds (5, 10, 15, 30, or 60). For activation_key: key identifier string."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are changing and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }
         }
       },
@@ -44,10 +40,6 @@
             "type": "string",
             "enum": ["microphone", "speech_recognition"],
             "description": "The System Settings pane to open"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are opening and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }
         },
         "required": ["pane"]
@@ -77,10 +69,6 @@
               "Developer"
             ],
             "description": "The settings tab to navigate to"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are navigating to and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }
         },
         "required": ["tab"]

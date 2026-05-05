@@ -38,7 +38,7 @@ Examples:
         conversations: ["list", "new", "export", "clear"],
         config: ["set", "get", "list", "validate-allowlist"],
         keys: ["list", "set", "delete"],
-        trust: ["list", "add", "update", "remove"],
+        trust: ["list"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         contacts: ["list", "invites", "get", "merge"],
         autonomy: ["get", "set"],
@@ -125,7 +125,7 @@ _assistant() {
         'conversations:Manage conversations'
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
-        'trust:Manage trust rules'
+        'trust:View trust rules'
         'memory:Manage long-term memory'
         'contacts:Manage the contact graph'
         'autonomy:View and configure autonomy tiers'
@@ -164,7 +164,7 @@ function generateFishCompletion(
     conversations: "Manage conversations",
     config: "Manage configuration",
     keys: "Manage API keys in secure storage",
-    trust: "Manage trust rules",
+    trust: "View trust rules",
     memory: "Manage long-term memory",
     contacts: "Manage the contact graph",
     autonomy: "View and configure autonomy tiers",

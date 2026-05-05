@@ -8,19 +8,33 @@ private let riskToleranceLog = Logger(
 )
 
 /// Risk Tolerance settings section — lets the user configure auto-approve
-/// thresholds for interactive and autonomous execution contexts.
+/// thresholds for interactive, background, and headless execution contexts.
+///
+/// Layout:
+/// - Interactive  (top-level, always visible)
+/// - Advanced accordion
+///   - Background  (scheduled tasks, background jobs)
+///   - Headless    (externally-triggered, no interactive client)
 @MainActor
 struct RiskToleranceSection: View {
     var thresholdClient: ThresholdClientProtocol
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
-    /// Current selection for the interactive ("Conversations") threshold.
+    /// Current selection for the interactive ("Interactive") threshold.
     /// Pre-load placeholder; reconciled with the gateway on appearance.
     @State private var interactiveSelection: RiskThreshold = .medium
 
-    /// Current selection for the autonomous threshold.
-    /// Pre-load placeholder; reconciled with the gateway on appearance.
-    @State private var autonomousSelection: RiskThreshold = .low
+    /// Current selection for the background ("Background") threshold.
+    /// Stored as `autonomous` in the API; labelled "Background" in the UI.
+    @State private var backgroundSelection: RiskThreshold = .low
+
+    /// Current selection for the headless ("Headless") threshold.
+    /// Defaults to Strict — headless contexts are most susceptible to
+    /// prompt injection via webhook ingress.
+    @State private var headlessSelection: RiskThreshold = .none
+
+    /// Whether the Advanced accordion is expanded.
+    @State private var isAdvancedExpanded: Bool = false
 
     /// In-flight sync task. Writes are serialized so rapid picker changes
     /// resolve in order and the latest selection wins deterministically.
@@ -51,8 +65,10 @@ struct RiskToleranceSection: View {
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            // ── Interactive ───────────────────────────────────────────────
+
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Conversations")
+                Text("Interactive")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                 Text("When you're chatting with your assistant directly.")
@@ -60,7 +76,7 @@ struct RiskToleranceSection: View {
                     .foregroundStyle(VColor.contentTertiary)
                 ThresholdPresetDropdown(
                     preset: ThresholdPreset.from(riskThreshold: interactiveSelection),
-                    accessibilityLabel: "Conversations risk threshold"
+                    accessibilityLabel: "Interactive risk threshold"
                 ) { preset in
                     hasUserInteracted = true
                     interactiveSelection = preset.riskThreshold
@@ -74,26 +90,64 @@ struct RiskToleranceSection: View {
 
             SettingsDivider()
 
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Autonomous")
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("When your assistant acts without you — scheduled tasks, background jobs, and external triggers.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                ThresholdPresetDropdown(
-                    preset: ThresholdPreset.from(riskThreshold: autonomousSelection),
-                    accessibilityLabel: "Autonomous risk threshold"
-                ) { preset in
-                    hasUserInteracted = true
-                    autonomousSelection = preset.riskThreshold
-                    syncThresholds()
+            // ── Advanced accordion (Background + Headless) ────────────────
+
+            VDisclosureSection(
+                title: "Advanced",
+                subtitle: "Background & Headless execution contexts",
+                isExpanded: $isAdvancedExpanded
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+
+                    // ── Background ────────────────────────────────────────
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Background")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                        Text("When your assistant acts without you — scheduled tasks, background jobs, and external triggers.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        ThresholdPresetDropdown(
+                            preset: ThresholdPreset.from(riskThreshold: backgroundSelection),
+                            accessibilityLabel: "Background risk threshold"
+                        ) { preset in
+                            hasUserInteracted = true
+                            backgroundSelection = preset.riskThreshold
+                            syncThresholds()
+                        }
+                        Text(backgroundSelection.settingsDescription)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    SettingsDivider()
+
+                    // ── Headless ──────────────────────────────────────────
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Headless")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                        Text("When your assistant is triggered externally with no interactive client — webhooks, API calls, and other automated ingress. Defaults to Strict due to prompt injection risk.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        ThresholdPresetDropdown(
+                            preset: ThresholdPreset.from(riskThreshold: headlessSelection),
+                            accessibilityLabel: "Headless risk threshold"
+                        ) { preset in
+                            hasUserInteracted = true
+                            headlessSelection = preset.riskThreshold
+                            syncThresholds()
+                        }
+                        Text(headlessSelection.settingsDescription)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(autonomousSelection.settingsDescription)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await loadThresholds() }
     }
@@ -115,7 +169,8 @@ struct RiskToleranceSection: View {
                 hasLoadedInitial = true
                 guard !hasUserInteracted else { return }
                 interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .medium
-                autonomousSelection = RiskThreshold(rawValue: thresholds.autonomous) ?? .low
+                backgroundSelection = RiskThreshold(rawValue: thresholds.autonomous) ?? .low
+                headlessSelection = RiskThreshold(rawValue: thresholds.headless) ?? .none
             } catch {
                 riskToleranceLog.error(
                     "getGlobalThresholds failed: \(error.localizedDescription, privacy: .public)"
@@ -142,7 +197,8 @@ struct RiskToleranceSection: View {
 
         let payload = GlobalThresholds(
             interactive: interactiveSelection.rawValue,
-            autonomous: autonomousSelection.rawValue
+            autonomous: backgroundSelection.rawValue,
+            headless: headlessSelection.rawValue
         )
         syncVersion &+= 1
         let requestVersion = syncVersion

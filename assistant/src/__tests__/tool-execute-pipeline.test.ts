@@ -45,8 +45,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {
     mode: "workspace" as const,
@@ -57,7 +55,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -129,10 +126,6 @@ mock.module("../tools/registry.js", () => ({
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
-}));
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
 // ── Redaction + token manager so the executor's imports resolve ──────

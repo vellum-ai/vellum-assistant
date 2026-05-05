@@ -3,7 +3,7 @@ import { hostname } from "os";
 import {
   findAssistantByName,
   getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
 } from "../lib/assistant-config";
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -11,7 +11,19 @@ import {
   type Species,
 } from "../lib/constants";
 import { loadGuardianToken } from "../lib/guardian-token";
-import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
+import { getLocalLanIPv4 } from "../lib/local";
+import {
+  CLI_INTERFACE_ID,
+  getClientRegistrationHeaders,
+} from "../lib/client-identity";
+import {
+  fetchOrganizationId,
+  readPlatformToken,
+} from "../lib/platform-client";
+import { tuiLog } from "../lib/tui-log";
+
+const SUPPORTED_INTERFACES = ["cli"] as const;
+type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -25,7 +37,14 @@ interface ParsedArgs {
   runtimeUrl: string;
   assistantId: string;
   species: Species;
+  /** "vellum" for platform-hosted assistants, undefined for local. */
+  cloud?: string;
+  /** Platform session token (X-Session-Token), set when cloud === "vellum". */
+  platformToken?: string;
+  /** Guardian JWT (Authorization: Bearer), set for local assistants. */
   bearerToken?: string;
+  /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
+  interfaceId: SupportedInterface;
   project?: string;
   zone?: string;
 }
@@ -44,7 +63,9 @@ function parseArgs(): ParsedArgs {
       (arg === "--url" ||
         arg === "-u" ||
         arg === "--assistant-id" ||
-        arg === "-a") &&
+        arg === "-a" ||
+        arg === "--interface" ||
+        arg === "-i") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -76,8 +97,8 @@ function parseArgs(): ParsedArgs {
       }
     }
     if (!entry && hasExplicitUrl) {
-      // URL provided but active assistant missing or unset — use latest for remaining defaults
-      entry = loadLatestAssistant();
+      // URL provided but active assistant missing or unset — resolve for remaining defaults
+      entry = resolveAssistant();
     } else if (!entry) {
       console.error(
         "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
@@ -88,9 +109,18 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
-  const bearerToken =
-    loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined;
+  const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
+
+  // Platform-hosted assistants use a session token; local assistants use a guardian JWT.
+  const platformToken =
+    cloud === "vellum" ? (readPlatformToken() ?? undefined) : undefined;
+  const bearerToken =
+    cloud === "vellum"
+      ? undefined
+      : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
+
+  let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
 
   for (let i = 0; i < flagArgs.length; i++) {
     const flag = flagArgs[i];
@@ -101,6 +131,21 @@ function parseArgs(): ParsedArgs {
       flagArgs[i + 1]
     ) {
       assistantId = flagArgs[++i];
+    } else if ((flag === "--interface" || flag === "-i") && flagArgs[i + 1]) {
+      const value = flagArgs[++i];
+      if (value === "web") {
+        console.error(
+          `--interface web is not yet supported. Coming soon.`,
+        );
+        process.exit(1);
+      }
+      if (!(SUPPORTED_INTERFACES as readonly string[]).includes(value)) {
+        console.error(
+          `Unknown interface '${value}'. Supported: ${SUPPORTED_INTERFACES.join(", ")}.`,
+        );
+        process.exit(1);
+      }
+      interfaceId = value as SupportedInterface;
     }
   }
 
@@ -108,7 +153,10 @@ function parseArgs(): ParsedArgs {
     runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     species,
+    cloud,
+    platformToken,
     bearerToken,
+    interfaceId,
     project: entry?.project,
     zone: entry?.zone,
   };
@@ -140,11 +188,6 @@ function maybeSwapToLocalhost(url: string): string {
     }
   }
 
-  const macHost = getMacLocalHostname();
-  if (macHost) {
-    localNames.push(macHost.toLowerCase());
-  }
-
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
     localNames.push(lanIp);
@@ -170,6 +213,7 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
     -a, --assistant-id <id>    Assistant ID
+    -i, --interface <id>       Interface identifier (default: cli)
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -185,8 +229,46 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 }
 
 export async function client(): Promise<void> {
-  const { runtimeUrl, assistantId, species, bearerToken, project, zone } =
-    parseArgs();
+  const {
+    runtimeUrl,
+    assistantId,
+    species,
+    cloud,
+    platformToken,
+    bearerToken,
+    interfaceId,
+    project,
+    zone,
+  } = parseArgs();
+
+  tuiLog.init();
+  tuiLog.info("session start", {
+    runtimeUrl,
+    assistantId,
+    species,
+    cloud,
+    interfaceId,
+  });
+
+  // Build pre-constructed request headers merged from auth + client registration.
+  // Spreading into every fetch site ensures consistency across REST and SSE endpoints.
+  let auth: Record<string, string> | undefined;
+  if (cloud === "vellum" && platformToken) {
+    const orgId = await fetchOrganizationId(platformToken).catch((err) => {
+      tuiLog.warn("failed to fetch organization id", { err: String(err) });
+      return undefined;
+    });
+    auth = {
+      "X-Session-Token": platformToken,
+      ...(orgId ? { "Vellum-Organization-Id": orgId } : {}),
+      ...getClientRegistrationHeaders(interfaceId),
+    };
+  } else {
+    auth = {
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...getClientRegistrationHeaders(interfaceId),
+    };
+  }
 
   const { renderChatApp } = await import("../components/DefaultMainScreen");
 
@@ -197,11 +279,13 @@ export async function client(): Promise<void> {
     assistantId,
     species,
     () => {
+      tuiLog.info("session end (user disconnect)");
+      tuiLog.close();
       app.unmount();
       process.stdout.write("\x1b[2J\x1b[H");
       console.log(`${ANSI.dim}Disconnected.${ANSI.reset}`);
       process.exit(0);
     },
-    { bearerToken, project, zone },
+    { auth, project, zone },
   );
 }

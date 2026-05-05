@@ -38,6 +38,10 @@ mock.module("../config/loader.js", () => {
     },
     memory: { enabled: false },
     notifications: {},
+    ingress: {
+      enabled: true,
+      publicBaseUrl: "https://generic.example.com",
+    },
     services: {
       tts: {
         mode: "your-own" as const,
@@ -77,7 +81,6 @@ mock.module("../config/loader.js", () => {
     getConfig: () => config,
     loadConfig: () => config,
     loadRawConfig: () => ({}),
-    saveConfig: () => {},
     saveRawConfig: () => {},
     invalidateConfigCache: () => {},
     applyNestedDefaults: (c: unknown) => c,
@@ -243,7 +246,6 @@ import {
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import { loadConfig } from "../config/loader.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
@@ -253,6 +255,7 @@ import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
@@ -468,6 +471,7 @@ describe("call-controller", () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "elevenlabs";
     cfg.services.tts.providers["fish-audio"].referenceId = "";
+    cfg.ingress.publicBaseUrl = "https://generic.example.com";
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
   });
@@ -2528,6 +2532,50 @@ describe("call-controller", () => {
 
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken.last).toBe(true);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: play URL uses public base URL", async () => {
+    const cfg = loadConfig();
+    cfg.ingress.publicBaseUrl = "https://twilio.example.com/";
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderRegistry();
+    const fishAudioStreaming: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return {
+          audio: Buffer.from("fish-audio-buffer"),
+          contentType: "audio/mpeg",
+        };
+      },
+      async synthesizeStream(_request, onChunk) {
+        onChunk(Buffer.from("fish-audio-stream"));
+        return {
+          audio: Buffer.from("fish-audio-stream"),
+          contentType: "audio/mpeg",
+        };
+      },
+    };
+    registerTtsProvider(fishAudioStreaming);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from synthesized path."]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(relay.sentPlayUrls.length).toBeGreaterThan(0);
+    expect(relay.sentPlayUrls[0]).toStartWith(
+      "https://twilio.example.com/v1/audio/",
+    );
 
     controller.destroy();
   });

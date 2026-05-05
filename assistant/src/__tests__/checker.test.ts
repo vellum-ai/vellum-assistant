@@ -1,11 +1,7 @@
 // Smoke command (run all security test files together):
 // bun test src/__tests__/checker.test.ts src/__tests__/conversation-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
-import {
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,7 +15,6 @@ import {
   spyOn,
   test,
 } from "bun:test";
-
 
 const checkerTestDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -56,7 +51,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => testConfig,
   loadConfig: () => testConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -122,14 +116,14 @@ import * as platformModule from "../util/platform.js";
 /** Default gateway thresholds matching the old config fallback defaults. */
 const DEFAULT_GATEWAY_THRESHOLDS = {
   interactive: "low",
-  background: "medium",
+  autonomous: "medium",
   headless: "none",
 } as const;
 
 /** Strict gateway thresholds — equivalent to autoApproveUpTo: "none". */
 const STRICT_GATEWAY_THRESHOLDS = {
   interactive: "none",
-  background: "none",
+  autonomous: "none",
   headless: "none",
 } as const;
 
@@ -206,7 +200,7 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset IPC mock to low risk (tests override as needed)
     mockRisk("low");
-    // Default gateway threshold (conversation: low, background: medium, headless: none)
+    // Default gateway threshold (interactive: low, autonomous: medium, headless: none)
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     // Clear the gateway threshold cache so each test gets a fresh threshold read
     _clearGlobalCacheForTesting();
@@ -376,7 +370,6 @@ describe("Permission Checker", () => {
       );
       expect(result.decision).toBe("prompt");
     });
-
   });
 
   // ── skill-origin tool default-ask policy ─────────────────────
@@ -421,7 +414,6 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Low risk");
     });
-
   });
 
   // ── workspace files are auto-allowed (low risk) ──────────────
@@ -489,7 +481,6 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: guardianPath }, "/tmp");
       expect(result.decision).toBe("allow");
     });
-
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
@@ -905,7 +896,6 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: hookPath }, "/tmp");
       expect(result.decision).toBe("prompt");
     });
-
   });
 
   describe("PolicyContext type (PR 3)", () => {
@@ -977,7 +967,6 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("above auto-approve threshold");
     });
-
   });
 
   // ── sandbox auto-approve ──
@@ -1226,7 +1215,6 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("above auto-approve threshold");
     });
-
   });
 
   // ── skill mutation approval regression tests (PR 30) ──────────
@@ -1243,7 +1231,7 @@ describe("Permission Checker", () => {
     describe("strict mode: skill source writes prompt with high risk", () => {
       test("strict mode: file_write to skill source prompts (no implicit allow)", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1259,7 +1247,7 @@ describe("Permission Checker", () => {
       test("strict mode: file_edit of skill source prompts (no implicit allow)", async () => {
         mockRisk("high");
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1273,7 +1261,7 @@ describe("Permission Checker", () => {
 
       test("strict mode: file_write to non-skill path prompts as Strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const normalPath = "/tmp/some-file.txt";
         const result = await check("file_write", { path: normalPath }, "/tmp");
         expect(result.decision).toBe("prompt");
@@ -1296,7 +1284,7 @@ describe("Permission Checker", () => {
 
       test("strict mode: host_file_write to skill source prompts (high risk overrides host ask)", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1314,7 +1302,7 @@ describe("Permission Checker", () => {
 
       test("strict mode: host_file_edit of skill source prompts", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1398,7 +1386,6 @@ describe("Permission Checker", () => {
       expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe("skill_load:*");
     });
-
   });
 
   // ── strict mode: skill_load behavior ──
@@ -1416,7 +1403,6 @@ describe("Permission Checker", () => {
       const result = await check("skill_load", { skill: "any-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
     });
-
   });
 
   // ══════════════════════════════════════════════════════════════════
@@ -1433,7 +1419,7 @@ describe("Permission Checker", () => {
     describe("Invariant 1: strict mode requires explicit matching rule for every tool", () => {
       test("bash prompts in strict mode (no default allow rule outside container)", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check("bash", { command: "echo hello" }, "/tmp");
         expect(result.decision).toBe("prompt");
         expect(result.reason).toContain("above auto-approve threshold");
@@ -1441,7 +1427,7 @@ describe("Permission Checker", () => {
 
       test("low-risk host_bash prompts in strict mode (no matching rule)", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "host_bash",
           { command: "echo hello" },
@@ -1453,7 +1439,7 @@ describe("Permission Checker", () => {
 
       test("low-risk file_read with no rule prompts in strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "file_read",
           { path: "/tmp/test.txt" },
@@ -1465,7 +1451,7 @@ describe("Permission Checker", () => {
 
       test("low-risk skill_load prompts in strict mode without an explicit rule", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "skill_load",
           { skill: "any-skill" },
@@ -1477,7 +1463,7 @@ describe("Permission Checker", () => {
 
       test("low-risk file_write with no rule prompts in strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "file_write",
           { path: "/tmp/file.txt" },
@@ -1490,7 +1476,7 @@ describe("Permission Checker", () => {
       test("high-risk bash prompts in strict mode (no default allow rule outside container)", async () => {
         mockRisk("high");
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "bash",
           { command: "sudo apt update" },
@@ -1501,7 +1487,7 @@ describe("Permission Checker", () => {
 
       test("high-risk host_bash command with no user rule prompts in strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check(
           "host_bash",
           { command: "sudo apt update" },
@@ -1512,19 +1498,18 @@ describe("Permission Checker", () => {
 
       test("skill-origin tool with no rule prompts in strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check("skill_test_tool", {}, "/tmp");
         expect(result.decision).toBe("prompt");
       });
 
       test("bundled skill-origin tool with no rule prompts in strict mode", async () => {
         mockIpcResponse("get_global_thresholds", STRICT_GATEWAY_THRESHOLDS);
-      _clearGlobalCacheForTesting();
+        _clearGlobalCacheForTesting();
         const result = await check("skill_bundled_test_tool", {}, "/tmp");
         expect(result.decision).toBe("prompt");
         expect(result.reason).toContain("above auto-approve threshold");
       });
-
     });
 
     // ── Invariant 4: Host execution approvals — high risk prompts ──
@@ -1532,7 +1517,11 @@ describe("Permission Checker", () => {
     describe("Invariant 4: high-risk host execution always prompts", () => {
       test("host_bash high risk prompts", async () => {
         mockRisk("high");
-        const result = await check("host_bash", { command: "sudo rm -rf /" }, "/tmp");
+        const result = await check(
+          "host_bash",
+          { command: "sudo rm -rf /" },
+          "/tmp",
+        );
         expect(result.decision).toBe("prompt");
       });
 
@@ -1555,7 +1544,6 @@ describe("Permission Checker", () => {
         );
         expect(result.decision).toBe("prompt");
       });
-
     });
   });
 });
@@ -1607,7 +1595,6 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     );
     expect(result.decision).toBe("allow");
   });
-
 });
 
 describe("workspace mode — auto-allow workspace-scoped operations", () => {
@@ -1755,7 +1742,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("risk");
   });
-
 });
 
 describe("integration regressions (PR 11)", () => {
@@ -1814,5 +1800,4 @@ describe("integration regressions (PR 11)", () => {
       nonHostScopes.map((s) => s.scope),
     );
   });
-
 });

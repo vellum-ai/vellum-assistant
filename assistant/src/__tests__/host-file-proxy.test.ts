@@ -1,5 +1,43 @@
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
+const sentMessages: unknown[] = [];
+let mockHasClient = false;
+
+interface MockClient {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+}
+
+let mockClients: MockClient[] = [];
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) => {
+      if (mockClients.length > 0) {
+        return mockClients.find((c) => c.capabilities.includes(cap));
+      }
+      return cap === "host_file" && mockHasClient
+        ? { id: "mock-client" }
+        : null;
+    },
+    listClientsByCapability: (cap: string) => {
+      if (mockClients.length > 0) {
+        return mockClients.filter((c) => c.capabilities.includes(cap));
+      }
+      return cap === "host_file" && mockHasClient
+        ? [{ clientId: "mock-client", capabilities: ["host_file"] }]
+        : [];
+    },
+    getClientById: (id: string) => mockClients.find((c) => c.clientId === id),
+    getActorPrincipalIdForClient: (id: string) =>
+      mockClients.find((c) => c.clientId === id)?.actorPrincipalId,
+  },
+}));
+
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostFileProxy } = await import("../daemon/host-file-proxy.js");
 
 // Minimal PNG header
@@ -10,17 +48,19 @@ const PNG_HEADER = Buffer.from([
 
 describe("HostFileProxy", () => {
   let proxy: InstanceType<typeof HostFileProxy>;
-  let sentMessages: unknown[];
-  let sendToClient: (msg: unknown) => void;
 
-  function setup(onInternalResolve?: (requestId: string) => void) {
-    sentMessages = [];
-    sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostFileProxy(sendToClient, onInternalResolve);
+  function setup() {
+    sentMessages.length = 0;
+    mockHasClient = false;
+    mockClients = [];
+    pendingInteractions.clear();
+    proxy = new (HostFileProxy as any)();
   }
 
   afterEach(() => {
     proxy?.dispose();
+    HostFileProxy.reset();
+    pendingInteractions.clear();
   });
 
   describe("request/resolve lifecycle (happy path)", () => {
@@ -45,7 +85,7 @@ describe("HostFileProxy", () => {
       expect(typeof sent.requestId).toBe("string");
 
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Simulate client response
       proxy.resolve(requestId, {
@@ -56,7 +96,7 @@ describe("HostFileProxy", () => {
       const result = await resultPromise;
       expect(result.content).toBe("file contents here");
       expect(result.isError).toBe(false);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("resolves error responses correctly", async () => {
@@ -185,7 +225,7 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       // Resolve to avoid test hanging (actual 30s timeout too long for test)
       proxy.resolve(requestId, {
@@ -213,14 +253,14 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
 
       const result = await resultPromise;
       expect(result.content).toBe("Aborted");
       expect(result.isError).toBe(true);
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("sends host_file_cancel to client on abort", async () => {
@@ -271,23 +311,16 @@ describe("HostFileProxy", () => {
   });
 
   describe("isAvailable", () => {
-    test("returns false by default (no client connected)", () => {
+    test("returns false when no client with host_file capability is connected", () => {
       setup();
+      mockHasClient = false;
       expect(proxy.isAvailable()).toBe(false);
     });
 
-    test("returns true after updateSender with clientConnected=true", () => {
+    test("returns true when a client with host_file capability is connected", () => {
       setup();
-      proxy.updateSender(sendToClient, true);
+      mockHasClient = true;
       expect(proxy.isAvailable()).toBe(true);
-    });
-
-    test("returns false after updateSender with clientConnected=false", () => {
-      setup();
-      proxy.updateSender(sendToClient, true);
-      expect(proxy.isAvailable()).toBe(true);
-      proxy.updateSender(sendToClient, false);
-      expect(proxy.isAvailable()).toBe(false);
     });
   });
 
@@ -305,11 +338,11 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
-      expect(proxy.hasPendingRequest(requestId)).toBe(true);
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.dispose();
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
       expect(resultPromise).rejects.toThrow("Host file proxy disposed");
     });
 
@@ -373,35 +406,7 @@ describe("HostFileProxy", () => {
         isError: false,
       });
 
-      expect(proxy.hasPendingRequest(requestId)).toBe(false);
-    });
-  });
-
-  describe("updateSender", () => {
-    test("uses updated sender for new requests", async () => {
-      setup();
-
-      const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg), true);
-
-      const resultPromise = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/test.txt",
-        },
-        "session-1",
-      );
-
-      expect(sentMessages).toHaveLength(0); // Old sender not used
-      expect(newMessages).toHaveLength(1); // New sender used
-
-      const sent = newMessages[0] as Record<string, unknown>;
-      proxy.resolve(sent.requestId as string, {
-        content: "updated content",
-        isError: false,
-      });
-
-      await resultPromise;
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 
@@ -469,7 +474,10 @@ describe("HostFileProxy", () => {
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolve(requestId, { content: "file contents", isError: false });
+      proxy.resolve(requestId, {
+        content: "file contents",
+        isError: false,
+      });
       await resultPromise;
 
       // Listener is detached after normal completion.
@@ -500,7 +508,7 @@ describe("HostFileProxy", () => {
 
         const requestId = (sentMessages[0] as Record<string, unknown>)
           .requestId as string;
-        expect(proxy.hasPendingRequest(requestId)).toBe(true);
+        expect(pendingInteractions.get(requestId)).toBeDefined();
 
         // Advance past the 30s internal timeout.
         jest.advanceTimersByTime(31 * 1000);
@@ -508,7 +516,7 @@ describe("HostFileProxy", () => {
         const result = await resultPromise;
         expect(result.isError).toBe(true);
         expect(result.content).toContain("Host file proxy timed out");
-        expect(proxy.hasPendingRequest(requestId)).toBe(false);
+        expect(pendingInteractions.get(requestId)).toBeUndefined();
 
         // Listener is detached after the timer fires.
         expect(spy.removeCalls).toEqual(["abort"]);
@@ -522,49 +530,9 @@ describe("HostFileProxy", () => {
     });
   });
 
-  describe("sender throws synchronously", () => {
-    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
-      const resolvedIds: string[] = [];
-      sentMessages = [];
-      sendToClient = () => {
-        throw new Error("transport down");
-      };
-      proxy = new HostFileProxy(sendToClient, (id) => resolvedIds.push(id));
-
-      const resultPromise = proxy.request(
-        { operation: "read", path: "/tmp/test.txt" },
-        "session-1",
-      );
-
-      await expect(resultPromise).rejects.toThrow("transport down");
-
-      // The internal resolve should fire exactly once as part of cleanup.
-      expect(resolvedIds).toHaveLength(1);
-
-      // Issue a new request on a fresh (non-throwing) sender and verify
-      // the proxy is still functional — no stale timers or bookkeeping
-      // from the failed request.
-      sentMessages = [];
-      proxy.updateSender((msg) => sentMessages.push(msg), true);
-      const okPromise = proxy.request(
-        { operation: "read", path: "/tmp/ok.txt" },
-        "session-1",
-      );
-      expect(sentMessages).toHaveLength(1);
-      const okRequestId = (sentMessages[0] as Record<string, unknown>)
-        .requestId as string;
-      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
-      proxy.resolve(okRequestId, { content: "ok", isError: false });
-      const okResult = await okPromise;
-      expect(okResult.content).toBe("ok");
-      expect(okResult.isError).toBe(false);
-    });
-  });
-
-  describe("onInternalResolve callback", () => {
-    test("fires on abort", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+  describe("pendingInteractions cleanup", () => {
+    test("cleans up on abort", async () => {
+      setup();
 
       const controller = new AbortController();
       const resultPromise = proxy.request(
@@ -578,30 +546,23 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
       await resultPromise;
 
-      expect(resolvedIds).toEqual([requestId]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
-    test("fires for each pending request on dispose", () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+    test("cleans up for each pending request on dispose", () => {
+      setup();
 
-      // Create two pending requests and catch rejections from dispose
       const p1 = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/a.txt",
-        },
+        { operation: "read", path: "/tmp/a.txt" },
         "session-1",
       );
       const p2 = proxy.request(
-        {
-          operation: "read",
-          path: "/tmp/b.txt",
-        },
+        { operation: "read", path: "/tmp/b.txt" },
         "session-1",
       );
       p1.catch(() => {}); // Expected rejection on dispose
@@ -611,17 +572,17 @@ describe("HostFileProxy", () => {
         (m) => m.requestId as string,
       );
       expect(ids).toHaveLength(2);
+      expect(pendingInteractions.get(ids[0])).toBeDefined();
+      expect(pendingInteractions.get(ids[1])).toBeDefined();
 
       proxy.dispose();
 
-      expect(resolvedIds).toHaveLength(2);
-      expect(resolvedIds).toContain(ids[0]);
-      expect(resolvedIds).toContain(ids[1]);
+      expect(pendingInteractions.get(ids[0])).toBeUndefined();
+      expect(pendingInteractions.get(ids[1])).toBeUndefined();
     });
 
-    test("does not fire on normal client-initiated resolve", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+    test("cleans up on normal client-initiated resolveResult", async () => {
+      setup();
 
       const resultPromise = proxy.request(
         {
@@ -633,15 +594,256 @@ describe("HostFileProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      // Normal resolve from client — should NOT trigger onInternalResolve
       proxy.resolve(requestId, {
         content: "file contents",
         isError: false,
       });
 
       await resultPromise;
-      expect(resolvedIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
+    });
+  });
+
+  describe("same-user binding (sourceActorPrincipalId)", () => {
+    test("targeted request from same user reaches pendingInteractions", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-A",
+      );
+
+      // Request was registered (made it past the same-user gate).
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+
+      // Drain to avoid leaks.
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("targeted request from a different user is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-B",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      // No host_file_request was broadcast.
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("targeted request to a client with no actor principal is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          // actorPrincipalId omitted (legacy/service-token client).
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-A",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("targeted request without source principal is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        undefined,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("untargeted request with no auto-resolve match still broadcasts (legacy path unchanged)", async () => {
+      setup();
+      // No matching same-user clients available.
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-B", // No same-user match → no auto-resolve, broadcast untargeted.
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBeUndefined();
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("auto-resolve picks the same-user client when there's exactly one", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+        {
+          clientId: "client-B",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-B",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-A",
+      );
+
+      // Auto-resolved to client-A and broadcast targeted at it.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-A");
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("auto-resolve falls through when no client matches the source user", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-C",
+      );
+
+      // No same-user client → no auto-resolve, broadcast untargeted.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBeUndefined();
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("legacy embedded targetClientId in input still goes through the same-user gate", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      // Same-user via embedded input.targetClientId — should succeed.
+      const okPromise = proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/ok.txt",
+          targetClientId: "client-A",
+        },
+        "session-1",
+        undefined,
+        undefined,
+        "user-A",
+      );
+      expect(sentMessages).toHaveLength(1);
+      const okRequestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(okRequestId, { content: "ok", isError: false });
+      await okPromise;
+
+      // Cross-user via embedded input.targetClientId — should be rejected.
+      sentMessages.length = 0;
+      const rejectResult = await proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/bad.txt",
+          targetClientId: "client-A",
+        },
+        "session-1",
+        undefined,
+        undefined,
+        "user-B",
+      );
+      expect(rejectResult.isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
     });
   });
 });

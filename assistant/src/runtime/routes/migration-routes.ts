@@ -15,12 +15,15 @@
  */
 
 import { createReadStream } from "node:fs";
+import { hostname } from "node:os";
 import { PassThrough, Readable } from "node:stream";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
 
+import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -40,6 +43,8 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
+import { APP_VERSION } from "../../version.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
@@ -48,11 +53,23 @@ import {
   JobAlreadyInProgressError,
   migrationJobs,
 } from "../migrations/job-registry.js";
+import { getOriginMode } from "../migrations/origin-mode.js";
+import type {
+  VBundleAssistantInfo,
+  VBundleCompatibility,
+  VBundleExportOptions,
+  VBundleOriginInfo,
+} from "../migrations/vbundle-builder.js";
 import { streamExportVBundle } from "../migrations/vbundle-builder.js";
 import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
+import {
+  evaluateRuntimeCompatibility,
+  formatRuntimeCompatibilityMessage,
+  type RuntimeCompatibility,
+} from "../migrations/vbundle-import-policy.js";
 import {
   commitImport,
   extractCredentialsFromBundle,
@@ -67,6 +84,7 @@ import {
   InternalError,
   NotFoundError,
   RouteError,
+  UnprocessableEntityError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
@@ -137,6 +155,110 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
 const log = getLogger("migration-routes");
 
 /**
+ * Fields the export pipeline must populate on the v1 manifest.
+ *
+ * Centralized so both the synchronous-bytes and async-to-gcs handlers
+ * compute the same values (and a future caller doesn't accidentally drift).
+ */
+interface ExportManifestInputs {
+  assistant: VBundleAssistantInfo;
+  origin: VBundleOriginInfo;
+  compatibility: VBundleCompatibility;
+  exportOptions: VBundleExportOptions;
+}
+
+/**
+ * Resolve the `assistant.id` for an export.
+ *
+ * Mirrors `platform/client.ts`'s precedence: in-memory override (set at
+ * daemon startup or by secret-routes) → credential store → daemon-internal
+ * fallback. The schema requires `id` to be non-empty, so we fall back to
+ * `DAEMON_INTERNAL_ASSISTANT_ID` rather than the empty string.
+ */
+async function resolveAssistantId(): Promise<string> {
+  const inMemory = getPlatformAssistantId();
+  if (inMemory) return inMemory;
+  try {
+    const stored = await getSecureKeyAsync(
+      credentialKey("vellum", "platform_assistant_id"),
+    );
+    if (stored) return stored;
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to read platform_assistant_id from credential store; falling back to daemon-internal id",
+    );
+  }
+  return DAEMON_INTERNAL_ASSISTANT_ID;
+}
+
+/**
+ * Decide the truthful `secrets_redacted` flag for an export.
+ *
+ * The export entry points pass every collected credential through to the
+ * builder unfiltered, so the bundle is NOT redacted whenever any
+ * credentials made it in. Only flip to true when the credential list is
+ * empty AND every credential read succeeded — i.e. there genuinely are
+ * no secrets in the bundle.
+ *
+ * Two failure modes both force `false`:
+ *   - `storeUnreachable`: the top-level `listSecureKeysAsync()` call
+ *     failed, so we never even discovered which accounts exist.
+ *   - `perAccountUnreachable`: the LIST call succeeded but one or more
+ *     individual `getSecureKeyResultAsync(account)` reads returned
+ *     `unreachable: true`. Those accounts were silently skipped from the
+ *     `credentials` array, so a `credentialCount === 0` outcome could
+ *     reflect "we couldn't read them" rather than "no secrets exist".
+ *     Claiming a clean redaction in that case would be a lie.
+ *
+ * NOTE: a managed-mode bundle with `secrets_redacted: false` will fail
+ * the validator's cross-field refine. That surfaces an existing
+ * platform-side enforcement gap — the runtime emits the truthful value
+ * and lets the schema flag it.
+ */
+export function computeSecretsRedacted(
+  credentialCount: number,
+  storeUnreachable: boolean,
+  perAccountUnreachable: boolean,
+): boolean {
+  return credentialCount === 0 && !storeUnreachable && !perAccountUnreachable;
+}
+
+/**
+ * Compute the v1 manifest inputs that aren't tied to per-call options.
+ *
+ * `walkDirectoryForMetadata` skips `embedding-models`, `data/qdrant`,
+ * `signals`, and `deprecated` — `logs` is NOT in the skip list, so log
+ * files end up in `manifest.contents`. Browser state and memory vectors
+ * (qdrant) are skipped, so those flags are false.
+ */
+async function buildExportManifestInputs(): Promise<ExportManifestInputs> {
+  const assistantId = await resolveAssistantId();
+  const assistantName = getAssistantName() ?? "Assistant";
+  const originMode = await getOriginMode();
+  return {
+    assistant: {
+      id: assistantId,
+      name: assistantName,
+      runtime_version: APP_VERSION,
+    },
+    origin: {
+      mode: originMode,
+      hostname: hostname(),
+    },
+    compatibility: {
+      min_runtime_version: APP_VERSION,
+      max_runtime_version: null,
+    },
+    exportOptions: {
+      include_logs: true,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  };
+}
+
+/**
  * POST /v1/migrations/validate
  *
  * Validates a .vbundle archive. The file can be sent as:
@@ -188,18 +310,21 @@ export async function handleMigrationValidate({
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationExport({
-  body,
-}: RouteHandlerArgs): Promise<RouteResponse> {
-  const description =
-    typeof body?.description === "string" ? body.description : undefined;
-
+export async function handleMigrationExport(
+  _args: RouteHandlerArgs,
+): Promise<RouteResponse> {
+  // The legacy `description` field is no longer carried on the v1
+  // manifest. Older clients still POST it; we silently ignore it.
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
     // Read all stored credentials to include in the export bundle
     const credentialList = await listSecureKeysAsync();
     const credentials: Array<{ account: string; value: string }> = [];
+    // Track per-account read failures separately from the top-level LIST
+    // failure. A single skipped account means we cannot truthfully claim
+    // the bundle is fully redacted — we don't know what we missed.
+    let perAccountUnreachable = false;
     if (credentialList.unreachable) {
       log.warn(
         "Credential store is unreachable — export will not include credentials",
@@ -208,6 +333,7 @@ export async function handleMigrationExport({
       for (const account of credentialList.accounts) {
         const result = await getSecureKeyResultAsync(account);
         if (result.unreachable) {
+          perAccountUnreachable = true;
           log.warn(
             { account },
             "Credential store unreachable when reading credential — skipping",
@@ -218,10 +344,17 @@ export async function handleMigrationExport({
       }
     }
 
+    const manifestInputs = await buildExportManifestInputs();
+    const secretsRedacted = computeSecretsRedacted(
+      credentials.length,
+      credentialList.unreachable,
+      perAccountUnreachable,
+    );
+
     const result = await streamExportVBundle({
       workspaceDir: getWorkspaceDir(),
-      source: "runtime-export",
-      description,
+      ...manifestInputs,
+      secretsRedacted,
       credentials,
       checkpoint: () => {
         const dbPath = getDbPath();
@@ -262,8 +395,12 @@ export async function handleMigrationExport({
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Content-Length": String(size),
-      "X-Vbundle-Schema-Version": manifest.schema_version,
-      "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
+      // `schema_version` is now an integer; clients that parse this header
+      // continue to work, but the value flips from "1.0" to "1".
+      "X-Vbundle-Schema-Version": String(manifest.schema_version),
+      // Header name preserved for cross-version client compat; populated
+      // from the renamed manifest `checksum` field.
+      "X-Vbundle-Manifest-Sha256": manifest.checksum,
       "X-Vbundle-Credentials-Included": String(credentials.length),
     });
   } catch (err) {
@@ -288,15 +425,23 @@ const MigrationExportToGcsBody = z.object({
 });
 
 /**
- * Collected credentials plus a warning marker if the credential store was
+ * Collected credentials plus warning markers if the credential store was
  * unreachable. The caller surfaces the warning in logs; production callers
  * fail closed on errors (a thrown exception → 500) to avoid shipping a
  * bundle with partial credentials. An unreachable store is NOT an error —
  * `handleMigrationExport` treats that case as "export without credentials".
+ *
+ * - `unreachable`: the top-level `listSecureKeysAsync()` call failed.
+ * - `perAccountUnreachable`: the LIST succeeded but one or more individual
+ *   `getSecureKeyResultAsync(account)` calls returned `unreachable: true`.
+ *   Those accounts were silently skipped from `credentials`, so the count
+ *   here understates reality. The flag is what tells `computeSecretsRedacted`
+ *   it cannot claim a clean redaction.
  */
 interface CollectedCredentials {
   credentials: Array<{ account: string; value: string }>;
   unreachable: boolean;
+  perAccountUnreachable: boolean;
 }
 
 /**
@@ -311,12 +456,18 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
     log.warn(
       "Credential store is unreachable — export will not include credentials",
     );
-    return { credentials: [], unreachable: true };
+    return {
+      credentials: [],
+      unreachable: true,
+      perAccountUnreachable: false,
+    };
   }
   const credentials: Array<{ account: string; value: string }> = [];
+  let perAccountUnreachable = false;
   for (const account of credentialList.accounts) {
     const result = await getSecureKeyResultAsync(account);
     if (result.unreachable) {
+      perAccountUnreachable = true;
       log.warn(
         { account },
         "Credential store unreachable when reading credential — skipping",
@@ -325,7 +476,7 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
       credentials.push({ account, value: result.value });
     }
   }
-  return { credentials, unreachable: false };
+  return { credentials, unreachable: false, perAccountUnreachable };
 }
 
 /**
@@ -355,9 +506,7 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
  *
  * Auth: settings.write scope (matches `migrations/export`).
  */
-export async function handleMigrationExportToGcs({
-  body,
-}: RouteHandlerArgs) {
+export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   // ── 1. Parse JSON body ────────────────────────────────────────────────
   const parsed = MigrationExportToGcsBody.safeParse(body);
   if (!parsed.success) {
@@ -399,8 +548,28 @@ export async function handleMigrationExportToGcs({
     );
   }
 
-  const description = parsed.data.description;
   const uploadUrl = parsed.data.upload_url;
+
+  // Compute the v1 manifest inputs once outside the async job runner so we
+  // surface failures (e.g. credential-store probe) as a synchronous 500
+  // before the caller starts polling.
+  let manifestInputs: ExportManifestInputs;
+  try {
+    manifestInputs = await buildExportManifestInputs();
+  } catch (err) {
+    log.error({ err }, "Failed to assemble export manifest inputs");
+    throw new InternalError(
+      err instanceof Error
+        ? err.message
+        : "Failed to assemble export manifest inputs",
+    );
+  }
+
+  const secretsRedacted = computeSecretsRedacted(
+    collected.credentials.length,
+    collected.unreachable,
+    collected.perAccountUnreachable,
+  );
 
   // ── 4. Enqueue the job. The runner captures the collected credentials.
   let job;
@@ -410,8 +579,8 @@ export async function handleMigrationExportToGcs({
       try {
         const result = await streamExportVBundle({
           workspaceDir: getWorkspaceDir(),
-          source: "runtime-export",
-          description,
+          ...manifestInputs,
+          secretsRedacted,
           credentials: collected.credentials,
           checkpoint: () => {
             const dbPath = getDbPath();
@@ -493,7 +662,7 @@ export async function handleMigrationExportToGcs({
 
         return {
           size,
-          sha256: manifest.manifest_sha256,
+          sha256: manifest.checksum,
           schemaVersion: manifest.schema_version,
           credentialsIncluded: collected.credentials.length,
         };
@@ -557,9 +726,7 @@ async function extractFileData(
       const formData = await syntheticReq.formData();
       const file = formData.get("file");
       if (!file || !(file instanceof Blob)) {
-        throw new BadRequestError(
-          'Multipart upload requires a "file" field',
-        );
+        throw new BadRequestError('Multipart upload requires a "file" field');
       }
       return new Uint8Array(await file.arrayBuffer());
     } catch (err) {
@@ -705,6 +872,23 @@ export async function handleMigrationImport(
       };
     }
 
+    // Pre-check runtime-version compat before the DB close/reopen cycle.
+    // commitImport runs the same gate as defense-in-depth for callers that
+    // don't pre-check; we run it here too so an incompatible bundle short-
+    // circuits before resetDb().
+    const compatResult = evaluateRuntimeCompatibility(
+      validation.manifest!.compatibility,
+      APP_VERSION,
+    );
+    if (!compatResult.ok) {
+      throwImportCommitFailure({
+        ok: false,
+        reason: "version_incompatible",
+        bundle_compat: compatResult.bundle_compat,
+        runtime_version: compatResult.runtime_version,
+      });
+    }
+
     const pathResolver = new DefaultPathResolver(
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
@@ -757,6 +941,12 @@ export async function handleMigrationImport(
 
     return importCommitSuccessResult(result.report, credentialsImported);
   } catch (err) {
+    // Preserve typed RouteError instances (e.g. UnprocessableEntityError for
+    // version_incompatible, BadRequestError for validation_failed) — only
+    // wrap genuinely unexpected errors as 500 InternalError.
+    if (err instanceof RouteError) {
+      throw err;
+    }
     log.error({ err }, "Unexpected error during import commit");
     throw new InternalError(
       err instanceof Error ? err.message : "Unexpected import error",
@@ -853,12 +1043,18 @@ interface GcsImportErrorInit {
     | "fetch_failed"
     | "validation_failed"
     | "extraction_failed"
+    | "version_incompatible"
     | "write_failed";
   message: string;
   upstreamStatus?: number;
   reason?: string;
   errors?: Array<{ code: string; message: string; path?: string }>;
   partial_report?: ImportCommitReport;
+  /** Populated for `version_incompatible` — mirrors the platform's PR #5470
+   *  response shape so the URL-body endpoint can return the same body. */
+  bundle_compat?: RuntimeCompatibility;
+  /** Populated for `version_incompatible`. */
+  runtime_version?: string;
 }
 
 class GcsImportError extends Error {
@@ -867,6 +1063,8 @@ class GcsImportError extends Error {
   public readonly reason?: string;
   public readonly errors?: GcsImportErrorInit["errors"];
   public readonly partial_report?: ImportCommitReport;
+  public readonly bundle_compat?: RuntimeCompatibility;
+  public readonly runtime_version?: string;
 
   constructor(init: GcsImportErrorInit) {
     super(init.message);
@@ -883,6 +1081,12 @@ class GcsImportError extends Error {
     }
     if (init.partial_report !== undefined) {
       this.partial_report = init.partial_report;
+    }
+    if (init.bundle_compat !== undefined) {
+      this.bundle_compat = init.bundle_compat;
+    }
+    if (init.runtime_version !== undefined) {
+      this.runtime_version = init.runtime_version;
     }
   }
 }
@@ -910,7 +1114,7 @@ class GcsImportError extends Error {
  * The signed URL is never echoed into errors or logs — only the extracted
  * `host`/`path` are.
  */
-export async function runGcsImport(
+async function runGcsImport(
   url: string,
   _correlationId?: string,
 ): Promise<ImportSummary> {
@@ -1182,6 +1386,22 @@ export async function runGcsImport(
         reason: result.reason,
       });
     }
+    if (result.reason === "version_incompatible") {
+      // Returned by commitImport / streamCommitImport when the runtime falls
+      // outside the bundle's compat range. The platform-side gate is the
+      // primary check; this catches legacy bundles whose ExportJob row
+      // predates PR #5470 (compat columns NULL → platform gate skipped).
+      throw new GcsImportError({
+        code: "version_incompatible",
+        message: formatRuntimeCompatibilityMessage(
+          result.bundle_compat,
+          result.runtime_version,
+        ),
+        reason: result.reason,
+        bundle_compat: result.bundle_compat,
+        runtime_version: result.runtime_version,
+      });
+    }
     // write_failed
     throw new GcsImportError({
       code: "write_failed",
@@ -1281,6 +1501,20 @@ function throwGcsImportError(err: unknown): never {
         }),
       );
     }
+    if (err.code === "version_incompatible") {
+      // 422 (not 500) — the bundle is structurally valid but cannot be
+      // imported on this runtime. Body mirrors the platform's PR #5470
+      // response shape.
+      throw new UnprocessableEntityError(err.message, {
+        reason: "version_incompatible" as const,
+        ...(err.bundle_compat !== undefined && {
+          bundle_compat: err.bundle_compat,
+        }),
+        ...(err.runtime_version !== undefined && {
+          runtime_version: err.runtime_version,
+        }),
+      });
+    }
     if (err.code === "extraction_failed") {
       throw new InternalError(err.message);
     }
@@ -1303,9 +1537,7 @@ function throwGcsImportError(err: unknown): never {
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationImportFromGcs({
-  body,
-}: RouteHandlerArgs) {
+export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
   const parsed = MigrationImportFromGcsBody.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(
@@ -1515,6 +1747,29 @@ function throwImportCommitFailure(
     throw new InternalError(result.message);
   }
 
+  if (result.reason === "version_incompatible") {
+    // Returned by commitImport / streamCommitImport when the runtime falls
+    // outside the bundle's compat range. The platform-side gate is the
+    // primary check; this catches legacy bundles whose ExportJob row
+    // predates PR #5470 (compat columns NULL → platform gate skipped).
+    //
+    // 422 (not 500) — the bundle is structurally valid but cannot be
+    // imported on this runtime; the caller can act on it (upgrade the
+    // runtime, choose a different bundle). Body mirrors the platform's
+    // PR #5470 response shape.
+    throw new UnprocessableEntityError(
+      formatRuntimeCompatibilityMessage(
+        result.bundle_compat,
+        result.runtime_version,
+      ),
+      {
+        reason: "version_incompatible" as const,
+        bundle_compat: result.bundle_compat,
+        runtime_version: result.runtime_version,
+      },
+    );
+  }
+
   // write_failed
   throw new InternalError(result.message);
 }
@@ -1652,8 +1907,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "502": {
-        description:
-          "Upstream fetch failed (URL body only).",
+        description: "Upstream fetch failed (URL body only).",
       },
     },
     responseBody: z.object({
@@ -1710,8 +1964,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "409": {
-        description:
-          "Another import job is already pending or running.",
+        description: "Another import job is already pending or running.",
       },
     },
     handler: handleMigrationImportFromGcs,

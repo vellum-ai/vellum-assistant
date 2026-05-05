@@ -33,6 +33,7 @@ import {
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { AvailableScopes } from "./connect-types.js";
+import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { tryRevokeOAuthToken } from "./revoke.js";
 
 const log = getLogger("oauth-store");
@@ -895,10 +896,11 @@ export function listActiveConnectionsByProvider(
 export async function isProviderConnected(provider: string): Promise<boolean> {
   const conn = getActiveConnection(provider);
   if (!conn || conn.status !== "active") return false;
-  return (
-    (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))) !==
-    undefined
-  );
+  const tokenResult = await getConnectionAccessTokenResult({
+    provider,
+    connectionId: conn.id,
+  });
+  return tokenResult.value !== undefined;
 }
 
 /**

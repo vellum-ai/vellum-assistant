@@ -13,8 +13,8 @@ import {
   getCAPath,
   issueLeafCert,
   type RewriteCallback,
-  type RouteDecision,
 } from "../outbound-proxy/index.js";
+import type { RouteDecision } from "../outbound-proxy/router.js";
 
 let dataDir: string;
 let caDir: string;

@@ -206,6 +206,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift static let feature-flag key constants — values are plain kebab-case
     # flag names, not secrets. Matches both *FeatureFlagKey and *FlagKey.
     "(private[[:space:]]+static[[:space:]]+)?(let|var)[[:space:]]+[a-zA-Z]*FlagKey[[:space:]]*[:=][[:space:]]*['\"][a-z][a-z0-9-]*['\"]"
+    # OAuth managed-service config key — always a `<provider>-oauth` slug that
+    # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
+    # The value is a routing identifier, not a credential.
+    "managedServiceConfigKey['\"]?[[:space:]]*:[[:space:]]*['\"][a-z][a-z0-9-]*-oauth['\"]"
 )
 
 matches_safe_line_pattern() {

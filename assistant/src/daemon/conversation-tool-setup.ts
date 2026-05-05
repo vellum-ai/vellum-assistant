@@ -13,12 +13,12 @@ import {
 } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
-import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -30,12 +30,13 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ToolContext,
-  ToolExecutionResult,
-  ToolLifecycleEventHandler,
+import {
+  isDiskPressureCleanupToolName,
+  type ProxyApprovalCallback,
+  type ProxyApprovalRequest,
+  type ToolContext,
+  type ToolExecutionResult,
+  type ToolLifecycleEventHandler,
 } from "../tools/types.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
@@ -43,7 +44,6 @@ import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./conversation-skill-tools.js";
-import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import { surfaceProxyResolver } from "./conversation-surfaces.js";
 import {
   isDoordashCommand,
@@ -72,55 +72,8 @@ export function resolveTrustClass(
   return trustContext?.trustClass ?? "unknown";
 }
 
-// ── Context Interface ────────────────────────────────────────────────
-
-/**
- * Subset of Conversation state that the tool executor callback reads at
- * call time (not construction time). These are captured by the
- * returned closure, so they must be live references.
- */
-export interface ToolSetupContext extends SurfaceConversationContext {
-  readonly conversationId: string;
-  assistantId?: string;
-  currentRequestId?: string;
-  workingDir: string;
-  abortController: AbortController | null;
-  /** When set, only tools in this set may execute during the current turn. */
-  allowedToolNames?: Set<string>;
-  /** Conversation memory policy used to propagate scopeId into ToolContext. */
-  memoryPolicy: { scopeId: string };
-  /** True when the conversation has no connected client (HTTP-only path). */
-  hasNoClient?: boolean;
-  /** When true, the conversation is executing a task run and must not become interactive. */
-  headlessLock?: boolean;
-  /** When set, this conversation is executing a task run. Used to retrieve ephemeral permission rules. */
-  taskRunId?: string;
-  /** Guardian runtime context for the conversation — trustClass is propagated into ToolContext for control-plane policy enforcement. */
-  trustContext?: TrustContext;
-  /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
-  callSessionId?: string;
-  /** Optional proxy for delegating host_bash execution to a connected client. */
-  hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
-  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
-  hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
-  /** Optional proxy for delegating bidirectional file transfers between sandbox and host. */
-  hostTransferProxy?: import("./host-transfer-proxy.js").HostTransferProxy;
-  /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
-  cesClient?: CesClient;
-  /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
-  readonly transportInterface?: InterfaceId;
-
-  /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
-  approvedViaPromptThisTurn?: boolean;
-  /**
-   * Per-turn snapshot of the resolved inference-profile override, set by
-   * `runAgentLoopImpl`. Propagated into `ToolContext.overrideProfile` so
-   * tools that spawn nested invocations (e.g. `subagent_spawn`) can forward
-   * the override without round-tripping through a row read that would
-   * return `undefined` for the in-flight (background) subagent.
-   */
-  currentTurnOverrideProfile?: string;
-}
+import type { ToolSetupContext } from "./tool-setup-types.js";
+export type { ToolSetupContext } from "./tool-setup-types.js";
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
 
@@ -150,7 +103,6 @@ export function createToolExecutor(
   secretPrompter: SecretPrompter,
   ctx: ToolSetupContext,
   handleToolLifecycleEvent: ToolLifecycleEventHandler,
-  broadcastToAllClients?: (msg: ServerMessage) => void,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -184,6 +136,7 @@ export function createToolExecutor(
       taskRunId: ctx.taskRunId,
       trustClass: resolveTrustClass(ctx.trustContext),
       executionChannel: ctx.trustContext?.sourceChannel,
+      sourceActorPrincipalId: ctx.trustContext?.guardianPrincipalId,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
@@ -200,11 +153,8 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
-      memoryScopeId: ctx.memoryPolicy.scopeId,
+      diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
-      hostBashProxy: ctx.hostBashProxy,
-      hostFileProxy: ctx.hostFileProxy,
-      hostTransferProxy: ctx.hostTransferProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
@@ -268,16 +218,6 @@ export function createToolExecutor(
       // Clone to avoid mutating shared input objects
       const toolInput = { ...rawToolInput };
 
-      // Propagate outer activity when inner input lacks a valid one
-      if (
-        typeof input.activity === "string" &&
-        input.activity &&
-        (typeof toolInput.activity !== "string" ||
-          toolInput.activity.length === 0)
-      ) {
-        toolInput.activity = input.activity;
-      }
-
       if (!toolName) {
         return {
           content:
@@ -296,10 +236,7 @@ export function createToolExecutor(
         ctx.approvedViaPromptThisTurn = true;
       }
 
-      runPostExecutionSideEffects(toolName, toolInput, result, {
-        ctx,
-        broadcastToAllClients,
-      });
+      runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
 
       return result;
     }
@@ -314,10 +251,7 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(name, input, result, {
-      ctx,
-      broadcastToAllClients,
-    });
+    runPostExecutionSideEffects(name, input, result, { ctx });
 
     return result;
   };
@@ -373,6 +307,8 @@ export interface SkillProjectionContext {
   readonly hasNoClient?: boolean;
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
+  /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
+  diskPressureCleanupModeActive?: boolean;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
   readonly isSubagent?: boolean;
   /**
@@ -419,6 +355,29 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
 // Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
 // a capability mapping" is a structural fact — no runtime assertion needed.
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
+/**
+ * Capabilities eligible for cross-client exposure on non-host-proxy
+ * transports (e.g. web, ios routing to a connected macOS client).
+ * Adding a capability here exposes ALL tools that map to it (per
+ * HOST_TOOL_TO_CAPABILITY) on non-host-proxy transports — the daemon then
+ * routes the actual invocation to the connected capable client via the
+ * proxy's targetClientId path.
+ *
+ * Inclusions:
+ * - host_bash (Phase 1, PR #29322)
+ * - host_file (Phases 2 & 3, PRs #29398 + #29440)
+ *
+ * Exclusions:
+ * - host_browser: chrome-extension is its own executor; web turns don't
+ *   have a CDP target model. Re-evaluate when host browser via macOS
+ *   host proxy ships (PR #27489).
+ * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
+ *   (skill-routed).
+ */
+const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
+  "host_bash",
+  "host_file",
+]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
@@ -453,6 +412,25 @@ export function isToolActiveForContext(
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
+      // Cross-client exception: allow host tools whose capabilities have
+      // cross-client routing infrastructure (Phases 1–3) to be exposed for
+      // non-host-proxy transports (e.g. "web", "ios") when at least one
+      // capable client is connected via the event hub. Members of
+      // CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) qualify;
+      // host_browser is intentionally excluded (chrome-extension is its
+      // own executor and web turns don't have a CDP target model).
+      // chrome-extension transport is excluded as a security boundary
+      // (extension only gets host_browser); hasNoClient turns are excluded
+      // (no interactive approval UI available).
+      if (
+        capability &&
+        CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
+        transport !== "chrome-extension" &&
+        !ctx.hasNoClient &&
+        assistantEventHub.listClientsByCapability(capability).length > 0
+      ) {
+        return true;
+      }
       return false;
     }
 
@@ -571,6 +549,16 @@ export function createResolveToolsCallback(
       }
       turnAllowed.add(name);
     }
+    if (ctx.diskPressureCleanupModeActive === true) {
+      const cleanupDefs = allBaseDefs.filter((d) =>
+        isDiskPressureCleanupToolName(d.name),
+      );
+      ctx.allowedToolNames = new Set(
+        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+      );
+      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+    }
+
     ctx.allowedToolNames = turnAllowed;
     return injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
   };

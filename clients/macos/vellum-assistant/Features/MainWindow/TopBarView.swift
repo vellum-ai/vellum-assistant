@@ -1,6 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
+enum CodingAgentsPanelFeatureFlag {
+    static let key = "coding-agents-panel"
+
+    static var isEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled(key)
+    }
+}
+
 /// Main window toolbar: sidebar toggle, home, search, navigation,
 /// coding agents, update button, and conversation title overlay.
 struct TopBarView: View {
@@ -9,6 +17,7 @@ struct TopBarView: View {
     var homeStore: HomeStore
     var updateManager: UpdateManager
     var connectionManager: GatewayConnectionManager
+    let eventStreamClient: EventStreamClient
     let settingsStore: SettingsStore
     var isInFullscreen: Bool
     let sidebarExpandedWidth: CGFloat
@@ -16,6 +25,8 @@ struct TopBarView: View {
     let onCopyConversation: () -> Void
     let onRenameConversation: () -> Void
     let onOpenForkParent: () -> Void
+
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     @AppStorage("sidebarExpanded") private var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
@@ -71,15 +82,17 @@ struct TopBarView: View {
                     .vTooltip(homeTooltip)
                 }
 
-                VButton(
-                    label: "Coding Agents",
-                    iconOnly: VIcon.terminal.rawValue,
-                    style: .ghost,
-                    isActive: windowState.isRightSlotShowing(.acpSessions)
-                ) {
-                    windowState.toggleRightSlot(.acpSessions)
+                if Self.isCodingAgentsButtonVisible {
+                    VButton(
+                        label: "Coding Agents",
+                        iconOnly: VIcon.terminal.rawValue,
+                        style: .ghost,
+                        isActive: windowState.isRightSlotShowing(.acpSessions)
+                    ) {
+                        windowState.toggleRightSlot(.acpSessions)
+                    }
+                    .vTooltip("Coding Agents")
                 }
-                .vTooltip("Coding Agents")
 
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
                     AppDelegate.shared?.toggleCommandPalette()
@@ -131,6 +144,29 @@ struct TopBarView: View {
                 .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
             }
+            if windowState.isConversationVisible {
+                ConversationArtifactsButton(
+                    artifacts: conversationManager.activeViewModel?.conversationArtifacts ?? [],
+                    onOpenApp: { artifact in
+                        guard let appId = artifact.appId else { return }
+                        Task {
+                            await AppsClient.openAppAndDispatchSurface(
+                                id: appId,
+                                connectionManager: connectionManager,
+                                eventStreamClient: eventStreamClient
+                            )
+                        }
+                    },
+                    onOpenDocument: { artifact in
+                        guard let surfaceId = artifact.surfaceId else { return }
+                        NotificationCenter.default.post(
+                            name: .openDocumentEditor,
+                            object: nil,
+                            userInfo: ["documentSurfaceId": surfaceId]
+                        )
+                    }
+                )
+            }
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
@@ -161,9 +197,9 @@ struct TopBarView: View {
                     },
                     onRename: onRenameConversation,
                     onOpenForkParent: onOpenForkParent,
-                    onAnalyzeConversation: {
+                    onAnalyzeConversation: assistantFeatureFlagStore.isEnabled("analyze-conversation") ? {
                         Task { await conversationManager.analyzeActiveConversation() }
-                    },
+                    } : nil,
                     onRefresh: {
                         conversationManager.refreshActiveConversation()
                     },
@@ -179,5 +215,9 @@ struct TopBarView: View {
         }
         .frame(height: 48)
         .background(VColor.surfaceBase)
+    }
+
+    static var isCodingAgentsButtonVisible: Bool {
+        CodingAgentsPanelFeatureFlag.isEnabled
     }
 }

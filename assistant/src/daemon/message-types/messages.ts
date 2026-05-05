@@ -143,12 +143,20 @@ export interface ToolResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor modal (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
 }
 
 export interface ConfirmationRequest {
@@ -227,17 +235,12 @@ export interface MessageComplete {
 
 export interface ErrorMessage {
   type: "error";
+  conversationId?: string;
+  requestId?: string;
   code?: string;
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
-}
-
-export interface SecretDetected {
-  type: "secret_detected";
-  toolName: string;
-  matches: Array<{ type: string; redactedValue: string }>;
-  action: "redact" | "warn" | "block" | "prompt";
 }
 
 export interface MessageQueued {
@@ -361,7 +364,6 @@ export type TraceEventKind =
   | "tool_permission_decided"
   | "tool_finished"
   | "tool_failed"
-  | "secret_detected"
   | "generation_handoff"
   | "message_complete"
   | "generation_cancelled"
@@ -402,7 +404,6 @@ export type _MessagesServerMessages =
   | SecretRequest
   | MessageComplete
   | ErrorMessage
-  | SecretDetected
   | MessageQueued
   | MessageDequeued
   | MessageRequestComplete

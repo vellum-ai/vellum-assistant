@@ -52,21 +52,21 @@ import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js
 import { resetDb } from "../../memory/db-connection.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
+import { APP_VERSION } from "../../version.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
-import {
-  CONFIG_ARCHIVE_PATHS,
-  type ImportCommitReport,
-  type ImportCommitResult,
-  type ImportedFileReport,
-  type ImportFileAction,
-  LEGACY_USER_MD_ARCHIVE_PATH,
-  WORKSPACE_PRESERVE_PATHS,
+import * as policy from "./vbundle-import-policy.js";
+import type {
+  ImportCommitReport,
+  ImportCommitResult,
+  ImportedFileReport,
+  ImportFileAction,
 } from "./vbundle-importer.js";
 import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import {
   createHashVerifier,
   readAndValidateManifest,
   StreamingValidationError,
+  verifySymlinkEntry,
 } from "./vbundle-streaming-validator.js";
 import { parseVBundleStream } from "./vbundle-tar-stream.js";
 import type { ManifestType } from "./vbundle-validator.js";
@@ -104,9 +104,13 @@ const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
  * this run (via a `Set<string>` built from the backupDir/tempWorkspaceDir
  * basenames), so a user entry that happens to start with one of these
  * prefixes is still swept into the swap.
+ *
+ * Exported so tests asserting "no orphan temp/backup dirs" stay in sync with
+ * the actual layout. Both dirs are created at `${workspaceDir}/<prefix><uuid>`
+ * (i.e. INSIDE workspaceDir, not as a sibling).
  */
-const IMPORT_TEMP_PREFIX = ".import-";
-const IMPORT_BACKUP_PREFIX = ".pre-import-";
+export const IMPORT_TEMP_PREFIX = ".import-";
+export const IMPORT_BACKUP_PREFIX = ".pre-import-";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -274,18 +278,16 @@ export async function streamCommitImport(
   // Compared against `bundleEntryCap`.
   let entryCount = 0;
 
-  // Create the temp workspace dir up front so any failure between here and
-  // the atomic swap can be cleaned up by the catch block below.
-  try {
-    await mkdir(tempWorkspaceDir, { recursive: true });
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "write_failed",
-      message: `Failed to create temp workspace dir "${tempWorkspaceDir}": ${errMessage(err)}`,
-    };
-  }
-
+  // The temp workspace dir is created lazily inside the parse loop AFTER
+  // the manifest's version gate passes (see the `entryIndex === 0` block
+  // below). Creating it up front would materialize `${workspaceDir}` (and
+  // the `.import-<uuid>` subdir) on a fresh filesystem before we knew the
+  // bundle was compatible — violating the plan invariant that importers
+  // gate on runtime-version compat BEFORE any state mutation.
+  //
+  // `cleanupTempDir` is safe whether or not the dir was ever created:
+  // `rm(..., { recursive: true, force: true })` is a no-op on a missing
+  // path.
   const cleanupTempDir = async (): Promise<void> => {
     try {
       await rm(tempWorkspaceDir, { recursive: true, force: true });
@@ -302,7 +304,10 @@ export async function streamCommitImport(
   let entryIndex = 0;
   try {
     const entries = parseVBundleStream(source);
-    let expected: Map<string, { sha256: string; size: number }> | null = null;
+    let expected: Map<
+      string,
+      { sha256: string; size: number; linkTarget: string | null }
+    > | null = null;
 
     for await (const entry of entries) {
       if (entryIndex === 0) {
@@ -311,15 +316,57 @@ export async function streamCommitImport(
         const manifestResult = await readAndValidateManifest(entry);
         manifest = manifestResult.manifest;
         expected = manifestResult.expected;
+
+        // Defense-in-depth: refuse to populate the temp tree when the
+        // bundle's compat range excludes APP_VERSION. The version gate
+        // runs BEFORE we materialize `${workspaceDir}/.import-<uuid>`
+        // (the mkdir below is sequenced after this check), so on a fresh
+        // filesystem an incompatible bundle leaves zero filesystem trace.
+        // Throwing inside the generator's try block still triggers
+        // cleanupTempDir() in the catch — a safe no-op on a missing path
+        // — and mapThrownToResult translates VersionIncompatibleError into
+        // the version_incompatible result shape. Catches legacy bundles
+        // whose ExportJob row predates the platform compat-column rollout
+        // (compat columns NULL → platform gate skipped) and any future
+        // drift between the platform gate and the manifest.
+        const compatResult = policy.evaluateRuntimeCompatibility(
+          manifest.compatibility,
+          APP_VERSION,
+        );
+        if (!compatResult.ok) {
+          throw new VersionIncompatibleError(
+            compatResult.bundle_compat,
+            compatResult.runtime_version,
+          );
+        }
+
         // Entry-count ceiling check. The manifest declares every file the
         // bundle claims to contain, so one check here bounds the work the
         // importer is willing to do for this bundle.
-        if (manifest.files.length > bundleEntryCap) {
+        if (manifest.contents.length > bundleEntryCap) {
           throw new StreamingValidationError(
             "bundle_too_many_entries",
-            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.files.length})`,
+            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.contents.length})`,
           );
         }
+
+        // Only NOW — after the manifest is parsed, the version gate passes,
+        // and the entry-count ceiling is enforced — do we materialize the
+        // temp staging dir on disk. Doing this lazily preserves the plan
+        // invariant that importers gate on runtime-version compat BEFORE
+        // any state mutation. If this throws, the outer catch runs
+        // cleanupTempDir (a safe no-op on a missing path) and
+        // mapThrownToResult translates the WriteFailedError into the
+        // write_failed shape of ImportCommitResult.
+        try {
+          await mkdir(tempWorkspaceDir, { recursive: true });
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create temp workspace dir "${tempWorkspaceDir}"`,
+            err,
+          );
+        }
+
         entryIndex += 1;
         continue;
       }
@@ -350,7 +397,7 @@ export async function streamCommitImport(
       // Non-file entries are either directory markers (empty body) or
       // pax-header / other metadata payloads we don't consume. Apply the
       // bundle byte cap to their tar-header size too — an attacker could
-      // otherwise keep `manifest.files` small while stuffing huge pax/other
+      // otherwise keep `manifest.contents` small while stuffing huge pax/other
       // entry bodies, draining the importer for free. Directory bodies are
       // reliably zero-sized; pax headers are measured in bytes, so this
       // check is effectively free in the happy path.
@@ -391,7 +438,7 @@ export async function streamCommitImport(
         continue;
       }
 
-      if (entry.header.type !== "file") {
+      if (entry.header.type !== "file" && entry.header.type !== "symlink") {
         // pax-header / other — drain and skip. Non-file payloads are
         // metadata for the tar extractor itself, not user data.
         entry.body.resume();
@@ -409,6 +456,164 @@ export async function streamCommitImport(
           `Archive entry "${archivePath}" is not declared in the manifest`,
           archivePath,
         );
+      }
+
+      // Symlink branch: typeflag-2 entry, OR a regular-file tar entry whose
+      // manifest declared `link_target`. `verifySymlinkEntry` cross-validates
+      // both directions — tar symlink without manifest link_target,
+      // tar regular file with manifest link_target, linkname/manifest
+      // disagreement, sha mismatch, traversal, absolute target. It also
+      // drains the body so the tar extractor advances.
+      if (
+        entry.header.type === "symlink" ||
+        expectedEntry.linkTarget !== null
+      ) {
+        verifySymlinkEntry({ entry, expectedEntry });
+
+        // Defense-in-depth: even though verifySymlinkEntry rejected absolute
+        // / `..` traversal, re-check from the IMPORTER perspective using the
+        // resolved disk path (which maps archive paths through the resolver,
+        // e.g. legacy `prompts/USER.md` -> `users/<slug>.md`).
+        const linkTargetStr = expectedEntry.linkTarget as string;
+        const diskPath = pathResolver.resolve(archivePath);
+        if (!diskPath) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: "",
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": no known disk target for this archive path`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        const wsResolved = resolve(realWorkspaceDir);
+        const targetResolved = resolve(dirname(diskPath), linkTargetStr);
+        if (
+          linkTargetStr.startsWith("/") ||
+          (targetResolved !== wsResolved &&
+            !targetResolved.startsWith(wsResolved + sep))
+        ) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": symlink target "${linkTargetStr}" escapes workspace`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        // Legacy guardian persona protection — match commitImport's
+        // behavior. If the bundle ships `prompts/USER.md` as a symlink and
+        // the destination guardian persona is already user-customized,
+        // skip rather than clobber.
+        if (
+          policy.isLegacyPersonaArchivePath(archivePath) &&
+          isGuardianPersonaCustomized(diskPath)
+        ) {
+          log.warn(
+            { archivePath, diskPath },
+            "Skipping legacy prompts/USER.md symlink import: guardian persona is already customized",
+          );
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": guardian persona at "${diskPath}" is already customized`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        // Rebase onto temp workspace so the swap moves the symlink into the
+        // live workspace atomically.
+        const tempDiskPath = rebaseOntoTempWorkspace(
+          diskPath,
+          realWorkspaceDir,
+          tempWorkspaceDir,
+        );
+        if (!tempDiskPath) {
+          importedFiles.push({
+            path: archivePath,
+            disk_path: diskPath,
+            action: "skipped",
+            size: 0,
+            sha256: expectedEntry.sha256,
+            backup_path: null,
+          });
+          warnings.push(
+            `Skipped "${archivePath}": disk target "${diskPath}" falls outside the workspace directory`,
+          );
+          seen.add(archivePath);
+          onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+          entryIndex += 1;
+          continue;
+        }
+
+        try {
+          await mkdir(dirname(tempDiskPath), { recursive: true });
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create parent directory for "${tempDiskPath}"`,
+            err,
+          );
+        }
+
+        try {
+          await symlink(linkTargetStr, tempDiskPath);
+        } catch (err) {
+          throw wrapWriteError(
+            `Failed to create symlink "${tempDiskPath}" -> "${linkTargetStr}"`,
+            err,
+          );
+        }
+
+        const isWorkspaceNamespaced = archivePath.startsWith("workspace/");
+        const importedFileIndex = importedFiles.length;
+        importedFiles.push({
+          path: archivePath,
+          disk_path: diskPath,
+          action: "created",
+          size: 0,
+          sha256: expectedEntry.sha256,
+          backup_path: null,
+        });
+        if (isWorkspaceNamespaced) {
+          hasWorkspaceNamespacedEntry = true;
+        } else {
+          legacyStaged.push({
+            tempPath: tempDiskPath,
+            livePath: diskPath,
+            archivePath,
+            importedFileIndex,
+          });
+        }
+        seen.add(archivePath);
+        onProgress?.({ archivePath, bytesWritten: 0, entryIndex });
+        entryIndex += 1;
+        continue;
       }
 
       // Reject tar entries whose declared size disagrees with the manifest.
@@ -510,7 +715,7 @@ export async function streamCommitImport(
       // bundle was exported. We check against the LIVE workspace path
       // (diskPath) because the swap hasn't happened yet.
       if (
-        archivePath === LEGACY_USER_MD_ARCHIVE_PATH &&
+        policy.isLegacyPersonaArchivePath(archivePath) &&
         isGuardianPersonaCustomized(diskPath)
       ) {
         log.warn(
@@ -591,14 +796,15 @@ export async function streamCommitImport(
       // Classify the entry as `workspace/*` (namespaced) vs legacy format.
       // Namespaced entries flip the swap-gate flag; legacy entries are
       // staged for an in-place promote after the stream completes.
-      const isWorkspaceNamespaced = archivePath.startsWith("workspace/");
+      const isWorkspaceNamespaced =
+        policy.isWorkspaceNamespacedArchivePath(archivePath);
 
       // Config files need sanitization before writing to strip
       // environment-specific fields (defense-in-depth; matches commitImport).
       // Configs are small (KB-scale) so buffering them is fine. Hash
       // verification still runs on the RAW bytes — the manifest declares the
       // sha/size of the archive content, not the sanitized output.
-      if (CONFIG_ARCHIVE_PATHS.has(archivePath)) {
+      if (policy.isConfigArchivePath(archivePath)) {
         const rawBytes = await collectHashVerified(entry.body, {
           sha256: expectedEntry.sha256,
           size: expectedEntry.size,
@@ -1116,11 +1322,13 @@ export async function streamCommitImport(
     log.warn({ err }, "invalidateConfigCache threw after import");
   }
 
-  // Attempt to remove the backup dir (best-effort). Leaving it around is not
-  // a correctness issue, only a disk-space one, so we swallow errors. The
+  // Remove the backup dir (best-effort). Leaving it around is not a
+  // correctness issue, only a disk-space one, so we swallow errors. The
   // backup dir now always exists once swap succeeds — we created it during
-  // swapWorkspaceContents to hold the pre-import live entries.
-  rm(backupDir, { recursive: true, force: true }).catch((err) => {
+  // swapWorkspaceContents to hold the pre-import live entries. Awaited so
+  // callers (and tests) observe a workspace free of `.pre-import-*`
+  // residue once this function returns.
+  await rm(backupDir, { recursive: true, force: true }).catch((err) => {
     log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
   });
 
@@ -1165,10 +1373,37 @@ async function promoteLegacyStagedFiles(
 ): Promise<void> {
   for (const entry of staged) {
     // Backup before overwrite, matching commitImport.
+    //
+    // Use lstat (not existsSync) to detect a pre-existing entry: existsSync
+    // follows symlinks, so a dangling pre-existing symlink at livePath would
+    // report `false` and we'd skip the backup before later atomically
+    // replacing it via rename.
+    let preExisting: boolean;
+    try {
+      await lstat(entry.livePath);
+      preExisting = true;
+    } catch (err) {
+      if (isENOENT(err)) {
+        preExisting = false;
+      } else {
+        throw err;
+      }
+    }
+
     let backupPath: string | null = null;
-    if (existsSync(entry.livePath)) {
+    if (preExisting) {
       backupPath = generateBackupPath(entry.livePath);
-      await copyFile(entry.livePath, backupPath);
+      // copyFile follows symlinks and copies the resolved file's content, so
+      // backing up a pre-existing symlink with copyFile would lose the
+      // symlink shape. Recreate the link via readlink + symlink instead;
+      // fall back to copyFile for regular files.
+      const liveStat = await lstat(entry.livePath);
+      if (liveStat.isSymbolicLink()) {
+        const target = await readlink(entry.livePath);
+        await symlink(target, backupPath);
+      } else {
+        await copyFile(entry.livePath, backupPath);
+      }
     }
 
     await mkdir(dirname(entry.livePath), { recursive: true });
@@ -1192,7 +1427,25 @@ async function promoteLegacyStagedFiles(
       await rename(entry.tempPath, entry.livePath);
     } catch (err) {
       if (isEXDEV(err)) {
-        await copyFile(entry.tempPath, entry.livePath);
+        // copyFile follows symlinks and copies the target's CONTENT — so a
+        // legacy-format symlink entry (e.g. `prompts/USER.md` encoded as a
+        // typeflag-2 record) would land as a regular file containing the
+        // linked target's bytes. lstat the source first; if it's a symlink,
+        // recreate the symlink shape via readlink + symlink. Mirrors the
+        // verbatimSymlinks: true contract that copyTreeSkippingTransient
+        // already uses on the atomic-swap path.
+        const srcStat = await lstat(entry.tempPath);
+        if (srcStat.isSymbolicLink()) {
+          const target = await readlink(entry.tempPath);
+          // Unlike rename (which atomically overwrites), fs.promises.symlink
+          // fails with EEXIST if the destination already exists. Remove any
+          // pre-existing entry at livePath first — the backup above
+          // preserved its contents.
+          await rm(entry.livePath, { force: true });
+          await symlink(target, entry.livePath);
+        } else {
+          await copyFile(entry.tempPath, entry.livePath);
+        }
         await rm(entry.tempPath, { force: true });
       } else {
         throw err;
@@ -1346,7 +1599,7 @@ async function planCarryOverPreservedPaths(
   tempWorkspaceDir: string,
 ): Promise<CarriedPath[]> {
   const plan: CarriedPath[] = [];
-  for (const rel of WORKSPACE_PRESERVE_PATHS) {
+  for (const rel of policy.WORKSPACE_PRESERVE_PATHS) {
     const livePath = join(realWorkspaceDir, rel);
     const tempPath = join(tempWorkspaceDir, rel);
 
@@ -1584,6 +1837,9 @@ async function swapWorkspaceContents(
   tempWorkspaceDir: string,
   backupDir: string,
 ): Promise<void> {
+  // Symlinks in the temp tree pass through unchanged: `rename` moves the
+  // symlink inode without dereferencing, and the EXDEV fallback (`fs.cp`
+  // with `verbatimSymlinks: true`) preserves them too.
   await mkdir(backupDir, { recursive: true });
 
   // Phase 1: move every top-level entry out of real into backup. Skip
@@ -1794,6 +2050,13 @@ async function copyTreeSkippingTransient(
     await cp(src, dst, {
       recursive: true,
       preserveTimestamps: true,
+      // Preserve symlinks instead of dereferencing. Without this, an
+      // EXDEV-fallback copy of a tree containing a class-1 symlink would
+      // resolve the symlink to its target's bytes — wrong both for the
+      // streaming importer's symlink entries (which must land on disk as
+      // real symlinks) and for any pre-existing symlinks in carried
+      // preserved subtrees.
+      verbatimSymlinks: true,
       filter: async (source) => {
         try {
           const info = await lstat(source);
@@ -2184,6 +2447,15 @@ function mapThrownToResult(err: unknown): ImportCommitResult {
     };
   }
 
+  if (err instanceof VersionIncompatibleError) {
+    return {
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: err.bundleCompat,
+      runtime_version: err.runtimeVersion,
+    };
+  }
+
   // Errors we raised ourselves for disk-side failures.
   if (err instanceof WriteFailedError) {
     return {
@@ -2213,6 +2485,25 @@ class WriteFailedError extends Error {
 
 function wrapWriteError(prefix: string, cause: unknown): WriteFailedError {
   return new WriteFailedError(`${prefix}: ${errMessage(cause)}`);
+}
+
+/**
+ * Sentinel error thrown when the bundle's manifest declares a runtime-version
+ * compat range that excludes the current `APP_VERSION`. Caught by the same
+ * try/catch that wraps the streaming parse loop so `cleanupTempDir()` runs
+ * before `mapThrownToResult` translates it into the `version_incompatible`
+ * shape of `ImportCommitResult`.
+ */
+class VersionIncompatibleError extends Error {
+  constructor(
+    readonly bundleCompat: policy.RuntimeCompatibility,
+    readonly runtimeVersion: string,
+  ) {
+    super(
+      policy.formatRuntimeCompatibilityMessage(bundleCompat, runtimeVersion),
+    );
+    this.name = "VersionIncompatibleError";
+  }
 }
 
 function errMessage(err: unknown): string {

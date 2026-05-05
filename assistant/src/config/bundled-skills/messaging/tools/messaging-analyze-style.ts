@@ -67,7 +67,8 @@ function upsertMemoryItem(opts: {
         created: now,
         lastAccessed: now,
         lastConsolidated: now,
-        emotionalCharge: '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+        emotionalCharge:
+          '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
         fidelity: "vivid",
         confidence: 0.8,
         significance: clampUnitInterval(opts.importance),
@@ -87,7 +88,7 @@ function upsertMemoryItem(opts: {
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const maxMessages = Math.min(
@@ -119,7 +120,7 @@ export async function run(
       return err("No style patterns were extracted. Try with more messages.");
     }
 
-    const scopeId = context.memoryScopeId ?? "default";
+    const scopeId = "default";
     let savedCount = 0;
 
     for (const pattern of result.stylePatterns) {

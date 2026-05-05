@@ -1,7 +1,29 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+import type { HostFileInput } from "../daemon/host-file-proxy.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+
+// Mock HostFileProxy singleton so proxy delegation tests can control it.
+let mockFileProxyAvailable = false;
+let mockFileProxyRequestFn: (
+  input: HostFileInput,
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-file-proxy.js", () => ({
+  HostFileProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockFileProxyAvailable,
+        request: mockFileProxyRequestFn,
+      };
+    },
+  },
+}));
 
 import { hostFileWriteTool } from "../tools/host-filesystem/write.js";
 import type { ToolContext } from "../tools/types.js";
@@ -20,6 +42,8 @@ afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  mockFileProxyAvailable = false;
+  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_file_write tool", () => {
@@ -167,5 +191,22 @@ describe("host_file_write tool", () => {
     expect(result.isError).toBe(false);
     expect(existsSync(filePath)).toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("deep");
+  });
+
+  test("passes target_client_id to HostFileProxy.instance.request", async () => {
+    const capturedInputs: HostFileInput[] = [];
+    mockFileProxyAvailable = true;
+    mockFileProxyRequestFn = async (input) => {
+      capturedInputs.push(input);
+      return { content: "proxied write", isError: false };
+    };
+
+    await hostFileWriteTool.execute(
+      { path: "/host/output.txt", content: "hello", target_client_id: "client-x" },
+      makeContext(),
+    );
+
+    expect(capturedInputs).toHaveLength(1);
+    expect(capturedInputs[0].targetClientId).toBe("client-x");
   });
 });

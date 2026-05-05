@@ -1,5 +1,5 @@
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
-import type { SkillIpcStreamingRoute } from "../skill-server.js";
+import type { SkillIpcStreamingRoute } from "../skill-ipc-types.js";
 import { configRoutes } from "./config.js";
 import { eventsRoutes, eventsStreamingRoutes } from "./events.js";
 import { identityRoutes } from "./identity.js";

@@ -11,7 +11,7 @@
  * - Auth: route policy enforcement (settings.write scope required)
  * - Integration: existing routes are unaffected by the new endpoint
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -237,41 +237,90 @@ interface VBundleFile {
   data: Uint8Array;
 }
 
+/**
+ * Build a v1-shape vbundle archive for HTTP/import tests.
+ *
+ * Mirrors the v1 ten-field manifest that `buildVBundle()` produces, so the
+ * fixtures here pass the same `ManifestSchema` zod validation the real
+ * importer applies. The manifest's `checksum` is computed against the
+ * canonical JSON with `checksum` set to "" (matches `computeManifestChecksum`
+ * in vbundle-validator.ts).
+ *
+ * Adds a synthetic `data/db/assistant.db` entry to `contents` when the caller
+ * doesn't supply one, satisfying the schema's `.refine()` constraint that
+ * every bundle must reference an assistant.db file.
+ */
 function createValidVBundle(
   files?: VBundleFile[],
   overrides?: Partial<{
-    schema_version: string;
-    source: string;
-    description: string;
+    bundle_id: string;
+    origin_mode: "managed" | "self-hosted-remote" | "self-hosted-local";
+    secrets_redacted: boolean;
+    min_runtime_version: string;
+    max_runtime_version: string | null;
   }>,
 ): Uint8Array {
   const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
   const bundleFiles = files ?? [{ path: "data/db/assistant.db", data: dbData }];
 
-  const fileEntries = bundleFiles.map((f) => ({
+  // v1 schema requires contents to include data/db/assistant.db (legacy) or
+  // workspace/data/db/assistant.db (current). If the caller's files don't
+  // satisfy that refine, inject a synthetic legacy-path db entry — this
+  // matches the pattern used in vbundle-streaming-importer.test.ts.
+  const hasDbEntry = bundleFiles.some(
+    (f) =>
+      f.path === "data/db/assistant.db" ||
+      f.path === "workspace/data/db/assistant.db",
+  );
+  const allFiles: VBundleFile[] = hasDbEntry
+    ? bundleFiles
+    : [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        ...bundleFiles,
+      ];
+
+  const contents = allFiles.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
   const manifestWithoutChecksum = {
-    schema_version: overrides?.schema_version ?? "1.0",
+    schema_version: 1 as const,
+    bundle_id: overrides?.bundle_id ?? randomUUID(),
     created_at: new Date().toISOString(),
-    source: overrides?.source ?? "test",
-    description: overrides?.description ?? "Test bundle",
-    files: fileEntries,
+    assistant: {
+      id: "self",
+      name: "Test",
+      runtime_version: "0.0.0-test",
+    },
+    origin: {
+      mode: overrides?.origin_mode ?? "self-hosted-local",
+    },
+    compatibility: {
+      min_runtime_version: overrides?.min_runtime_version ?? "0.0.0-test",
+      max_runtime_version:
+        overrides?.max_runtime_version === undefined
+          ? null
+          : overrides.max_runtime_version,
+    },
+    contents,
+    checksum: "",
+    secrets_redacted: overrides?.secrets_redacted ?? false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
   };
 
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
+  const checksum = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
+  const manifest = { ...manifestWithoutChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
     { name: "manifest.json", data: manifestData },
-    ...bundleFiles.map((f) => ({ name: f.path, data: f.data })),
+    ...allFiles.map((f) => ({ name: f.path, data: f.data })),
   ];
 
   const tar = createTarArchive(tarEntries);
@@ -445,9 +494,9 @@ describe("handleMigrationImport", () => {
   });
 
   test("includes manifest in response", async () => {
+    const fixedBundleId = "11111111-2222-4333-8444-555555555555";
     const vbundle = createValidVBundle(undefined, {
-      source: "test-import-source",
-      description: "Test import commit",
+      bundle_id: fixedBundleId,
     });
     const req = new Request("http://localhost/v1/migrations/import", {
       method: "POST",
@@ -459,9 +508,10 @@ describe("handleMigrationImport", () => {
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.manifest).toBeDefined();
-    expect(body.manifest.schema_version).toBe("1.0");
-    expect(body.manifest.source).toBe("test-import-source");
-    expect(body.manifest.description).toBe("Test import commit");
+    expect(body.manifest.schema_version).toBe(1);
+    expect(body.manifest.bundle_id).toBe(fixedBundleId);
+    expect(body.manifest.assistant).toBeDefined();
+    expect(body.manifest.origin).toEqual({ mode: "self-hosted-local" });
   });
 
   test("POST with multipart form data works", async () => {
@@ -604,6 +654,107 @@ describe("handleMigrationImport — validation failures", () => {
 
     expect(currentDb).toEqual(originalDb);
     expect(currentConfig).toBe(originalConfig);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTP handler tests: version_incompatible (Codex P2 regression)
+//
+// Pin: a bundle whose min_runtime_version exceeds APP_VERSION must surface as
+// a 4xx user-actionable response (422 Unprocessable Entity), not a 500
+// InternalError. Body mirrors the platform's PR #5470 response shape so
+// clients can render the same UX regardless of which gate (platform or
+// runtime) rejected the bundle.
+// ---------------------------------------------------------------------------
+
+describe("handleMigrationImport — version_incompatible", () => {
+  test("incompatible bundle returns 422 with structured body, not 500", async () => {
+    const vbundle = createValidVBundle(undefined, {
+      min_runtime_version: "99.0.0",
+    });
+    const req = new Request("http://localhost/v1/migrations/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: toArrayBuffer(vbundle),
+    });
+
+    const res = await callHandler(handleMigrationImport, req);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        message: string;
+        details?: {
+          reason: string;
+          bundle_compat: {
+            min_runtime_version: string;
+            max_runtime_version: string | null;
+          };
+          runtime_version: string;
+        };
+      };
+    };
+
+    expect(res.status).toBe(422);
+    expect(body.error.code).toBe("UNPROCESSABLE_ENTITY");
+    expect(body.error.message).toContain("99.0.0");
+    expect(body.error.details).toBeDefined();
+    expect(body.error.details!.reason).toBe("version_incompatible");
+    expect(body.error.details!.bundle_compat.min_runtime_version).toBe(
+      "99.0.0",
+    );
+    expect(body.error.details!.bundle_compat.max_runtime_version).toBeNull();
+    expect(typeof body.error.details!.runtime_version).toBe("string");
+  });
+
+  test("incompatible bundle does not modify disk", async () => {
+    const originalDb = new Uint8Array(readFileSync(testDbPath));
+    const originalConfig = readFileSync(testConfigPath, "utf8");
+
+    const vbundle = createValidVBundle(undefined, {
+      min_runtime_version: "99.0.0",
+    });
+    const req = new Request("http://localhost/v1/migrations/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: toArrayBuffer(vbundle),
+    });
+
+    await callHandler(handleMigrationImport, req);
+
+    const currentDb = new Uint8Array(readFileSync(testDbPath));
+    const currentConfig = readFileSync(testConfigPath, "utf8");
+
+    expect(currentDb).toEqual(originalDb);
+    expect(currentConfig).toBe(originalConfig);
+  });
+
+  // Regression: the route handler pre-checks runtime-version compat using
+  // `validation.manifest.compatibility` before calling `resetDb()` and
+  // `commitImport()`. If a future refactor reorders the close to come
+  // before the gate, an incompatible bundle would still 422 (commitImport
+  // has its own defense-in-depth gate) but it would unnecessarily close
+  // and reopen the live SQLite singleton on every rejected import.
+  //
+  // We can't easily spy on `resetDb` here without mocking `db-connection.js`
+  // module-wide (which other tests in this file rely on for real). The
+  // semantic regression — disk unchanged + 422 — is covered by the two
+  // tests above. This test is a marker so future readers know the pre-
+  // check intent; if it ever starts failing, recheck `handleMigrationImport`
+  // ordering against the comment at line 861-862 ("Validate the bundle
+  // before closing the DB to avoid an unnecessary close/reopen cycle when
+  // the bundle is invalid").
+  test("incompatible bundle short-circuits before resetDb (intent marker)", async () => {
+    const vbundle = createValidVBundle(undefined, {
+      min_runtime_version: "99.0.0",
+    });
+    const req = new Request("http://localhost/v1/migrations/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: toArrayBuffer(vbundle),
+    });
+
+    const res = await callHandler(handleMigrationImport, req);
+    expect(res.status).toBe(422);
   });
 });
 

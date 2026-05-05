@@ -6,12 +6,12 @@
  * fields like `toolName`.
  */
 
-export type GuardianQuestionRequestKind =
+type GuardianQuestionRequestKind =
   | "pending_question"
   | "tool_approval"
   | "tool_grant_request"
   | "access_request";
-export type GuardianQuestionInstructionMode = "approval" | "answer";
+type GuardianQuestionInstructionMode = "approval" | "answer";
 
 interface GuardianRequestKindModeConfig {
   defaultMode: GuardianQuestionInstructionMode;
@@ -48,12 +48,12 @@ interface GuardianQuestionPayloadBaseWithDiscriminator extends GuardianQuestionP
   [key: string]: unknown;
 }
 
-export interface GuardianRequestModeInput {
+interface GuardianRequestModeInput {
   kind: unknown;
   toolName?: unknown;
 }
 
-export interface GuardianRequestTextInput {
+interface GuardianRequestTextInput {
   requestCode: string;
   questionText?: string | null;
   toolName?: string | null;
@@ -136,7 +136,7 @@ export type GuardianQuestionPayload =
   | ToolGrantGuardianPayload
   | AccessRequestGuardianPayload;
 
-export interface GuardianQuestionModeResolution {
+interface GuardianQuestionModeResolution {
   mode: GuardianQuestionInstructionMode;
   requestKind: GuardianQuestionRequestKind | null;
 }

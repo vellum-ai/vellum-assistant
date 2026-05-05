@@ -45,7 +45,6 @@ final class OnboardingState {
         case oldLocal = "oldLocal"
         case gcp = "gcp"
         case aws = "aws"
-        case customHardware = "customHardware"
 
         var displayName: String {
             switch self {
@@ -55,7 +54,6 @@ final class OnboardingState {
             case .oldLocal: return "Old Local"
             case .gcp: return "GCP"
             case .aws: return "AWS"
-            case .customHardware: return "Custom"
             }
         }
 
@@ -67,7 +65,6 @@ final class OnboardingState {
             case .oldLocal: return "Legacy local mode without Docker."
             case .gcp: return "Host on your GCP account"
             case .aws: return "Host on your AWS account"
-            case .customHardware: return "Run on your own hardware"
             }
         }
     }
@@ -85,7 +82,6 @@ final class OnboardingState {
     var sshHost: String = ""
     var sshUser: String = ""
     var sshPrivateKey: String = ""
-    var customQRCodeImageData: Data = Data()
     var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
     var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
@@ -112,8 +108,7 @@ final class OnboardingState {
     var hatchTotalSteps: Int = 1
     var hatchCurrentStep: Int = 0
 
-    /// Pre-chat onboarding context collected after hatching when the
-    /// `onboarding-pre-chat` feature flag is enabled. Threaded through
+    /// Pre-chat onboarding context collected after hatching. Threaded through
     /// AppDelegate → ConversationManager → ChatViewModel so the first
     /// message POST includes it for assistant personalization.
     var preChatContext: PreChatOnboardingContext?
@@ -150,9 +145,15 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
-            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode"),
-               let mode = HostingMode(rawValue: rawHosting) {
-                selectedHostingMode = mode
+            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode") {
+                if let mode = HostingMode(rawValue: rawHosting) {
+                    selectedHostingMode = mode
+                } else {
+                    // Persisted value does not match any known mode; discard
+                    // it so the initial default applies and a stale string is
+                    // not re-saved.
+                    UserDefaults.standard.removeObject(forKey: "onboarding.selectedHostingMode")
+                }
             }
         }
         // Clamp restored step to the valid range.
@@ -220,6 +221,10 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
+        // Apple Guideline 5.1.2(i): clear AI Data Sharing consent so it must be
+        // explicitly re-checked on the next onboarding pass after a retry.
+        UserDefaults.standard.set(false, forKey: "aiDataConsent")
+
         // Clear API key for whichever provider was selected during onboarding
         let providerToDelete = selectedProvider
         if selectedProvider != "anthropic" {
@@ -246,11 +251,44 @@ final class OnboardingState {
         sshHost = ""
         sshUser = ""
         sshPrivateKey = ""
-        customQRCodeImageData = Data()
 
         // Return to welcome screen and persist the reset
         currentStep = 0
         if shouldPersist { persist() }
+    }
+
+    /// Bounces the user back to the privacy step (step 3) and clears any
+    /// in-flight hatch state. Used by the consent gates in `HatchingStepView`
+    /// and `performManagedBootstrap` to ensure a clean retry after the user
+    /// re-checks consent. Persists the step write so a force-quit between the
+    /// bounce and the next consent re-check doesn't leave `onboarding.step`
+    /// pointing at the now-aborted hatch step.
+    func bounceToConsentStep() {
+        resetHatchTransientState()
+        currentStep = 3
+        if shouldPersist { persist() }
+    }
+
+    /// Clears the hatch-related transient state shared by `bounceToConsentStep()`
+    /// and `HatchingStepView.goBack()`. Both call sites need the same reset
+    /// before allowing a retry — without it, stale flags like `isManagedHatch`
+    /// can short-circuit `startHatching()` (e.g. skipping the CLI path).
+    /// Does NOT touch `hatchCompleted`, `hasHatched`, avatar traits, ToS/AI
+    /// consent, or any non-hatch credentials — see `resetForRetry()` for the
+    /// full reset.
+    func resetHatchTransientState() {
+        isHatching = false
+        isManagedHatch = false
+        hasExistingManagedAssistant = false
+        hatchFailed = false
+        hatchFailureReason = nil
+        hatchLogLines = []
+        hatchProgressTarget = 0.0
+        hatchProgressDisplay = 0.0
+        hatchStepLabel = nil
+        hatchTotalSteps = 1
+        hatchCurrentStep = 0
+        hatchProcessStarted = false
     }
 
     static func clearPersistedState() {

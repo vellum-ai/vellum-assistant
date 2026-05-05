@@ -18,6 +18,8 @@ import { z } from "zod";
 
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
+import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
@@ -34,33 +36,6 @@ const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
-
-/**
- * Parse the `## Identity Intro` section from SOUL.md.
- * Returns the first non-empty line under that heading, or null.
- */
-function readSoulIdentityIntro(): string | null {
-  try {
-    const soulPath = getWorkspacePromptPath("SOUL.md");
-    if (!existsSync(soulPath)) return null;
-    const content = readFileSync(soulPath, "utf-8");
-
-    let inSection = false;
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (/^#+\s/.test(trimmed)) {
-        inSection = trimmed.toLowerCase().includes("identity intro");
-        continue;
-      }
-      if (inSection && trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  } catch {
-    // Fall through — no SOUL.md intro available
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -94,14 +69,17 @@ async function handleBtw({
 
   // ----- Identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    const soulIntro = readSoulIdentityIntro();
-    const fastText = soulIntro ?? getCachedIntro()?.text;
+    let fastText: string | undefined;
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    if (existsSync(identityPath)) {
+      const fields = parseIdentityFields(readFileSync(identityPath, "utf-8"));
+      if (fields.name) {
+        fastText = `Hi, I'm ${fields.name}!`;
+      }
+    }
+    fastText ??= getCachedIntro()?.text;
     if (fastText) {
-      log.debug(
-        soulIntro
-          ? "Returning SOUL.md identity intro"
-          : "Returning cached identity intro",
-      );
+      log.debug("Returning identity intro fast-path");
       return new ReadableStream({
         start(controller) {
           controller.enqueue(sseEvent("btw_text_delta", { text: fastText }));
@@ -129,9 +107,7 @@ async function handleBtw({
   try {
     conversation = await getOrCreateConversation(conversationId);
   } catch {
-    throw new ServiceUnavailableError(
-      "Message processing is not available",
-    );
+    throw new ServiceUnavailableError("Message processing is not available");
   }
 
   return new ReadableStream({
@@ -145,6 +121,7 @@ async function handleBtw({
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
+            tools: buildToolDefinitions(),
             signal: abortSignal,
             userPersona,
             channelPersona,

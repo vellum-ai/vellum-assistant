@@ -133,7 +133,7 @@ The system produces **three distinct copy outputs** per notification:
 
 | Output                    | Purpose                                          | Verbosity                |
 | ------------------------- | ------------------------------------------------ | ------------------------ |
-| `title` + `body`          | Native notification popup (macOS/iOS banner)     | Short and glanceable     |
+| `title` + `body`          | Native notification popup (macOS banner)         | Short and glanceable     |
 | `deliveryText`            | Channel-native chat message text (Telegram)      | Natural chat phrasing    |
 | Conversation seed message | Opening message in the notification conversation | Richer and context-aware |
 
@@ -185,7 +185,7 @@ Reminder. Take out the trash. Action required.
 
 ## Conversation Surfacing via `notification_conversation_created` Event (Creation-Only)
 
-The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
+The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS client already knows about the conversation from the original creation.
 
 This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
@@ -214,7 +214,7 @@ The SSE event payload:
 }
 ```
 
-The macOS/iOS client listens for this event and surfaces the conversation in the sidebar, enabling deep-link navigation to the notification conversation.
+The macOS client listens for this event and surfaces the conversation in the sidebar, enabling deep-link navigation to the notification conversation.
 
 ### Per-Dispatch Conversation Callback
 
@@ -223,7 +223,7 @@ The macOS/iOS client listens for this event and surfaces the conversation in the
 **Important distinction between the two callbacks:**
 
 - **Per-dispatch `options.onConversationCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event so macOS/iOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
+- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event so macOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
 
 ## Schedule Routing Metadata and Trigger-Time Enforcement
 
@@ -295,7 +295,7 @@ Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `not
 - `title` and `body` -- rendered notification copy
 - `deepLinkMetadata` -- optional metadata for navigating to the relevant context (e.g. `{ conversationId }`)
 
-The macOS/iOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
+The macOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
 
 ### Telegram (when guardian binding exists)
 
@@ -480,7 +480,7 @@ Three SQLite tables form the audit chain:
 
 ### Client Delivery Ack
 
-For vellum (macOS/iOS) deliveries, the audit trail now extends past the SSE broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+For vellum (macOS) deliveries, the audit trail now extends past the SSE broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
 
 The ack populates three columns on `notification_deliveries`:
 
@@ -541,10 +541,10 @@ Preferences are sanitized against prompt injection (angle brackets replaced with
 The decision engine and preference extractor pick their per-call LLM config
 from the unified `llm` block. Override defaults by setting either of:
 
-| Key                                  | Type    | Default        | Description                                                                 |
-| ------------------------------------ | ------- | -------------- | --------------------------------------------------------------------------- |
-| `llm.callSites.notificationDecision` | object  | _(unset)_      | Provider/model/effort/etc. override for the decision engine call site       |
-| `llm.callSites.preferenceExtraction` | object  | _(unset)_      | Provider/model/effort/etc. override for the preference extractor call site  |
+| Key                                  | Type   | Default   | Description                                                                |
+| ------------------------------------ | ------ | --------- | -------------------------------------------------------------------------- |
+| `llm.callSites.notificationDecision` | object | _(unset)_ | Provider/model/effort/etc. override for the decision engine call site      |
+| `llm.callSites.preferenceExtraction` | object | _(unset)_ | Provider/model/effort/etc. override for the preference extractor call site |
 
 When a call site override is unset, the resolver falls back to `llm.default`.
 

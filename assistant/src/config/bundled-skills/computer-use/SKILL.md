@@ -6,6 +6,12 @@ metadata:
   emoji: "🖥️"
   vellum:
     display-name: "Computer Use"
+    activation-hints:
+      - "User asks the assistant to click, type, drag, or interact with the macOS GUI directly"
+      - "User wants control of a desktop app with no CLI or API alternative (games, design tools, visual workflows)"
+      - "User wants screenshots or visual inspection of what is currently on screen"
+    avoid-when:
+      - "Task can be done via a more specific skill (gmail, calendar, contacts, terminal-sessions) or a CLI / API call"
 ---
 
 This skill provides the computer_use_* action tools for controlling

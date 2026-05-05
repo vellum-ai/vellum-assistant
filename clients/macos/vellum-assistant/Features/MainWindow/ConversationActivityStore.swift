@@ -66,6 +66,8 @@ final class ConversationActivityStore {
     /// ConversationManager uses this to drain pending notification catch-ups.
     @ObservationIgnored var onBusyToIdle: ((UUID) -> Void)?
 
+    @ObservationIgnored var onTurnComplete: ((UUID) -> Void)?
+
     // MARK: - Assistant activity observation
 
     /// Snapshot of the latest assistant message's structural properties,
@@ -307,6 +309,7 @@ final class ConversationActivityStore {
         // tool calls within a single turn, which produced duplicate sounds.
         if let previousTick, turnCompletionTick > previousTick {
             SoundManager.shared.play(.taskComplete)
+            onTurnComplete?(conversationId)
         }
         if stateChanged {
             switch state {

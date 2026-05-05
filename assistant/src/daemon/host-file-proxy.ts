@@ -1,10 +1,19 @@
 import { v4 as uuid } from "uuid";
 
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type { HostFileRequest } from "./message-types/host-file.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -20,87 +29,145 @@ export type HostFileInput = DistributiveOmit<
 
 const log = getLogger("host-file-proxy");
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  operation: HostFileInput["operation"];
-  path: string;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 export class HostFileProxy {
-  private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
+  private static _instance: HostFileProxy | null = null;
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Lazily-initialized singleton. Availability of an actual desktop
+   * connection is checked at send time via the assistant event hub,
+   * not at construction time.
+   */
+  static get instance(): HostFileProxy {
+    if (!HostFileProxy._instance) {
+      log.info("Creating singleton HostFileProxy");
+      HostFileProxy._instance = new HostFileProxy();
+    }
+    return HostFileProxy._instance;
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostFileProxy._instance) {
+      HostFileProxy._instance.dispose();
+      HostFileProxy._instance = null;
+    }
+  }
+
+  /** For tests. */
+  static reset(): void {
+    HostFileProxy._instance = null;
+  }
+
+  /**
+   * Whether a client with `host_file` capability is connected.
+   * Note: host_file covers both file operations and transfers.
+   */
+  isAvailable(): boolean {
+    return (
+      assistantEventHub.getMostRecentClientByCapability("host_file") != null
+    );
   }
 
   request(
     input: HostFileInput,
     conversationId: string,
     signal?: AbortSignal,
+    targetClientId?: string,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
     }
 
+    // Resolve targetClientId: explicit → validate; single same-user
+    // capable client → auto-resolve. Callers may embed targetClientId in
+    // the input object (tool handlers) or pass it as the 4th parameter
+    // (legacy). Prefer the explicit param; fall back to input field.
+    let resolvedTargetClientId: string | undefined =
+      targetClientId ?? input.targetClientId;
+    if (resolvedTargetClientId != null) {
+      const client = assistantEventHub.getClientById(resolvedTargetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${resolvedTargetClientId}' supports host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_file")) {
+        return Promise.resolve({
+          content: `Client '${resolvedTargetClientId}' does not support host_file. Run \`assistant clients list --capability host_file\` to see available clients.`,
+          isError: true,
+        });
+      }
+    } else {
+      // Auto-resolve to the unique same-user client. Reject ambiguous
+      // (multi-machine) cases so a single targeted-style request cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    // Same-user check: targeted host_file requests must be bound to the same
+    // authenticated user identity that opened the target client's SSE stream.
+    // Prevents cross-user routing through actor token mis-targeting.
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_file",
+      });
+      if (rejection) return Promise.resolve(rejection);
+    }
+
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // File operations should be fast — 30 second timeout.
       const timeoutSec = 30;
 
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation },
           "Host file proxy request timed out",
         );
         resolve({
-          content: "Host file proxy timed out waiting for client response",
+          content: resolvedTargetClientId
+            ? `Host file proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+            : "Host file proxy timed out waiting for client response",
           isError: true,
         });
       }, timeoutSec * 1000);
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
-            detachAbort();
-            this.onInternalResolve?.(requestId);
+          if (pendingInteractions.get(requestId)) {
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
-                type: "host_file_cancel",
-                requestId,
-              } as ServerMessage);
+              broadcastMessage(
+                {
+                  type: "host_file_cancel",
+                  requestId,
+                  conversationId,
+                  ...(resolvedTargetClientId != null
+                    ? { targetClientId: resolvedTargetClientId }
+                    : {}),
+                },
+                conversationId,
+                { targetClientId: resolvedTargetClientId },
+              );
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -109,30 +176,41 @@ export class HostFileProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, {
-        resolve,
-        reject,
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "host_file",
+        targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
+        rpcResolve: resolve,
+        rpcReject: reject,
         timer,
-        operation: input.operation,
-        path: input.path,
         detachAbort,
+        metadata: { operation: input.operation, path: input.path },
       });
 
       try {
-        this.sendToClient({
-          ...input,
-          type: "host_file_request",
-          requestId,
+        broadcastMessage(
+          {
+            ...input,
+            type: "host_file_request",
+            requestId,
+            conversationId,
+            // Always include in message body so the receiving client can verify
+            // which endpoint was targeted (even when auto-resolved).
+            ...(resolvedTargetClientId != null
+              ? { targetClientId: resolvedTargetClientId }
+              : {}),
+          },
           conversationId,
-        } as ServerMessage);
+          { targetClientId: resolvedTargetClientId },
+        );
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, operation: input.operation, err },
           "Host file proxy send failed",
@@ -142,58 +220,61 @@ export class HostFileProxy {
     });
   }
 
+  /**
+   * Process a client result and resolve the RPC. Called by route handlers.
+   */
   resolve(
     requestId: string,
     response: { content: string; isError: boolean; imageData?: string },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host file request for response");
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
+    const meta = interaction.metadata ?? {};
     if (
-      entry.operation === "read" &&
+      meta.operation === "read" &&
       !response.isError &&
       typeof response.imageData === "string" &&
       response.imageData.length > 0
     ) {
-      entry.resolve(readImageBase64(response.imageData, entry.path));
+      interaction.rpcResolve(
+        readImageBase64(response.imageData, meta.path as string),
+      );
       return;
     }
-    entry.resolve({ content: response.content, isError: response.isError });
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
-  }
-
-  isAvailable(): boolean {
-    return this.clientConnected;
+    interaction.rpcResolve({
+      content: response.content,
+      isError: response.isError,
+    });
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+    for (const entry of pendingInteractions.getByKind("host_file")) {
+      pendingInteractions.resolve(entry.requestId);
       try {
-        this.sendToClient({
-          type: "host_file_cancel",
-          requestId,
-        } as ServerMessage);
+        broadcastMessage(
+          {
+            type: "host_file_cancel",
+            requestId: entry.requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId as string | undefined },
+        );
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError(
           "Host file proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
   }
 }

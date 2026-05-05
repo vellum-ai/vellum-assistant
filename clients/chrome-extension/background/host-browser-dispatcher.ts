@@ -106,6 +106,12 @@ export interface HostBrowserDispatcherDeps {
   resolveTarget(
     cdpSessionId: string | undefined,
   ): Promise<{ tabId?: number; targetId?: string }>;
+  /**
+   * Optional: create a new about:blank tab for navigation when the active
+   * tab is on a privileged URL that chrome.debugger cannot attach to. Only
+   * invoked by `Page.navigate` recovery — status probes never call this.
+   */
+  createTab?(): Promise<{ tabId?: number; targetId?: string }>;
   /** POST result envelope back to /v1/host-browser-result. */
   postResult(result: HostBrowserResultEnvelope): Promise<void>;
   /**
@@ -423,8 +429,8 @@ export function createHostBrowserDispatcher(
         return;
       }
 
-      const target = await deps.resolveTarget(envelope.cdpSessionId);
-      const key = targetKey(target);
+      let target = await deps.resolveTarget(envelope.cdpSessionId);
+      let key = targetKey(target);
       if (!attachedTargets.has(key)) {
         try {
           await proxy.attach(target, '1.3');
@@ -443,7 +449,28 @@ export function createHostBrowserDispatcher(
           if (msg.includes('already attached')) {
             attachedTargets.add(key);
           } else {
-            throw attachErr;
+            // chrome.debugger cannot attach to privileged URLs (chrome://,
+            // edge://, devtools://, etc.). For Page.navigate specifically,
+            // recover by creating a new about:blank tab and retargeting.
+            // For other methods (e.g. Runtime.evaluate probes from status
+            // checks), let the error propagate — status checks should not
+            // have the side effect of opening new tabs.
+            if (
+              envelope.cdpMethod === 'Page.navigate' &&
+              msg.includes('cannot access')
+            ) {
+              const newTarget = await deps.createTab?.();
+              if (newTarget) {
+                target = newTarget;
+                key = targetKey(target);
+                await proxy.attach(target, '1.3');
+                attachedTargets.add(key);
+              } else {
+                throw attachErr;
+              }
+            } else {
+              throw attachErr;
+            }
           }
         }
       }

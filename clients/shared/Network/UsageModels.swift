@@ -109,6 +109,7 @@ public struct UsageDailyResponse: Decodable, Equatable, Sendable {
 public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public let group: String
     public let groupId: String?
+    public let groupKey: String?
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
     public let totalCacheCreationTokens: Int
@@ -119,6 +120,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public init(
         group: String,
         groupId: String? = nil,
+        groupKey: String? = nil,
         totalInputTokens: Int,
         totalOutputTokens: Int,
         totalCacheCreationTokens: Int = 0,
@@ -128,6 +130,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     ) {
         self.group = group
         self.groupId = groupId
+        self.groupKey = groupKey
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
         self.totalCacheCreationTokens = totalCacheCreationTokens
@@ -139,6 +142,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case group
         case groupId
+        case groupKey
         case totalInputTokens
         case totalOutputTokens
         case totalCacheCreationTokens
@@ -151,6 +155,7 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         group = try container.decode(String.self, forKey: .group)
         groupId = try container.decodeIfPresent(String.self, forKey: .groupId)
+        groupKey = try container.decodeIfPresent(String.self, forKey: .groupKey)
         totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
         totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
         totalCacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheCreationTokens) ?? 0
@@ -166,5 +171,97 @@ public struct UsageBreakdownResponse: Decodable, Equatable, Sendable {
 
     public init(breakdown: [UsageGroupBreakdownEntry]) {
         self.breakdown = breakdown
+    }
+}
+
+/// A single grouped value inside a usage series bucket from `GET /v1/usage/series`.
+public struct UsageSeriesGroupValue: Decodable, Equatable, Sendable {
+    public let group: String
+    public let groupKey: String?
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
+    public let totalEstimatedCostUsd: Double
+    public let eventCount: Int
+
+    public init(
+        group: String,
+        groupKey: String? = nil,
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int
+    ) {
+        self.group = group
+        self.groupKey = groupKey
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalEstimatedCostUsd = totalEstimatedCostUsd
+        self.eventCount = eventCount
+    }
+}
+
+/// A grouped time-series bucket from `GET /v1/usage/series`.
+public struct UsageSeriesBucket: Decodable, Equatable, Sendable, Identifiable {
+    public let bucketId: String
+    public let date: String
+    public let displayLabel: String?
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
+    public let totalEstimatedCostUsd: Double
+    public let eventCount: Int
+    public let groups: [String: UsageSeriesGroupValue]
+
+    public var id: String { bucketId }
+
+    public init(
+        bucketId: String? = nil,
+        date: String,
+        displayLabel: String? = nil,
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int,
+        groups: [String: UsageSeriesGroupValue] = [:]
+    ) {
+        self.bucketId = bucketId ?? date
+        self.date = date
+        self.displayLabel = displayLabel
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalEstimatedCostUsd = totalEstimatedCostUsd
+        self.eventCount = eventCount
+        self.groups = groups
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bucketId
+        case date
+        case displayLabel
+        case totalInputTokens
+        case totalOutputTokens
+        case totalEstimatedCostUsd
+        case eventCount
+        case groups
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(String.self, forKey: .date)
+        bucketId = try container.decodeIfPresent(String.self, forKey: .bucketId) ?? date
+        displayLabel = try container.decodeIfPresent(String.self, forKey: .displayLabel)
+        totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
+        totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
+        totalEstimatedCostUsd = try container.decode(Double.self, forKey: .totalEstimatedCostUsd)
+        eventCount = try container.decode(Int.self, forKey: .eventCount)
+        groups = try container.decodeIfPresent([String: UsageSeriesGroupValue].self, forKey: .groups) ?? [:]
+    }
+}
+
+/// Response wrapper for `GET /v1/usage/series`.
+public struct UsageSeriesResponse: Decodable, Equatable, Sendable {
+    public let buckets: [UsageSeriesBucket]
+
+    public init(buckets: [UsageSeriesBucket]) {
+        self.buckets = buckets
     }
 }

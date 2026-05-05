@@ -54,8 +54,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
 };
 
@@ -74,7 +72,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -134,10 +131,6 @@ mock.module("../permissions/gateway-threshold-reader.js", () => ({
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
-}));
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -231,7 +224,11 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isInteractive: false, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isInteractive: false,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(result.isError).toBe(true);
@@ -283,7 +280,11 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     const result = await executor.execute(
       "gmail_send_draft",
       { draft_id: "draft-123", confidence: 0.99 },
-      makeContext({ isInteractive: false, trustClass: "guardian", requireFreshApproval: true }),
+      makeContext({
+        isInteractive: false,
+        trustClass: "guardian",
+        requireFreshApproval: true,
+      }),
     );
 
     expect(result.isError).toBe(true);
@@ -318,12 +319,9 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
-
   });
 
-  afterEach(() => {
-
-  });
+  afterEach(() => {});
 
   test("manage_secure_command_tool prompt does not offer persistent decisions", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
@@ -372,8 +370,6 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     expect(promptEvent).toBeDefined();
     expect(promptEvent!.persistentDecisionsAllowed).toBe(false);
   });
-
-
 });
 
 // ---------------------------------------------------------------------------
@@ -386,12 +382,9 @@ describe("requireFreshApproval: grant-consumed does not skip permission check", 
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
-
   });
 
-  afterEach(() => {
-
-  });
+  afterEach(() => {});
 
   test("manage_secure_command_tool is prompted even when executor sets requireFreshApproval and grantConsumed would normally short-circuit", async () => {
     // This test verifies the code path in executor.ts where the
@@ -441,12 +434,9 @@ describe("requireFreshApproval: context flag propagation", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
-
   });
 
-  afterEach(() => {
-
-  });
+  afterEach(() => {});
 
   test("manage_secure_command_tool sets both forcePromptSideEffects and requireFreshApproval", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };

@@ -73,7 +73,7 @@ const DEFAULT_MIN_FREE_MB = 200;
 
 // ── Result type ─────────────────────────────────────────────────────────
 
-export interface ProfilerSweepResult {
+interface ProfilerSweepResult {
   /** Number of completed runs pruned during this sweep. */
   prunedCount: number;
   /** Total bytes freed by pruning. */
@@ -159,7 +159,7 @@ function getFreeDiskBytes(path: string): number {
 // ── Core operations ─────────────────────────────────────────────────────
 
 /** Options for {@link rescanRuns}. */
-export interface RescanRunsOptions {
+interface RescanRunsOptions {
   /**
    * When true, skip all `writeManifest()` calls — just read existing
    * manifests and recompute sizes without mutating the filesystem.
@@ -384,7 +384,7 @@ export function runProfilerSweep(): ProfilerSweepResult {
 // health-endpoint reporting and control-plane polling.
 
 /** Budget state for the active profiler run. */
-export interface ProfilerBudgetStatus {
+interface ProfilerBudgetStatus {
   /** Configured maximum bytes across all runs. */
   maxBytes: number;
   /** Bytes remaining before the byte-count budget is exceeded. */
@@ -398,7 +398,7 @@ export interface ProfilerBudgetStatus {
 }
 
 /** Summary of the most recently completed profiler run. */
-export interface ProfilerLastCompletedRun {
+interface ProfilerLastCompletedRun {
   runId: string;
   totalBytes: number;
   artifactCount: number;
@@ -407,7 +407,7 @@ export interface ProfilerLastCompletedRun {
 }
 
 /** Full runtime status snapshot for health-endpoint embedding. */
-export interface ProfilerRuntimeStatus {
+interface ProfilerRuntimeStatus {
   /** Whether profiling is enabled (env vars present). */
   enabled: boolean;
   /** The profiling mode ("cpu", "heap", "cpu+heap"), or null when disabled. */

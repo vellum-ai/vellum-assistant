@@ -1,8 +1,8 @@
 /**
  * Gateway proxy endpoint for runtime health checks.
  *
- * Exposes GET /v1/health through the gateway even when the broad runtime
- * proxy is disabled.
+ * Exposes GET /v1/health as a dedicated gateway route with explicit
+ * auth handling.
  */
 
 import { proxyForwardToResponse } from "@vellumai/assistant-client";

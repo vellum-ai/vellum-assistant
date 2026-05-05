@@ -30,7 +30,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             if let conversationType { params["conversationType"] = conversationType }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/conversations", params: params, timeout: 15
+                path: "conversations", params: params, timeout: 15
             )
             guard response.isSuccess else {
                 let body = String(data: response.data.prefix(512), encoding: .utf8) ?? "<non-utf8>"
@@ -76,7 +76,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func switchConversation(conversationId: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/switch",
+                path: "conversations/switch",
                 json: ["conversationId": conversationId],
                 timeout: 10
             )
@@ -94,7 +94,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func renameConversation(conversationId: String, name: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/name",
+                path: "conversations/\(conversationId)/name",
                 json: ["name": name],
                 timeout: 10
             )
@@ -112,7 +112,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func clearAllConversations() async -> Bool {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/conversations",
+                path: "conversations",
                 timeout: 10
             )
             guard response.isSuccess || response.statusCode == 204 else {
@@ -129,7 +129,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func cancelGeneration(conversationId: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/cancel",
+                path: "conversations/\(conversationId)/cancel",
                 json: [:] as [String: String],
                 timeout: 10
             )
@@ -148,7 +148,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func undoLastMessage(conversationId: String) async -> Int? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/\(conversationId)/undo",
+                path: "conversations/\(conversationId)/undo",
                 json: [:] as [String: String],
                 timeout: 10
             )
@@ -174,7 +174,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             if let maxMessagesPerConversation { params["maxMessagesPerConversation"] = "\(maxMessagesPerConversation)" }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/conversations/search",
+                path: "conversations/search",
                 params: params,
                 timeout: 15
             )
@@ -212,7 +212,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 }
             ]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/reorder",
+                path: "conversations/reorder",
                 json: body,
                 timeout: 10
             )
@@ -232,7 +232,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func fetchGroups() async -> [ConversationGroupResponse]? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/groups",
+                path: "groups",
                 timeout: 15
             )
             guard response.isSuccess else {
@@ -253,7 +253,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func createGroup(name: String) async -> ConversationGroupResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/groups",
+                path: "groups",
                 json: ["name": name],
                 timeout: 10
             )
@@ -275,7 +275,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             if let sortPosition { body["sortPosition"] = sortPosition }
 
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/groups/\(groupId)",
+                path: "groups/\(groupId)",
                 json: body,
                 timeout: 10
             )
@@ -293,7 +293,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
     public func deleteGroup(groupId: String) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/groups/\(groupId)",
+                path: "groups/\(groupId)",
                 timeout: 10
             )
             guard response.isSuccess || response.statusCode == 204 else {
@@ -316,7 +316,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 ] as [String: Any] }
             ]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/groups/reorder",
+                path: "groups/reorder",
                 json: body,
                 timeout: 10
             )
@@ -348,7 +348,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/conversations/seen",
+                path: "conversations/seen",
                 json: body,
                 timeout: 10
             )

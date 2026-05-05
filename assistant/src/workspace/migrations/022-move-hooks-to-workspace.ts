@@ -1,7 +1,7 @@
 /**
  * Workspace migration 022: Move hooks directory from root to workspace.
  *
- * Previously, `~/.vellum/hooks/` lived directly under getRootDir(). This
+ * Previously, `~/.vellum/hooks/` lived directly under the Vellum root. This
  * migration moves existing hook directories and files into
  * `~/.vellum/workspace/hooks/` so that getWorkspaceHooksDir() resolves
  * correctly under the workspace.
@@ -19,23 +19,17 @@ import {
   renameSync,
   rmSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
+import { getVellumRoot } from "./utils.js";
 
 export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
   id: "022-move-hooks-to-workspace",
   description: "Move hooks directory from root to workspace",
 
   run(workspaceDir: string): void {
-    const oldHooksDir = join(getRootDir(), "hooks");
+    const oldHooksDir = join(getVellumRoot(), "hooks");
     const newHooksDir = join(workspaceDir, "hooks");
 
     mkdirSync(newHooksDir, { recursive: true });
@@ -65,7 +59,7 @@ export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const oldHooksDir = join(getRootDir(), "hooks");
+    const oldHooksDir = join(getVellumRoot(), "hooks");
     const newHooksDir = join(workspaceDir, "hooks");
 
     mkdirSync(oldHooksDir, { recursive: true });

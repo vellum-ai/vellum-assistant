@@ -1,6 +1,8 @@
 # Clients Architecture
 
-This document owns macOS/iOS client architecture details. The repo-level architecture index lives in [`/ARCHITECTURE.md`](../ARCHITECTURE.md).
+This document owns macOS client architecture details. The repo-level architecture index lives in [`/ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+The iOS client is a Capacitor shell that lives in [`vellum-assistant-platform/web/ios/`](https://github.com/vellum-ai/vellum-assistant-platform); it loads the web app over HTTPS and does not consume any Swift code from this repo.
 
 ## macOS App — Service and State Ownership
 
@@ -18,6 +20,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
 | `zoomManager` | `ZoomManager` | Window zoom level (`@Observable`) |
 | `settingsStore` | `SettingsStore` | Shared settings state for both SettingsView and SettingsPanel |
+| `diskPressureStatusStore` | `DiskPressureStatusStore` | Safe-storage status, acknowledgement, override, and SSE updates |
 
 ### Main Window State
 
@@ -30,6 +33,14 @@ The main window has three dedicated state objects:
 | `ConversationRestorer` | Plain class with delegate | Daemon conversation restoration (conversation list responses, history hydration) |
 
 `ConversationManager` owns conversation lifecycle. `ConversationRestorer` handles the async daemon communication for restoring conversations on reconnect, delegating state mutations back through the `ConversationRestorerDelegate` protocol for testability.
+
+### Safe Storage Limits UI
+
+The macOS safe-storage UI is active only when the assistant-scoped `safe-storage-limits` flag is enabled. `DiskPressureStatusStore` owns the client-side status snapshot, fetches `/v1/disk-pressure/status` on startup/app activation/active-assistant changes, listens for `disk_pressure_status_changed` SSE events, and clears all UI state when the flag or status is disabled.
+
+When the assistant reports an unacknowledged effective lock, `MainWindowSafeStorageBanner` renders as a blocking acknowledgement surface in both the main window and pop-out thread windows. The guardian can acknowledge and open the workspace cleanup surface, or acknowledge and dismiss the banner. If acknowledgement fails, the store exposes a visible retry message on the banner so the modal does not fail silently.
+
+After acknowledgement, chat surfaces receive `SafeStorageCleanupStatusViewState` and show a persistent cleanup status banner above the composer or in the empty state. The copy must state that background processes and trusted-contact messages remain blocked until enough space is freed by the guardian. `ChatView` disables composer sends while acknowledgement is required, but cleanup-mode chat resumes after acknowledgement.
 
 ### Observation Framework Migration
 
@@ -582,59 +593,9 @@ Each API surface gets a focused protocol + struct, instantiated inline on the co
 
 ---
 
-## iOS Connection Architecture
+## JWT Credential Refresh
 
-The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway.
-
-### Connection Flow
-
-```
-iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
-         <--SSE---                                 <--          <--
-```
-
-1. **Pairing** provides the iOS app with an ingress URL and bearer token via QR code scan with Mac-side approval.
-2. **HTTP+SSE transport**: The iOS client sends commands via HTTP POST to the gateway (through `GatewayHTTPClient`) and receives events via Server-Sent Events (SSE). All communication is authenticated with the bearer token.
-3. **Gateway proxy**: The gateway's runtime proxy forwards `/v1/*` requests to the local runtime, validating the bearer token on each request.
-
-### Pairing Flow (v4)
-
-iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manual entry option.
-
-**QR payload (v4):**
-```json
-{
-  "type": "vellum-daemon", "v": 4,
-  "id": "<mac-hash>",
-  "g": "<resolved-gateway-url>",
-  "pairingRequestId": "<uuid>",
-  "pairingSecret": "<Random Hex Value>",
-  "localLanUrl": "http://<lan-ip>:7830"  // only present when VELLUM_ENABLE_INSECURE_LAN_PAIRING=1
-}
-```
-
-**Flow:**
-1. macOS generates a v4 QR code (no bearer token in QR) and pre-registers the pairing request with the daemon via `POST /v1/pairing/register`.
-2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). If `localLanUrl` is present (requires `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`), tries it first (3s timeout), then falls back to cloud gateway URL (`g`).
-3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an SSE event to macOS to show an approval prompt.
-4. macOS shows a floating approval window with three options: Deny, Approve Once, Always Allow.
-5. iOS polls `GET /pairing/status?id=<id>&secret=<secret>` every 2.5s until approved, denied, or expired (5-min TTL).
-6. On approval, the response includes the bearer token and gateway URL. iOS saves these and connects.
-
-**Daemon endpoints:**
-- `POST /v1/pairing/register` -- macOS pre-registers a pairing request (bearer-authenticated).
-- `POST /v1/pairing/request` -- iOS initiates pairing (unauthenticated, secret-gated).
-- `GET /v1/pairing/status` -- iOS polls for approval status (unauthenticated, secret-gated).
-
-**Gateway proxy endpoints** (unauthenticated, proxied to daemon):
-- `POST /pairing/request` -> daemon `/v1/pairing/request`
-- `GET /pairing/status` -> daemon `/v1/pairing/status`
-
-**Approved devices:** Devices paired with "Always Allow" are persisted to `~/.vellum/protected/approved-devices.json` (keyed by hashed deviceId). Future pairings from allowlisted devices auto-approve without a prompt. The macOS Connect tab shows an Approved Devices list with remove/clear actions.
-
-### JWT Credential Refresh (Shared: macOS + iOS)
-
-Both macOS and iOS clients use a single JWT access token for all HTTP authentication, sent as `Authorization: Bearer <jwt>`. The JWT serves as both authentication and identity — there is no separate `X-Actor-Token` header. A shared credential refresh mechanism maintains valid tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
+The macOS client uses a single JWT access token for all HTTP authentication, sent as `Authorization: Bearer <jwt>`. The JWT serves as both authentication and identity — there is no separate `X-Actor-Token` header. A credential refresh mechanism maintains valid tokens without re-bootstrapping. Bootstrap is only used for initial credential issuance.
 
 **Credential storage:** The client stores the following in the Credential Store:
 
@@ -646,57 +607,17 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 | Refresh token expiry | Credential Store | Absolute expiry timestamp of the current refresh token |
 | `refreshAfter` | Credential Store | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
-**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
+**Proactive refresh:** A periodic check runs every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
-**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, `GatewayHTTPClient` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
+**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, `GatewayHTTPClient` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-bootstrap.
 
-**Shared utility:** `ActorCredentialRefresher` is a shared utility used by both platforms. It encapsulates the refresh HTTP call, credential update, and error handling. `ActorTokenManager` on each platform delegates to this refresher for both proactive and reactive (401-recovery) refresh flows.
+**Shared utility:** `ActorCredentialRefresher` encapsulates the refresh HTTP call, credential update, and error handling. `ActorTokenManager` delegates to this refresher for both proactive and reactive (401-recovery) refresh flows.
 
 **No legacy bootstrap-as-renewal:** macOS no longer re-bootstraps on every launch. Bootstrap runs only when no access token exists at all (first launch or after credential wipe). All subsequent renewal is handled by the refresh flow.
 
-### Prerequisites
+---
 
-- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing requires setting `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`; when enabled, `localLanUrl` is included in the QR payload.
-- A conversation key is auto-generated on first connect and stored in UserDefaults.
-- iOS maintains a stable `deviceId` (UUID) in the Credential Store across reinstalls.
-
-### Configuration Storage (iOS)
-
-| Data | Storage | Key |
-|------|---------|-----|
-| Gateway URL | UserDefaults | `gateway_base_url` |
-| Bearer token | Credential Store | provider: `runtime-bearer-token` |
-| Actor token | Credential Store | provider: `actor-token` |
-| Refresh token | Credential Store | provider: `actor-refresh-token` |
-| Conversation key | UserDefaults | `conversation_key` |
-| Host ID | UserDefaults | `gateway_host_id` |
-| Device ID | Credential Store | provider: `pairing-device-id` |
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS v4 QR generation, pre-registration with daemon |
-| `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
-| `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |
-| `assistant/src/daemon/approved-devices-store.ts` | Persistent approved devices allowlist |
-| `assistant/src/daemon/handlers/pairing.ts` | Pairing approval handlers |
-| `gateway/src/http/routes/pairing-proxy.ts` | Gateway proxy for pairing endpoints |
-
-### Offline Message Queue (iOS)
-
-When the daemon is unreachable, outgoing user messages are buffered in `OfflineMessageQueue` (a persistent FIFO stored in UserDefaults) instead of surfacing an error. The message bubble shows a "Pending" indicator (`ChatMessageStatus.pendingOffline`) while offline. On reconnect (`daemonDidReconnect`), `ChatViewModel.flushOfflineQueue()` drains the queue and sends messages in order, clearing the pending indicator.
-
-| Component | Role |
-|-----------|------|
-| `clients/ios/App/OfflineMessageQueue.swift` | Persistent FIFO queue; serialized to `offline_message_queue_v1` in UserDefaults |
-| `ChatMessageStatus.pendingOffline` | Message status for locally buffered, unsent messages |
-| `ChatViewModel.flushOfflineQueue()` | Drains the queue on reconnect, sending messages in FIFO order |
-| `MessageBubbleView` | Renders a clock icon + "Pending" label for `.pendingOffline` messages |
-
-Storage key: `offline_message_queue_v1` (UserDefaults).
-
-### Guardian Approval Card UI (macOS/iOS)
+## Guardian Approval Card UI
 
 Guardian approval prompts are rendered as structured card UIs in the chat timeline using a "buttons first, text fallback" model. The daemon delivers `GuardianDecisionPrompt` objects via HTTP+SSE, and the client renders them as kind-aware cards with tappable action buttons.
 
@@ -748,6 +669,6 @@ Stores use `[weak self]` in all `Task` closures and background subscriptions. Pl
 
 ## macOS Deep-Link Send (M11)
 
-The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
+The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and Shortcuts to trigger assistant actions on the Mac.
 
 ---

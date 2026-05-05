@@ -177,13 +177,15 @@ All archive outputs now include a `run_id`. Pass `--run-id` to group multiple pa
 
 ## Phase 6: Permanent Filter Setup
 
-After cleanup, offer to create email filters/rules so the same categories don't re-accumulate. Shifts the workflow from reactive (periodic cleanup) to proactive (prevention).
+After cleanup, propose Gmail filters so the same categories don't re-accumulate. This bridges cleanup (drain backlog once) and inbox-management (keep inbox clean on schedule).
 
-> **Note:** Filter creation capabilities vary by provider. Check what's available before attempting. If the provider doesn't support programmatic filter creation, give the user manual instructions instead.
+> **Note:** Filter creation capabilities vary by provider. The `gmail-auto-filters.ts` script handles Gmail. If the provider doesn't support programmatic filter creation, give the user manual instructions instead.
+
+> **Filters are permanent behavior changes.** Unlike a one-time archive, a filter silently skips the inbox for every future matching email. A wrong filter means the user misses emails they were expecting — with no indication anything happened. **Always confirm with the user before creating filters.**
 
 ### Which patterns are safe as permanent filters
 
-One-time bulk archiving and permanent auto-archiving are different risk levels. Be explicit:
+One-time bulk archiving and permanent auto-archiving are different risk levels. The auto-filter script only derives candidates from patterns marked "Yes" below:
 
 | Pattern | Safe as permanent filter? | Notes |
 |---------|--------------------------|-------|
@@ -196,24 +198,38 @@ One-time bulk archiving and permanent auto-archiving are different risk levels. 
 | Name/company subject patterns ("for [Name]", "[Company] -") | No | Too broad — will catch real emails |
 | Age-based | No | Not generally supported as a filter condition |
 
-### Creating the filters
+### Running auto-filter generation
 
-One filter per logical category — don't bundle unrelated patterns, it makes individual removal impossible later.
+After the cleanup pipeline completes (Phase 5 post-cleanup report), invoke:
 
-For each filter:
-- **Criteria:** the matching condition
-- **Action:** skip inbox (archive), optionally mark as read
+```bash
+# Preview: show what filters would be created (no confirmation prompt)
+bun run scripts/gmail-auto-filters.ts preview --run-id "<cleanup-run-id>"
 
-### Label strategy (recommended)
+# Generate: show plan, confirm with user, then create
+bun run scripts/gmail-auto-filters.ts generate --run-id "<cleanup-run-id>"
+```
 
-Rather than silently archiving, apply a label like `auto/calendar` or `auto/newsletter`. Gives the user an audit trail and builds trust that nothing important is disappearing invisibly. Offer this before creating any filter.
+If `--run-id` is omitted, the script finds the most recent completed cleanup run automatically.
+
+The script:
+1. Reads the cleanup run's op-log to extract archived patterns
+2. Derives filter candidates from safe categories only
+3. Fetches existing Gmail filters and skips duplicates
+4. **Shows the user a confirmation dialog** listing every filter that will be created, its criteria, and its label — the user must explicitly approve before any filter is created
+5. Creates one filter per logical category with an `auto/*` label (e.g. `auto/no-reply`, `auto/calendar`, `auto/newsletter`, `auto/sketchy-tld`)
+6. Logs all filter creations to the op-log for audit and reversal
+
+### Label strategy
+
+Every auto-filter applies an `auto/*` label instead of silently archiving. This gives the user an audit trail — search `label:auto/calendar` to see what was caught. Labels are created automatically if they don't exist.
 
 ### After filter creation
 
 Tell the user:
 - How many filters were created and what each covers
-- How to find auto-archived emails (search by label)
-- How to remove a filter if it's too aggressive (provider settings)
+- How to find auto-archived emails (search by label, e.g. `label:auto/no-reply`)
+- How to remove a filter: `bun run scripts/gmail-manage.ts filters --action delete --filter-id "<id>"`
 
 ---
 

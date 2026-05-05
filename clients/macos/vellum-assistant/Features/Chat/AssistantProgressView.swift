@@ -2,6 +2,28 @@ import SwiftUI
 import VellumAssistantShared
 import Dispatch
 
+// MARK: - ProgressExpandedItem
+
+/// Represents a single item in a chronological expanded-content trace.
+/// When `AssistantProgressView.expandedItems` is provided, the expanded
+/// body renders these items in order instead of the default `toolCalls`
+/// array, allowing thinking blocks to appear interleaved with tool calls.
+enum ProgressExpandedItem: Identifiable {
+    /// A tool call to render via `ToolCallStepDetailRow`.
+    case toolCall(ToolCallData)
+    /// A thinking block to render via `ThinkingStepDetailRow`.
+    case thinking(content: String, expansionKey: String, isStreaming: Bool)
+
+    var id: String {
+        switch self {
+        case .toolCall(let tc):
+            return "tool:\(tc.id.uuidString)"
+        case .thinking(_, let key, _):
+            return "thinking:\(key)"
+        }
+    }
+}
+
 // MARK: - AssistantProgressView
 
 /// Unified container that handles all tool progress states through a single component
@@ -15,6 +37,7 @@ struct AssistantProgressView: View {
     let streamingCodePreview: String?
     let streamingCodeToolName: String?
     let decidedConfirmations: [ToolConfirmationData]
+    let expandedItems: [ProgressExpandedItem]?
     var onRehydrate: (() -> Void)?
 
     // Confirmation action callbacks (threaded from MessageListView)
@@ -60,6 +83,7 @@ struct AssistantProgressView: View {
         streamingCodePreview: String? = nil,
         streamingCodeToolName: String? = nil,
         decidedConfirmations: [ToolConfirmationData],
+        expandedItems: [ProgressExpandedItem]? = nil,
         onRehydrate: (() -> Void)? = nil,
         onConfirmationAllow: ((String) -> Void)? = nil,
         onConfirmationDeny: ((String) -> Void)? = nil,
@@ -78,6 +102,7 @@ struct AssistantProgressView: View {
         self.streamingCodePreview = streamingCodePreview
         self.streamingCodeToolName = streamingCodeToolName
         self.decidedConfirmations = decidedConfirmations
+        self.expandedItems = expandedItems
         self.onRehydrate = onRehydrate
         self.onConfirmationAllow = onConfirmationAllow
         self.onConfirmationDeny = onConfirmationDeny
@@ -202,6 +227,17 @@ struct AssistantProgressView: View {
         )
     }
 
+    private func completedHeadline(model: ProgressCardPresentationModel) -> String {
+        var total: TimeInterval = 0
+        for tc in toolCalls {
+            if let s = tc.startedAt, let e = tc.completedAt {
+                total += e.timeIntervalSince(s)
+            }
+        }
+        if total < 0.05 { return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")" }
+        return "Worked for \(VCollapsibleStepRowDurationFormatter.format(total))"
+    }
+
     private func headlineText(for model: ProgressCardPresentationModel) -> String {
         switch model.phase {
         case .thinking:
@@ -249,7 +285,7 @@ struct AssistantProgressView: View {
                 }
                 return "Completed with blocked permissions"
             }
-            return "Completed \(model.totalToolCount) step\(model.totalToolCount == 1 ? "" : "s")"
+            return completedHeadline(model: model)
         case .denied:
             let primary = model.uniqueToolNamesSorted.first ?? "Tool"
             return ChatBubble.friendlyRunningLabel(primary) + " denied"
@@ -300,35 +336,6 @@ struct AssistantProgressView: View {
         }
         .onAppear {
             handleOnAppear()
-        }
-        .sheet(item: $suggestRuleToolCall) { tc in
-            RuleEditorModal(
-                toolName: tc.toolName,
-                commandText: tc.inputSummary,
-                commandDescription: tc.reasonDescription ?? "",
-                riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
-                directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
-                suggestion: suggestRuleSuggestion,
-                onSave: { rule in
-                    Task {
-                        try? await TrustRuleClient().createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                            }(),
-                            scope: rule.scope
-                        )
-                    }
-                },
-                onDismiss: {
-                    suggestRuleToolCall = nil
-                    suggestRuleSuggestion = nil
-                }
-            )
         }
     }
 
@@ -606,11 +613,9 @@ struct AssistantProgressView: View {
 
             Spacer()
 
-            // Elapsed time: live counter when active, final duration when complete
+            // Elapsed time: live counter when active
             if model.isActive {
                 ElapsedTimeLabel(startDate: startDate)
-            } else if model.hasTools {
-                completedDurationLabel(model: model)
             }
 
             // Chevron (only if tools exist)
@@ -663,26 +668,6 @@ struct AssistantProgressView: View {
         }
     }
 
-    // MARK: - Completed Duration
-
-    @ViewBuilder
-    private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
-        if let start = model.earliestStartedAt {
-            // Prefer thinkingAfterToolsEndDate (when real thinking was tracked) so the
-            // parent total matches the sum of sub-activity durations. Otherwise fall
-            // back to cardCompletedAt, captured at the `.complete` transition, so the
-            // live elapsed timer doesn't drop back to tool-runtime-only when the card
-            // passes through `.toolsCompleteThinking` without ever hitting `.processing`.
-            let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
-            if let end = effectiveEnd {
-                let seconds = end.timeIntervalSince(start)
-                Text(VCollapsibleStepRowDurationFormatter.format(seconds))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-        }
-    }
-
     // MARK: - Expanded Content
 
     /// Derives a `Binding<Bool>` for a single step's expansion state from the
@@ -698,52 +683,91 @@ struct AssistantProgressView: View {
         )
     }
 
+    /// Renders a single tool call row with its inline confirmation bubble.
+    /// Extracted from `expandedContent` so the same rendering logic is shared
+    /// between the default `toolCalls` path and the `expandedItems` path.
+    @ViewBuilder
+    private func toolCallRow(toolCall: ToolCallData, model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
+        ToolCallStepDetailRow(
+            toolCall: toolCall,
+            phase: phase,
+            isDetailExpanded: isStepExpanded(toolCall.id),
+            skillLabel: toolCall.toolName == "skill_execute" ? model.skillExecuteLabel : nil,
+            onRehydrate: onRehydrate
+        )
+
+        // Inline confirmation bubble for tool calls awaiting approval
+        if let confirmation = toolCall.pendingConfirmation {
+            ToolConfirmationBubble(
+                confirmation: confirmation,
+                isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
+                onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                onDeny: { onConfirmationDeny?(confirmation.requestId) },
+                onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
+                onTemporaryAllow: onTemporaryAllow,
+                onAllowAndSuggestRule: {
+                    // Allow the tool first
+                    if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
+                        let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+                        onAlwaysAllow?(confirmation.requestId, option.pattern, scope, "allow")
+                    } else {
+                        onConfirmationAllow?(confirmation.requestId)
+                    }
+                    // Fire the suggest API and open the rule editor with the result
+                    Task {
+                        await fetchSuggestionAndOpenEditor(for: toolCall)
+                    }
+                }
+            )
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+        }
+    }
+
+    /// Derives a `Binding<Bool>` for a thinking block's expansion state from the
+    /// shared `ProgressCardUIState`. Scoped to one string key so
+    /// `ThinkingStepDetailRow` can use it as a drop-in `@Binding`.
+    private func isThinkingExpanded(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { progressUIState.isThinkingExpanded(key) },
+            set: { newValue in
+                progressUIState.setThinkingExpanded(key, expanded: newValue)
+            }
+        )
+    }
+
     @ViewBuilder
     private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(toolCalls) { toolCall in
-                ToolCallStepDetailRow(
-                    toolCall: toolCall,
-                    phase: phase,
-                    isDetailExpanded: isStepExpanded(toolCall.id),
-                    skillLabel: toolCall.toolName == "skill_execute" ? model.skillExecuteLabel : nil,
-                    onRehydrate: onRehydrate
-                )
-
-                // Inline confirmation bubble for tool calls awaiting approval
-                if let confirmation = toolCall.pendingConfirmation {
-                    ToolConfirmationBubble(
-                        confirmation: confirmation,
-                        isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
-                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
-                        onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
-                        onTemporaryAllow: onTemporaryAllow,
-                        onAllowAndSuggestRule: {
-                            // Allow the tool first
-                            if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
-                                let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-                                onAlwaysAllow?(confirmation.requestId, option.pattern, scope, "allow")
-                            } else {
-                                onConfirmationAllow?(confirmation.requestId)
-                            }
-                            // Fire the suggest API and open the rule editor with the result
-                            Task {
-                                await fetchSuggestionAndOpenEditor(for: toolCall)
-                            }
-                        }
-                    )
-                    .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+            if let items = expandedItems {
+                // Chronological trace with interleaved tool calls and thinking blocks.
+                ForEach(items) { item in
+                    switch item {
+                    case .toolCall(let tc):
+                        toolCallRow(toolCall: tc, model: model, phase: phase)
+                    case .thinking(let content, let key, let streaming):
+                        ThinkingStepDetailRow(
+                            content: content,
+                            isStreaming: streaming,
+                            isExpanded: isThinkingExpanded(key)
+                        )
+                    }
                 }
-            }
+                // No synthetic ThinkingStepRow — thinking content is already
+                // represented in the chronological trace above.
+            } else {
+                // Default path: render tool calls from the flat array.
+                ForEach(toolCalls) { toolCall in
+                    toolCallRow(toolCall: toolCall, model: model, phase: phase)
+                }
 
-            // Synthetic "Thinking" row for the post-tool-completion thinking phase.
-            if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
-                ThinkingStepRow(
-                    startDate: thinkingStart,
-                    completedAt: thinkingAfterToolsEndDate,
-                    isActive: model.isActive
-                )
+                // Synthetic "Thinking" row for the post-tool-completion thinking phase.
+                if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
+                    ThinkingStepRow(
+                        startDate: thinkingStart,
+                        completedAt: thinkingAfterToolsEndDate,
+                        isActive: model.isActive
+                    )
+                }
             }
         }
     }
@@ -836,6 +860,14 @@ struct ToolCallStepDetailRow: View {
     @State private var ruleEditorToolCall: ToolCallData?
     /// LLM-generated suggestion to pre-populate the rule editor.
     @State private var ruleEditorSuggestion: TrustRuleSuggestion?
+    /// Existing trust rule that matched this tool call, or nil for create mode.
+    @State private var ruleEditorExistingRule: TrustRule?
+    /// Tracks the in-flight suggestion task so it can be cancelled on re-open or dismiss.
+    @State private var suggestionTask: Task<Void, Never>?
+    /// Tracks the outer badge-tap task (fetchMatchedRule + modal open) so rapid taps don't race.
+    @State private var ruleEditorTask: Task<Void, Never>?
+    /// Set when a trust-rule save fails so we can surface an alert to the user.
+    @State private var ruleSaveError: String?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -924,7 +956,8 @@ struct ToolCallStepDetailRow: View {
     /// in `clients/shared/` so iOS and macOS accept identical payload shapes
     /// from a single implementation.
     var acpSessionIdToOpen: String? {
-        guard toolCall.toolName == "acp_spawn",
+        guard CodingAgentsPanelFeatureFlag.isEnabled,
+              toolCall.toolName == "acp_spawn",
               toolCall.isComplete,
               !toolCall.isError,
               let result = toolCall.result,
@@ -956,32 +989,78 @@ struct ToolCallStepDetailRow: View {
         .sheet(item: $ruleEditorToolCall) { tc in
             RuleEditorModal(
                 toolName: tc.toolName,
-                commandText: tc.inputSummary,
+                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
                 scopeOptions: Self.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: ruleEditorSuggestion,
+                existingRule: ruleEditorExistingRule,
                 onSave: { rule in
+                    let existingRule = ruleEditorExistingRule
                     Task {
-                        try? await Self.trustRuleClient.createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                            }(),
-                            scope: rule.scope
-                        )
+                        do {
+                            if let existingRule {
+                                _ = try await Self.trustRuleClient.updateRule(
+                                    id: existingRule.id,
+                                    risk: rule.riskLevel,
+                                    description: nil
+                                )
+                            } else {
+                                _ = try await Self.trustRuleClient.createRule(
+                                    tool: rule.toolName,
+                                    pattern: rule.pattern,
+                                    risk: rule.riskLevel,
+                                    description: {
+                                        let desc = tc.reasonDescription ?? ""
+                                        return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                    }(),
+                                    scope: rule.scope
+                                )
+                            }
+                        } catch {
+                            ruleSaveError = error.localizedDescription
+                        }
+                    }
+                },
+                onSaveAsNew: { rule in
+                    Task {
+                        do {
+                            _ = try await Self.trustRuleClient.createRule(
+                                tool: rule.toolName,
+                                pattern: rule.pattern,
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                }(),
+                                scope: rule.scope
+                            )
+                        } catch {
+                            ruleSaveError = error.localizedDescription
+                        }
                     }
                 },
                 onDismiss: {
+                    ruleEditorTask?.cancel()
+                    ruleEditorTask = nil
+                    suggestionTask?.cancel()
+                    suggestionTask = nil
                     ruleEditorToolCall = nil
                     ruleEditorSuggestion = nil
+                    ruleEditorExistingRule = nil
                 }
             )
         }
+        .alert(
+            "Failed to Save Rule",
+            isPresented: Binding(
+                get: { ruleSaveError != nil },
+                set: { if !$0 { ruleSaveError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(ruleSaveError ?? "") }
+        )
     }
 
     // MARK: - acp_spawn Deep Link
@@ -1018,7 +1097,8 @@ struct ToolCallStepDetailRow: View {
                     .truncationMode(.tail)
                 Spacer()
                 if let started = toolCall.startedAt,
-                   let completed = toolCall.completedAt {
+                   let completed = toolCall.completedAt,
+                   completed.timeIntervalSince(started) >= 0.05 {
                     Text(VCollapsibleStepRowDurationFormatter.format(completed.timeIntervalSince(started)))
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
@@ -1045,6 +1125,7 @@ struct ToolCallStepDetailRow: View {
     /// `internal` and `static` so unit tests can exercise the side effects
     /// against an injected `MainWindowState` / `ACPSessionStore` pair.
     static func openACPSession(id: String) {
+        guard CodingAgentsPanelFeatureFlag.isEnabled else { return }
         guard let appDelegate = AppDelegate.shared else { return }
         applyACPSessionDeepLink(
             id: id,
@@ -1063,7 +1144,9 @@ struct ToolCallStepDetailRow: View {
         windowState: MainWindowState?,
         store: ACPSessionStore?
     ) {
-        guard let windowState, let store else { return }
+        guard CodingAgentsPanelFeatureFlag.isEnabled,
+              let windowState,
+              let store else { return }
         windowState.showRightSlot(.native(.acpSessions))
         // Setting the id triggers ``ACPSessionsPanel/consumeSelectedSessionIdIfPresent``
         // which pushes the matching view model onto the panel's
@@ -1081,8 +1164,21 @@ struct ToolCallStepDetailRow: View {
     @ViewBuilder
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
-            RiskBadgeView(riskLevel: risk) {
-                ruleEditorToolCall = toolCall
+            let unexpected = !wasExpected(
+                approvalMode: toolCall.approvalMode,
+                riskLevel: toolCall.riskLevel,
+                riskThreshold: toolCall.riskThreshold
+            )
+            let provenance = unexpected
+                ? approvalProvenanceText(approvalReason: toolCall.approvalReason)
+                : nil
+            RiskBadgeView(
+                riskLevel: risk,
+                hasExistingRule: toolCall.matchedTrustRuleId != nil,
+                provenanceText: provenance
+            ) {
+                ruleEditorTask?.cancel()
+                ruleEditorTask = Task { await openRuleEditorForCompletedCall(toolCall) }
             }
         }
     }
@@ -1105,15 +1201,22 @@ struct ToolCallStepDetailRow: View {
     // MARK: - Scope Options
 
     /// Constructs scope option items from the tool call's risk scope options.
-    /// Falls back to a single exact command option when none are provided.
+    /// Falls back to a wildcard when no server-provided options exist, since
+    /// `inputSummary` may be a natural-language activity description (e.g. for
+    /// `remember`) rather than a matchable command pattern.
     static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
         guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
-            return [
-                ScopeOptionItem(
-                    label: toolCall.inputSummary,
-                    pattern: toolCall.inputSummary
-                )
-            ]
+            // Determine whether inputRawValue is a real command or just the
+            // activity description. Priority-key tools (bash → `command`) give
+            // a structured value; others fall through alphabetically and end up
+            // with the natural-language activity text.
+            let raw = toolCall.inputRawValue
+            let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+            let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
+            let label = pattern == "*"
+                ? "Any \(toolCall.toolName) call"
+                : pattern
+            return [ScopeOptionItem(label: label, pattern: pattern)]
         }
         return options.map { option in
             ScopeOptionItem(
@@ -1121,6 +1224,95 @@ struct ToolCallStepDetailRow: View {
                 pattern: option.pattern
             )
         }
+    }
+
+    /// Returns the best structured text to display in the "Command" header of
+    /// the Rule Editor Modal. Uses the full formatted input when `inputRawValue`
+    /// is just the natural-language activity description (tools like `remember`
+    /// that lack a priority key such as `command`/`path`/`url`); otherwise
+    /// returns the raw primary value directly.
+    static func commandDisplayText(from toolCall: ToolCallData) -> String {
+        let raw = toolCall.inputRawValue
+        let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+        if isNaturalLanguage {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+        }
+        return raw.isEmpty ? toolCall.inputSummary : raw
+    }
+
+    // MARK: - Rule Editor
+
+    @MainActor
+    private func openRuleEditorForCompletedCall(_ toolCall: ToolCallData) async {
+        // Cancel any previous suggestion task and clear stale state before opening.
+        suggestionTask?.cancel()
+        suggestionTask = nil
+        ruleEditorSuggestion = nil
+
+        // Fetch the matched rule first (fast HTTP list) so the modal opens in the
+        // correct create/edit mode. Suggestion fires in the background after open.
+        let existingRule = try? await fetchMatchedRule(toolCall)
+        guard !Task.isCancelled else { return }
+        ruleEditorExistingRule = existingRule
+        guard !Task.isCancelled else { return }
+        ruleEditorToolCall = toolCall  // Opens the modal immediately
+
+        // LLM suggestion fires while the modal is already visible. The modal
+        // reacts via .onChange(of: suggestion?.pattern) in applySuggestionOrDefaults.
+        suggestionTask = Task { @MainActor in
+            guard let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule) else { return }
+            guard !Task.isCancelled else { return }
+            ruleEditorSuggestion = suggestion
+        }
+    }
+
+    private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {
+        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
+            (pattern: $0.pattern, label: $0.label)
+        }
+        let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
+            (scope: $0.scope, label: $0.label)
+        }
+        let fullCommand: String = {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+            return toolCall.inputSummary
+        }()
+        return try await Self.trustRuleClient.suggestRule(
+            tool: toolCall.toolName,
+            command: fullCommand,
+            riskAssessment: (
+                risk: toolCall.riskLevel ?? "medium",
+                reasoning: toolCall.riskReason ?? "",
+                reasonDescription: toolCall.reasonDescription ?? ""
+            ),
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: dirScopeOpts,
+            intent: "auto_approve",
+            existingRule: existingRule.map { (id: $0.id, pattern: $0.pattern, risk: $0.risk) }
+        )
+    }
+
+    private func fetchMatchedRule(_ toolCall: ToolCallData) async throws -> TrustRule {
+        guard let matchedId = toolCall.matchedTrustRuleId else {
+            throw TrustRuleClientError.notFound
+        }
+        // First try: user-relevant rules (user_defined + user-modified defaults).
+        // This covers the common case and is a fast, targeted query.
+        let userRules = try await Self.trustRuleClient.listRules(tool: toolCall.toolName)
+        if let rule = userRules.first(where: { $0.id == matchedId }) {
+            return rule
+        }
+        // Fallback: the matched rule may be an unmodified default rule, which the
+        // userRelevantOnly filter excludes. Fetch default rules explicitly so the
+        // modal opens in edit mode rather than incorrectly opening in create mode
+        // (which would fail with a UNIQUE constraint when the user saves).
+        let defaultRules = try await Self.trustRuleClient.listRules(origin: "default", tool: toolCall.toolName)
+        guard let rule = defaultRules.first(where: { $0.id == matchedId }) else {
+            throw TrustRuleClientError.notFound
+        }
+        return rule
     }
 
     // MARK: - Detail Content
@@ -1417,6 +1609,74 @@ private struct ThinkingStepRow: View {
             }
             .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
         }
+    }
+}
+
+// MARK: - Thinking Step Detail Row
+
+/// Collapsible row for a thinking block inside a `ProgressExpandedItem` trace.
+/// Uses `VCollapsibleStepRow` with a brain icon and secondary text styling.
+/// Markdown segments are parsed lazily — only when the row is expanded — to
+/// avoid blocking the main thread for collapsed thinking blocks.
+private struct ThinkingStepDetailRow: View {
+    let content: String
+    let isStreaming: Bool
+    @Binding var isExpanded: Bool
+
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
+
+    /// Lazily parsed markdown segments. Populated on first expansion and
+    /// refreshed when the content changes while expanded.
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
+
+    private var title: String {
+        isStreaming ? "Thinking..." : "Thought process"
+    }
+
+    private var rowState: VCollapsibleStepRowState {
+        isStreaming ? .running : .succeeded
+    }
+
+    /// Syncs the markdown segment cache when the row is expanded and the
+    /// underlying content has changed. Mirrors the lazy-parse pattern used
+    /// by `ThinkingBlockView`.
+    private func syncCacheIfExpanded() {
+        guard isExpanded, cachedContent != content else { return }
+        cachedContent = content
+        cachedSegments = parseMarkdownSegments(content)
+    }
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: title,
+            state: rowState,
+            hasDetails: !content.isEmpty,
+            isExpanded: $isExpanded,
+            leadingAccessory: {
+                VIconView(.brain, size: 11)
+                    .foregroundStyle(VColor.contentSecondary)
+            },
+            detailContent: {
+                if !cachedSegments.isEmpty {
+                    MarkdownSegmentView(
+                        segments: cachedSegments,
+                        isStreaming: isStreaming,
+                        maxContentWidth: max(bubbleMaxWidth - 2 * VSpacing.sm, 0),
+                        textColor: VColor.contentSecondary,
+                        secondaryTextColor: VColor.contentTertiary,
+                        mutedTextColor: VColor.contentTertiary,
+                        tintColor: VColor.primaryBase,
+                        codeTextColor: VColor.contentDefault,
+                        codeBackgroundColor: VColor.surfaceBase
+                    )
+                    .padding(VSpacing.sm)
+                }
+            }
+        )
+        .onAppear { syncCacheIfExpanded() }
+        .onChange(of: content) { _, _ in syncCacheIfExpanded() }
+        .onChange(of: isExpanded) { _, _ in syncCacheIfExpanded() }
     }
 }
 

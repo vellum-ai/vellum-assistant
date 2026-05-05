@@ -153,8 +153,6 @@ export interface DisposeContext extends AbortContext {
   trustContext?: { trustClass: TrustClass };
   /** Active memory node IDs snapshotted from the conversation's InContextTracker before disposal. */
   activeContextNodeIds?: string[];
-  /** Memory scope for extraction — defaults to "default" if omitted. */
-  memoryScopeId?: string;
   abort(): void;
 }
 
@@ -240,11 +238,18 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           }
 
           // Memory remains rehydrated on all rows (existing behavior).
+          // Strip any pre-existing wrapper before re-wrapping so historical
+          // rows persisted with the wrapper (v2 path before the
+          // injectedBlockText contract was unified with v1's unwrapped form)
+          // don't render double-wrapped after rehydrate.
           if (typeof meta.memoryInjectedBlock === "string") {
+            const inner = meta.memoryInjectedBlock
+              .replace(/^<memory>\n/, "")
+              .replace(/\n<\/memory>$/, "");
             content = [
               {
                 type: "text" as const,
-                text: `<memory __injected>\n${meta.memoryInjectedBlock}\n</memory>`,
+                text: `<memory>\n${inner}\n</memory>`,
               },
               ...content,
             ];
@@ -371,7 +376,7 @@ export function disposeConversation(ctx: DisposeContext): void {
       try {
         enqueueMemoryJob("graph_extract", {
           conversationId: ctx.conversationId,
-          scopeId: ctx.memoryScopeId ?? "default",
+          scopeId: "default",
           ...(ctx.activeContextNodeIds?.length
             ? { activeContextNodeIds: ctx.activeContextNodeIds }
             : {}),

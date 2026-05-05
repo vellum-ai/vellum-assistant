@@ -47,9 +47,12 @@ describe("handleEmitEventSignal", () => {
     });
 
     subscriptions.push(
-      assistantEventHub.subscribe({}, (event) => {
-        received.push(event);
-        resolveDelivered?.();
+      assistantEventHub.subscribe({
+        type: "process",
+        callback: (event) => {
+          received.push(event);
+          resolveDelivered?.();
+        },
       }),
     );
 

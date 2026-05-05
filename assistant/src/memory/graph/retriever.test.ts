@@ -71,6 +71,7 @@ mock.module("../../providers/provider-send-message.js", () => ({
   extractToolUse: () => null,
 }));
 
+import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { resetDb } from "../db-connection.js";
@@ -80,6 +81,11 @@ import { InContextTracker } from "./injection.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 import { createNode } from "./store.js";
 import type { NewNode } from "./types.js";
+
+// These tests exercise v1 retrieval. v2 takeover (both `memory-v2-enabled`
+// flag *and* `memory.v2.enabled` schema field) makes `loadContextMemory`
+// short-circuit, so disable the flag here to keep the v1 path under test.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 
 const TEST_CONFIG: AssistantConfig = { ...DEFAULT_CONFIG };
 

@@ -1,4 +1,35 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// ── Module mocks ──────────────────────────────────────────────────
+
+/**
+ * Captured messages from injectMessageIntoParent → findConversation → enqueueMessage.
+ * Each test clears this before use.
+ */
+const capturedNotifications: {
+  parentConversationId: string;
+  message: string;
+}[] = [];
+
+mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: (id: string) => ({
+    enqueueMessage: (content: string) => {
+      capturedNotifications.push({
+        parentConversationId: id,
+        message: content,
+      });
+      return { queued: true };
+    },
+    persistUserMessage: async () => "mock-msg",
+    runAgentLoop: async () => {},
+  }),
+  addConversation: () => {},
+  removeConversation: () => {},
+}));
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: () => {},
+}));
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { SubagentManager } from "../subagent/manager.js";
@@ -108,8 +139,13 @@ function makeForkState(
   });
 }
 
+function clearCaptured(): void {
+  capturedNotifications.length = 0;
+}
+
 describe("Fork completion notifications", () => {
   test("fork completion notification includes last_n: 1 guidance", async () => {
+    clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "fork-1";
     const state = makeForkState(subagentId);
@@ -119,21 +155,16 @@ describe("Fork completion notifications", () => {
     managed.conversation!.persistUserMessage = () => "msg-1";
     managed.conversation!.runAgentLoop = async () => {};
 
-    const notifications: { parentConversationId: string; message: string }[] =
-      [];
-    manager.onSubagentFinished = (parentConversationId, message) => {
-      notifications.push({ parentConversationId, message });
-    };
-
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain("last_n: 1");
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].message).toContain("last_n: 1");
 
     asInternals(manager).stopSweep();
   });
 
   test("fork completion notification includes internal-processing instruction", async () => {
+    clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "fork-1";
     const state = makeForkState(subagentId);
@@ -143,19 +174,13 @@ describe("Fork completion notifications", () => {
     managed.conversation!.persistUserMessage = () => "msg-1";
     managed.conversation!.runAgentLoop = async () => {};
 
-    const notifications: { parentConversationId: string; message: string }[] =
-      [];
-    manager.onSubagentFinished = (parentConversationId, message) => {
-      notifications.push({ parentConversationId, message });
-    };
-
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain(
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].message).toContain(
       "do NOT share raw fork output with the user",
     );
-    expect(notifications[0].message).toContain(
+    expect(capturedNotifications[0].message).toContain(
       '[Fork "Analysis fork" completed]',
     );
 
@@ -163,6 +188,7 @@ describe("Fork completion notifications", () => {
   });
 
   test("fork failure notification uses [Fork prefix", async () => {
+    clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "fork-1";
     const state = makeForkState(subagentId);
@@ -174,20 +200,14 @@ describe("Fork completion notifications", () => {
       throw new Error("Context too large");
     };
 
-    const notifications: { parentConversationId: string; message: string }[] =
-      [];
-    manager.onSubagentFinished = (parentConversationId, message) => {
-      notifications.push({ parentConversationId, message });
-    };
-
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain(
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].message).toContain(
       '[Fork "Analysis fork" failed]',
     );
-    expect(notifications[0].message).toContain("Context too large");
-    expect(notifications[0].message).not.toContain("[Subagent");
+    expect(capturedNotifications[0].message).toContain("Context too large");
+    expect(capturedNotifications[0].message).not.toContain("[Subagent");
 
     asInternals(manager).stopSweep();
   });
@@ -233,6 +253,7 @@ describe("Status response includes isFork", () => {
 
 describe("Regular sub-agent notifications are unchanged", () => {
   test("regular completed subagent uses [Subagent prefix", async () => {
+    clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
     const state = makeState(subagentId);
@@ -242,25 +263,20 @@ describe("Regular sub-agent notifications are unchanged", () => {
     managed.conversation!.persistUserMessage = () => "msg-1";
     managed.conversation!.runAgentLoop = async () => {};
 
-    const notifications: { parentConversationId: string; message: string }[] =
-      [];
-    manager.onSubagentFinished = (parentConversationId, message) => {
-      notifications.push({ parentConversationId, message });
-    };
-
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain(
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].message).toContain(
       '[Subagent "Test subagent" completed]',
     );
-    expect(notifications[0].message).not.toContain("[Fork");
-    expect(notifications[0].message).not.toContain("last_n: 1");
+    expect(capturedNotifications[0].message).not.toContain("[Fork");
+    expect(capturedNotifications[0].message).not.toContain("last_n: 1");
 
     asInternals(manager).stopSweep();
   });
 
   test("regular failed subagent uses [Subagent prefix", async () => {
+    clearCaptured();
     const manager = new SubagentManager();
     const subagentId = "sub-1";
     const state = makeState(subagentId);
@@ -272,19 +288,13 @@ describe("Regular sub-agent notifications are unchanged", () => {
       throw new Error("Something went wrong");
     };
 
-    const notifications: { parentConversationId: string; message: string }[] =
-      [];
-    manager.onSubagentFinished = (parentConversationId, message) => {
-      notifications.push({ parentConversationId, message });
-    };
-
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain(
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].message).toContain(
       '[Subagent "Test subagent" failed]',
     );
-    expect(notifications[0].message).not.toContain("[Fork");
+    expect(capturedNotifications[0].message).not.toContain("[Fork");
 
     asInternals(manager).stopSweep();
   });

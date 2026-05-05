@@ -1,11 +1,10 @@
-import { and, asc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 
 import type {
   TraceEvent,
   TraceEventKind,
 } from "../daemon/message-types/messages.js";
 import { getDb } from "./db-connection.js";
-import { rawChanges } from "./raw-query.js";
 import { traceEvents } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -113,21 +112,6 @@ export function getTraceEvents(
     .all();
 
   return rows.map(rowToTraceEventRow);
-}
-
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-
-/**
- * Delete trace events older than `maxAgeDays` based on `created_at`.
- * Returns the count of deleted rows.
- */
-export function deleteOldTraceEvents(maxAgeDays: number): number {
-  const db = getDb();
-  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-  db.delete(traceEvents).where(lt(traceEvents.createdAt, cutoff)).run();
-  return rawChanges();
 }
 
 // ---------------------------------------------------------------------------

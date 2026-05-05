@@ -1,4 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+
+let providerRoutingSources: Record<string, "user-key" | "managed-proxy"> = {};
+
+mock.module("../providers/registry.js", () => ({
+  getProviderRoutingSource: (provider: string) =>
+    providerRoutingSources[provider],
+}));
 
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
@@ -63,6 +70,10 @@ describe("isUserCancellation", () => {
 describe("classifyConversationError", () => {
   const baseCtx: ErrorContext = { phase: "agent_loop" };
 
+  beforeEach(() => {
+    providerRoutingSources = {};
+  });
+
   describe("network errors", () => {
     const cases = [
       "ECONNREFUSED",
@@ -105,6 +116,52 @@ describe("classifyConversationError", () => {
         expect(result.errorCategory).toBe("rate_limit");
       });
     }
+
+    it("classifies managed-proxy daily quota responses as MANAGED_USAGE_LIMIT", () => {
+      const err = new ProviderError(
+        'Anthropic API error (429): 429 {"code":"daily_quota_exceeded","detail":"You\'ve reached your usage limit for today. You\'ve made 1000 requests, but your current plan allows 1000 per day.","provider":"anthropic"}',
+        "anthropic",
+        429,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.retryable).toBe(true);
+      expect(result.userMessage).toContain("Vellum managed inference");
+      expect(result.userMessage).toContain("not an AI provider outage");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("classifies managed-proxy routed 429s as MANAGED_USAGE_LIMIT", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.userMessage).toContain("Vellum managed inference");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("keeps provider copy for direct provider 429s", () => {
+      providerRoutingSources.anthropic = "user-key";
+      const err = new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
   });
 
   describe("provider overloaded errors", () => {

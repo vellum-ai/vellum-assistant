@@ -215,10 +215,7 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import {
-  createGuardianBinding,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -238,6 +235,7 @@ import {
   getGuardianBinding,
 } from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
@@ -364,11 +362,22 @@ function getLatestAssistantText(conversationId: string): string | null {
     if (Array.isArray(parsed)) {
       return parsed
         .filter(
-          (block): block is { type: string; text?: string } =>
-            typeof block === "object" && block != null,
+          (block): block is {
+            type: string;
+            text?: string;
+            surfaceType?: string;
+            data?: { summaryText?: string };
+          } => typeof block === "object" && block != null,
         )
-        .filter((block) => block.type === "text")
-        .map((block) => block.text ?? "")
+        .map((block) => {
+          if (block.type === "text") return block.text ?? "";
+          if (
+            block.type === "ui_surface" &&
+            block.surfaceType === "call_summary"
+          )
+            return block.data?.summaryText ?? "";
+          return "";
+        })
         .join("");
     }
     if (typeof parsed === "string") return parsed;
@@ -1419,9 +1428,11 @@ describe("relay-server", () => {
     expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
-    // Guardian binding should have been created
+    // Guardian binding is NOT created by the assistant — the gateway owns
+    // binding creation for inbound voice verification. The assistant only
+    // transitions to connected state and starts the normal call flow.
     const binding = getGuardianBinding("self", "phone");
-    expect(binding).not.toBeNull();
+    expect(binding).toBeNull();
 
     // Orchestrator greeting should have fired
     const textMessages = ws.sentMessages
@@ -1490,9 +1501,9 @@ describe("relay-server", () => {
     expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
-    // Binding created
+    // Binding is NOT created by the assistant — gateway owns this.
     const binding = getGuardianBinding("self", "phone");
-    expect(binding).not.toBeNull();
+    expect(binding).toBeNull();
 
     // Greeting should have started
     const textMessages = ws.sentMessages
@@ -1746,18 +1757,23 @@ describe("relay-server", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
+    // The gateway creates the guardian binding before the ConversationRelay
+    // WebSocket is established, so resolveActorTrust() would find it in
+    // production. Without a gateway in this test, trust reflects the
+    // resolved state without a binding.
     const postVerify = (
       relay.getController() as unknown as {
         trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
-          guardianExternalUserId?: string;
         };
       }
     )?.trustContext;
     expect(postVerify?.sourceChannel).toBe("phone");
-    expect(postVerify?.trustClass).toBe("guardian");
-    expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
+    // Trust class is 'unknown' because the gateway creates the binding
+    // before the relay is established. Without a gateway in this test,
+    // resolveActorTrust finds no guardian binding.
+    expect(postVerify?.trustClass).toBe("unknown");
 
     relay.destroy();
   });
@@ -4034,9 +4050,9 @@ describe("relay-server", () => {
     expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
-    // Guardian binding should have been created
+    // Guardian binding is NOT created by the assistant — gateway owns this.
     const binding = getGuardianBinding("self", "phone");
-    expect(binding).not.toBeNull();
+    expect(binding).toBeNull();
 
     // Normal greeting should fire (from mockSendMessage), not the handoff copy
     const textMessages = ws.sentMessages

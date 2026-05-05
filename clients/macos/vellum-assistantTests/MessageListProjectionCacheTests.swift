@@ -41,9 +41,57 @@ final class MessageListProjectionCacheTests: XCTestCase {
         XCTAssertEqual(sharedScrollState.messageListVersion, 2)
     }
 
+    func testChangingHighlightedMessageIdInvalidatesProjectionCache() {
+        let messageId = UUID()
+        let sharedScrollState = MessageListScrollState()
+
+        let message = ChatMessage(
+            id: messageId,
+            role: .assistant,
+            text: "Hello",
+            isStreaming: false
+        )
+
+        // First projection with no highlighted message.
+        let view1 = makeView(messages: [message], messagesRevision: 1)
+        view1.scrollState = sharedScrollState
+        let projection1 = view1.derivedState
+
+        // Capture the cache key after the first projection (highlightedMessageId == nil).
+        let keyWithoutHighlight = sharedScrollState.derivedStateCache.cachedProjectionKey
+
+        // Second projection with a highlighted message — same content,
+        // different highlightedMessageId.
+        let view2 = makeView(
+            messages: [message],
+            messagesRevision: 1,
+            highlightedMessageId: messageId
+        )
+        view2.scrollState = sharedScrollState
+        let projection2 = view2.derivedState
+
+        // Capture the cache key after the second projection (highlightedMessageId == messageId).
+        let keyWithHighlight = sharedScrollState.derivedStateCache.cachedProjectionKey
+
+        // The two cache keys must differ so the projector re-runs and picks
+        // up the new isHighlighted flag.
+        XCTAssertNotEqual(
+            keyWithoutHighlight,
+            keyWithHighlight,
+            "Changing highlightedMessageId should produce a different cache key"
+        )
+
+        // Verify the projections reflect the highlight state correctly.
+        let rows1Highlighted = projection1.rows.contains { $0.isHighlighted }
+        let rows2Highlighted = projection2.rows.contains { $0.isHighlighted }
+        XCTAssertFalse(rows1Highlighted, "No rows should be highlighted when highlightedMessageId is nil")
+        XCTAssertTrue(rows2Highlighted, "The matching row should be highlighted when highlightedMessageId is set")
+    }
+
     private func makeView(
         messages: [ChatMessage],
-        messagesRevision: UInt64
+        messagesRevision: UInt64,
+        highlightedMessageId: UUID? = nil
     ) -> MessageListView {
         MessageListView(
             messages: messages,
@@ -86,7 +134,7 @@ final class MessageListProjectionCacheTests: XCTestCase {
             loadPreviousMessagePage: nil,
             conversationId: nil,
             anchorMessageId: .constant(nil),
-            highlightedMessageId: .constant(nil),
+            highlightedMessageId: .constant(highlightedMessageId),
             isInteractionEnabled: true,
             containerWidth: 800
         )

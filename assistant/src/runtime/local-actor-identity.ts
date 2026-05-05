@@ -12,6 +12,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { isHttpAuthDisabled } from "../config/env.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
@@ -44,6 +45,52 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
 }
 
 /**
+ * Look up the local vellum guardian's principalId from the contacts table.
+ *
+ * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
+ * install before bootstrap). Callers should treat that case as
+ * "not yet available" and either fall back or proceed without a principalId.
+ */
+export function findLocalGuardianPrincipalId(): string | undefined {
+  return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
+}
+
+/**
+ * Translate the synthetic dev-bypass actor principal to the real local
+ * guardian's principalId when running in `DISABLE_HTTP_AUTH=true` mode.
+ *
+ * The dev-bypass `AuthContext` (`runtime/auth/middleware.ts`) injects
+ * `"dev-bypass"` as the actor principal id for every request, but tool-side
+ * trust resolution (`resolveLocalTrustContext`) and SSE registration both
+ * carry the real local guardian principalId. Without this translation, every
+ * targeted host_bash/host_file/host_cu/host_transfer result POST mismatches
+ * the same-user check and is rejected with 403, and conversation/surface/
+ * guardian-action routes resolve trust against the wrong principal.
+ *
+ * Returns the input unchanged when:
+ *   - HTTP auth is enabled (production / non-dev-bypass deployments), OR
+ *   - the input is not literally `"dev-bypass"` (e.g. service tokens).
+ *
+ * Returns the local guardian principalId when both gates are true. Returns
+ * `undefined` when dev-bypass is set but no guardian binding has been created
+ * yet (e.g. fresh install before bootstrap); callers must treat this the
+ * same as a missing principal.
+ */
+export function resolveActorPrincipalIdForLocalGuardian(
+  rawHeader: string | undefined,
+): string | undefined {
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) return guardianPrincipalId;
+
+  log.warn(
+    "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
+  );
+  return undefined;
+}
+
+/**
  * Resolve the guardian runtime context for a local connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
@@ -60,10 +107,8 @@ export function resolveLocalTrustContext(
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-  // Try contacts-first for the vellum guardian channel
-  const guardianResult = findGuardianForChannel("vellum");
-  if (guardianResult && guardianResult.contact.principalId) {
-    const guardianPrincipalId = guardianResult.contact.principalId;
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) {
     const trustCtx = resolveTrustContext({
       assistantId,
       sourceChannel: "vellum",
@@ -97,13 +142,9 @@ export function resolveLocalTrustContext(
 export function resolveLocalAuthContext(conversationId: string): AuthContext {
   const authContext = buildLocalAuthContext(conversationId);
 
-  // Enrich with the guardian principal ID from contacts-first path
-  const guardianResult = findGuardianForChannel("vellum");
-  if (guardianResult && guardianResult.contact.principalId) {
-    return {
-      ...authContext,
-      actorPrincipalId: guardianResult.contact.principalId,
-    };
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) {
+    return { ...authContext, actorPrincipalId: guardianPrincipalId };
   }
 
   log.warn(

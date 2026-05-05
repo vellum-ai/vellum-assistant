@@ -17,7 +17,10 @@ import {
 import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
+import { createServer, type Server } from "node:net";
 import { fileURLToPath } from "node:url";
+
+import { startFakeAssistantIpc } from "./fake-assistant-ipc.js";
 
 // ---------------------------------------------------------------------------
 // Constants — must match credential-reader.ts
@@ -189,14 +192,37 @@ const gatewayEntry = join(gatewayRoot, "src", "index.ts");
 
 let gatewayProc: ChildProcess | null = null;
 let port = 0;
+let fakeAssistantIpc: Server | null = null;
+
+/** Ask the OS for a free port by briefly binding to port 0. */
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === "string") {
+        srv.close();
+        reject(new Error("Failed to get free port"));
+        return;
+      }
+      const p = addr.port;
+      srv.close(() => resolve(p));
+    });
+    srv.on("error", reject);
+  });
+}
 
 async function startGateway(): Promise<void> {
-  port = 49152 + Math.floor(Math.random() * 16383);
+  port = await getFreePort();
+
+  const workspaceDir = join(testDir, ".vellum", "workspace");
+  fakeAssistantIpc = startFakeAssistantIpc(workspaceDir);
+
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
       GATEWAY_SECURITY_DIR: join(testDir, ".vellum", "protected"),
-      VELLUM_WORKSPACE_DIR: join(testDir, ".vellum", "workspace"),
+      VELLUM_WORKSPACE_DIR: workspaceDir,
       GATEWAY_PORT: String(port),
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
@@ -229,6 +255,8 @@ async function startGateway(): Promise<void> {
 }
 
 afterEach(async () => {
+  fakeAssistantIpc?.close();
+  fakeAssistantIpc = null;
   if (gatewayProc) {
     const proc = gatewayProc;
     gatewayProc = null;

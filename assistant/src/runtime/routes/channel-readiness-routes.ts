@@ -45,7 +45,7 @@ async function enrichSnapshots(
 /**
  * GET /v1/channels/readiness
  */
-export async function handleGetChannelReadiness({
+async function handleGetChannelReadiness({
   queryParams = {},
 }: RouteHandlerArgs) {
   const channel = (queryParams.channel as ChannelId | undefined) ?? undefined;
@@ -61,9 +61,7 @@ export async function handleGetChannelReadiness({
 /**
  * POST /v1/channels/readiness/refresh
  */
-export async function handleRefreshChannelReadiness({
-  body = {},
-}: RouteHandlerArgs) {
+async function handleRefreshChannelReadiness({ body = {} }: RouteHandlerArgs) {
   const channel = (body.channel as ChannelId | undefined) ?? undefined;
   const includeRemote =
     body.includeRemote !== undefined ? Boolean(body.includeRemote) : true;
@@ -130,9 +128,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       success: z.boolean(),
-      snapshots: z
-        .array(z.unknown())
-        .describe("Refreshed readiness snapshots"),
+      snapshots: z.array(z.unknown()).describe("Refreshed readiness snapshots"),
     }),
   },
 ];

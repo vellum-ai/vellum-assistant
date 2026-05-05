@@ -107,6 +107,17 @@ final class InferenceProfileEditorTests: XCTestCase {
                 ],
                 defaultModel: "gemini-2.5-flash"
             ),
+            ProviderCatalogEntry(
+                id: "openrouter",
+                displayName: "OpenRouter",
+                models: [
+                    CatalogModel(
+                        id: "deepseek/deepseek-r1-0528",
+                        displayName: "DeepSeek R1"
+                    ),
+                ],
+                defaultModel: "deepseek/deepseek-r1-0528"
+            ),
         ]
     }
 
@@ -270,6 +281,44 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
     }
 
+    func testUnknownModelStillShowsMaxOutputControlWithoutCatalogLimit() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-vintage-1900",
+            isKnownModel: false,
+            modelEntry: nil
+        )
+
+        XCTAssertTrue(visibility.maxTokens)
+        XCTAssertNil(InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-vintage-1900"
+        ))
+    }
+
+    func testCatalogModelWithoutStaticOutputMetadataKeepsMaxTokensReadOnly() {
+        let (editor, _) = makeEditor(profile: InferenceProfile(
+            name: "gemini-preview",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            maxTokens: 96_000
+        ))
+
+        XCTAssertTrue(editor.canSave)
+        XCTAssertNil(InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview"
+        ))
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderValue(maxTokens: 96_000, limit: nil),
+            96_000
+        )
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 96_000, limit: nil),
+            96_000
+        )
+    }
+
     func testOpenRouterReasoningModelsShowEffortAndThinking() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "openrouter",
@@ -356,6 +405,226 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(sanitized.temperature, .unset)
         XCTAssertNil(sanitized.thinkingEnabled)
         XCTAssertNil(sanitized.thinkingStreamThinking)
+    }
+
+    func testGPT55MaxOutputSliderLimitIs128K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(limit, 128_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            128_000
+        )
+        XCTAssertEqual(InferenceProfileEditor.formattedTokenCount(128_000), "128K")
+    }
+
+    func testSonnet46MaxOutputSliderLimitIs64K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertEqual(limit, 64_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            64_000
+        )
+        XCTAssertEqual(InferenceProfileEditor.formattedTokenCount(64_000), "64K")
+    }
+
+    func testHaiku45MaxOutputSliderLimitIs64K() {
+        let limit = InferenceProfileEditor.maxOutputTokenLimit(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001"
+        )
+
+        XCTAssertEqual(limit, 64_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderUpperBound(value: 64_000, limit: limit),
+            64_000
+        )
+    }
+
+    func testSwitchingToLowerOutputModelClampsExistingMaxTokens() {
+        var profile = InferenceProfile(
+            name: "high-output",
+            provider: "openai",
+            model: "gpt-5.5",
+            maxTokens: 128_000
+        )
+        XCTAssertEqual(
+            InferenceProfileEditor.maxOutputSliderValue(
+                maxTokens: profile.maxTokens,
+                limit: InferenceProfileEditor.maxOutputTokenLimit(provider: profile.provider, model: profile.model)
+            ),
+            128_000
+        )
+
+        profile.provider = "anthropic"
+        profile.model = "claude-sonnet-4-6"
+        InferenceProfileEditor.clampMaxOutputTokensForSelectedModel(&profile)
+
+        XCTAssertEqual(profile.maxTokens, 64_000)
+    }
+
+    func testMaxOutputOverrideCanBeClearedToInherit() {
+        var profile = InferenceProfile(
+            name: "manual-output",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            maxTokens: 96_000
+        )
+
+        profile = InferenceProfileEditor.clearingMaxOutputTokensOverride(profile)
+
+        XCTAssertNil(profile.maxTokens)
+        XCTAssertNil(profile.toJSON()["maxTokens"])
+    }
+
+    func testGPT55ContextWindowSliderLimitIs1050K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(limit, 1_050_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_050_000
+        )
+    }
+
+    func testGPT54ContextWindowSliderLimitIs1050K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "openai",
+            model: "gpt-5.4"
+        )
+
+        XCTAssertEqual(limit, 1_050_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_050_000
+        )
+    }
+
+    func testSonnet46ContextWindowSliderLimitIs1000K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertEqual(limit, 1_000_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            1_000_000
+        )
+    }
+
+    func testHaiku45ContextWindowSliderLimitIs200K() {
+        let limit = InferenceProfileEditor.contextWindowTokenLimit(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001"
+        )
+
+        XCTAssertEqual(limit, 200_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderUpperBound(value: 200_000, limit: limit),
+            200_000
+        )
+    }
+
+    func testContextWindowSliderDefaultsToEffectiveDefaultBudget() {
+        let model = InferenceProfileEditor.modelEntry(
+            provider: "openai",
+            model: "gpt-5.5"
+        )
+
+        XCTAssertEqual(
+            InferenceProfileEditor.contextWindowSliderValue(maxInputTokens: nil, model: model),
+            200_000
+        )
+    }
+
+    func testContextWindowSliderLowerBoundIsAlignedWithStep() {
+        XCTAssertEqual(InferenceProfileEditor.minSliderContextWindowTokens, 50_000)
+        XCTAssertEqual(
+            InferenceProfileEditor.clampedContextWindowTokens(1, limit: 1_000_000),
+            50_000
+        )
+    }
+
+    func testSwitchingToLowerContextModelClampsExistingOverride() {
+        var profile = InferenceProfile(
+            name: "long-context",
+            provider: "openai",
+            model: "gpt-5.5",
+            contextWindowMaxInputTokens: 1_000_000
+        )
+
+        profile.provider = "anthropic"
+        profile.model = "claude-haiku-4-5-20251001"
+        InferenceProfileEditor.clampContextWindowForSelectedModel(&profile)
+
+        XCTAssertEqual(profile.contextWindowMaxInputTokens, 200_000)
+    }
+
+    func testCustomContextWindow150KRoundTripsAndAppearsInSummary() {
+        let profile = InferenceProfile(
+            name: "custom-context",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            contextWindowMaxInputTokens: 150_000
+        )
+
+        let json = profile.toJSON()
+        let contextWindow = json["contextWindow"] as? [String: Any]
+
+        XCTAssertEqual(contextWindow?["maxInputTokens"] as? Int, 150_000)
+        let decoded = InferenceProfile(name: "custom-context", json: json)
+        XCTAssertEqual(decoded.contextWindowMaxInputTokens, 150_000)
+        XCTAssertEqual(
+            InferenceProfilesSheet.summary(for: decoded, store: store),
+            "Claude Sonnet 4.6 \u{00B7} 150K context"
+        )
+    }
+
+    func testOmittedContextWindowContinuesToInheritDefaults() {
+        let profile = InferenceProfile(
+            name: "default-context",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+
+        XCTAssertNil(profile.contextWindowMaxInputTokens)
+        XCTAssertNil(profile.toJSON()["contextWindow"])
+    }
+
+    func testContextWindowSiblingLeavesArePreservedWhenContextMaxChanges() {
+        let profile = InferenceProfile(
+            name: "manual",
+            json: [
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "contextWindow": [
+                    "maxInputTokens": 900000,
+                    "summaryBudgetRatio": 0.08,
+                ],
+                "openrouter": ["only": ["anthropic"]],
+            ]
+        )
+        var edited = profile
+        edited.contextWindowMaxInputTokens = nil
+
+        let json = edited.toJSON()
+        let contextWindow = json["contextWindow"] as? [String: Any]
+
+        XCTAssertNil(contextWindow?["maxInputTokens"])
+        XCTAssertEqual(contextWindow?["summaryBudgetRatio"] as? Double, 0.08)
+        let openrouter = json["openrouter"] as? [String: Any]
+        XCTAssertEqual(openrouter?["only"] as? [String], ["anthropic"])
     }
 
     // MARK: - Validation
@@ -518,5 +787,25 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
         _ = editor.body
         XCTAssertEqual(cancelCalls, 0)
+    }
+
+    // MARK: - Provider dropdown filtering
+
+    func testManagedModeShowsOnlyManagedCapableProviders() {
+        store.inferenceMode = "managed"
+        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
+        XCTAssertEqual(
+            Set(editor.availableProviderIds),
+            Set(["anthropic", "openai", "gemini"])
+        )
+        XCTAssertFalse(editor.availableProviderIds.contains("openrouter"))
+    }
+
+    func testYourOwnModeShowsAllCatalogProviders() {
+        store.inferenceMode = "your-own"
+        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
+        XCTAssertTrue(editor.availableProviderIds.contains("openrouter"),
+            "your-own mode should expose all catalog providers including openrouter")
+        XCTAssertEqual(editor.availableProviderIds.count, store.dynamicProviderIds.count)
     }
 }

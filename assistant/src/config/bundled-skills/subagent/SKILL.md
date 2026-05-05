@@ -7,8 +7,12 @@ metadata:
   vellum:
     display-name: "Subagent"
     activation-hints:
-      - "Run tasks in parallel, delegate work to background agents, or do multiple things at once"
-      - "Spawn a researcher, coder, or planner agent for independent work"
+      - "Spawn a background worker that runs in parallel with the main turn"
+      - "Delegate a self-contained research or implementation task off the main thread"
+      - "Multiple agents at once, or a context-inheriting fork"
+    avoid-when:
+      - "Task is small enough to do inline (single tool call, quick lookup)"
+      - "User wants Claude Code or Codex — use the acp skill instead"
 ---
 
 Subagent orchestration -- spawn background agents to work on tasks in parallel.

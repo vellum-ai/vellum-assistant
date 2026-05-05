@@ -2143,7 +2143,7 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
     expect(system[0].cache_control).not.toHaveProperty("ttl");
   });
 
-  test("betas array is empty for Haiku (no extended cache TTL or 1M context)", async () => {
+  test("betas array is empty for Haiku (no extended cache TTL)", async () => {
     await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
 
     // When betas is empty, the non-beta stream path is used, so no betas

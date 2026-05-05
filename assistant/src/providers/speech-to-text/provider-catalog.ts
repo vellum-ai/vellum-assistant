@@ -34,7 +34,7 @@ import type {
  *   Twilio. A `<Stream>` media-stream is opened and the daemon transcribes
  *   audio server-side via the provider's batch API.
  */
-export type TelephonyStrategyKind =
+type TelephonyStrategyKind =
   | "conversation-relay-native"
   | "media-stream-custom";
 
@@ -51,7 +51,7 @@ export type TwilioNativeProvider = "Deepgram" | "Google";
  * ConversationRelay. Only present when `strategyKind` is
  * `"conversation-relay-native"`.
  */
-export interface TwilioNativeMapping {
+interface TwilioNativeMapping {
   /** Twilio-native provider name for the TwiML `transcriptionProvider` attribute. */
   readonly provider: TwilioNativeProvider;
   /**
@@ -69,7 +69,7 @@ export interface TwilioNativeMapping {
  * The telephony routing resolver reads these fields from the catalog
  * instead of maintaining its own hardcoded maps.
  */
-export interface TelephonyRouting {
+interface TelephonyRouting {
   /** Which Twilio call-setup strategy this provider uses. */
   readonly strategyKind: TelephonyStrategyKind;
   /**
@@ -84,10 +84,10 @@ export interface TelephonyRouting {
 // ---------------------------------------------------------------------------
 
 /** How the provider's credentials are configured by the user. */
-export type SttSetupMode = "api-key" | "cli";
+type SttSetupMode = "api-key" | "cli";
 
 /** Guide for obtaining API credentials from a provider. */
-export interface SttCredentialsGuide {
+interface SttCredentialsGuide {
   readonly description: string;
   readonly url: string;
   readonly linkLabel: string;
@@ -100,7 +100,7 @@ export interface SttCredentialsGuide {
 /**
  * Metadata for a single STT provider.
  */
-export interface SttProviderEntry {
+interface SttProviderEntry {
   /** Canonical provider identifier (must match an {@link SttProviderId} variant). */
   readonly id: SttProviderId;
 
@@ -262,8 +262,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       subtitle:
         "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
       setupMode: "api-key",
-      setupHint:
-        "Enter your OpenAI API key to enable Whisper transcription.",
+      setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
       credentialProvider: "openai",
       supportedBoundaries: new Set<SttBoundaryId>([
         "daemon-batch",

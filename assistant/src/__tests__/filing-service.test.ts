@@ -21,6 +21,9 @@ let mockConfig = {
     activeHoursStart: null as number | null,
     activeHoursEnd: null as number | null,
   },
+  memory: {
+    v2: { enabled: false },
+  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -30,6 +33,9 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
 }));
+
+const { _setOverridesForTesting } =
+  await import("../config/assistant-feature-flags.js");
 
 // Mock conversation store
 const createdConversations: Array<{
@@ -101,9 +107,9 @@ mock.module("../daemon/process-message.js", () => ({
     if (_testProcessMessage) return _testProcessMessage(...args);
     return { messageId: `mock-msg-${Date.now()}` };
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   resolveTurnChannel: () => "vellum",
   resolveTurnInterface: () => "vellum",
-  makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
 }));
 
@@ -131,6 +137,7 @@ describe("FilingService", () => {
     } catch {
       // best-effort
     }
+    _setOverridesForTesting({});
   });
 
   beforeEach(() => {
@@ -159,6 +166,9 @@ describe("FilingService", () => {
         speed: "standard",
         activeHoursStart: null,
         activeHoursEnd: null,
+      },
+      memory: {
+        v2: { enabled: false },
       },
     };
 
@@ -330,6 +340,42 @@ describe("FilingService", () => {
       expect(content).not.toContain("Pick 3 random topic files");
       expect(content).not.toContain("Part 2");
       expect(content).toContain("focused on the buffer");
+    });
+  });
+
+  describe("memory v2 gate", () => {
+    test("start() does not schedule timers when v2 flag and config are both on", () => {
+      _setOverridesForTesting({ "memory-v2-enabled": true });
+      mockConfig.memory.v2.enabled = true;
+
+      const service = createService();
+      service.start();
+
+      expect(service.nextRunAt).toBeNull();
+      expect(service.nextCompactionAt).toBeNull();
+    });
+
+    test("start() does not schedule timers when only the flag is on", () => {
+      _setOverridesForTesting({ "memory-v2-enabled": true });
+      mockConfig.memory.v2.enabled = false;
+
+      const service = createService();
+      service.start();
+
+      expect(service.nextRunAt).toBeNull();
+      expect(service.nextCompactionAt).toBeNull();
+    });
+
+    test("start() schedules timers when only the config is on", () => {
+      _setOverridesForTesting({ "memory-v2-enabled": false });
+      mockConfig.memory.v2.enabled = true;
+
+      const service = createService();
+      service.start();
+
+      expect(service.nextRunAt).not.toBeNull();
+      expect(service.nextCompactionAt).not.toBeNull();
+      service.stop();
     });
   });
 

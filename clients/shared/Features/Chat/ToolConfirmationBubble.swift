@@ -107,7 +107,7 @@ public struct ToolConfirmationBubble: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open System Settings", style: .primary) {
+                VButton(label: "Open System Settings", style: .primary, buttonShape: .capsule) {
                     #if os(macOS)
                     if let url = confirmation.settingsURL {
                         NSWorkspace.shared.open(url)

@@ -14,7 +14,7 @@ public struct TraceEventClient: TraceEventClientProtocol {
 
     public func fetchHistory(conversationId: String) async throws -> [TraceEventMessage] {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/trace-events",
+            path: "trace-events",
             params: ["conversationId": conversationId],
             timeout: 10
         )

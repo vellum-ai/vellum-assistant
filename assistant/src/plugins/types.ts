@@ -401,6 +401,7 @@ export interface OverflowReduceArgs {
    */
   readonly onCompactionResult: (
     result: ContextWindowResult,
+    compactedBasis?: Message[],
   ) => void | Promise<void>;
   /**
    * Invoked after each step to rebuild `runMessages` from the step's
@@ -783,6 +784,8 @@ export interface TurnInjectionInputs {
    * context (unified turn context, etc.). Drives per-injector gating.
    */
   readonly mode?: InjectionMode;
+  /** Disk-pressure cleanup-mode context or null to skip the warning. */
+  readonly diskPressureContext?: DiskPressureInjectionContext | null;
   /** Workspace top-level context text (`<workspace>...`) or null to skip. */
   readonly workspaceTopLevelContext?: string | null;
   /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
@@ -815,6 +818,13 @@ export interface TurnInjectionInputs {
    * Falls back to `pkbRoot` when omitted.
    */
   readonly pkbWorkingDir?: string;
+  /**
+   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
+   * concatenated, header-wrapped) or null to skip. The agent loop only
+   * passes this on full-mode turns; the injector wraps it in `<memory>` for
+   * the user message.
+   */
+  readonly memoryV2Static?: string | null;
   /** NOW.md scratchpad content or null to skip. */
   readonly nowScratchpad?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
@@ -850,6 +860,11 @@ export interface TurnInjectionInputs {
    * knows no human is present to answer clarification questions.
    */
   readonly isNonInteractive?: boolean;
+}
+
+export interface DiskPressureInjectionContext {
+  /** True when the current turn is allowed to run only for storage cleanup. */
+  readonly cleanupModeActive: boolean;
 }
 
 /**

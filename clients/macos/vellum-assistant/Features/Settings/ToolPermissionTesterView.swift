@@ -216,7 +216,7 @@ struct ToolPermissionTesterView: View {
 
                     VTag(result.riskLevel.capitalized, color: riskColor(result.riskLevel))
 
-                    if let ruleId = result.matchedRuleId {
+                    if let ruleId = result.matchedTrustRuleId {
                         Text("Rule: \(ruleId)")
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(VColor.contentTertiary)

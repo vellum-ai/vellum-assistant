@@ -42,6 +42,7 @@ struct ChatBubble: View, Equatable {
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.searchQuery == rhs.searchQuery
     }
     let message: ChatMessage
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
@@ -93,6 +94,7 @@ struct ChatBubble: View, Equatable {
     /// When true, suppress the inline avatar on this bubble because
     /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
+    var searchQuery: String = ""
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
@@ -112,8 +114,6 @@ struct ChatBubble: View, Equatable {
     // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
-    /// Set of stableIds for tool-call groups that have non-empty text after them.
-    @State var cachedToolGroupsWithTrailingText: Set<String>
 
     /// Interaction state for progress cards that must outlive lazy row churn.
     /// Consolidates step expansion, card expansion overrides, and rehydration
@@ -126,6 +126,7 @@ struct ChatBubble: View, Equatable {
     /// so the modal survives the trailing→interleaved rendering path switch.
     @State var suggestRuleToolCall: ToolCallData?
     @State var suggestRuleSuggestion: TrustRuleSuggestion?
+    @State private var suggestRuleSaveError: String?
 
     init(
         message: ChatMessage,
@@ -153,7 +154,8 @@ struct ChatBubble: View, Equatable {
         processingStatusText: String? = nil,
         isStreamingContinuation: Bool = false,
         activeSurfaceId: String? = nil,
-        hideInlineAvatar: Bool = false
+        hideInlineAvatar: Bool = false,
+        searchQuery: String = ""
     ) {
         self.message = message
         self.decidedConfirmation = decidedConfirmation
@@ -181,6 +183,7 @@ struct ChatBubble: View, Equatable {
         self.isStreamingContinuation = isStreamingContinuation
         self.activeSurfaceId = activeSurfaceId
         self.hideInlineAvatar = hideInlineAvatar
+        self.searchQuery = searchQuery
 
         // Eagerly compute interleaved content cache so the first body
         // evaluation uses the correct layout path (no flash).
@@ -189,7 +192,6 @@ struct ChatBubble: View, Equatable {
         if let cached = Self.cachedInterleavedResult(for: message) {
             _cachedHasInterleavedContent = State(initialValue: cached.hasInterleaved)
             _cachedContentGroups = State(initialValue: cached.groups)
-            _cachedToolGroupsWithTrailingText = State(initialValue: cached.trailingTextIds)
         } else {
             let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
             _cachedHasInterleavedContent = State(initialValue: interleaved)
@@ -201,32 +203,17 @@ struct ChatBubble: View, Equatable {
                 )
                 _cachedContentGroups = State(initialValue: groups)
 
-                var trailingTextIds = Set<String>()
-                for group in groups {
-                    guard case .toolCalls(let indices) = group else { continue }
-                    if Self.computeHasTextAfterToolGroupStatic(
-                        toolIndices: indices,
-                        contentOrder: message.contentOrder,
-                        textSegments: message.textSegments,
-                        hasText: !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) {
-                        trailingTextIds.insert(group.stableId)
-                    }
-                }
-                _cachedToolGroupsWithTrailingText = State(initialValue: trailingTextIds)
-
                 // Store in static cache for future init() calls
                 Self.storeInterleavedResult(
-                    InterleavedCacheValue(hasInterleaved: interleaved, groups: groups, trailingTextIds: trailingTextIds),
+                    InterleavedCacheValue(hasInterleaved: interleaved, groups: groups),
                     for: message
                 )
             } else {
                 _cachedContentGroups = State(initialValue: [])
-                _cachedToolGroupsWithTrailingText = State(initialValue: [])
 
                 // Store non-interleaved result in static cache
                 Self.storeInterleavedResult(
-                    InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
+                    InterleavedCacheValue(hasInterleaved: false, groups: []),
                     for: message
                 )
             }
@@ -380,8 +367,7 @@ struct ChatBubble: View, Equatable {
                         )
                     } else if shouldShowBubble {
                         if !isUser,
-                           containsInlineThinkingTag(message.text),
-                           MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                           containsInlineThinkingTag(message.text) {
                             bubbleContentWithInlineThinking
                         } else {
                             bubbleContent
@@ -458,7 +444,7 @@ struct ChatBubble: View, Equatable {
         .sheet(item: $suggestRuleToolCall) { tc in
             RuleEditorModal(
                 toolName: tc.toolName,
-                commandText: tc.inputSummary,
+                commandText: ToolCallStepDetailRow.commandDisplayText(from: tc),
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
                 scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
@@ -466,19 +452,23 @@ struct ChatBubble: View, Equatable {
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
                     Task {
-                        try? await TrustRuleClient().createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                if desc.isEmpty {
-                                    return rule.toolName + " — " + rule.pattern
-                                }
-                                return desc
-                            }(),
-                            scope: rule.scope
-                        )
+                        do {
+                            _ = try await TrustRuleClient().createRule(
+                                tool: rule.toolName,
+                                pattern: rule.pattern,
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    if desc.isEmpty {
+                                        return rule.toolName + " — " + rule.pattern
+                                    }
+                                    return desc
+                                }(),
+                                scope: rule.scope
+                            )
+                        } catch {
+                            suggestRuleSaveError = error.localizedDescription
+                        }
                     }
                 },
                 onDismiss: {
@@ -487,6 +477,15 @@ struct ChatBubble: View, Equatable {
                 }
             )
         }
+        .alert(
+            "Failed to Save Rule",
+            isPresented: Binding(
+                get: { suggestRuleSaveError != nil },
+                set: { if !$0 { suggestRuleSaveError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(suggestRuleSaveError ?? "") }
+        )
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
@@ -812,34 +811,69 @@ struct ChatBubble: View, Equatable {
     /// rendered alongside a bubble that contains the remaining content.
     /// This keeps the transformation at the presentation layer — the
     /// streaming pipeline and `ChatMessage` data model are unchanged.
+    ///
+    /// When tool calls are present **and** the `show-thinking-blocks`
+    /// feature flag is enabled, thinking content is folded into the
+    /// progress card (via `expandedItemsForProgressCard`) instead of
+    /// rendering as standalone `ThinkingBlockView`s. Only the stripped
+    /// text is rendered in the bubble. When the flag is off, thinking
+    /// is rendered as `ThinkingBlockView`s above the text regardless
+    /// of whether tool calls exist — otherwise the thinking content
+    /// would be silently dropped (stripped from text but absent from
+    /// the progress card which returns `nil` when the flag is off).
     @ViewBuilder
     private var bubbleContentWithInlineThinking: some View {
-        let chunks = parseInlineThinkingTags(message.text)
-        let thinkingChunks: [String] = chunks.compactMap { chunk in
-            if case .thinking(let body) = chunk { return body }
-            return nil
-        }
-        let textChunks: [String] = chunks.compactMap { chunk in
-            if case .text(let body) = chunk { return body }
-            return nil
-        }
-        let joinedText = textChunks
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasRenderedText = !joinedText.isEmpty
-        let hasAttachments = !message.attachments.isEmpty
+        let showThinkingBlocks = MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks")
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
-                ThinkingBlockView(
-                    content: content,
-                    isStreaming: message.isStreaming,
-                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
-                    typographyGeneration: typographyGeneration
-                )
+        if !message.toolCalls.isEmpty && showThinkingBlocks {
+            // Tool calls present AND flag is on — thinking is folded into the
+            // progress card via expandedItemsForProgressCard. Strip thinking
+            // from text and render only the remaining content in the bubble.
+            let chunks = parseInlineThinkingTags(message.text)
+            let textChunks: [String] = chunks.compactMap { chunk in
+                if case .text(let body) = chunk { return body }
+                return nil
             }
+            let joinedText = textChunks
+                .joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasRenderedText = !joinedText.isEmpty
+            let hasAttachments = !message.attachments.isEmpty
+
             if hasRenderedText || hasAttachments {
                 bubbleContent(renderingText: joinedText)
+            }
+        } else {
+            // Either no tool calls, or the show-thinking-blocks flag is off.
+            // Render ThinkingBlockViews above the text bubble so thinking
+            // content is never silently dropped.
+            let chunks = parseInlineThinkingTags(message.text)
+            let thinkingChunks: [String] = chunks.compactMap { chunk in
+                if case .thinking(let body) = chunk { return body }
+                return nil
+            }
+            let textChunks: [String] = chunks.compactMap { chunk in
+                if case .text(let body) = chunk { return body }
+                return nil
+            }
+            let joinedText = textChunks
+                .joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasRenderedText = !joinedText.isEmpty
+            let hasAttachments = !message.attachments.isEmpty
+
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
+                    ThinkingBlockView(
+                        content: content,
+                        isStreaming: message.isStreaming,
+                        expansionKey: "\(message.id.uuidString)-inline-\(offset)",
+                        typographyGeneration: typographyGeneration
+                    )
+                }
+                if hasRenderedText || hasAttachments {
+                    bubbleContent(renderingText: joinedText)
+                }
             }
         }
     }
@@ -878,7 +912,8 @@ struct ChatBubble: View, Equatable {
                         tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
                         codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
                         codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
-                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
+                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase,
+                        searchQuery: searchQuery
                     )
                     .equatable()
                 } else if !message.attachments.isEmpty {

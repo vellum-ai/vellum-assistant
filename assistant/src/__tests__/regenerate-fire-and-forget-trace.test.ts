@@ -117,6 +117,7 @@ function buildContext(
         traceEvents.push({ event, body, options });
       },
     } as unknown as HistoryConversationContext["traceEmitter"],
+    sendToClient: () => {},
     messages,
     processing: false,
     abortController: null,
@@ -139,7 +140,7 @@ describe("regenerate fire-and-forget error path", () => {
       },
     });
 
-    await regenerate(session, () => {}, "req-123");
+    await regenerate(session, "req-123");
 
     // Give the fire-and-forget .catch() a tick to run.
     await new Promise((resolve) => setImmediate(resolve));
@@ -167,7 +168,7 @@ describe("regenerate fire-and-forget error path", () => {
       },
     });
 
-    await regenerate(session, () => {});
+    await regenerate(session);
 
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -185,7 +186,7 @@ describe("regenerate fire-and-forget error path", () => {
       runAgentLoop: async () => {},
     });
 
-    await regenerate(session, () => {}, "req-ok");
+    await regenerate(session, "req-ok");
 
     await new Promise((resolve) => setImmediate(resolve));
 

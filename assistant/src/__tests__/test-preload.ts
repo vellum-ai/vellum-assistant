@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { afterAll } from "bun:test";
 
 import { installGatewayIpcMock } from "../__tests__/mock-gateway-ipc.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { resetDb } from "../memory/db-connection.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
@@ -35,6 +36,13 @@ _setStorePath(join(testDir, "keys.enc"));
 // Mock gateway IPC so no test accidentally connects to a real gateway socket.
 // Tests that need to control IPC responses use mockGatewayIpc() / resetMockGatewayIpc().
 installGatewayIpcMock();
+
+// Pre-populate the feature-flag override cache so `initFeatureFlagOverrides()`
+// short-circuits its retry loop — there is no real gateway in tests, and the
+// retry backoff would otherwise exceed the per-test timeout for any test that
+// builds the CLI program. Tests exercising the retry behavior call
+// `clearFeatureFlagOverridesCache()` first.
+_setOverridesForTesting({});
 
 // Force-close any DB connection inherited from the parent process (e.g. when
 // the test runner is spawned by the running assistant via a pre-push hook).

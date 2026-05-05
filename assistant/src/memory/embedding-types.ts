@@ -67,3 +67,24 @@ export function embeddingInputContentHash(input: EmbeddingInput): string {
   }
   return hash.digest("hex");
 }
+
+// ---------------------------------------------------------------------------
+// Backend interface types (extracted from embedding-backend.ts to break
+// circular imports between the factory and provider implementations)
+// ---------------------------------------------------------------------------
+
+export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
+
+export interface EmbeddingRequestOptions {
+  signal?: AbortSignal;
+}
+
+export interface EmbeddingBackend {
+  readonly provider: EmbeddingProviderName;
+  readonly model: string;
+  embed(
+    inputs: EmbeddingInput[],
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[][]>;
+  dispose?(): void;
+}

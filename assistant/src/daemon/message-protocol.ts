@@ -20,9 +20,11 @@ export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
+export * from "./message-types/disk-pressure.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
 export * from "./message-types/home.js";
+export * from "./message-types/host-app-control.js";
 export * from "./message-types/host-bash.js";
 export * from "./message-types/host-browser.js";
 export * from "./message-types/host-cu.js";
@@ -34,7 +36,6 @@ export * from "./message-types/meet.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
-export * from "./message-types/pairing.js";
 export * from "./message-types/schedules.js";
 export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
@@ -71,6 +72,7 @@ import type {
   _DiagnosticsClientMessages,
   _DiagnosticsServerMessages,
 } from "./message-types/diagnostics.js";
+import type { _DiskPressureServerMessages } from "./message-types/disk-pressure.js";
 import type {
   _DocumentsClientMessages,
   _DocumentsServerMessages,
@@ -80,6 +82,7 @@ import type {
   _GuardianActionsServerMessages,
 } from "./message-types/guardian-actions.js";
 import type { _HomeServerMessages } from "./message-types/home.js";
+import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
 import type {
   _HostBrowserClientMessages,
@@ -106,10 +109,6 @@ import type {
   _NotificationsClientMessages,
   _NotificationsServerMessages,
 } from "./message-types/notifications.js";
-import type {
-  _PairingClientMessages,
-  _PairingServerMessages,
-} from "./message-types/pairing.js";
 import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
@@ -170,7 +169,6 @@ export type ClientMessage =
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
   | _InboxClientMessages
-  | _PairingClientMessages
   | _NotificationsClientMessages
   | _SettingsClientMessages;
 
@@ -191,6 +189,7 @@ export type ServerMessage =
   | _DocumentsServerMessages
   | _GuardianActionsServerMessages
   | _HomeServerMessages
+  | _HostAppControlServerMessages
   | _HostBashServerMessages
   | _HostBrowserServerMessages
   | _HostCuServerMessages
@@ -203,10 +202,10 @@ export type ServerMessage =
   | _SettingsServerMessages
   | _DiagnosticsServerMessages
   | _InboxServerMessages
-  | _PairingServerMessages
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _DiskPressureServerMessages
   | SubagentEvent;
 
 // === Contract schema ===
@@ -215,4 +214,3 @@ export interface ContractSchema {
   client: ClientMessage;
   server: ServerMessage;
 }
-

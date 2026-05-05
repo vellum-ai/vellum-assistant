@@ -1,12 +1,5 @@
 import Foundation
 import os
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#else
-#error("Unsupported platform")
-#endif
 import Network
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatErrorManager")
@@ -57,7 +50,6 @@ public final class ChatErrorManager {
     /// users can understand *why* the connection failed without opening the
     /// debug panel or contacting support.
     public static func connectionDiagnosticHint(for error: Error) -> String? {
-        #if os(macOS)
         if let nwErr = error as? NWError {
             switch nwErr {
             case .posix(let code):
@@ -85,7 +77,6 @@ public final class ChatErrorManager {
                 return "Session token rejected — token may have changed; try restarting the assistant."
             }
         }
-        #endif
         // HTTP transport / iOS
         if let urlErr = error as? URLError {
             switch urlErr.code {

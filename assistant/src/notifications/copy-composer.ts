@@ -505,6 +505,19 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.body, "A watcher event requires your attention"),
   }),
 
+  "heartbeat.alert": (payload) => {
+    const body = str(
+      payload.summary,
+      str(payload.body, "Your assistant found something worth your attention."),
+    );
+    return {
+      title: str(payload.title, "Heartbeat Alert"),
+      body,
+      conversationTitle: str(payload.conversationTitle, "Heartbeat"),
+      conversationSeedMessage: body,
+    };
+  },
+
   "tool_confirmation.required_action": (payload) => ({
     title: "Tool Confirmation",
     body: str(payload.toolName, "A tool") + " requires your confirmation",

@@ -78,20 +78,6 @@ export function registerToolTraceListener(
         );
         return;
 
-      case "tool.secret.detected":
-        traceEmitter.emit(
-          "secret_detected",
-          `Secret detected in ${event.payload.toolName} output`,
-          {
-            requestId: event.payload.requestId,
-            status: "warning",
-            attributes: {
-              toolName: event.payload.toolName,
-            },
-          },
-        );
-        return;
-
       default:
         return;
     }

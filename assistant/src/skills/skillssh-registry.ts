@@ -6,6 +6,14 @@ import { dirname, join, resolve, sep } from "node:path";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { upsertSkillsIndex } from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
+import type {
+  AuditResponse,
+  PartnerAudit,
+  RiskLevel,
+  SkillAuditData,
+} from "./skillssh-audit-types.js";
+
+export type { AuditResponse, PartnerAudit, RiskLevel, SkillAuditData };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -16,27 +24,6 @@ export interface SkillsShSearchResult {
   installs: number;
   source: string; // e.g. "vercel-labs/agent-skills"
 }
-
-export type RiskLevel =
-  | "safe"
-  | "low"
-  | "medium"
-  | "high"
-  | "critical"
-  | "unknown";
-
-export interface PartnerAudit {
-  risk: RiskLevel;
-  alerts?: number;
-  score?: number;
-  analyzedAt: string;
-}
-
-/** Map from audit provider name (e.g. "ath", "socket", "snyk") to audit data */
-export type SkillAuditData = Record<string, PartnerAudit>;
-
-/** Map from skill slug to per-provider audit data */
-export type AuditResponse = Record<string, SkillAuditData>;
 
 export interface ResolvedSkillSource {
   owner: string;

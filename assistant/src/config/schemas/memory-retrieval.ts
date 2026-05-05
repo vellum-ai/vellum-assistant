@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const MemoryDynamicBudgetConfigSchema = z
+const MemoryDynamicBudgetConfigSchema = z
   .object({
     enabled: z
       .boolean({
@@ -271,7 +271,7 @@ const MemoryPerTurnInjectionSchema = z
   })
   .describe("Memory injection limits for mid-conversation turns");
 
-export const MemoryInjectionConfigSchema = z
+const MemoryInjectionConfigSchema = z
   .object({
     contextLoad: MemoryContextLoadInjectionSchema.default(
       MemoryContextLoadInjectionSchema.parse({}),

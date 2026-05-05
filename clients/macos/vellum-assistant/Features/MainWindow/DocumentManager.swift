@@ -65,6 +65,11 @@ final class DocumentManager {
         self.lastSaveError = nil
         self.hasActiveDocument = true
 
+        // Persist initial content to the daemon so the document reaches the junction table
+        if !initialContent.isEmpty {
+            scheduleAutoSave()
+        }
+
         // Initialize editor with content (or store as pending if coordinator not ready)
         if let coordinator = editorCoordinator {
             coordinator.setInitialContent(title: title, markdown: initialContent)
@@ -121,6 +126,7 @@ final class DocumentManager {
         self.title = title
         self.currentContent = content
         self.wordCount = wordCount
+        scheduleAutoSave()
     }
 
     func closeDocument() {
@@ -149,6 +155,40 @@ final class DocumentManager {
             guard response == .OK, let url = panel.url else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 try? content.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    func exportToPDF() {
+        guard let surfaceId = surfaceId,
+              let conversationId = conversationId else { return }
+        let titleForFile = title
+        let contentToSave = currentContent ?? ""
+        let wordCountToSave = wordCount
+        let client = documentClient
+        Task {
+            // Await the save so the server has the latest content before rendering
+            _ = await client.saveDocument(
+                surfaceId: surfaceId,
+                conversationId: conversationId,
+                title: titleForFile,
+                content: contentToSave,
+                wordCount: wordCountToSave
+            )
+            guard let pdfData = await client.exportDocumentPDF(surfaceId: surfaceId) else {
+                log.error("PDF export failed: no data returned")
+                return
+            }
+            await MainActor.run {
+                let panel = NSSavePanel()
+                panel.nameFieldStringValue = sanitizedFilename(from: titleForFile) + ".pdf"
+                panel.canCreateDirectories = true
+                panel.begin { response in
+                    guard response == .OK, let url = panel.url else { return }
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        try? pdfData.write(to: url)
+                    }
+                }
             }
         }
     }
@@ -195,6 +235,7 @@ final class DocumentManager {
         if success {
             lastSaveError = nil
             log.info("Document saved successfully")
+            NotificationCenter.default.post(name: .documentDidSave, object: nil)
         } else {
             lastSaveError = error ?? "Unknown error"
             log.error("Document save failed: \(error ?? "unknown")")

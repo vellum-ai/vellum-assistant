@@ -214,8 +214,34 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
 
         // AND hatch is called as the first-run fallback
         XCTAssertEqual(auth.hatchCallCount, 1)
+        XCTAssertEqual(auth.hatchModes, [.ensure])
         if case .createdNew = outcome {
             // expected
+        } else {
+            XCTFail("Expected createdNew, got \(outcome)")
+        }
+    }
+
+    func testCreateManagedAssistantSkipsReuseLookupsAndUsesCreateMode() async throws {
+        let idStore = MockActiveAssistantIdStore(storedId: "current-managed")
+        let auth = MockBootstrapAuthService(
+            organizations: [PlatformOrganization(id: "org-test", name: "Org")],
+            listAssistantsResult: [PlatformAssistant(id: "existing-managed", name: "Existing")]
+        )
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
+        )
+
+        let outcome = try await service.createManagedAssistant(name: "Nova")
+
+        XCTAssertEqual(idStore.clearCallCount, 0)
+        XCTAssertEqual(auth.getAssistantCallCount, 0)
+        XCTAssertEqual(auth.listAssistantsCallCount, 0)
+        XCTAssertEqual(auth.hatchCallCount, 1)
+        XCTAssertEqual(auth.hatchModes, [.create])
+        if case .createdNew(let assistant) = outcome {
+            XCTAssertEqual(assistant.id, "hatched-id")
         } else {
             XCTFail("Expected createdNew, got \(outcome)")
         }
@@ -284,6 +310,7 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
     private(set) var getAssistantCallCount = 0
     private(set) var listAssistantsCallCount = 0
     private(set) var hatchCallCount = 0
+    private(set) var hatchModes: [HatchAssistantMode] = []
 
     init(
         organizations: [PlatformOrganization],
@@ -332,9 +359,11 @@ private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServi
         organizationId: String,
         name: String?,
         description: String?,
-        anthropicApiKey: String?
+        anthropicApiKey: String?,
+        mode: HatchAssistantMode
     ) async throws -> HatchAssistantResult {
         hatchCallCount += 1
+        hatchModes.append(mode)
         return .createdNew(PlatformAssistant(id: "hatched-id"))
     }
 }

@@ -12,12 +12,6 @@
  * creates a socket-based CesTransport. The CES sidecar manages its own
  * lifecycle; the process manager only manages the transport connection.
  *
- * Feature-flag gate: Managed sidecar mode is controlled by the
- * `ces-managed-sidecar` feature flag (checked via the required
- * AssistantConfig). When the flag is off, the process manager skips
- * managed discovery even in containerized environments, ensuring
- * rollback safety.
- *
  * Managed env contract:
  * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
  * - /assistant-data-ro     — Assistant data mounted read-only into the CES sidecar
@@ -42,7 +36,6 @@ import {
   type LocalSourceDiscoverySuccess,
   type ManagedDiscoverySuccess,
 } from "./executable-discovery.js";
-import { isCesManagedSidecarEnabled } from "./feature-gates.js";
 
 const log = getLogger("ces-process-manager");
 
@@ -71,10 +64,8 @@ export const CES_PRIVATE_DATA_DIR = "/ces-data";
 
 export interface CesProcessManagerConfig {
   /**
-   * Assistant configuration for feature-flag checks.
-   * The managed sidecar path is gated behind the `ces-managed-sidecar`
-   * feature flag via this config.  When omitted (e.g. CLI / admin
-   * callers), managed mode is allowed unconditionally.
+   * Assistant configuration.
+   * Reserved for future feature-flag checks or config-driven behavior.
    */
   assistantConfig?: AssistantConfig;
 }
@@ -87,10 +78,6 @@ export interface CesProcessManager {
   /**
    * Start the CES process (local) or connect to the sidecar (managed).
    * Returns a CesTransport ready for use with createCesClient().
-   *
-   * When the `ces-managed-sidecar` feature flag is off, managed mode
-   * is skipped even in containerized environments — the process manager
-   * falls back to local discovery.
    *
    * Throws if CES is unavailable.
    */
@@ -118,7 +105,7 @@ export interface CesProcessManager {
 // ---------------------------------------------------------------------------
 
 export function createCesProcessManager(
-  config: CesProcessManagerConfig,
+  _config: CesProcessManagerConfig,
 ): CesProcessManager {
   let childProcess: Subprocess | null = null;
   let managedSocket: Socket | null = null;
@@ -131,31 +118,15 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      // Feature-flag gate: when the managed sidecar flag is off, skip
-      // managed discovery entirely. This ensures rollback safety —
-      // disabling the flag leaves existing non-agent platform consumers
-      // intact.
-      const managedAllowed = config.assistantConfig
-        ? isCesManagedSidecarEnabled(config.assistantConfig)
-        : true; // No config → allow managed mode unconditionally (CLI/admin callers)
-
-      if (managedAllowed) {
-        discoveryResult = await discoverCes();
-        if (discoveryResult.mode === "unavailable") {
-          // The managed sidecar bootstrap socket is not present — this happens
-          // when the flag is enabled by default but the instance pre-dates the
-          // socket volume mount (e.g. existing Docker configs without the
-          // ces-bootstrap volume). Warn and fall back to local discovery so
-          // these deployments don't fail on upgrade.
-          log.warn(
-            { reason: discoveryResult.reason },
-            "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
-          );
-          discoveryResult = discoverLocalCes();
-        }
-      } else {
-        log.info(
-          "CES managed sidecar feature flag is off — skipping managed discovery, falling back to local",
+      discoveryResult = await discoverCes();
+      if (discoveryResult.mode === "unavailable") {
+        // The managed sidecar bootstrap socket is not present — this happens
+        // when the instance pre-dates the socket volume mount (e.g. existing
+        // Docker configs without the ces-bootstrap volume). Warn and fall
+        // back to local discovery so these deployments don't fail on upgrade.
+        log.warn(
+          { reason: discoveryResult.reason },
+          "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
         );
         discoveryResult = discoverLocalCes();
       }
@@ -241,11 +212,7 @@ export function createCesProcessManager(
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        ...process.env,
-        // Signal to CES that it was launched by the assistant
-        CES_LAUNCHED_BY: "assistant",
-      },
+      env: buildLocalCesEnv(),
     });
 
     childProcess = proc;
@@ -274,11 +241,7 @@ export function createCesProcessManager(
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        ...process.env,
-        // Signal to CES that it was launched by the assistant
-        CES_LAUNCHED_BY: "assistant",
-      },
+      env: buildLocalCesEnv(),
     });
 
     childProcess = proc;
@@ -311,6 +274,38 @@ export function createCesProcessManager(
 
     return createSocketTransport(socket);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local CES env
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the environment for a locally-spawned CES child process.
+ *
+ * Inherits the daemon's process env (which already has VELLUM_WORKSPACE_DIR
+ * and GATEWAY_SECURITY_DIR from the CLI) and adds CES-specific env vars:
+ *
+ * - `CREDENTIAL_SECURITY_DIR`: CES reads this to find its key store and
+ *   encryption data. In local mode this is the same directory as the
+ *   gateway security dir (both point to `<instance>/.vellum/protected`).
+ *
+ * - `VELLUM_WORKSPACE_DIR`: Forwarded so CES can locate the assistant
+ *   workspace (credential metadata, OAuth DB, token refresh).
+ */
+function buildLocalCesEnv(): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    CES_LAUNCHED_BY: "assistant",
+    // Map the daemon's GATEWAY_SECURITY_DIR to CES's own env var.
+    // In local mode, both services share the same protected/ directory.
+    CREDENTIAL_SECURITY_DIR:
+      process.env["CREDENTIAL_SECURITY_DIR"] ||
+      process.env["GATEWAY_SECURITY_DIR"],
+    // VELLUM_WORKSPACE_DIR is already in process.env from the CLI,
+    // but be explicit for clarity.
+    VELLUM_WORKSPACE_DIR: process.env["VELLUM_WORKSPACE_DIR"],
+  };
 }
 
 // ---------------------------------------------------------------------------

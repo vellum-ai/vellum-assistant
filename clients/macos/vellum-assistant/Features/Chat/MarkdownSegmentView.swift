@@ -38,6 +38,7 @@ struct MarkdownSegmentView: View, Equatable {
     var codeTextColor: Color = VColor.systemNegativeStrong
     var codeBackgroundColor: Color = VColor.surfaceActive
     var hrColor: Color = VColor.borderBase
+    var searchQuery: String = ""
     #if os(macOS)
     @ObservedObject private var typographyObserver = VFont.typographyObserver
     #endif
@@ -54,6 +55,7 @@ struct MarkdownSegmentView: View, Equatable {
             && lhs.codeTextColor == rhs.codeTextColor
             && lhs.codeBackgroundColor == rhs.codeBackgroundColor
             && lhs.hrColor == rhs.hrColor
+            && lhs.searchQuery == rhs.searchQuery
     }
 
     var body: some View {
@@ -192,8 +194,13 @@ struct MarkdownSegmentView: View, Equatable {
                 isStreamingTail: isStreamingTail
             )
 
+            let displayString = Self.applySearchHighlights(
+                to: measurement.nsAttributedString,
+                query: markdownView.searchQuery
+            )
+
             VSelectableTextView(
-                attributedString: measurement.nsAttributedString,
+                attributedString: displayString,
                 maxWidth: measurement.effectiveMaxWidth,
                 lineSpacing: 4,
                 tintColor: NSColor(markdownView.tintColor),
@@ -204,6 +211,35 @@ struct MarkdownSegmentView: View, Equatable {
                 height: measurement.size.height,
                 alignment: .leading
             )
+        }
+
+        private static func applySearchHighlights(
+            to source: NSAttributedString,
+            query: String
+        ) -> NSAttributedString {
+            guard !query.isEmpty else { return source }
+            let text = source.string
+            let nsText = text as NSString
+            let searchRange = NSRange(location: 0, length: nsText.length)
+            var ranges: [NSRange] = []
+            var start = searchRange.location
+            while start < nsText.length {
+                let found = nsText.range(
+                    of: query,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: NSRange(location: start, length: nsText.length - start)
+                )
+                if found.location == NSNotFound { break }
+                ranges.append(found)
+                start = found.location + found.length
+            }
+            guard !ranges.isEmpty else { return source }
+            let result = NSMutableAttributedString(attributedString: source)
+            let highlightColor = NSColor.systemYellow.withAlphaComponent(0.4)
+            for range in ranges {
+                result.addAttribute(.backgroundColor, value: highlightColor, range: range)
+            }
+            return result
         }
     }
     #endif

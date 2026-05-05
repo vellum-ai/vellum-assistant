@@ -2,9 +2,10 @@ import { getConfig } from "../../config/loader.js";
 import type { SkillCapabilityInput } from "../../skills/skill-memory.js";
 
 /**
- * Render the prose-style capability statement embedded into the
- * `memory_v2_skills` Qdrant collection and rendered in
- * `### Skills You Can Use`. Capped at 500 chars to match v1's behavior.
+ * Render the prose-style capability statement embedded into the unified
+ * `memory_v2_concept_pages` Qdrant collection (under the `skills/<id>` slug
+ * prefix) and rendered in `### Skills You Can Use`. Capped at 500 chars to
+ * match v1's behavior.
  */
 export function buildSkillContent(input: SkillCapabilityInput): string {
   let content = `The "${input.displayName}" skill (${input.id}) is available. ${input.description}.`;

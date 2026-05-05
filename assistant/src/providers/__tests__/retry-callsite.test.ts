@@ -122,6 +122,117 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.modelIntent).toBeUndefined();
   });
 
+  test("attaches sanitized stable attribution headers only when enabled", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+      },
+      profiles: {
+        "conversation-profile": {
+          model: "claude-profile",
+          source: "user",
+        },
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        callSite: "memoryRetrieval",
+        overrideProfile: "conversation-profile",
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toEqual({
+      "X-Vellum-LLM-Call-Site": "memoryRetrieval",
+      "X-Vellum-Inference-Profile": "conversation-profile",
+      "X-Vellum-Inference-Profile-Source": "conversation",
+      "X-Vellum-Resolved-Provider": "openai",
+      "X-Vellum-Resolved-Model": "claude-profile",
+    });
+    expect(
+      (config.usageAttributionHeaders as Record<string, string>)[
+        "X-Vellum-LLM-Call-Site-Label"
+      ],
+    ).toBeUndefined();
+  });
+
+  test("omits attribution headers by default for direct provider transports", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-default",
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toBeUndefined();
+    expect(config.callSite).toBeUndefined();
+  });
+
+  test("omits profile source attribution header when no profile is applied", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openai",
+        model: "gpt-default",
+      },
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.usageAttributionHeaders).toEqual({
+      "X-Vellum-LLM-Call-Site": "memoryRetrieval",
+      "X-Vellum-Resolved-Provider": "openai",
+      "X-Vellum-Resolved-Model": "gpt-default",
+    });
+  });
+
   test("falls back to llm.default when llm.callSites[id] is absent", async () => {
     setLlmConfig({
       default: {
@@ -185,7 +296,7 @@ describe("RetryProvider — callSite resolution", () => {
     // fields with `{type:"invalid_request_error", message:"contextWindow:
     // Extra inputs are not permitted"}`. Provider routing is handled by
     // CallSiteRoutingProvider; contextWindow is consumed by the agent loop
-    // directly from `config.llm.default.contextWindow.*`.
+    // from the effective per-call-site/profile context resolver.
     expect(config.contextWindow).toBeUndefined();
     expect(config.provider).toBeUndefined();
   });
@@ -280,7 +391,14 @@ describe("RetryProvider — callSite resolution", () => {
 
   test("propagates temperature when explicitly set in resolved config", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        // Thinking defaults to enabled in the schema. Disable here so the
+        // thinking/temperature conflict guard doesn't fire — that guard
+        // (Anthropic 400 backstop) has dedicated coverage further down.
+        thinking: { enabled: false },
+      },
       callSites: {
         mainAgent: { temperature: 0.5 },
       },
@@ -355,6 +473,220 @@ describe("RetryProvider — callSite resolution", () => {
   });
 });
 
+// ── RetryProvider — Anthropic thinking + temperature conflict guard ─────────
+//
+// Anthropic 400s with "temperature may only be set to 1 when thinking is
+// enabled or in adaptive mode" if a request combines extended thinking with
+// `temperature` ≠ 1. We had three call sites ship with hardcoded
+// per-call temperatures that exploded for Opus 4.x effort=high/xhigh
+// profiles (PR #29560 fixed the call sites). This guard is a backstop: if a
+// future call site reintroduces the same pattern, retry.ts drops the
+// offending temperature instead of letting the request fail at the wire.
+
+describe("RetryProvider — thinking/temperature conflict guard", () => {
+  test("drops explicit non-1 temperature when thinking is enabled (Anthropic)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      // Hardcoded per-call temperature — the pattern that caused the PR
+      // #29560 bug class. Without the guard this would forward to Anthropic
+      // and 400.
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBeUndefined();
+    expect("temperature" in config).toBe(false);
+  });
+
+  test("drops explicit temperature: 0 when thinking is enabled (Anthropic)", async () => {
+    // Mirrors the recall-agent / retriever shape: `temperature: 0` for
+    // determinism on a thinking-enabled profile. Same 400 risk, same fix.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { recall: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "recall", temperature: 0 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature: 1 when thinking is enabled (Anthropic accepts it)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 1 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBe(1);
+  });
+
+  test("preserves explicit temperature when thinking is disabled (Anthropic)", async () => {
+    // The bug class only exists when thinking resolves enabled. With
+    // thinking disabled, every temperature value is valid — the guard must
+    // not fire.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "disabled" });
+    expect(config.temperature).toBe(0.7);
+  });
+
+  test("drops temperature for OpenRouter when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "anthropic/claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4-7");
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature for OpenRouter when fronting a non-Anthropic reasoning model", async () => {
+    // OpenRouter's other reasoning models (xAI Grok, etc.) translate
+    // `thinking` into the `reasoning` parameter via `buildExtraCreateParams`
+    // and don't share Anthropic's temperature-must-be-1 constraint. The
+    // guard must not over-reach.
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "x-ai/grok-4",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("x-ai/grok-4");
+    expect(config.temperature).toBe(0.7);
+  });
+
+  test("guard does not fire when thinking has already been stripped by forced tool_choice", async () => {
+    // `retry.ts` strips `thinking` when forced `tool_choice: { type: "tool" }`
+    // is set on Anthropic — the guard runs after that step, so by the time
+    // we check, `thinking` is gone and the temperature can stay.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { trustRuleSuggestion: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        callSite: "trustRuleSuggestion",
+        temperature: 0.7,
+        tool_choice: { type: "tool", name: "suggest_trust_rule" },
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toBeUndefined();
+    expect(config.temperature).toBe(0.7);
+  });
+});
+
 // ── RetryProvider — pre-resolved model fast-path ────────────────────────────
 
 describe("RetryProvider — no callSite (pre-resolved config passes through)", () => {
@@ -385,6 +717,32 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
     expect(config.max_tokens).toBe(1234);
     expect(config.model).not.toBe("MUST-NOT-LEAK");
     expect(config.model).not.toBe("ALSO-MUST-NOT-LEAK");
+  });
+
+  test("does not forward caller-supplied attribution headers without callSite", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "MUST-NOT-LEAK" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        model: "explicit-model",
+        usageAttributionHeaders: {
+          "X-Vellum-LLM-Call-Site": "injected",
+        },
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("explicit-model");
+    expect(config.usageAttributionHeaders).toBeUndefined();
   });
 });
 

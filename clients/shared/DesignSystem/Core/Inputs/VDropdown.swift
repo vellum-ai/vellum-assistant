@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#endif
 
 /// Option type for VDropdown.
 public struct VDropdownOption<T: Hashable>: Identifiable {
@@ -122,39 +120,15 @@ public struct VDropdown<T: Hashable>: View {
                     .accessibilityHidden(true)
             }
 
-            #if os(macOS)
             macOSTrigger
-            #else
-            iOSMenu
-            #endif
         }
         .frame(maxWidth: maxWidth)
     }
 
     // MARK: - iOS Fallback (native Menu/Picker)
 
-    #if os(iOS)
-    private var iOSMenu: some View {
-        Menu {
-            Picker("", selection: $selection) {
-                ForEach(optionList) { option in
-                    Text(option.label).tag(option.value)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            triggerLabel
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-    }
-    #endif
-
     // MARK: - macOS (VMenuPanel)
 
-    #if os(macOS)
     @State private var isOpen = false
     @State private var activePanel: VMenuPanel?
     @State private var triggerFrame: CGRect = .zero
@@ -246,7 +220,6 @@ public struct VDropdown<T: Hashable>: View {
             activePanel = nil
         }
     }
-    #endif
 
     // MARK: - Shared Trigger Label
 
@@ -276,10 +249,6 @@ public struct VDropdown<T: Hashable>: View {
         .padding(.horizontal, VSpacing.sm)
         .frame(height: 32)
         .frame(maxWidth: .infinity)
-        #if os(macOS)
         .vInputChrome(isFocused: isOpen, isDisabled: !isEnabled)
-        #else
-        .vInputChrome(isDisabled: !isEnabled)
-        #endif
     }
 }

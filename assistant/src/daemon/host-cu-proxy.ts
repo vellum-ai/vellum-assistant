@@ -5,6 +5,13 @@
  * managed assistant, following the same request/resolve pattern as
  * HostBashProxy. Also owns CU-specific state tracking (step counting,
  * loop detection, observation formatting) for the unified agent loop.
+ *
+ * Unlike HostBashProxy/HostFileProxy/HostTransferProxy, this is NOT a
+ * singleton — each conversation gets its own instance because CU state
+ * (step count, AX tree history, loop detection) is per-conversation.
+ *
+ * RPC lifecycle (resolve/reject/timer/detachAbort) is stored in
+ * pendingInteractions alongside routing metadata.
  */
 
 import { v4 as uuid } from "uuid";
@@ -12,10 +19,15 @@ import { v4 as uuid } from "uuid";
 import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -53,38 +65,21 @@ export interface ActionRecord {
   reasoning?: string;
 }
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
-
 // ---------------------------------------------------------------------------
 // HostCuProxy
 // ---------------------------------------------------------------------------
 
 export class HostCuProxy {
-  private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
-
   // CU state tracking (per-conversation)
   private _stepCount = 0;
   private _maxSteps: number;
   private _previousAXTree: string | undefined;
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
+  /** Request IDs owned by this instance — used to scope dispose(). */
+  private _ownedRequests = new Set<string>();
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-    maxSteps = loadConfig().maxStepsPerSession,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  constructor(maxSteps = loadConfig().maxStepsPerSession) {
     this._maxSteps = maxSteps;
   }
 
@@ -113,21 +108,30 @@ export class HostCuProxy {
   }
 
   // ---------------------------------------------------------------------------
-  // Sender management
+  // Availability
   // ---------------------------------------------------------------------------
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /**
+   * Whether a client with `host_cu` capability is connected.
+   */
+  isAvailable(): boolean {
+    return assistantEventHub.getMostRecentClientByCapability("host_cu") != null;
   }
 
   // ---------------------------------------------------------------------------
   // Request / resolve lifecycle
   // ---------------------------------------------------------------------------
 
+  /**
+   * Send a CU request to the connected desktop client.
+   *
+   * When `targetClientId` is supplied, the proxy validates that the target
+   * exists and advertises the `host_cu` capability, mirroring HostFileProxy's
+   * resolver-side checks so that the proxy is safe to call as a standalone
+   * API. It additionally enforces that the caller (`sourceActorPrincipalId`)
+   * and the target client share the same actor principal — cross-user
+   * targeted dispatch is rejected.
+   */
   request(
     toolName: string,
     input: Record<string, unknown>,
@@ -135,6 +139,8 @@ export class HostCuProxy {
     stepNumber: number,
     reasoning?: string,
     signal?: AbortSignal,
+    targetClientId?: string,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -143,7 +149,6 @@ export class HostCuProxy {
       });
     }
 
-    // Enforce step limit before sending to client
     if (this._stepCount > this._maxSteps) {
       return Promise.resolve({
         content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
@@ -151,17 +156,46 @@ export class HostCuProxy {
       });
     }
 
+    // Existence + capability validation for explicit targets. Mirrors
+    // HostFileProxy's resolver-side guard so that the proxy is safe even
+    // when called outside the conversation-surfaces dispatch (which has
+    // its own validation layer).
+    if (targetClientId != null) {
+      const client = assistantEventHub.getClientById(targetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${targetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_cu")) {
+        return Promise.resolve({
+          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        });
+      }
+
+      // Same-user enforcement: targeted CU dispatch must be owned by the
+      // same actor on both sides. This is the authoritative gate — the
+      // dispatch layer (conversation-surfaces.ts) skips its own check
+      // and relies on the proxy.
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return Promise.resolve(rejection);
+    }
+
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        this._ownedRequests.delete(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
           content: "Host CU proxy timed out waiting for client response",
@@ -171,20 +205,22 @@ export class HostCuProxy {
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
-            detachAbort();
-            this.onInternalResolve?.(requestId);
+          if (pendingInteractions.get(requestId)) {
+            this._ownedRequests.delete(requestId);
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToClient({
-                type: "host_cu_cancel",
-                requestId,
-              } as ServerMessage);
+              broadcastMessage(
+                {
+                  type: "host_cu_cancel",
+                  requestId,
+                  conversationId,
+                  ...(targetClientId != null ? { targetClientId } : {}),
+                },
+                conversationId,
+                { targetClientId },
+              );
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -193,58 +229,68 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+      this._ownedRequests.add(requestId);
+
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "host_cu",
+        targetClientId,
+        targetActorPrincipalId:
+          targetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+            : undefined,
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
+        detachAbort,
+      });
 
       try {
-        this.sendToClient({
-          type: "host_cu_request",
-          requestId,
+        broadcastMessage(
+          {
+            type: "host_cu_request",
+            requestId,
+            conversationId,
+            toolName,
+            input,
+            stepNumber,
+            reasoning,
+            // Include in body so receiving client can verify targeted endpoint.
+            ...(targetClientId != null ? { targetClientId } : {}),
+          },
           conversationId,
-          toolName,
-          input,
-          stepNumber,
-          reasoning,
-        } as ServerMessage);
+          { targetClientId },
+        );
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
-        this.onInternalResolve?.(requestId);
+        this._ownedRequests.delete(requestId);
+        pendingInteractions.resolve(requestId);
         log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }
 
-  resolve(requestId: string, observation: CuObservationResult): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
+  /**
+   * Process a CU observation from the client and resolve the RPC.
+   * Updates CU state (step tracking, AX tree history) and formats
+   * the observation into a ToolExecutionResult.
+   */
+  processObservation(
+    requestId: string,
+    observation: CuObservationResult,
+  ): ToolExecutionResult | undefined {
+    this._ownedRequests.delete(requestId);
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host CU request for response");
-      return;
+      return undefined;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
 
-    // Capture pre-update state so formatObservation sees the correct previous AX tree
     const prevAXTree = this._previousAXTree;
-
-    // Update CU state from observation
     this.updateStateFromObservation(observation);
-
     const result = this.formatObservation(observation, prevAXTree);
-    entry.resolve(result);
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
-  }
-
-  isAvailable(): boolean {
-    return this.clientConnected;
+    interaction.rpcResolve(result);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -267,7 +313,6 @@ export class HostCuProxy {
       input,
       reasoning,
     });
-    // Keep history bounded
     if (this._actionHistory.length > MAX_HISTORY_ENTRIES) {
       this._actionHistory = this._actionHistory.slice(-MAX_HISTORY_ENTRIES);
     }
@@ -297,7 +342,6 @@ export class HostCuProxy {
     const prevTree = previousAXTree;
     const parts: string[] = [];
 
-    // Surface user guidance prominently so the model sees it first
     if (obs.userGuidance) {
       parts.push(`USER GUIDANCE: ${obs.userGuidance}`);
       parts.push("");
@@ -308,12 +352,10 @@ export class HostCuProxy {
       parts.push("");
     }
 
-    // AX tree diff / unchanged warning
     if (obs.axDiff) {
       parts.push(obs.axDiff);
       parts.push("");
     } else if (prevTree != null && obs.axTree != null) {
-      // Skip unchanged warning after wait actions — they intentionally yield no immediate change
       const lastAction =
         this._actionHistory.length > 0
           ? this._actionHistory[this._actionHistory.length - 1]
@@ -321,7 +363,6 @@ export class HostCuProxy {
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
 
       if (!isWaitAction) {
-        // No diff means the screen didn't change
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -338,7 +379,6 @@ export class HostCuProxy {
       }
     }
 
-    // Loop detection: identical actions repeated
     if (this._actionHistory.length >= LOOP_DETECTION_WINDOW) {
       const recent = this._actionHistory.slice(-LOOP_DETECTION_WINDOW);
       const allIdentical = recent.every(
@@ -354,7 +394,6 @@ export class HostCuProxy {
       }
     }
 
-    // Current screen state wrapped in markers for history compaction
     if (obs.axTree) {
       parts.push("<ax-tree>");
       parts.push("CURRENT SCREEN STATE:");
@@ -362,7 +401,6 @@ export class HostCuProxy {
       parts.push("</ax-tree>");
     }
 
-    // Secondary windows for cross-app awareness
     if (obs.secondaryWindows) {
       parts.push("");
       parts.push(obs.secondaryWindows);
@@ -372,7 +410,6 @@ export class HostCuProxy {
       );
     }
 
-    // Screenshot metadata
     const screenshotMeta = this.formatScreenshotMetadata(obs);
     if (screenshotMeta.length > 0) {
       parts.push("");
@@ -381,7 +418,6 @@ export class HostCuProxy {
 
     const content = parts.join("\n").trim() || "Action executed";
 
-    // Build content blocks for screenshot
     const contentBlocks: ContentBlock[] = [];
     if (obs.screenshot) {
       contentBlocks.push({
@@ -410,30 +446,36 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
-      this.onInternalResolve?.(requestId);
+    for (const requestId of this._ownedRequests) {
+      const entry = pendingInteractions.resolve(requestId);
+      if (!entry) continue;
       try {
-        this.sendToClient({
-          type: "host_cu_cancel",
-          requestId,
-        } as ServerMessage);
+        broadcastMessage(
+          {
+            type: "host_cu_cancel",
+            requestId,
+            conversationId: entry.conversationId,
+            ...(entry.targetClientId != null
+              ? { targetClientId: entry.targetClientId }
+              : {}),
+          },
+          entry.conversationId,
+          { targetClientId: entry.targetClientId as string | undefined },
+        );
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError("Host CU proxy disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
-    this.pending.clear();
+    this._ownedRequests.clear();
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /** Update consecutive-unchanged tracking from an incoming observation. */
   private updateStateFromObservation(obs: CuObservationResult): void {
     if (this._stepCount > 0) {
       if (

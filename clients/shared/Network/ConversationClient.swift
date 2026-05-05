@@ -16,7 +16,7 @@ public struct ConversationClient: ConversationClientProtocol {
         do {
             let encoded = messageId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageId
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/messages/\(encoded)/content",
+                path: "messages/\(encoded)/content",
                 params: ["conversationId": conversationId],
                 timeout: 10
             )

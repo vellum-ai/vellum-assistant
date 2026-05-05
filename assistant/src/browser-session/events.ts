@@ -133,15 +133,6 @@ export function isTargetInvalidated(targetId: string): boolean {
 }
 
 /**
- * Test-only helper: snapshot the current invalidated set without
- * draining it. Exported so unit tests can assert exact set contents
- * across multiple frames; production code must not rely on this.
- */
-export function __peekInvalidatedTargetIdsForTests(): string[] {
-  return Array.from(invalidatedTargetIds);
-}
-
-/**
  * Atomically remove and return a target id from the invalidated set.
  * Returns `true` when the id was present (and has now been removed),
  * `false` otherwise. Designed to be called by

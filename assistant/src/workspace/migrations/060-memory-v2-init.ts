@@ -3,17 +3,6 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-/**
- * Initial contents of `memory/edges.json` — the bidirectional concept-page
- * edge index for the v2 memory subsystem. The version field lets future
- * migrations bump the schema if needed.
- */
-const EMPTY_EDGES_INDEX = `${JSON.stringify(
-  { version: 1, edges: [] },
-  null,
-  2,
-)}\n`;
-
 const PROSE_FILES = ["essentials.md", "threads.md", "recent.md", "buffer.md"];
 
 export const memoryV2InitMigration: WorkspaceMigration = {
@@ -26,13 +15,8 @@ export const memoryV2InitMigration: WorkspaceMigration = {
     mkdirSync(join(memoryDir, "archive"), { recursive: true });
     mkdirSync(join(memoryDir, ".v2-state"), { recursive: true });
 
-    // Seed edges.json and the prose files only if missing — preserves any
-    // user content from manual setup or a prior migration.
-    const edgesPath = join(memoryDir, "edges.json");
-    if (!existsSync(edgesPath)) {
-      writeFileSync(edgesPath, EMPTY_EDGES_INDEX, "utf-8");
-    }
-
+    // Seed the prose files only if missing — preserves any user content from
+    // manual setup or a prior migration.
     for (const filename of PROSE_FILES) {
       const filePath = join(memoryDir, filename);
       if (!existsSync(filePath)) {

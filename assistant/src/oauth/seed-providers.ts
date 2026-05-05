@@ -393,6 +393,7 @@ export const PROVIDER_SEED_DATA: Record<
       { scope: "project:delete", description: "Delete entire projects" },
     ],
     loopbackPort: 17325,
+    managedServiceConfigKey: "todoist-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.todoist.com",
@@ -402,7 +403,7 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
     appType: "App",
-    identityUrl: "https://api.todoist.com/sync/v9/sync",
+    identityUrl: "https://api.todoist.com/api/v1/sync",
     identityMethod: "POST",
     identityHeaders: { "Content-Type": "application/x-www-form-urlencoded" },
     identityBody: "sync_token=*&resource_types=[%22user%22]",
@@ -429,6 +430,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes:
       "https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes",
     loopbackPort: 17326,
+    managedServiceConfigKey: "discord-oauth",
     injectionTemplates: [
       {
         hostPattern: "discord.com",
@@ -463,6 +465,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://developers.dropbox.com/oauth-guide",
     authorizeParams: { token_access_type: "offline" },
     loopbackPort: 17327,
+    managedServiceConfigKey: "dropbox-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.dropboxapi.com",
@@ -497,6 +500,7 @@ export const PROVIDER_SEED_DATA: Record<
     defaultScopes: ["default"],
     availableScopes: "https://developers.asana.com/docs/oauth-scopes",
     loopbackPort: 17328,
+    managedServiceConfigKey: "asana-oauth",
     injectionTemplates: [
       {
         hostPattern: "app.asana.com",
@@ -529,6 +533,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://airtable.com/developers/web/api/scopes",
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17329,
+    managedServiceConfigKey: "airtable-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.airtable.com",
@@ -563,6 +568,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes:
       "https://developers.hubspot.com/docs/guides/apps/authentication/scopes",
     loopbackPort: 17330,
+    managedServiceConfigKey: "hubspot-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.hubapi.com",
@@ -574,6 +580,60 @@ export const PROVIDER_SEED_DATA: Record<
     appType: "App",
     identityUrl: "https://api.hubapi.com/oauth/v1/access-tokens/${accessToken}",
     identityResponsePaths: ["user", "hub_domain"],
+  },
+
+  salesforce: {
+    provider: "salesforce",
+    authorizeUrl: "https://login.salesforce.com/services/oauth2/authorize",
+    tokenExchangeUrl: "https://login.salesforce.com/services/oauth2/token",
+    refreshUrl: "https://login.salesforce.com/services/oauth2/token",
+    pingUrl: "https://login.salesforce.com/services/oauth2/userinfo",
+    // baseUrl points at the login domain — correct for the OAuth handshake
+    // and for ``/services/oauth2/userinfo``/``revoke`` calls. REST API calls
+    // to ``/services/data/...`` go to the per-org instance host returned in
+    // the token response as ``instance_url`` and stored on
+    // ``oauth_connection.metadata``. ``connection-resolver.ts`` substitutes
+    // that instance URL when constructing the BYO connection so callers
+    // don't need to override ``baseUrl`` per request.
+    baseUrl: "https://login.salesforce.com",
+    displayLabel: "Salesforce",
+    description: "CRM contacts, leads, and opportunities",
+    dashboardUrl:
+      "https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm&type=5",
+    clientIdPlaceholder: null,
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/salesforce/default.svg",
+    defaultScopes: ["api", "refresh_token", "openid", "email", "profile"],
+    availableScopes:
+      "https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_tokens_scopes.htm",
+    authorizeParams: { prompt: "consent" },
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17336,
+    managedServiceConfigKey: "salesforce-oauth",
+    // Salesforce REST traffic goes to per-org instance hosts like
+    // ``acme.my.salesforce.com`` and ``acme.lightning.force.com``.
+    // ``matchHostPattern`` only treats ``*.<domain>`` as a wildcard match —
+    // bare ``salesforce.com`` would only match the apex. Use wildcards so
+    // ``Authorization: Bearer`` injection actually fires on tenant hosts.
+    injectionTemplates: [
+      {
+        hostPattern: "*.salesforce.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "*.force.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    revokeUrl: "https://login.salesforce.com/services/oauth2/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    appType: "Connected App",
+    identityUrl: "https://login.salesforce.com/services/oauth2/userinfo",
+    identityResponsePaths: ["email", "preferred_username"],
   },
 
   figma: {

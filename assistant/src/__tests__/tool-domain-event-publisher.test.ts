@@ -140,42 +140,6 @@ describe("createToolDomainEventPublisher", () => {
     });
   });
 
-  test("maps secret_detected lifecycle event to tool.secret.detected domain event", async () => {
-    const { bus, events } = makeEventsCollector();
-    const publish = createToolDomainEventPublisher(bus);
-
-    await publish({
-      type: "secret_detected",
-      toolName: "file_read",
-      input: { path: "secrets.txt" },
-      workingDir: "/tmp/project",
-      conversationId: "conversation-1",
-      action: "redact",
-      matches: [
-        {
-          type: "AWS Access Key",
-          redactedValue: '<redacted type="AWS Access Key" />',
-        },
-      ],
-      detectedAtMs: 55,
-    });
-
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe("tool.secret.detected");
-    expect(events[0].payload).toEqual({
-      conversationId: "conversation-1",
-      toolName: "file_read",
-      action: "redact",
-      matches: [
-        {
-          type: "AWS Access Key",
-          redactedValue: '<redacted type="AWS Access Key" />',
-        },
-      ],
-      detectedAtMs: 55,
-    });
-  });
-
   test("maps allow-decision error lifecycle event to permission.decided + execution.failed", async () => {
     const { bus, events } = makeEventsCollector();
     const publish = createToolDomainEventPublisher(bus);

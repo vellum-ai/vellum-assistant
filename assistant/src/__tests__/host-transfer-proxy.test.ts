@@ -2,8 +2,24 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
+const sentMessages: unknown[] = [];
+let mockHasClient = false;
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  assistantEventHub: {
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
+    listClientsByCapability: (_cap: string) =>
+      mockHasClient ? [{ clientId: "mock-client", capabilities: ["host_file"] }] : [],
+    getClientById: (_id: string) => null,
+  },
+}));
+
+// Use the REAL pending-interactions module — the proxy self-registers here.
+const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostTransferProxy } = await import("../daemon/host-transfer-proxy.js");
 
 /**
@@ -29,18 +45,19 @@ async function waitForMessages(
 
 describe("HostTransferProxy", () => {
   let proxy: InstanceType<typeof HostTransferProxy>;
-  let sentMessages: unknown[];
-  let sendToClient: (msg: unknown) => void;
   let tempDir: string;
 
-  function setup(onInternalResolve?: (requestId: string) => void) {
-    sentMessages = [];
-    sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostTransferProxy(sendToClient, onInternalResolve);
+  function setup() {
+    sentMessages.length = 0;
+    mockHasClient = false;
+    pendingInteractions.clear();
+    proxy = new (HostTransferProxy as any)();
   }
 
   afterEach(async () => {
     proxy?.dispose();
+    HostTransferProxy.reset();
+    pendingInteractions.clear();
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -324,6 +341,110 @@ describe("HostTransferProxy", () => {
     });
   });
 
+  describe("takeJustConsumedTransferMetadata", () => {
+    test("returns size+sha256 immediately after getTransferContent", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      const fileContent = "header metadata test";
+      await globalThis.Bun.write(srcPath, fileContent);
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-1",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      const expectedSize = Buffer.from(fileContent).length;
+      const expectedSha = createHash("sha256")
+        .update(Buffer.from(fileContent))
+        .digest("hex");
+
+      // Handler consumes content; metadata should now be available for the
+      // GET-content route's responseHeaders resolver.
+      const content = proxy.getTransferContent(transferId);
+      expect(content).not.toBeNull();
+
+      const meta = proxy.takeJustConsumedTransferMetadata(transferId);
+      expect(meta).toEqual({ sizeBytes: expectedSize, sha256: expectedSha });
+
+      // Resolve the transfer to avoid hanging
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, {
+        isError: false,
+        bytesWritten: expectedSize,
+      });
+      await resultPromise;
+    });
+
+    test("single-use: second take returns null", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      await globalThis.Bun.write(srcPath, "x");
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-2",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      proxy.getTransferContent(transferId);
+      expect(proxy.takeJustConsumedTransferMetadata(transferId)).not.toBeNull();
+      expect(proxy.takeJustConsumedTransferMetadata(transferId)).toBeNull();
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+
+    test("returns null when getTransferContent was never called", () => {
+      setup();
+      expect(
+        proxy.takeJustConsumedTransferMetadata("never-consumed-id"),
+      ).toBeNull();
+    });
+
+    test("returns null for unknown transfer ID even after a different transfer was consumed", async () => {
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      await globalThis.Bun.write(srcPath, "x");
+
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: true,
+        conversationId: "conv-meta-3",
+      });
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const transferId = sent.transferId as string;
+
+      proxy.getTransferContent(transferId);
+
+      // Different transferId should still return null
+      expect(
+        proxy.takeJustConsumedTransferMetadata("other-id"),
+      ).toBeNull();
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+  });
+
   describe("timeout behavior", () => {
     /** Use a very short real timeout instead of fake timers to avoid deadlocks in Bun. */
     const SHORT_TIMEOUT_MS = 150;
@@ -533,23 +654,16 @@ describe("HostTransferProxy", () => {
   });
 
   describe("isAvailable", () => {
-    test("returns false by default (no client connected)", () => {
+    test("returns false when no client with host_file capability is connected", () => {
       setup();
+      mockHasClient = false;
       expect(proxy.isAvailable()).toBe(false);
     });
 
-    test("returns true after updateSender with clientConnected=true", () => {
+    test("returns true when a client with host_file capability is connected", () => {
       setup();
-      proxy.updateSender(sendToClient, true);
+      mockHasClient = true;
       expect(proxy.isAvailable()).toBe(true);
-    });
-
-    test("returns false after updateSender with clientConnected=false", () => {
-      setup();
-      proxy.updateSender(sendToClient, true);
-      expect(proxy.isAvailable()).toBe(true);
-      proxy.updateSender(sendToClient, false);
-      expect(proxy.isAvailable()).toBe(false);
     });
   });
 
@@ -626,33 +740,9 @@ describe("HostTransferProxy", () => {
     });
   });
 
-  describe("updateSender", () => {
-    test("uses updated sender for new requests", async () => {
+  describe("pendingInteractions cleanup", () => {
+    test("cleans up on abort", async () => {
       setup();
-
-      const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg), true);
-
-      const resultPromise = proxy.requestToSandbox({
-        sourcePath: "/host/source.txt",
-        destPath: "/sandbox/dest.txt",
-        conversationId: "conv-123",
-      });
-
-      expect(sentMessages).toHaveLength(0);
-      expect(newMessages).toHaveLength(1);
-
-      // Cancel to avoid hanging
-      const sent = newMessages[0] as Record<string, unknown>;
-      proxy.cancel(sent.requestId as string);
-      await resultPromise;
-    });
-  });
-
-  describe("onInternalResolve callback", () => {
-    test("fires on abort", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
 
       const controller = new AbortController();
       const resultPromise = proxy.requestToSandbox(
@@ -666,16 +756,16 @@ describe("HostTransferProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       controller.abort();
       await resultPromise;
 
-      expect(resolvedIds).toEqual([requestId]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
-    test("fires for each pending request on dispose", () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+    test("cleans up for each pending request on dispose", () => {
+      setup();
 
       const p1 = proxy.requestToSandbox({
         sourcePath: "/host/a.txt",
@@ -697,14 +787,12 @@ describe("HostTransferProxy", () => {
 
       proxy.dispose();
 
-      expect(resolvedIds).toHaveLength(2);
-      expect(resolvedIds).toContain(ids[0]);
-      expect(resolvedIds).toContain(ids[1]);
+      expect(pendingInteractions.get(ids[0])).toBeUndefined();
+      expect(pendingInteractions.get(ids[1])).toBeUndefined();
     });
 
-    test("does not fire on normal resolveTransferResult", async () => {
-      const resolvedIds: string[] = [];
-      setup((id) => resolvedIds.push(id));
+    test("cleans up on normal resolveTransferResult", async () => {
+      setup();
       tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
       const srcPath = join(tempDir, "source.txt");
       await globalThis.Bun.write(srcPath, "content");
@@ -720,6 +808,7 @@ describe("HostTransferProxy", () => {
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
 
       proxy.resolveTransferResult(requestId, {
         isError: false,
@@ -727,7 +816,7 @@ describe("HostTransferProxy", () => {
       });
 
       await resultPromise;
-      expect(resolvedIds).toEqual([]);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 });

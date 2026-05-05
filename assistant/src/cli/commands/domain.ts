@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 
-import { getAssistantDomain } from "../../config/env.js";
+import { getApexDomain, getAssistantDomain } from "../../config/env.js";
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -8,6 +13,7 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 const log = getCliLogger("domain");
 
 export function registerDomainCommand(program: Command): void {
+  const apexDomain = getApexDomain();
   const baseDomain = getAssistantDomain();
   const domain = program
     .command("domain")
@@ -97,17 +103,36 @@ Examples:
 
           const data = (await response.json()) as {
             id: string;
-            domain: string;
-            status: string;
-            verified: boolean;
-            created_at: string;
+            subdomain?: string;
+            domain?: string;
+            status?: string;
+            verified?: boolean;
+            created_at?: string;
+            created?: string;
           };
+
+          // Persist the subdomain to config so getAssistantDomain() can use it
+          const registeredSubdomain =
+            data.subdomain ??
+            data.domain?.replace(`.${apexDomain}`, "") ??
+            subdomain;
+          if (registeredSubdomain) {
+            const raw = loadRawConfig();
+            setNestedValue(raw, "platform.subdomain", registeredSubdomain);
+            saveRawConfig(raw);
+          }
+
+          const displayDomain =
+            data.domain ??
+            (registeredSubdomain
+              ? `${registeredSubdomain}.${apexDomain}`
+              : "unknown");
 
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, data);
           } else {
-            log.info(`✓ Registered ${data.domain}`);
-            if (!data.verified) {
+            log.info(`✓ Registered ${displayDomain}`);
+            if (data.verified === false) {
               log.info(
                 "  ⚠ Domain verification pending — this usually resolves within a few seconds.",
               );
@@ -174,14 +199,32 @@ Examples:
         const data = (await response.json()) as {
           results: {
             id: string;
-            domain: string;
-            status: string;
-            verified: boolean;
-            created_at: string;
+            subdomain?: string;
+            domain?: string;
+            status?: string;
+            verified?: boolean;
+            created_at?: string;
+            created?: string;
           }[];
         };
 
         const domains = data.results ?? [];
+
+        // Sync subdomain to config if not already cached
+        if (domains.length > 0) {
+          const first = domains[0];
+          const sub =
+            first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
+          if (sub) {
+            const raw = loadRawConfig();
+            const existing = (raw as Record<string, Record<string, unknown>>)
+              .platform?.subdomain;
+            if (existing !== sub) {
+              setNestedValue(raw, "platform.subdomain", sub);
+              saveRawConfig(raw);
+            }
+          }
+        }
 
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, data);
@@ -191,10 +234,18 @@ Examples:
           );
         } else {
           for (const d of domains) {
-            log.info(`Domain:   ${d.domain}`);
-            log.info(`Status:   ${d.status}`);
-            log.info(`Verified: ${d.verified ? "yes" : "no"}`);
-            log.info(`Created:  ${d.created_at.split("T")[0]}`);
+            const displayDomain =
+              d.domain ??
+              (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
+            const createdRaw = d.created_at ?? d.created;
+            const createdDate = createdRaw
+              ? createdRaw.split("T")[0]
+              : "unknown";
+            log.info(`Domain:   ${displayDomain}`);
+            if (d.status != null) log.info(`Status:   ${d.status}`);
+            if (d.verified != null)
+              log.info(`Verified: ${d.verified ? "yes" : "no"}`);
+            log.info(`Created:  ${createdDate}`);
           }
         }
       } catch (err) {

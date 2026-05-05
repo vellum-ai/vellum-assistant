@@ -25,7 +25,9 @@ import { extract as tarExtract } from "tar-stream";
 export interface StreamedTarHeader {
   name: string;
   size: number;
-  type: "file" | "directory" | "pax-header" | "other";
+  type: "file" | "directory" | "pax-header" | "symlink" | "other";
+  /** Populated only when `type === "symlink"`; the symlink's target string from the tar header. */
+  linkname?: string;
 }
 
 export interface StreamedTarEntry {
@@ -57,6 +59,8 @@ function normalizeHeaderType(
       return "directory";
     case "pax-header":
       return "pax-header";
+    case "symlink":
+      return "symlink";
     default:
       return "other";
   }
@@ -125,12 +129,17 @@ export async function* parseVBundleStream(
     // Avoid unhandled "error" on body streams destroyed mid-flight; the
     // extractor itself propagates the real error to its "error" listener.
     body.on("error", () => {});
+    const normalizedType = normalizeHeaderType(header.type);
+    const surfaced: StreamedTarHeader = {
+      name: header.name,
+      size: header.size,
+      type: normalizedType,
+    };
+    if (normalizedType === "symlink" && header.linkname) {
+      surfaced.linkname = header.linkname;
+    }
     pushEntry({
-      header: {
-        name: header.name,
-        size: header.size,
-        type: normalizeHeaderType(header.type),
-      },
+      header: surfaced,
       body,
       next,
     });

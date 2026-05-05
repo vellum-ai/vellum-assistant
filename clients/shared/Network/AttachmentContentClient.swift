@@ -17,7 +17,7 @@ public enum AttachmentContentClient {
     /// - Returns: The raw attachment bytes.
     /// - Throws: ``GatewayHTTPClient/ClientError`` or network errors.
     public static func fetchContent(attachmentId: String) async throws -> Data {
-        let path = "assistants/{assistantId}/attachments/\(attachmentId)/content"
+        let path = "attachments/\(attachmentId)/content"
         let response = try await GatewayHTTPClient.get(path: path, timeout: 120)
         guard response.isSuccess else {
             log.error("Attachment fetch failed with HTTP \(response.statusCode) for \(attachmentId)")

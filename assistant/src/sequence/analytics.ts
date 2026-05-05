@@ -15,7 +15,7 @@ import type { Sequence } from "./types.js";
 
 // ── Event tracking ──────────────────────────────────────────────────
 
-export type SequenceEventType =
+type SequenceEventType =
   | "send"
   | "reply"
   | "complete"
@@ -24,7 +24,7 @@ export type SequenceEventType =
   | "pause"
   | "resume";
 
-export interface SequenceEvent {
+interface SequenceEvent {
   id: string;
   sequenceId: string;
   enrollmentId: string;
@@ -74,7 +74,7 @@ function getRecentEvents(limit = 20): SequenceEvent[] {
 
 // ── Metrics ─────────────────────────────────────────────────────────
 
-export interface SequenceMetrics {
+interface SequenceMetrics {
   sequenceId: string;
   sequenceName: string;
   status: string;
@@ -90,7 +90,7 @@ export interface SequenceMetrics {
   avgTimeToReplyMs: number | null;
 }
 
-export interface StepMetrics {
+interface StepMetrics {
   stepIndex: number;
   subject: string;
   sends: number;
@@ -98,7 +98,7 @@ export interface StepMetrics {
   dropOff: number;
 }
 
-export interface DashboardData {
+interface DashboardData {
   summary: {
     totalSequences: number;
     activeSequences: number;

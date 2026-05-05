@@ -1,11 +1,11 @@
 import OpenAI from "openai";
 
-import type {
-  EmbeddingBackend,
-  EmbeddingInput,
-  EmbeddingRequestOptions,
-} from "./embedding-backend.js";
-import { normalizeEmbeddingInput } from "./embedding-types.js";
+import {
+  type EmbeddingBackend,
+  type EmbeddingInput,
+  type EmbeddingRequestOptions,
+  normalizeEmbeddingInput,
+} from "./embedding-types.js";
 
 export class OpenAIEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "openai" as const;

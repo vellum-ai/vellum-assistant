@@ -128,7 +128,7 @@ The assistant daemon does not read or distribute a feature-flag token. All featu
 
 ### Channel Verification Session Control-Plane Proxy
 
-Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
+Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers for dedicated auth handling. This keeps assistant skills and user-facing tooling on gateway URLs only.
 
 **Forwarded endpoints:**
 
@@ -158,7 +158,7 @@ The `/v1/guardian/refresh` endpoint is the only public ingress for rotating JWT 
 
 ### Runtime Health Proxy
 
-Runtime health is exposed directly by the gateway at `GET /v1/health` and forwarded to the runtime's `GET /v1/health` endpoint even when the broad runtime proxy is disabled.
+Runtime health is exposed directly by the gateway at `GET /v1/health` and forwarded to the runtime's `GET /v1/health` endpoint for dedicated auth handling.
 
 **Authentication boundary:**
 
@@ -175,7 +175,7 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 ### Telegram + Contacts Control-Plane Proxies
 
-Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling.
 
 **Forwarded Telegram endpoints:**
 
@@ -213,7 +213,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 
 ### Twilio Control-Plane Proxy
 
-Twilio integration setup/config endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled. This keeps skills and clients on gateway URLs exclusively.
+Twilio integration setup/config endpoints are exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling. This keeps skills and clients on gateway URLs exclusively.
 
 **Forwarded endpoints:**
 
@@ -242,7 +242,7 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 ### Channel Readiness Proxy
 
-Channel readiness endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+Channel readiness endpoints are exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling.
 
 **Forwarded endpoints:**
 
@@ -280,9 +280,10 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source                                     | Description                                                                  |
-| ------------------------------------------ | ---------------------------------------------------------------------------- |
-| `ingress.publicBaseUrl` (workspace config) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
+| Source                                           | Description                                                                                                                                                |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress.publicBaseUrl` (workspace config)       | Canonical public ingress URL for Telegram webhooks, OAuth callbacks, email callbacks, generic JSON webhooks, and custom/ngrok tunnel based Twilio fallback |
+| `ingress.twilioPublicBaseUrl` (workspace config) | Twilio-specific public ingress URL written by Velay registration; used only by Twilio URL builders when present                                            |
 
 ### Tunnel-Agnostic Setup
 
@@ -291,7 +292,34 @@ To expose the gateway for external callbacks during local development:
 1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
 2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section)
 
-The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, Telegram webhooks, OAuth redirect URIs, etc.).
+The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct webhook and callback URLs automatically. Ngrok and custom tunnels remain supported for every ingress surface, including Twilio fallback.
+
+### Velay Twilio Ingress
+
+Velay is a platform-managed tunnel for assistant-hosted HTTP and WebSocket traffic. It is intentionally additive to the tunnel-agnostic setup above: Velay registration does not overwrite `ingress.publicBaseUrl`, and operators can continue using ngrok or custom tunnels for non-Twilio webhooks.
+
+When `VELAY_BASE_URL` is present in the gateway environment, the gateway starts `VelayTunnelClient`. The client registers with Velay over `GET /v1/register` using the assistant API key, then receives a `registered` frame containing a public assistant URL such as `https://velay.vellum.ai/<assistant-id>`. The gateway writes that URL to `ingress.twilioPublicBaseUrl` only. When the tunnel disconnects, it clears that same value if it still matches the URL the tunnel published, leaving `ingress.publicBaseUrl` intact.
+
+Velay forwards both HTTP request frames and WebSocket frames into the local gateway loopback listener:
+
+```text
+Public Velay HTTPS/WSS URL
+  → Velay tunnel session
+  → Gateway Velay bridge
+  → Gateway loopback listener (http://127.0.0.1:<GATEWAY_PORT>)
+  → Existing gateway route handlers
+```
+
+The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. The advertised URL split is Twilio-scoped in this phase, though: only Twilio URL generation prefers `ingress.twilioPublicBaseUrl`; Telegram webhook registration, OAuth redirects, email callbacks, and generic public URL builders continue to use `ingress.publicBaseUrl`.
+
+Local platform smoke-test flow:
+
+1. In `vellum-assistant-platform`, run `vel up velay`.
+2. Ensure vembda passes `VELAY_BASE_URL=http://host.docker.internal:8501` into assistant gateway containers.
+3. Re-hatch or restart the assistant so the gateway receives the new environment.
+4. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
+5. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
+6. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after `VELAY_PUBLIC_BASE_URL` is backed by a public HTTPS/WSS tunnel.
 
 ### URL Builders
 
@@ -300,10 +328,10 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | Function                       | URL Pattern                                                                                                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
-| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                 |
-| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                         |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                              |
+| `getTwilioVoiceWebhookUrl()`   | `${twilioBase}/webhooks/twilio/voice?callSessionId=...`, where `twilioBase` is `ingress.twilioPublicBaseUrl` when present, otherwise `ingress.publicBaseUrl`     |
+| `getTwilioStatusCallbackUrl()` | `${twilioBase}/webhooks/twilio/status`, with the same Twilio-specific base resolution                                                                            |
+| `getTwilioConnectActionUrl()`  | `${twilioBase}/webhooks/twilio/connect-action`, with the same Twilio-specific base resolution                                                                    |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`, with the same Twilio-specific base resolution                                                                               |
 | `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
 | `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
 
@@ -702,7 +730,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 
 1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
 2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
-3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
+3. Events are deduplicated by a compound key in the SQLite-backed `slack_seen_events` table: every event records its Slack `event_id`, and message-shaped events additionally record `msg:${channel}:${ts}` so the live and reconnect-replay paths dedup symmetrically. Entries TTL out after 24h; a periodic cleanup sweep evicts expired rows.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
 6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` pointing to `/deliver/slack`.
@@ -729,13 +757,24 @@ Both tokens are stored in secure storage (`credential/slack_channel/app_token`, 
 
 The Socket Mode client auto-reconnects on any WebSocket close or error. The backoff schedule is: `min(1000 * 2^attempt, 30000)` + random jitter. After a successful connection, the attempt counter resets. Slack-initiated disconnects (envelope `type: "disconnect"`) trigger an immediate reconnect with no backoff.
 
+**Reconnect catch-up:**
+
+Slack [does not buffer Socket Mode events](https://api.slack.com/apis/socket-mode#events) for disconnected clients, so any @mention or DM that arrives during a reconnect window is lost on the wire. The client recovers these by maintaining a persistent high-watermark (`slack_last_seen_ts`) of the latest accepted event timestamp and, on every WebSocket `open`, fetching a bounded slice of [`conversations.history`](https://api.slack.com/methods/conversations.history) and [`conversations.replies`](https://api.slack.com/methods/conversations.replies) since that watermark. Recovered messages are wrapped in synthetic Socket Mode envelopes and dispatched through the same `processEventPayload` path as live events, so filter, dedup, normalize, and routing logic stay in one place.
+
+Catch-up is scoped to channels the gateway can reasonably reach: routing entries with a Slack-shaped conversation ID (`C…` / `D…` / `G…`), tracked active threads (`slack_active_threads`), and previously-seen DM channels (`contact_channels` rows of type `slack`). It is bounded by max-lookback (1h), per-channel limit (50), and concurrency (4); on a 429 the cycle aborts immediately and resumes on the next reconnect. Brand-new mentions in unrouted, never-engaged channels remain unrecoverable here — the daemon's existing inbound-triggered Slack backfill (`triggerSlackThreadBackfillIfNeeded` and `tryBackfillSlackDmIfCold`) hydrates context once the next live event arrives.
+
+**General principle — stateful-stream transports require catch-up-on-reconnect:**
+
+Any persistent-stream transport that does not buffer events for disconnected clients (Slack Socket Mode, similar WebSocket gateways) must combine the WebSocket with a HTTP catch-up path on reconnect. A persisted high-watermark + bounded replay through the shared event pipeline is the standard pattern; without it, every transient disconnect silently drops events.
+
 **Key modules:**
 
-| Module                                     | Purpose                                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------------------- |
-| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect    |
-| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping |
-| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`          |
+| Module                                     | Purpose                                                                                       |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up |
+| `gateway/src/slack/slack-web.ts`           | `conversations.history` / `conversations.replies` helpers for reconnect catch-up              |
+| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping                  |
+| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`                           |
 
 **Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
 
@@ -1038,18 +1077,21 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
-**Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, Telegram webhooks, etc.) is resolved by `public-ingress-urls.ts`:
+**Webhook base URL resolution:** Public ingress URL construction is centralized in `public-ingress-urls.ts`, with a Twilio-specific override for Velay:
 
-1. `ingress.publicBaseUrl` in workspace config (set via Settings UI > Public Ingress)
-2. Module-level state in the assistant (set by config handlers when tunnels start/stop)
+- Twilio voice/status/connect-action/relay/media-stream URLs use `ingress.twilioPublicBaseUrl` when present. This is the value published by Velay registration.
+- If `ingress.twilioPublicBaseUrl` is absent, Twilio falls back to `ingress.publicBaseUrl`.
+- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs use `ingress.publicBaseUrl`; Velay does not replace those advertised URLs in this phase.
+- Module-level assistant state remains a fallback for legacy tunnel start/stop flows.
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 
-1. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
-2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
-3. Raw request URL (always included as the final fallback)
+1. `ConfigFileCache.getString("ingress", "twilioPublicBaseUrl")` (if configured)
+2. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
+3. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
+4. Raw request URL (always included as the final fallback)
 
 This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, the config file watcher detects ingress URL changes and triggers webhook reconciliation directly, so neither channel requires a gateway restart.
 

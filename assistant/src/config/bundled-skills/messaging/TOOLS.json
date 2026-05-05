@@ -16,10 +16,6 @@
           "account": {
             "type": "string",
             "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false
@@ -54,10 +50,6 @@
           "limit": {
             "type": "number",
             "description": "Maximum number of conversations to return (default 200)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false
@@ -92,10 +84,6 @@
           "limit": {
             "type": "number",
             "description": "Maximum number of messages to return (default 50)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false,
@@ -127,10 +115,6 @@
           "max_results": {
             "type": "number",
             "description": "Maximum number of results to return (default 20)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false,
@@ -185,10 +169,6 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false,
@@ -220,10 +200,6 @@
           "message_id": {
             "type": "string",
             "description": "Specific message ID to mark as read (optional)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false,
@@ -255,10 +231,6 @@
           "query_filter": {
             "type": "string",
             "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false
@@ -302,10 +274,6 @@
           "draft_id": {
             "type": "string",
             "description": "Draft ID (for delete)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false,
@@ -345,10 +313,6 @@
           "page_token": {
             "type": "string",
             "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "additionalProperties": false
@@ -379,10 +343,6 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           },
           "user_approved": {
             "type": "boolean",

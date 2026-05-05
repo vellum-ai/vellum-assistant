@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
+import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { dirname, join } from "path";
 
 import {
@@ -111,7 +111,9 @@ function computeIpcSocketDirOverride(workspaceDir: string): string | undefined {
  * a short override directory and set all IPC socket env vars on the target
  * env object. No-op on non-macOS or when paths are within limits.
  */
-function applyIpcSocketDirOverride(env: Record<string, string>): void {
+function applyIpcSocketDirOverride(
+  env: Record<string, string | undefined>,
+): void {
   const workspaceDir =
     env.VELLUM_WORKSPACE_DIR || join(homedir(), ".vellum", "workspace");
   const override = computeIpcSocketDirOverride(workspaceDir);
@@ -392,13 +394,17 @@ async function startDaemonFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
       "workspace",
     );
     env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
       "protected",
@@ -412,6 +418,8 @@ async function startDaemonFromSource(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+
+  applyIpcSocketDirOverride(env);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -523,13 +531,17 @@ async function startDaemonWatchFromSource(
       : {}),
   };
   if (resources) {
-    env.BASE_DATA_DIR = resources.instanceDir;
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
       ".vellum",
       "workspace",
     );
     env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
       "protected",
@@ -543,6 +555,8 @@ async function startDaemonWatchFromSource(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+
+  applyIpcSocketDirOverride(env);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -675,51 +689,18 @@ export async function discoverPublicUrl(
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  // Log the local address source only when we actually use it.
-  if (localResult.source === "hostname") {
-    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
-  } else if (localResult.source === "lan") {
-    console.log(`   Discovered LAN IP: ${localResult.label}`);
-  }
-
   return localResult.url;
 }
 
 /**
- * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost. Does not emit any logs — the caller
- * decides whether to log based on which result is actually used.
+ * Returns the localhost URL for the gateway on the given port.
  */
 function discoverLocalUrl(effectivePort: number): {
   url: string;
-  source: "hostname" | "lan" | "localhost";
-  label?: string;
+  source: "localhost";
 } {
-  // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
-  // the same network can reach the gateway by name.
-  if (platform() === "darwin") {
-    const localHostname = getMacLocalHostname();
-    if (localHostname) {
-      return {
-        url: `http://${localHostname}:${effectivePort}`,
-        source: "hostname",
-        label: localHostname,
-      };
-    }
-  }
-
-  const lanIp = getLocalLanIPv4();
-  if (lanIp) {
-    return {
-      url: `http://${lanIp}:${effectivePort}`,
-      source: "lan",
-      label: lanIp,
-    };
-  }
-
-  // Final fallback to localhost when no LAN address could be discovered.
   return {
-    url: `http://localhost:${effectivePort}`,
+    url: `http://127.0.0.1:${effectivePort}`,
     source: "localhost",
   };
 }
@@ -774,19 +755,6 @@ async function discoverCloudExternalIp(): Promise<string | undefined> {
 
   const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
   return gcpIp ?? awsIp;
-}
-
-/**
- * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
- * or undefined if not running on macOS or the hostname cannot be determined.
- */
-export function getMacLocalHostname(): string | undefined {
-  const host = hostname();
-  if (!host) return undefined;
-  // macOS hostnames already end with .local when Bonjour is active
-  if (host.endsWith(".local")) return host;
-  // Otherwise, append .local — macOS resolves <ComputerName>.local via mDNS
-  return `${host}.local`;
 }
 
 /**
@@ -988,8 +956,8 @@ export async function startLocalDaemon(
       for (const key of [
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
-        "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
+        "CREDENTIAL_SECURITY_DIR",
         "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
@@ -1015,13 +983,17 @@ export async function startLocalDaemon(
       // When running a named instance, override env so the daemon resolves
       // all paths under the instance directory and listens on its own port.
       if (resources) {
-        daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.VELLUM_WORKSPACE_DIR = join(
           resources.instanceDir,
           ".vellum",
           "workspace",
         );
         daemonEnv.GATEWAY_SECURITY_DIR = join(
+          resources.instanceDir,
+          ".vellum",
+          "protected",
+        );
+        daemonEnv.CREDENTIAL_SECURITY_DIR = join(
           resources.instanceDir,
           ".vellum",
           "protected",
@@ -1165,7 +1137,7 @@ export async function startGateway(
 
   const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
   if (publicUrl) {
-    console.log(`   Public URL: ${publicUrl}`);
+    console.log(`   HTTP URL: ${publicUrl}`);
   }
 
   console.log("🌐 Starting gateway...");
@@ -1179,7 +1151,6 @@ export async function startGateway(
     GATEWAY_PORT: String(effectiveGatewayPort),
     // Pass gateway operational settings via env vars so the CLI does not
     // need direct access to the workspace config file.
-    RUNTIME_PROXY_ENABLED: "true",
     RUNTIME_PROXY_REQUIRE_AUTH: "true",
     UNMAPPED_POLICY: "default",
     DEFAULT_ASSISTANT_ID: "self",
@@ -1197,7 +1168,6 @@ export async function startGateway(
     // assistant DB directly for guardian bootstrap.
     ...(resources
       ? {
-          BASE_DATA_DIR: resources.instanceDir,
           VELLUM_WORKSPACE_DIR: join(
             resources.instanceDir,
             ".vellum",
@@ -1208,15 +1178,16 @@ export async function startGateway(
             ".vellum",
             "protected",
           ),
+          CREDENTIAL_SECURITY_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "protected",
+          ),
         }
       : {}),
   };
 
   applyIpcSocketDirOverride(gatewayEnv);
-
-  if (publicUrl) {
-    console.log(`   Ingress URL: ${publicUrl}`);
-  }
 
   let gateway;
 
@@ -1263,8 +1234,8 @@ export async function startGateway(
   const gatewayUrl = publicUrl || `http://localhost:${effectiveGatewayPort}`;
 
   // Wait for the gateway to be responsive before returning. Without this,
-  // callers (e.g. displayPairingQRCode) may try to connect before the HTTP
-  // server is listening and get connection-refused errors.
+  // callers may try to connect before the HTTP server is listening and get
+  // connection-refused errors.
   const start = Date.now();
   const timeoutMs = 30000;
   let ready = false;

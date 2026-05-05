@@ -165,12 +165,6 @@ import { searchSkills } from "../daemon/handlers/skills.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as Parameters<typeof searchSkills>[1];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -224,7 +218,7 @@ describe("searchSkills (unified)", () => {
       },
     ]);
 
-    const result = await searchSkills("e", dummyCtx);
+    const result = await searchSkills("e");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -284,7 +278,7 @@ describe("searchSkills (unified)", () => {
       },
     ]);
 
-    const result = await searchSkills("shared", dummyCtx);
+    const result = await searchSkills("shared");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -326,7 +320,7 @@ describe("searchSkills (unified)", () => {
       },
     ]);
 
-    const result = await searchSkills("overlap", dummyCtx);
+    const result = await searchSkills("overlap");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -357,7 +351,7 @@ describe("searchSkills (unified)", () => {
     });
     mockSkillsshSearch.mockRejectedValue(new Error("skills.sh is down"));
 
-    const result = await searchSkills("clawhub", dummyCtx);
+    const result = await searchSkills("clawhub");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -379,7 +373,7 @@ describe("searchSkills (unified)", () => {
       },
     ]);
 
-    const result = await searchSkills("skillssh", dummyCtx);
+    const result = await searchSkills("skillssh");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -400,7 +394,7 @@ describe("searchSkills (unified)", () => {
     mockClawhubSearch.mockRejectedValue(new Error("clawhub down"));
     mockSkillsshSearch.mockRejectedValue(new Error("skillssh down"));
 
-    const result = await searchSkills("my", dummyCtx);
+    const result = await searchSkills("my");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -422,7 +416,7 @@ describe("searchSkills (unified)", () => {
       },
     ]);
 
-    const result = await searchSkills("test", dummyCtx);
+    const result = await searchSkills("test");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -474,7 +468,7 @@ describe("searchSkills (unified)", () => {
       },
     });
 
-    const result = await searchSkills("lint", dummyCtx);
+    const result = await searchSkills("lint");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
@@ -526,7 +520,7 @@ describe("searchSkills (unified)", () => {
     ]);
     mockFetchSkillAudits.mockRejectedValue(new Error("audit service down"));
 
-    const result = await searchSkills("my-skill", dummyCtx);
+    const result = await searchSkills("my-skill");
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 

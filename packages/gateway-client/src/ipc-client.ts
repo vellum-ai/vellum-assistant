@@ -14,6 +14,38 @@ import type { IpcRequest, IpcResponse, Logger } from "./types.js";
 import { noopLogger } from "./types.js";
 
 // ---------------------------------------------------------------------------
+// Error surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Error class thrown by `PersistentIpcClient.call` when the daemon returns
+ * a structured error envelope (i.e. `RouteError`-derived). Mirrors the HTTP
+ * adapter's `error.details` shape so IPC callers can branch on `errorCode`
+ * or recover machine-readable `errorDetails` (e.g. `version_incompatible`).
+ */
+export class IpcCallError extends Error {
+  readonly statusCode?: number;
+  readonly errorCode?: string;
+  readonly errorDetails?: unknown;
+
+  constructor(
+    message: string,
+    fields: {
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    } = {},
+  ) {
+    super(message);
+    this.name = "IpcCallError";
+    if (fields.statusCode !== undefined) this.statusCode = fields.statusCode;
+    if (fields.errorCode !== undefined) this.errorCode = fields.errorCode;
+    if (fields.errorDetails !== undefined)
+      this.errorDetails = fields.errorDetails;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -30,13 +62,22 @@ const CONNECT_TIMEOUT_MS = 3_000;
  * Designed for CLI and daemon startup where we need a single RPC call
  * without leaving open handles. Returns `undefined` on any failure
  * (socket not found, timeout, parse error) so callers can fall back.
+ *
+ * @param timeoutMs - Optional override for both the connect and call
+ *   timeouts. When omitted, defaults to the module constants
+ *   (CONNECT_TIMEOUT_MS / DEFAULT_CALL_TIMEOUT_MS). Pass a small value
+ *   (e.g. 200) for opportunistic CLI checks where a slow/absent gateway
+ *   should fail fast rather than block startup.
  */
 export async function ipcCall(
   socketPath: string,
   method: string,
   params?: Record<string, unknown>,
   log: Logger = noopLogger,
+  timeoutMs?: number,
 ): Promise<unknown> {
+  const connectTimeoutMs = timeoutMs ?? CONNECT_TIMEOUT_MS;
+  const callTimeoutMs = timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
   return new Promise<unknown>((resolve) => {
     let settled = false;
     let callTimer: ReturnType<typeof setTimeout> | undefined;
@@ -52,11 +93,11 @@ export async function ipcCall(
 
     const connectTimer = setTimeout(() => {
       log.warn(
-        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
+        { method, socketPath, timeoutMs: connectTimeoutMs },
         "IPC connect timed out",
       );
       finish(undefined);
-    }, CONNECT_TIMEOUT_MS);
+    }, connectTimeoutMs);
 
     const socket: Socket = connect(socketPath);
     socket.unref();
@@ -71,11 +112,11 @@ export async function ipcCall(
 
       callTimer = setTimeout(() => {
         log.warn(
-          { method, socketPath, timeoutMs: DEFAULT_CALL_TIMEOUT_MS },
+          { method, socketPath, timeoutMs: callTimeoutMs },
           "IPC call timed out waiting for response",
         );
         finish(undefined);
-      }, DEFAULT_CALL_TIMEOUT_MS);
+      }, callTimeoutMs);
 
       socket.on("data", (chunk) => {
         buffer += chunk.toString();
@@ -294,7 +335,13 @@ export class PersistentIpcClient {
             this.pending.delete(msg.id);
             clearTimeout(entry.timer);
             if (msg.error) {
-              entry.reject(new Error(msg.error));
+              entry.reject(
+                new IpcCallError(msg.error, {
+                  statusCode: msg.statusCode,
+                  errorCode: msg.errorCode,
+                  errorDetails: msg.errorDetails,
+                }),
+              );
             } else {
               entry.resolve(msg.result);
             }

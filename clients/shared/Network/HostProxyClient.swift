@@ -8,6 +8,7 @@ public protocol HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
     func postCuResult(_ result: HostCuResultPayload) async -> Bool
+    func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool
     func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool
     func postTransferResult(_ result: HostTransferResultPayload) async -> Bool
     func pullTransferContent(transferId: String) async throws -> Data
@@ -22,8 +23,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-bash-result",
+                path: "host-bash-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: 30
             )
             guard response.isSuccess else {
@@ -46,8 +48,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
                 ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
                 : 30
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-file-result",
+                path: "host-file-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: timeout
             )
             guard response.isSuccess else {
@@ -65,8 +68,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-cu-result",
+                path: "host-cu-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: 30
             )
             guard response.isSuccess else {
@@ -80,11 +84,36 @@ public struct HostProxyClient: HostProxyClientProtocol {
         }
     }
 
+    public func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(result)
+            // pngBase64 may be present (~1-2 MB for full-window screenshots);
+            // scale the timeout so large payloads don't trigger URLSession's
+            // cancellation race, mirroring postFileResult's behaviour.
+            let timeout: TimeInterval = result.pngBase64 != nil
+                ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
+                : 30
+            let response = try await GatewayHTTPClient.post(
+                path: "host-app-control-result",
+                body: body,
+                timeout: timeout
+            )
+            guard response.isSuccess else {
+                log.error("postAppControlResult failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("postAppControlResult error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     public func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool {
         do {
             let body = try JSONEncoder().encode(result)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-browser-result",
+                path: "host-browser-result",
                 body: body,
                 timeout: 30
             )
@@ -105,8 +134,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
             // Scale timeout based on payload size for large transfer results.
             let timeout: TimeInterval = max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/host-transfer-result",
+                path: "host-transfer-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: timeout
             )
             guard response.isSuccess else {
@@ -123,8 +153,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
     public func pullTransferContent(transferId: String) async throws -> Data {
         // Use a generous timeout — large files may take a while to download.
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/transfers/\(transferId)/content",
-            timeout: 300
+            path: "transfers/\(transferId)/content",
+            timeout: 300,
+            extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()]
         )
         guard response.isSuccess else {
             throw TransferError.pullFailed(statusCode: response.statusCode)
@@ -136,11 +167,11 @@ public struct HostProxyClient: HostProxyClientProtocol {
         // Scale timeout by data size: ~5s per MB with a 30s minimum.
         let timeout: TimeInterval = max(30, TimeInterval(data.count) / (1024 * 1024) * 5 + 30)
         let response = try await GatewayHTTPClient.put(
-            path: "assistants/{assistantId}/transfers/\(transferId)/content",
+            path: "transfers/\(transferId)/content",
             body: data,
             params: ["sourcePath": sourcePath],
             contentType: "application/octet-stream",
-            extraHeaders: ["X-Transfer-SHA256": sha256],
+            extraHeaders: ["X-Transfer-SHA256": sha256, "X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
             timeout: timeout
         )
         guard response.isSuccess else {

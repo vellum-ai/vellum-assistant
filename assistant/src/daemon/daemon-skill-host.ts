@@ -202,7 +202,11 @@ function buildEventsFacet(): EventsFacet {
     publish: (event: AssistantEvent) =>
       assistantEventHub.publish(event as never),
     subscribe: (filter: Filter, cb: AssistantEventCallback): Subscription =>
-      assistantEventHub.subscribe(filter, cb as never),
+      assistantEventHub.subscribe({
+        type: "process",
+        filter,
+        callback: cb,
+      }),
     // `buildAssistantEvent` takes `(message, conversationId?)`.
     buildEvent: (message: ServerMessage, conversationId?: string) =>
       buildAssistantEvent(message as never, conversationId) as AssistantEvent,

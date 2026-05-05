@@ -38,6 +38,7 @@ import { mock } from "bun:test";
 // ---------------------------------------------------------------------------
 
 /** IPC result the fake gateway will return (keyed by method name). */
+
 let ipcResults: Record<string, unknown> = {};
 
 /** Whether the fake ipcCall should simulate a connection error. */

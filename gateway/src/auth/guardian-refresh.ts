@@ -3,7 +3,7 @@
  * gateway's own SQLite database for all token operations.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
@@ -15,7 +15,6 @@ import {
 import { getLogger } from "../logger.js";
 
 import {
-  closeAssistantDb,
   getExternalAssistantId,
   hashToken,
   ACCESS_TOKEN_TTL_MS,
@@ -25,8 +24,6 @@ import {
 } from "./guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
-
-export { closeAssistantDb };
 
 const log = getLogger("guardian-refresh");
 
@@ -38,7 +35,6 @@ export type RefreshErrorCode =
   | "refresh_invalid"
   | "refresh_expired"
   | "refresh_reuse_detected"
-  | "device_binding_mismatch"
   | "revoked";
 
 export interface RotateResult {
@@ -205,15 +201,10 @@ function mintRefreshTokenInFamily(params: {
  */
 export function rotateCredentials(params: {
   refreshToken: string;
-  platform: string;
-  deviceId: string;
 }):
   | { ok: true; result: RotateResult }
   | { ok: false; error: RefreshErrorCode } {
   const refreshTokenHash = hashToken(params.refreshToken);
-  const hashedDeviceId = createHash("sha256")
-    .update(params.deviceId)
-    .digest("hex");
 
   const record = findRefreshByHash(refreshTokenHash);
 
@@ -248,14 +239,6 @@ export function rotateCredentials(params: {
     return { ok: false, error: "refresh_expired" };
   }
 
-  if (record.hashedDeviceId !== hashedDeviceId) {
-    return { ok: false, error: "device_binding_mismatch" };
-  }
-
-  if (record.platform !== params.platform) {
-    return { ok: false, error: "device_binding_mismatch" };
-  }
-
   return getGatewayDb().transaction((tx) => {
     void tx; // transaction scoped via the underlying bun:sqlite connection
 
@@ -272,19 +255,19 @@ export function rotateCredentials(params: {
     const access = mintAccessToken(
       record.guardianPrincipalId,
       record.hashedDeviceId,
-      params.platform,
+      record.platform,
     );
 
     const refresh = mintRefreshTokenInFamily({
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
-      platform: params.platform,
+      platform: record.platform,
       familyId: record.familyId,
       absoluteExpiresAt: record.absoluteExpiresAt,
     });
 
     log.info(
-      { familyId: record.familyId, platform: params.platform },
+      { familyId: record.familyId, platform: record.platform },
       "Credential rotation completed",
     );
 

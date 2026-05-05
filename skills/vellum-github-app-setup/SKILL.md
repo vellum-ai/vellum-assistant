@@ -21,7 +21,7 @@ This skill creates a **GitHub App** under a GitHub organization, giving the assi
 ## What Gets Created
 
 - A **GitHub App** owned by the org (not the user's personal account)
-- **Installation** on selected repositories with configurable permissions (default: `contents:write` + `pull_requests:write`)
+- **Installation** on selected repositories with configurable permissions (default: `contents:write`, `pull_requests:write`, `checks:read`, `metadata:read`)
 - **Credentials** stored in the assistant's encrypted vault (7 fields)
 - **Token helper script** at `bin/gh-app-token.mjs` (in the workspace root) for refreshing auth tokens
 
@@ -183,6 +183,17 @@ Always refresh before pushing:
 TOKEN=$(bun "$WORKSPACE_ROOT/bin/gh-app-token.mjs")
 git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO.git"
 ```
+
+## Permission Reference
+
+The default permission set covers the full range of actions the assistant may need to perform on a repository:
+
+| Permission      | Level | Purpose                                                   |
+| --------------- | ----- | --------------------------------------------------------- |
+| `contents`      | write | Push commits, create/delete branches                      |
+| `pull_requests` | write | Open PRs, post PR comments and reviews                    |
+| `checks`        | read  | Read CI check-run status (e.g. `gh pr checks`)            |
+| `metadata`      | read  | Required by GitHub for all App installations (auto-added) |
 
 ## Credential Reference
 

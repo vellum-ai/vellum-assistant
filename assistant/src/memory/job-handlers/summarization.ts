@@ -10,7 +10,6 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
-import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { asString, truncate } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -91,10 +90,6 @@ export async function buildConversationSummaryJob(
     "conversation",
   );
 
-  // Inherit the conversation's memory scope so summaries stay aligned with
-  // the retrieval scope used by the source conversation.
-  const scopeId = getConversationMemoryScopeId(conversationId);
-
   const now = Date.now();
   const summaryId = existing?.id ?? uuid();
   const nextVersion = (existing?.version ?? 0) + 1;
@@ -108,7 +103,7 @@ export async function buildConversationSummaryJob(
       id: summaryId,
       scope: "conversation",
       scopeKey: conversationId,
-      scopeId,
+      scopeId: "default",
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
       version: nextVersion,
@@ -123,7 +118,7 @@ export async function buildConversationSummaryJob(
         summary: summaryText,
         tokenEstimate: estimateTextTokens(summaryText),
         version: sql`${memorySummaries.version} + 1`,
-        scopeId,
+        scopeId: "default",
         startAt: earliestCovered,
         endAt: latestCovered,
         updatedAt: now,

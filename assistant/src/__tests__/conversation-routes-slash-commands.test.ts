@@ -2,7 +2,7 @@
  * Tests for slash command interception in the POST /v1/messages handler.
  *
  * Validates that:
- * - Built-in slash commands (/status, /models, /commands) are intercepted and
+ * - Built-in slash commands (/context, /models, /commands) are intercepted and
  *   do NOT trigger the agent loop.
  * - Regular messages pass through to the agent loop unchanged.
  */
@@ -10,18 +10,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { SlashResolution } from "../daemon/conversation-slash.js";
-
-const resolveSlashMock = mock(
-  (_content: string, _context?: unknown): SlashResolution => ({
-    kind: "passthrough",
-    content: _content,
-  }),
+const formatCompactResultMock = mock(
+  (result: { maxInputTokens: number }) =>
+    `Context Compacted\n\nContext: 10,000 / ${result.maxInputTokens.toLocaleString(
+      "en-US",
+    )} tokens`,
 );
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  resolveSlash: resolveSlashMock,
-}));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -56,7 +50,11 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: {
+        "short-context": {
+          contextWindow: { maxInputTokens: 150000 },
+        },
+      },
       callSites: {},
       pricingOverrides: [],
     },
@@ -133,6 +131,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => addMessageMock(conversationId, role, content, metadata),
+  getConversationOverrideProfile: () => "short-context",
   getMessages: () => [],
   provenanceFromTrustContext: (ctx: unknown) =>
     ctx
@@ -152,6 +151,7 @@ mock.module("../daemon/conversation-process.js", () => ({
   isModelSlashCommand: (content: string) => {
     return content.trim() === "/models";
   },
+  formatCompactResult: formatCompactResultMock,
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -220,6 +220,21 @@ function makeConversation() {
     ) => undefined,
   );
   const setPreactivatedSkillIds = mock((_ids: string[] | undefined) => {});
+  const forceCompact = mock(async () => ({
+    messages: [],
+    compacted: true,
+    previousEstimatedInputTokens: 12000,
+    estimatedInputTokens: 10000,
+    maxInputTokens: 150000,
+    thresholdTokens: 120000,
+    compactedMessages: 2,
+    compactedPersistedMessages: 2,
+    summaryCalls: 1,
+    summaryInputTokens: 500,
+    summaryOutputTokens: 100,
+    summaryModel: "claude-opus-4-7",
+    summaryText: "Summary",
+  }));
   const events: unknown[] = [];
   const messages: unknown[] = [];
   const conversation = {
@@ -236,18 +251,16 @@ function makeConversation() {
     enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
     persistUserMessage,
     runAgentLoop,
+    forceCompact,
     setPreactivatedSkillIds,
     drainQueue: async () => {},
     getMessages: () => messages,
     assistantId: "self",
     trustContext: undefined,
     hasPendingConfirmation: () => false,
-    setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
-    setHostFileProxy: () => {},
-    setHostTransferProxy: () => {},
-    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
+    setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
     usageStats: {
       inputTokens: 1000,
@@ -262,13 +275,18 @@ function makeConversation() {
     setPreactivatedSkillIds,
     events,
     messages,
+    forceCompact,
   };
 }
 
 function makeRequest(content: string, extras: Record<string, unknown> = {}) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-vellum-actor-principal-id": "test-user",
+      "x-vellum-principal-type": "actor",
+    },
     body: JSON.stringify({
       conversationKey: "slash-test-key",
       content,
@@ -293,22 +311,17 @@ function makeDeps(
 
 describe("handleSendMessage slash command interception", () => {
   beforeEach(() => {
-    resolveSlashMock.mockClear();
+    formatCompactResultMock.mockClear();
     addMessageMock.mockClear();
     ipcCallMock.mockClear();
   });
 
   test("intercepts built-in slash commands (unknown kind) without calling agent loop", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "unknown",
-      message: "Conversation Status\n\nContext: 5%",
-    });
-
     const { conversation, persistUserMessage, runAgentLoop } =
       makeConversation();
     const res = await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
-      makeRequest("/status"),
+      makeRequest("/context"),
       undefined,
       202,
     );
@@ -321,10 +334,6 @@ describe("handleSendMessage slash command interception", () => {
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBe("persisted-user-id");
 
-    // Slash command was resolved
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-    expect(resolveSlashMock.mock.calls[0][0]).toBe("/status");
-
     // User + assistant messages persisted, but agent loop NOT called
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     const roles = addMessageMock.mock.calls.map((c) => c[1]);
@@ -333,12 +342,35 @@ describe("handleSendMessage slash command interception", () => {
     expect(runAgentLoop).not.toHaveBeenCalled();
   });
 
-  test("passes regular messages through to agent loop unchanged", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
+  test("handles /compact without calling agent loop and formats the compaction max", async () => {
+    const { conversation, persistUserMessage, runAgentLoop, forceCompact } =
+      makeConversation();
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("/compact"),
+      undefined,
+      202,
+    );
 
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+    };
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBe("persisted-user-id");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(forceCompact).toHaveBeenCalledTimes(1);
+    expect(formatCompactResultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ maxInputTokens: 150000 }),
+    );
+    expect(persistUserMessage).not.toHaveBeenCalled();
+    expect(runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  test("passes regular messages through to agent loop unchanged", async () => {
     const {
       conversation,
       persistUserMessage,
@@ -354,9 +386,6 @@ describe("handleSendMessage slash command interception", () => {
 
     expect(res.status).toBe(202);
 
-    // Slash command was resolved but passed through
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-
     // No skill preactivation
     expect(setPreactivatedSkillIds).not.toHaveBeenCalled();
 
@@ -367,41 +396,26 @@ describe("handleSendMessage slash command interception", () => {
     expect(loopContent).toBe("hello there");
   });
 
-  test("passes SlashContext with session usage stats", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "test",
-    });
-
+  test("passes SlashContext with resolved profile context budget", async () => {
     const { conversation } = makeConversation();
     await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
-      makeRequest("test"),
+      makeRequest("/context"),
       undefined,
       202,
     );
 
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-    const context = resolveSlashMock.mock.calls[0][1] as Record<
-      string,
-      unknown
-    >;
-    expect(context).toMatchObject({
-      inputTokens: 1000,
-      outputTokens: 500,
-      estimatedCost: 0.05,
-      model: "claude-opus-4-7",
-      provider: "anthropic",
-      maxInputTokens: 200000,
-    });
+    const assistantPersist = addMessageMock.mock.calls.find(
+      (call) => call[1] === "assistant",
+    );
+    expect(assistantPersist).toBeDefined();
+    expect(String(assistantPersist?.[2])).toContain("1,000 / 150,000 tokens");
+    expect(String(assistantPersist?.[2])).toContain(
+      "claude-opus-4-7 (anthropic)",
+    );
   });
 
   test("applies riskThreshold override when provided", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
-
     const { conversation } = makeConversation();
     const res = await callHandler(
       (args) => handleSendMessage(args, makeDeps(conversation)),
@@ -418,10 +432,6 @@ describe("handleSendMessage slash command interception", () => {
   });
 
   test("returns 500 when riskThreshold IPC fails", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "passthrough",
-      content: "hello there",
-    });
     ipcCallMock.mockImplementationOnce(async () => undefined);
 
     const { conversation } = makeConversation();

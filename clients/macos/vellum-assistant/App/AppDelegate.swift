@@ -53,6 +53,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var hostCuOverlayCancellables = Set<AnyCancellable>()
     /// In-flight CU tasks keyed by request ID, for cancel support.
     var inFlightCuTasks: [String: Task<Void, Never>] = [:]
+    /// In-flight host app-control tasks keyed by request ID, for cancel support.
+    var inFlightAppControlTasks: [String: Task<Void, Never>] = [:]
     /// Executor for host browser (CDP) requests.
     let hostBrowserExecutor = HostBrowserExecutor()
     var isStartingSession = false
@@ -96,17 +98,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
+    var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
+    var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
+    var diskPressureStatusStore: DiskPressureStatusStore { services.diskPressureStatusStore }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
-    /// Shared feature flag store — caches resolved flags in memory so that
-    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
-    /// the main thread.
-    let featureFlagStore = AssistantFeatureFlagStore()
-
     lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
@@ -120,7 +120,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var threadWindowManager: ThreadWindowManager?
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
-    var pairingApprovalWindow: PairingApprovalWindow?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -156,7 +155,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (e.g. the async batch STT fallback completing after the user already sent).
     var voiceTranscriptionConsumed = false
     var connectionStatusTask: Task<Void, Never>?
-    var diskPressureConnectionTask: Task<Void, Never>?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     /// Cached circular avatar image for the menu bar icon. Invalidated only
@@ -200,6 +198,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var hasRequestedNotificationAuthorizationFromConversationSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
+    /// Pending conversation deep link captured while first-launch bootstrap is
+    /// active. Drained once bootstrap reaches `.complete`.
+    var pendingConversationOpenRequest: (conversationId: String, anchorMessageId: String?)?
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local assistant hatching is skipped.
@@ -402,7 +403,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ChatDiagnosticsStore.shared
 
         MainThreadStallDetector.shared.start()
-        services.diskPressureMonitor.start()
+        services.diskPressureStatusStore.start()
         // Begin observing system memory pressure so subsystems that do
         // periodic main-thread work (e.g. DebugStateWriter) can throttle
         // under warning/critical events instead of compounding the stall.
@@ -653,6 +654,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSurfaceManager()
         setupToolConfirmationNotifications()
         setupSecretPromptManager()
+        setupContactPromptManager()
         setupWindowObserver()
         setupSleepWakeHandlers()
         setupNotifications()
@@ -808,9 +810,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // the quit sequence so the new version launches after termination.
         updateManager.installDeferredUpdateIfAvailable()
 
-        // Restore the Vellum logo so the pinned dock tile caches the
-        // correct icon instead of whatever avatar was showing at quit time.
-        AvatarAppearanceManager.shared.restoreBundleIcon()
+        // Clear the runtime icon override so the dock tile reverts to the
+        // bundle icon. applicationIconImage is an in-process property that
+        // dies with the process; the Dock independently resolves the bundle
+        // icon for pinned tiles on process exit. Setting nil is Apple's
+        // documented API to restore the original icon and avoids the 2s+
+        // NSWorkspace.icon(forFile:) filesystem read that restoreBundleIcon()
+        // would trigger if the static had never been accessed (LUM-1301).
+        //
+        // Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
+        NSApplication.shared.applicationIconImage = nil
 
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
@@ -835,8 +844,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusTask?.cancel()
-        diskPressureConnectionTask?.cancel()
-        services.diskPressureMonitor.stop()
+        services.diskPressureStatusStore.stop()
         statusDotLayer?.removeAllAnimations()
         statusDotLayer?.removeFromSuperlayer()
         statusDotLayer = nil
@@ -847,6 +855,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        contactPromptManager.dismissAll()
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
@@ -894,6 +903,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
     /// so that auth-gate onboarding flows also persist avatar traits on the assistant.
     func syncOnboardingAvatarIfNeeded() {
+        // When the managed bootstrap reused an existing assistant (hatched
+        // elsewhere, e.g. the web platform), the daemon already has the
+        // user's chosen avatar. Reload it instead of overwriting with the
+        // random traits generated for the hatching animation.
+        if onboardingState?.hasExistingManagedAssistant == true {
+            log.info("[avatarSync] syncOnboardingAvatarIfNeeded: reused existing managed assistant — reloading daemon avatar instead of syncing onboarding traits")
+            onboardingState = nil
+            AvatarAppearanceManager.shared.reloadAvatar()
+            return
+        }
+
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {

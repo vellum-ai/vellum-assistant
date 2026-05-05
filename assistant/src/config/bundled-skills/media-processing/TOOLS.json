@@ -20,10 +20,6 @@
           "metadata": {
             "type": "object",
             "description": "Optional JSON metadata to attach to the asset (e.g., pipeline config, source info)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["file_path"]
@@ -51,10 +47,6 @@
             "type": "string",
             "enum": ["registered", "processing", "indexed", "failed"],
             "description": "Filter assets by processing status"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -100,10 +92,6 @@
           "include_audio": {
             "type": "boolean",
             "description": "Whether to extract and transcribe audio for each segment using the configured STT service. Default: false."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id"]
@@ -153,10 +141,6 @@
             "type": "number",
             "minimum": 0,
             "description": "Maximum retry attempts per segment on failure. Default: 3"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "system_prompt", "output_schema"]
@@ -187,10 +171,6 @@
           "model": {
             "type": "string",
             "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "query"]
@@ -234,10 +214,6 @@
           "title": {
             "type": "string",
             "description": "Short descriptive title for the clip (e.g. 'snow-dive-closeup', 'goal-celebration'). Used as the filename. If omitted, falls back to timestamp-based naming."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "start_time", "end_time"]

@@ -14,11 +14,9 @@ import {
 import {
   parseChannelId,
   parseInterfaceId,
-  supportsHostProxy,
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
@@ -41,11 +39,13 @@ import type {
 } from "./conversation-queue-manager.js";
 import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
+  buildSlashContextForContent,
   classifySlash,
   resolveSlash,
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -61,22 +61,32 @@ const log = getLogger("conversation-process");
 
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
-  const fmt = (n: number) => n.toLocaleString("en-US");
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   if (!result.compacted) {
-    return `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`;
+    return [
+      `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`,
+      `Context: ${fmt(result.estimatedInputTokens)} / ${fmt(
+        result.maxInputTokens,
+      )} tokens`,
+    ].join("\n");
   }
   const saved =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
     "Context Compacted\n",
     `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(saved)} saved)`,
+    `Context:  ${fmt(result.estimatedInputTokens)} / ${fmt(
+      result.maxInputTokens,
+    )} tokens`,
     `Messages: ${fmt(result.compactedMessages)} compacted`,
   ].join("\n");
 }
 
 /** Build a model_info event with fresh config data. */
-export async function buildModelInfoEvent(): Promise<ServerMessage> {
-  return { type: "model_info", ...(await getModelInfo()) };
+export async function buildModelInfoEvent(
+  conversationId?: string,
+): Promise<ServerMessage> {
+  return { type: "model_info", conversationId, ...(await getModelInfo()) };
 }
 
 /** True when the trimmed content is the /models slash command. */
@@ -132,7 +142,7 @@ export interface ProcessConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent?: (msg: ServerMessage) => void,
     options?: {
       isInteractive?: boolean;
       isUserMessage?: boolean;
@@ -144,10 +154,6 @@ export interface ProcessConversationContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
-  /** Mark host proxies as unavailable so tool execution uses local fallback. */
-  clearProxyAvailability(): void;
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -231,20 +237,18 @@ function resolveQueuedTurnInterfaceContext(
 
 /** Build a SlashContext from the current conversation state and config. */
 function buildSlashContext(
+  content: string,
   conversation: ProcessConversationContext,
-): SlashContext {
-  const config = getConfig();
+): SlashContext | undefined {
   const turnInterface = conversation.getTurnInterfaceContext();
-  return {
+  return buildSlashContextForContent(content, {
+    conversationId: conversation.conversationId,
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
-  };
+  });
 }
 
 /**
@@ -421,19 +425,19 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
   }
 
-  // Non-interactive queued messages (channel requests) must not execute tools
-  // via the desktop host proxy. Clear proxy availability so isAvailable()
-  // returns false and tool execution falls back to local.
-  if (next.isInteractive === false) {
-    conversation.clearProxyAvailability();
-  } else {
+  // Re-preactivate host-proxy skills for interactive desktop turns. The
+  // dequeue path reset `preactivatedSkillIds` above, so without these
+  // re-adds the relevant skill tools wouldn't be projected to the LLM
+  // for queued messages 2+ even though the underlying proxies (HostCuProxy,
+  // HostAppControlProxy) are still attached. Mirrors the per-message
+  // instantiation block in `conversation-routes.ts` / `process-message.ts`.
+  if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
-      conversation.addPreactivatedSkillId("computer-use");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -445,7 +449,7 @@ async function drainSingleMessage(
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
     next.content,
-    buildSlashContext(conversation),
+    buildSlashContext(next.content, conversation),
   );
 
   // Unknown slash — persist the exchange and continue draining.
@@ -530,9 +534,13 @@ async function drainSingleMessage(
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
       if (isModelSlashCommand(next.content)) {
-        next.onEvent(await buildModelInfoEvent());
+        next.onEvent(await buildModelInfoEvent(conversation.conversationId));
       }
-      next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: slashResult.message,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Unknown slash command handled",
@@ -564,7 +572,11 @@ async function drainSingleMessage(
           attributes: { reason: "persist_failure" },
         },
       );
-      next.onEvent({ type: "error", message });
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
     }
     // Continue draining regardless of success/failure
     await drainQueue(conversation);
@@ -621,7 +633,11 @@ async function drainSingleMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      next.onEvent({ type: "assistant_text_delta", text: responseText });
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Compact slash command handled",
@@ -641,7 +657,11 @@ async function drainSingleMessage(
         },
         "Failed to execute /compact",
       );
-      next.onEvent({ type: "error", message });
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
     }
     await drainQueue(conversation);
     return;
@@ -701,7 +721,11 @@ async function drainSingleMessage(
         attributes: { reason: "persist_failure" },
       },
     );
-    next.onEvent({ type: "error", message });
+    next.onEvent({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message,
+    });
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
@@ -786,6 +810,7 @@ async function drainSingleMessage(
       );
       next.onEvent({
         type: "error",
+        conversationId: conversation.conversationId,
         message: `Failed to process queued message: ${message}`,
       });
     });
@@ -842,20 +867,15 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
   }
 
-  // Non-interactive queued messages (channel requests) must not execute tools
-  // via the desktop host proxy. Clear proxy availability so isAvailable()
-  // returns false and tool execution falls back to local. Mirrors the
-  // single-message path exactly — sourced from `head`.
-  if (head.isInteractive === false) {
-    conversation.clearProxyAvailability();
-  } else {
+  // Re-preactivate host-proxy skills for interactive desktop turns.
+  // Mirrors the single-message path exactly — sourced from `head`.
+  if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
-      conversation.addPreactivatedSkillId("computer-use");
-    }
+    preactivateHostProxySkills(
+      conversation,
+      interfaceCtx?.userMessageInterface,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -909,7 +929,7 @@ async function drainBatch(
 
     const qmSlash = await resolveSlash(
       qm.content,
-      buildSlashContext(conversation),
+      buildSlashContext(qm.content, conversation),
     );
     if (qmSlash.kind !== "passthrough") {
       // Defensive recovery. `buildPassthroughBatch` should make this
@@ -935,7 +955,11 @@ async function drainBatch(
         status: "error",
         attributes: { reason: "batch_invariant_violation" },
       });
-      qm.onEvent({ type: "error", message: invariantMessage });
+      qm.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message: invariantMessage,
+      });
       if (i === 0) {
         // Head invariant fired — no in-flight turn yet (the check runs
         // before persistUserMessage, so the head was never persisted).
@@ -1002,7 +1026,11 @@ async function drainBatch(
           attributes: { reason: "persist_failure" },
         },
       );
-      qm.onEvent({ type: "error", message });
+      qm.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
 
       if (i === 0) {
         // Head persist failed — processing is not set yet, no in-flight turn
@@ -1163,6 +1191,7 @@ async function drainBatch(
       );
       fanOutOnEvent({
         type: "error",
+        conversationId: conversation.conversationId,
         message: `Failed to process queued messages: ${message}`,
       });
     });
@@ -1299,7 +1328,7 @@ export async function processMessage(
   // Resolve slash commands before persistence
   const slashResult = await resolveSlash(
     content,
-    buildSlashContext(conversation),
+    buildSlashContext(content, conversation),
   );
 
   // Unknown slash command — persist the exchange (user + assistant) so the
@@ -1375,9 +1404,13 @@ export async function processMessage(
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
     if (isModelSlashCommand(content)) {
-      onEvent(await buildModelInfoEvent());
+      onEvent(await buildModelInfoEvent(conversation.conversationId));
     }
-    onEvent({ type: "assistant_text_delta", text: slashResult.message });
+    onEvent({
+      type: "assistant_text_delta",
+      text: slashResult.message,
+      conversationId: conversation.conversationId,
+    });
     conversation.traceEmitter.emit(
       "message_complete",
       "Unknown slash command handled",
@@ -1445,7 +1478,11 @@ export async function processMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      onEvent({ type: "assistant_text_delta", text: responseText });
+      onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
       conversation.traceEmitter.emit(
         "message_complete",
         "Compact slash command handled",
@@ -1497,7 +1534,11 @@ export async function processMessage(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    onEvent({ type: "error", message });
+    onEvent({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message,
+    });
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     return "";

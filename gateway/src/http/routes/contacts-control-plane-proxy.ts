@@ -1,15 +1,23 @@
 /**
  * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
  *
- * These routes remain available even when the broad runtime proxy is
- * disabled, so skills and clients can use gateway URLs exclusively.
+ * These routes are registered as explicit gateway routes for dedicated
+ * auth handling rather than falling through to the catch-all proxy.
  */
 
 import { proxyForward } from "@vellumai/assistant-client";
+import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import {
+  assistantDbQuery,
+  assistantDbRun,
+} from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
+import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("contacts-control-plane-proxy");
@@ -72,11 +80,32 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return forward(req, `/v1/contacts/${contactId}`);
     },
 
-    async handleDeleteContact(
-      req: Request,
-      contactId: string,
-    ): Promise<Response> {
-      return forward(req, `/v1/contacts/${contactId}`);
+    async handleDeleteContact(contactId: string): Promise<Response> {
+      const rows = await assistantDbQuery<{ role: string }>(
+        "SELECT role FROM contacts WHERE id = ?",
+        [contactId],
+      );
+      if (rows.length === 0) {
+        log.warn({ contactId }, "delete_contact: not found");
+        return Response.json(
+          { error: { code: "NOT_FOUND", message: `Contact "${contactId}" not found` } },
+          { status: 404 },
+        );
+      }
+      if (rows[0].role === "guardian") {
+        log.warn({ contactId }, "delete_contact: attempted to delete guardian");
+        return Response.json(
+          { error: { code: "FORBIDDEN", message: "Cannot delete a guardian contact" } },
+          { status: 403 },
+        );
+      }
+      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+      getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>);
+      log.info({ contactId }, "delete_contact: deleted");
+      return new Response(null, { status: 204 });
     },
 
     async handleMergeContacts(req: Request): Promise<Response> {

@@ -33,7 +33,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         if showHidden { params["showHidden"] = "true" }
 
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/workspace/tree", params: params, timeout: 10
+            path: "workspace/tree", params: params, timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch workspace tree failed (HTTP \(statusCode))")
@@ -48,7 +48,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         if showHidden { params["showHidden"] = "true" }
 
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/workspace/file", params: params, timeout: 10
+            path: "workspace/file", params: params, timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch workspace file failed (HTTP \(statusCode))")
@@ -65,7 +65,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
     /// present — so the UI doesn't need to hardcode which files to look for.
     public func fetchWorkspaceFilesList() async -> WorkspaceFilesListResponse? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/workspace-files", timeout: 10
+            path: "workspace-files", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch workspace files list failed (HTTP \(statusCode))")
@@ -77,7 +77,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
 
     public func deleteWorkspaceItem(path: String) async -> Bool {
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/workspace/delete", json: ["path": path], timeout: 10
+            path: "workspace/delete", json: ["path": path], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Delete workspace item failed (HTTP \(statusCode))")
@@ -96,7 +96,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         }
 
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/workspace/write", json: body, timeout: 10
+            path: "workspace/write", json: body, timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Write workspace file failed (HTTP \(statusCode))")
@@ -107,7 +107,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
 
     public func createWorkspaceDirectory(path: String) async -> Bool {
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/workspace/mkdir", json: ["path": path], timeout: 10
+            path: "workspace/mkdir", json: ["path": path], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Create workspace directory failed (HTTP \(statusCode))")
@@ -118,7 +118,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
 
     public func renameWorkspaceItem(oldPath: String, newPath: String) async -> Bool {
         let response = try? await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/workspace/rename", json: ["oldPath": oldPath, "newPath": newPath], timeout: 10
+            path: "workspace/rename", json: ["oldPath": oldPath, "newPath": newPath], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Rename workspace item failed (HTTP \(statusCode))")
@@ -136,7 +136,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         var params: [String: String] = ["path": path]
         if showHidden { params["showHidden"] = "true" }
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
+            path: "workspace/file/content", params: params, timeout: 120
         )
         if response.statusCode == 404 {
             throw WorkspaceFileError.notFound
@@ -157,7 +157,7 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         var params: [String: String] = ["path": path]
         if showHidden { params["showHidden"] = "true" }
         let response = try await GatewayHTTPClient.download(
-            path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
+            path: "workspace/file/content", params: params, timeout: 120
         )
         guard response.isSuccess else {
             try? FileManager.default.removeItem(at: response.fileURL)

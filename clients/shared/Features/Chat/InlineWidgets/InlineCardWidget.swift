@@ -4,9 +4,11 @@ import SwiftUI
 /// Supports template-based rendering for specialized layouts (e.g. weather forecasts).
 public struct InlineCardWidget: View {
     public let data: CardSurfaceData
+    public let onPopOut: (() -> Void)?
 
-    public init(data: CardSurfaceData) {
+    public init(data: CardSurfaceData, onPopOut: (() -> Void)? = nil) {
         self.data = data
+        self.onPopOut = onPopOut
     }
 
     public var body: some View {
@@ -17,7 +19,7 @@ public struct InlineCardWidget: View {
         } else if data.template == "task_progress",
                   let templateData = data.templateData,
                   let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: data.title) {
-            InlineTaskProgressWidget(data: progressData)
+            InlineTaskProgressWidget(data: progressData, onPopOut: onPopOut)
         } else {
             standardCardLayout
         }

@@ -214,7 +214,7 @@ describe("resolveCallSiteConfig", () => {
     );
   });
 
-  test("5-layer precedence: each layer overrides the prior", () => {
+  test("5-layer precedence: each layer overrides the prior for non-main call sites", () => {
     // Set up a config where every layer touches `model` and `effort` so we
     // can verify each layer's contribution and that higher layers win.
     //
@@ -232,12 +232,12 @@ describe("resolveCallSiteConfig", () => {
         siteProfile: { effort: "high", verbosity: "high" },
       },
       callSites: {
-        mainAgent: { profile: "siteProfile", effort: "none" },
+        memoryExtraction: { profile: "siteProfile", effort: "none" },
       },
       activeProfile: "active",
     });
 
-    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
       overrideProfile: "override",
     });
 
@@ -270,7 +270,7 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.speed).toBe("standard");
   });
 
-  test("overrideProfile beats activeProfile but loses to callsite-level fields", () => {
+  test("overrideProfile beats activeProfile but loses to non-main callsite-level fields", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
@@ -278,11 +278,11 @@ describe("resolveCallSiteConfig", () => {
         override: { effort: "high", speed: "fast" },
       },
       callSites: {
-        mainAgent: { effort: "none" },
+        memoryExtraction: { effort: "none" },
       },
       activeProfile: "active",
     });
-    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
       overrideProfile: "override",
     });
     // Callsite fragment wins for effort.
@@ -347,7 +347,7 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.model).toBe("claude-opus-4-7");
   });
 
-  test("thinking and contextWindow deep-merge across all five layers", () => {
+  test("thinking and contextWindow deep-merge across all five layers for non-main call sites", () => {
     // Each layer touches a different leaf inside `thinking` and
     // `contextWindow.overflowRecovery` so we can verify deep merge composes
     // every contribution rather than wholesale-replacing the nested objects.
@@ -367,14 +367,14 @@ describe("resolveCallSiteConfig", () => {
         },
       },
       callSites: {
-        mainAgent: {
+        memoryExtraction: {
           profile: "siteProfile",
           contextWindow: { compactThreshold: 0.9 },
         },
       },
       activeProfile: "active",
     });
-    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
       overrideProfile: "override",
     });
     // Each layer's leaf survives because no higher layer touches it.
@@ -394,7 +394,7 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.contextWindow.summaryBudgetRatio).toBe(0.05);
   });
 
-  test("callSite fragment fields still win at the top with all layers active", () => {
+  test("callSite fragment fields still win at the top for non-main call sites", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
@@ -403,7 +403,7 @@ describe("resolveCallSiteConfig", () => {
         siteProfile: { model: "siteProfile-model", verbosity: "high" },
       },
       callSites: {
-        mainAgent: {
+        memoryExtraction: {
           profile: "siteProfile",
           model: "site-model",
           maxTokens: 12345,
@@ -411,7 +411,7 @@ describe("resolveCallSiteConfig", () => {
       },
       activeProfile: "active",
     });
-    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
       overrideProfile: "override",
     });
     // Site fragment wins for fields it sets.
@@ -421,5 +421,73 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.verbosity).toBe("high"); // from siteProfile
     expect(resolved.speed).toBe("fast"); // from override
     expect(resolved.effort).toBe("low"); // from active
+  });
+
+  test("mainAgent activeProfile overrides static call-site defaults", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: {
+          provider: "openai",
+          model: "gpt-5.4",
+          maxTokens: 16000,
+          contextWindow: { maxInputTokens: 400000 },
+        },
+      },
+      callSites: {
+        mainAgent: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          maxTokens: 32000,
+          contextWindow: { maxInputTokens: 200000 },
+        },
+      },
+      activeProfile: "balanced",
+    });
+
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.4");
+    expect(resolved.maxTokens).toBe(16000);
+    expect(resolved.contextWindow.maxInputTokens).toBe(400000);
+  });
+
+  test("mainAgent overrideProfile beats activeProfile and static call-site defaults", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: {
+          provider: "openai",
+          model: "gpt-5.4",
+          maxTokens: 16000,
+          contextWindow: { maxInputTokens: 400000 },
+        },
+        pinned: {
+          provider: "gemini",
+          model: "gemini-2.5-pro",
+          maxTokens: 65536,
+          contextWindow: { maxInputTokens: 1048576 },
+        },
+      },
+      callSites: {
+        mainAgent: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          maxTokens: 32000,
+          contextWindow: { maxInputTokens: 200000 },
+        },
+      },
+      activeProfile: "active",
+    });
+
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "pinned",
+    });
+
+    expect(resolved.provider).toBe("gemini");
+    expect(resolved.model).toBe("gemini-2.5-pro");
+    expect(resolved.maxTokens).toBe(65536);
+    expect(resolved.contextWindow.maxInputTokens).toBe(1048576);
   });
 });

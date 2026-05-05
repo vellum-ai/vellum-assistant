@@ -14,6 +14,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { embedWithRetry } from "../embed.js";
 import {
   generateSparseEmbedding,
@@ -350,7 +351,7 @@ async function dedupCrossCategory(
 // Context load — conversation start
 // ---------------------------------------------------------------------------
 
-export interface ContextLoadOpts {
+interface ContextLoadOpts {
   /** Scope for memory isolation. */
   scopeId: string;
   /** Recent conversation summaries (used as retrieval queries). */
@@ -372,7 +373,7 @@ export interface ContextLoadOpts {
   userQuery?: string;
 }
 
-export interface ContextLoadResult {
+interface ContextLoadResult {
   nodes: ScoredNode[];
   serendipityNodes: ScoredNode[];
   triggeredNodes: TriggeredResult[];
@@ -425,6 +426,33 @@ export interface ContextLoadResult {
 export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
+  // v2 owns the read path when both gates are on. The v1 collection is in
+  // active retirement and querying it can OOM-crash Qdrant via a corrupted
+  // sparse segment, so we skip the embedding work and downstream searches
+  // entirely. Caller (`runContextLoad`) sees zero nodes and routes to the
+  // v2 activation pipeline.
+  if (isMemoryV2ReadActive(opts.config)) {
+    return {
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: 0,
+      metrics: {
+        semanticHits: 0,
+        mergedCount: 0,
+        selectedCount: 0,
+        tier1Count: 0,
+        tier2Count: 0,
+        hybridSearchLatencyMs: 0,
+        sparseVectorUsed: false,
+        embeddingProvider: null,
+        embeddingModel: null,
+        queryContext: null,
+        topCandidates: [],
+      },
+    };
+  }
+
   const start = Date.now();
   const ctxLoadCfg = opts.config.memory.retrieval.injection.contextLoad;
   const maxNodes = opts.maxNodes ?? ctxLoadCfg.maxNodes;
@@ -497,7 +525,6 @@ export async function loadContextMemory(
       const results = await searchGraphNodes(
         queryVector,
         maxNodes * 3,
-        [opts.scopeId],
         sparseVector,
       );
       for (const r of results) {
@@ -520,7 +547,6 @@ export async function loadContextMemory(
       const results = await searchGraphNodes(
         userQueryVector,
         maxNodes * 3,
-        [opts.scopeId],
         undefined,
       );
       for (const r of results) {
@@ -845,7 +871,7 @@ export async function loadContextMemory(
 // Per-turn retrieval — mid-conversation injection
 // ---------------------------------------------------------------------------
 
-export interface TurnRetrievalOpts {
+interface TurnRetrievalOpts {
   /** The assistant's last message content. */
   assistantLastMessage: string;
   /** The user's last message content. */
@@ -858,7 +884,7 @@ export interface TurnRetrievalOpts {
   signal?: AbortSignal;
 }
 
-export interface TurnRetrievalResult {
+interface TurnRetrievalResult {
   /** New nodes to inject (not already in context). */
   nodes: ScoredNode[];
   /** Serendipity picks included in nodes. */
@@ -979,9 +1005,7 @@ export async function retrieveForTurn(
           }
           const imgVector = imgResult.vectors[0];
           if (imgVector) {
-            const imgResults = await searchGraphNodes(imgVector, 40, [
-              opts.scopeId,
-            ]);
+            const imgResults = await searchGraphNodes(imgVector, 40);
             for (const r of imgResults) {
               const current = allCandidateIds.get(r.nodeId) ?? 0;
               allCandidateIds.set(r.nodeId, Math.max(current, r.score));
@@ -1069,7 +1093,7 @@ export async function retrieveForTurn(
       queryEmbeddings = embedResults.vectors;
 
       const searchPromises = queryEmbeddings.map((vec) =>
-        searchGraphNodes(vec, 40, [opts.scopeId]),
+        searchGraphNodes(vec, 40),
       );
       const searchResults = await Promise.all(searchPromises);
 

@@ -41,7 +41,7 @@ const TEST_REGISTRY = {
     },
     {
       id: "user-hosted-enabled",
-      scope: "macos",
+      scope: "client",
       key: "user-hosted-enabled",
       label: "User Hosted Enabled",
       description: "Enable user-hosted onboarding flow",
@@ -103,7 +103,7 @@ describe("GET /v1/feature-flags handler", () => {
     const defaults = loadFeatureFlagDefaults();
     const declaredKeys = Object.keys(defaults);
 
-    // Should return all declared assistant-scope flags (not macos-scope)
+    // Should return all declared assistant-scope flags (not client-scope)
     expect(body.flags.length).toBe(declaredKeys.length);
     expect(body.flags.length).toBeGreaterThan(0);
 
@@ -159,11 +159,11 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // The macos-scope flag should not appear
-    const macosFlag = body.flags.find(
+    // The client-scope flag should not appear
+    const clientFlag = body.flags.find(
       (f: { key: string }) => f.key === "user-hosted-enabled",
     );
-    expect(macosFlag).toBeUndefined();
+    expect(clientFlag).toBeUndefined();
   });
 
   test("returns all declared flags even when store has no persisted values", async () => {
@@ -488,12 +488,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/browser", {
+      new Request("http://gateway.test/v1/feature-flags/email-channel", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled: true }),
       }),
-      "browser",
+      "email-channel",
     );
 
     expect(res.status).toBe(200);
@@ -501,7 +501,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["browser"]).toBe(true);
+    expect(persisted["email-channel"]).toBe(true);
   });
 
   // Validation tests

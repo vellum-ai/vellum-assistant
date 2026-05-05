@@ -25,11 +25,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Test: CLI signal path uses registerUserMessageCallback which calls
-// checkIngressForSecrets before calling persistAndProcessMessage.
-//
-// We test the callback behavior directly rather than the full signal file
-// flow, since the signal handler is just file I/O around the callback.
+// Test: CLI signal path (user-message signal handler) calls
+// checkIngressForSecrets before dispatching through processMessageInBackground.
 // ---------------------------------------------------------------------------
 
 import { resetAllowlist } from "../security/secret-allowlist.js";

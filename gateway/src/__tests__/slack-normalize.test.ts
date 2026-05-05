@@ -1,9 +1,12 @@
 import { describe, test, expect } from "bun:test";
 import {
-  stripBotMention,
   normalizeSlackAppMention,
+  normalizeSlackChannelMessage,
+  normalizeSlackDirectMessage,
   normalizeSlackMessageEdit,
   type SlackAppMentionEvent,
+  type SlackChannelMessageEvent,
+  type SlackDirectMessageEvent,
   type SlackMessageChangedEvent,
 } from "../slack/normalize.js";
 import type { GatewayConfig } from "../config.js";
@@ -26,7 +29,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     routingEntries: [],
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
@@ -48,34 +50,6 @@ function makeEvent(
     ...overrides,
   };
 }
-
-describe("stripBotMention", () => {
-  test("strips a single leading bot mention", () => {
-    expect(stripBotMention("<@U123BOT> hello world")).toBe("hello world");
-  });
-
-  test("strips multiple leading bot mentions", () => {
-    expect(stripBotMention("<@U123BOT> <@U456OTHER> hello")).toBe("hello");
-  });
-
-  test("falls back to original text when stripping produces empty string", () => {
-    expect(stripBotMention("<@U123BOT>")).toBe("<@U123BOT>");
-  });
-
-  test("falls back to original trimmed text when stripping produces whitespace only", () => {
-    expect(stripBotMention("<@U123BOT>   ")).toBe("<@U123BOT>");
-  });
-
-  test("returns text unchanged when no leading mention", () => {
-    expect(stripBotMention("hello world")).toBe("hello world");
-  });
-
-  test("does not strip mid-text mentions", () => {
-    expect(stripBotMention("hello <@U123BOT> world")).toBe(
-      "hello <@U123BOT> world",
-    );
-  });
-});
 
 describe("normalizeSlackAppMention", () => {
   test("normalizes app_mention event with sourceChannel 'slack'", async () => {
@@ -118,22 +92,61 @@ describe("normalizeSlackAppMention", () => {
     expect(result!.event.message.externalMessageId).toBe("1700000000.000100");
   });
 
-  test("mention stripping: '<@U123BOT> hello world' becomes 'hello world'", async () => {
+  test("renders the bot's mention using the resolved label", async () => {
     const config = makeConfig();
     const event = makeEvent({ text: "<@U123BOT> hello world" });
-    const result = await normalizeSlackAppMention(event, "evt-005", config);
+    const result = await normalizeSlackAppMention(
+      event,
+      "evt-005",
+      config,
+      "U123BOT",
+      undefined,
+      { userLabels: { U123BOT: "vex" } },
+    );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("hello world");
+    expect(result!.event.message.content).toBe("@vex hello world");
   });
 
-  test("mention stripping with empty result falls back to original text", async () => {
+  test("renders the bot's mention with the unknown-user fallback when unresolved", async () => {
     const config = makeConfig();
     const event = makeEvent({ text: "<@U123BOT>" });
     const result = await normalizeSlackAppMention(event, "evt-006", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("<@U123BOT>");
+    expect(result!.event.message.content).toBe("@unknown-user");
+  });
+
+  test("renders bot and human mentions side by side", async () => {
+    const config = makeConfig();
+    const event = makeEvent({ text: "<@UBOT> <@ULEO> can you check?" });
+    const result = await normalizeSlackAppMention(
+      event,
+      "evt-mention-label",
+      config,
+      "UBOT",
+      undefined,
+      { userLabels: { UBOT: "vex", ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@vex @leo can you check?");
+  });
+
+  test("renders unresolved user mentions with the unknown-user fallback", async () => {
+    const config = makeConfig();
+    const event = makeEvent({ text: "<@UBOT> <@UUNKNOWN> can you check?" });
+    const result = await normalizeSlackAppMention(
+      event,
+      "evt-unknown-mention",
+      config,
+      "UBOT",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe(
+      "@unknown-user @unknown-user can you check?",
+    );
   });
 
   test("thread_ts is preserved in return value", async () => {
@@ -205,6 +218,119 @@ describe("normalizeSlackAppMention", () => {
   });
 });
 
+function makeDirectMessageEvent(
+  overrides: Partial<SlackDirectMessageEvent> = {},
+): SlackDirectMessageEvent {
+  return {
+    type: "message",
+    user: "U_USER123",
+    text: "hello world",
+    ts: "1700000000.000100",
+    channel: "D_DIRECT1",
+    channel_type: "im",
+    ...overrides,
+  };
+}
+
+function makeChannelMessageEvent(
+  overrides: Partial<SlackChannelMessageEvent> = {},
+): SlackChannelMessageEvent {
+  return {
+    type: "message",
+    user: "U_USER123",
+    text: "hello world",
+    ts: "1700000000.000100",
+    channel: "C_CHANNEL1",
+    channel_type: "channel",
+    ...overrides,
+  };
+}
+
+describe("Slack inbound mention rendering", () => {
+  test("direct messages render mentions without stripping the bot mention", () => {
+    const config = makeConfig();
+    const event = makeDirectMessageEvent({
+      text: "<@UBOT> <@ULEO> hello",
+    });
+    const result = normalizeSlackDirectMessage(
+      event,
+      "evt-dm-render",
+      config,
+      "UBOT",
+      undefined,
+      { userLabels: { UBOT: "assistant", ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@assistant @leo hello");
+    expect(result!.event.actor.actorExternalId).toBe("U_USER123");
+    expect(result!.event.message.conversationExternalId).toBe("D_DIRECT1");
+  });
+
+  test("channel messages render bot and human mentions inline", () => {
+    const config = makeConfig();
+    const event = makeChannelMessageEvent({
+      text: "<@UBOT> <@ULEO> hello",
+    });
+    const result = normalizeSlackChannelMessage(
+      event,
+      "evt-channel-render",
+      config,
+      "UBOT",
+      undefined,
+      { userLabels: { UBOT: "vex", ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@vex @leo hello");
+    expect(result!.event.actor.actorExternalId).toBe("U_USER123");
+    expect(result!.event.message.conversationExternalId).toBe("C_CHANNEL1");
+  });
+
+  test("channel messages render with unknown-user fallback when bot label is missing", () => {
+    const config = makeConfig();
+    const event = makeChannelMessageEvent({
+      text: "<@UBOT> <@ULEO> hello",
+    });
+    const result = normalizeSlackChannelMessage(
+      event,
+      "evt-channel-fallback-render",
+      config,
+      undefined,
+      undefined,
+      { userLabels: { ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@unknown-user @leo hello");
+  });
+
+  test("message edits render bot and human mentions and preserve edit metadata", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@UBOT> <@ULEO> edited",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-edit-render",
+      config,
+      "UBOT",
+      { userLabels: { UBOT: "vex", ULEO: "leo" } },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("@vex @leo edited");
+    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.externalMessageId).toBe("evt-edit-render");
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.actor.actorExternalId).toBe("U_USER123");
+  });
+});
+
 function makeMessageChangedEvent(
   overrides: Partial<SlackMessageChangedEvent> = {},
 ): SlackMessageChangedEvent {
@@ -270,7 +396,7 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result).toBeNull();
   });
 
-  test("strips bot mention from edited text", () => {
+  test("renders bot mention in edited text", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent({
       message: {
@@ -279,10 +405,18 @@ describe("normalizeSlackMessageEdit", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageEdit(event, "evt-104", config);
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-104",
+      config,
+      "U123BOT",
+      {
+        userLabels: { U123BOT: "vex" },
+      },
+    );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("edited content");
+    expect(result!.event.message.content).toBe("@vex edited content");
   });
 
   test("sets actor.actorExternalId from edited message user", () => {

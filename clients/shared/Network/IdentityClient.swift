@@ -43,7 +43,7 @@ public struct IdentityClient: IdentityClientProtocol {
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/identity", timeout: 10
+                path: "identity", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchRemoteIdentity failed (HTTP \(response.statusCode))")
@@ -59,7 +59,7 @@ public struct IdentityClient: IdentityClientProtocol {
     public func fetchIdentity() async -> IdentityGetResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/identity", timeout: 10
+                path: "identity", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchIdentity failed (HTTP \(response.statusCode))")
@@ -76,7 +76,7 @@ public struct IdentityClient: IdentityClientProtocol {
     public func fetchIdentityIntro() async -> String? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/identity/intro", timeout: 10
+                path: "identity/intro", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchIdentityIntro failed (HTTP \(response.statusCode))")
@@ -95,7 +95,7 @@ public struct IdentityClient: IdentityClientProtocol {
         do {
             let body: [String: Any] = ["type": "generate_avatar", "description": description]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/settings/avatar/generate", json: body, timeout: 30
+                path: "settings/avatar/generate", json: body, timeout: 30
             )
             guard response.isSuccess else {
                 log.error("generateAvatar failed (HTTP \(response.statusCode))")

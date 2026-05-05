@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+function emptyOrAbsoluteHttpUrl(fieldPath: string) {
+  return z
+    .string({ error: `${fieldPath} must be a string` })
+    .refine(
+      (val) => val === "" || /^https?:\/\//i.test(val),
+      `${fieldPath} must be an absolute URL starting with http:// or https://`,
+    );
+}
+
 const IngressWebhookConfigSchema = z
   .object({
     secret: z
@@ -39,7 +48,7 @@ const IngressWebhookConfigSchema = z
   })
   .describe("Webhook configuration for ingress event delivery");
 
-export const IngressRateLimitConfigSchema = z
+const IngressRateLimitConfigSchema = z
   .object({
     maxRequestsPerMinute: z
       .number({
@@ -74,12 +83,7 @@ const IngressBaseSchema = z
       .boolean({ error: "ingress.enabled must be a boolean" })
       .optional()
       .describe("Whether the ingress HTTP server is enabled"),
-    publicBaseUrl: z
-      .string({ error: "ingress.publicBaseUrl must be a string" })
-      .refine(
-        (val) => val === "" || /^https?:\/\//i.test(val),
-        "ingress.publicBaseUrl must be an absolute URL starting with http:// or https://",
-      )
+    publicBaseUrl: emptyOrAbsoluteHttpUrl("ingress.publicBaseUrl")
       .default("")
       .describe(
         "Public-facing base URL for the ingress server (used in webhook callbacks)",

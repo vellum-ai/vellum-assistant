@@ -19,7 +19,7 @@ public struct PublishClient: PublishClientProtocol {
         if let appId { body["appId"] = appId }
 
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/publish", json: body, timeout: 30
+            path: "publish", json: body, timeout: 30
         )
         guard response.isSuccess else {
             log.error("publishPage failed (HTTP \(response.statusCode))")
@@ -33,7 +33,7 @@ public struct PublishClient: PublishClientProtocol {
         do {
             let body: [String: Any] = ["type": "unpublish_page", "deploymentId": deploymentId]
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/unpublish", json: body, timeout: 10
+                path: "unpublish", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("unpublishPage failed (HTTP \(response.statusCode))")

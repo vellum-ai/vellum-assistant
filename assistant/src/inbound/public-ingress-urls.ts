@@ -27,17 +27,30 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
+import {
+  buildTwilioConnectActionUrl,
+  buildTwilioMediaStreamUrl,
+  buildTwilioRelayUrl,
+  buildTwilioStatusWebhookUrl,
+  buildTwilioVoiceWebhookUrl,
+  normalizePublicBaseUrl,
+} from "@vellumai/service-contracts/twilio-ingress";
+
 import { getIngressPublicBaseUrl } from "../config/env.js";
 
 export interface IngressConfig {
-  ingress?: { enabled?: boolean; publicBaseUrl?: string };
+  ingress?: {
+    enabled?: boolean;
+    publicBaseUrl?: string;
+  };
 }
 
-/**
- * Trim whitespace and strip trailing slashes from a URL string.
- */
-function normalizeUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
+function assertPublicIngressEnabled(config: IngressConfig): void {
+  if (config.ingress?.enabled === false) {
+    throw new Error(
+      "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
+    );
+  }
 }
 
 /**
@@ -51,23 +64,15 @@ function normalizeUrl(url: string): string {
  * Throws if no source provides a non-empty value or if ingress is disabled.
  */
 export function getPublicBaseUrl(config: IngressConfig): string {
-  if (config.ingress?.enabled === false) {
-    throw new Error(
-      "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
-    );
-  }
+  assertPublicIngressEnabled(config);
 
   const ingressValue = config.ingress?.publicBaseUrl;
-  if (ingressValue) {
-    const normalized = normalizeUrl(ingressValue);
-    if (normalized) return normalized;
-  }
+  const normalizedIngressValue = normalizePublicBaseUrl(ingressValue);
+  if (normalizedIngressValue) return normalizedIngressValue;
 
   const ingressEnvValue = getIngressPublicBaseUrl();
-  if (ingressEnvValue) {
-    const normalized = normalizeUrl(ingressEnvValue);
-    if (normalized) return normalized;
-  }
+  const normalizedIngressEnvValue = normalizePublicBaseUrl(ingressEnvValue);
+  if (normalizedIngressEnvValue) return normalizedIngressEnvValue;
 
   throw new Error(
     "No public base URL configured. Set ingress.publicBaseUrl in config.",
@@ -87,27 +92,24 @@ export function getTwilioVoiceWebhookUrl(
   config: IngressConfig,
   callSessionId?: string,
 ): string {
-  const base = getPublicBaseUrl(config);
-  if (callSessionId) {
-    return `${base}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
-  }
-  return `${base}/webhooks/twilio/voice`;
+  return buildTwilioVoiceWebhookUrl(
+    getPublicBaseUrl(config),
+    callSessionId,
+  );
 }
 
 /**
  * Build the Twilio status callback URL.
  */
 export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/status`;
+  return buildTwilioStatusWebhookUrl(getPublicBaseUrl(config));
 }
 
 /**
  * Build the Twilio connect-action callback URL.
  */
 export function getTwilioConnectActionUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/connect-action`;
+  return buildTwilioConnectActionUrl(getPublicBaseUrl(config));
 }
 
 /**
@@ -115,9 +117,7 @@ export function getTwilioConnectActionUrl(config: IngressConfig): string {
  * Converts http:// → ws:// and https:// → wss://.
  */
 export function getTwilioRelayUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  const wsBase = base.replace(/^http(s?)/, "ws$1");
-  return `${wsBase}/webhooks/twilio/relay`;
+  return buildTwilioRelayUrl(getPublicBaseUrl(config));
 }
 
 /**
@@ -127,9 +127,7 @@ export function getTwilioRelayUrl(config: IngressConfig): string {
  * Converts http:// → ws:// and https:// → wss://.
  */
 export function getTwilioMediaStreamUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  const wsBase = base.replace(/^http(s?)/, "ws$1");
-  return `${wsBase}/webhooks/twilio/media-stream`;
+  return buildTwilioMediaStreamUrl(getPublicBaseUrl(config));
 }
 
 /**

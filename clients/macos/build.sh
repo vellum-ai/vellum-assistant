@@ -503,6 +503,17 @@ build_binaries() {
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
 
+    # Embed VELLUM_ENVIRONMENT at compile time so all binaries know their
+    # runtime context without any filesystem lookup. VELLUM_ENVIRONMENT is
+    # exported by build.sh before calling build_binaries(), so it is always
+    # set here (local|dev|test|staging|production).
+    local env_flags=()
+    if [ -n "${VELLUM_ENVIRONMENT:-}" ]; then
+        env_flags=(--define "process.env.VELLUM_ENVIRONMENT='$VELLUM_ENVIRONMENT'")
+        daemon_flags+=("${env_flags[@]}")
+        cli_flags+=("${env_flags[@]}")
+    fi
+
     # Build binaries in parallel. Each writes to its own output
     # directory so there are no filesystem conflicts. SKIP_BUN_INSTALL=1
     # tells build_bun_binary to skip `bun install` (already done above).
@@ -518,15 +529,15 @@ build_binaries() {
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${env_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
-        "$SCRIPT_DIR/ces-bin" "credential-executor" &
+        "$SCRIPT_DIR/ces-bin" "credential-executor" "${env_flags[@]}" &
     pids+=($!)
 
     for pid in "${pids[@]}"; do
@@ -641,6 +652,13 @@ fi
 export VELLUM_ENVIRONMENT
 echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
+# For local builds, auto-generate a monotonically increasing BUILD_VERSION
+# from the timestamp so Sparkle can determine "newer" via numeric comparison.
+# CI-driven builds set BUILD_VERSION explicitly; this only affects the default.
+if [ "$BUILD_VERSION" = "1" ] && [ "$VELLUM_ENVIRONMENT" = "local" ]; then
+    BUILD_VERSION=$(date +%Y%m%d%H%M%S)
+fi
+
 case "$CMD" in
     test)
         echo "Running tests..."
@@ -747,6 +765,15 @@ case "$VELLUM_ENVIRONMENT" in
 esac
 echo "BUNDLE_ID=$BUNDLE_ID"
 
+# Derive a per-environment URL scheme for native auth callbacks.
+# Matches the iOS xcconfig pattern (App-Dev.xcconfig → vellum-assistant-dev,
+# App-Staging.xcconfig → vellum-assistant-staging, App.xcconfig → vellum-assistant).
+case "$VELLUM_ENVIRONMENT" in
+    production) BUNDLE_URL_SCHEME="vellum-assistant" ;;
+    *)          BUNDLE_URL_SCHEME="vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
+esac
+echo "BUNDLE_URL_SCHEME=$BUNDLE_URL_SCHEME"
+
 # ---------------------------------------------------------------------------
 # Resolve dock display name from the environment-scoped XDG config directory.
 # Mirrors VellumPaths.configDir (Swift) and getConfigDir() (TS):
@@ -777,6 +804,12 @@ if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
     fi
 fi
 BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-$_DEFAULT_DISPLAY_NAME}"
+# macOS stores process names in p_comm[MAXCOMLEN+1] where MAXCOMLEN=16.
+# Names longer than 16 characters are silently truncated by the kernel,
+# which breaks pgrep -x matching and the instance-kill logic below.
+if [ "${#BUNDLE_DISPLAY_NAME}" -gt 16 ]; then
+    echo "Warning: BUNDLE_DISPLAY_NAME '${BUNDLE_DISPLAY_NAME}' is ${#BUNDLE_DISPLAY_NAME} chars (max 16 for pgrep -x)" >&2
+fi
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
@@ -784,6 +817,64 @@ RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
+
+# ---------------------------------------------------------------------------
+# Local Sparkle configuration
+#
+# For local builds, point the Sparkle appcast at a localhost route served by
+# the Next.js web app and generate a local-only EdDSA keypair for signing.
+# This allows testing the full Sparkle upgrade flow without touching CI.
+# ---------------------------------------------------------------------------
+if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -z "${SU_FEED_URL:-}" ]; then
+    _SPARKLE_DIR="$_VELLUM_CONFIG_DIR/sparkle"
+    _SPARKLE_KEY_FILE="$_SPARKLE_DIR/ed25519-key.pem"
+    _SPARKLE_PUB_FILE="$_SPARKLE_DIR/ed25519-public.pem"
+
+    # Resolve the web app URL for the appcast feed.
+    _LOCAL_WEB_URL="${VELLUM_WEB_URL:-http://localhost:3000}"
+    export SU_FEED_URL="${_LOCAL_WEB_URL}/api/local-builds/appcast.xml"
+
+    # Generate a local-only EdDSA keypair if one doesn't exist yet.
+    # Requires `generate_keys` from `brew install sparkle`.
+    if [ ! -f "$_SPARKLE_KEY_FILE" ]; then
+        _GEN_KEYS=$(command -v generate_keys 2>/dev/null || true)
+        if [ -z "$_GEN_KEYS" ]; then
+            _GEN_KEYS=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
+                -name generate_keys -type f 2>/dev/null | head -1 || true)
+        fi
+        if [ -n "$_GEN_KEYS" ]; then
+            echo "Generating local Sparkle EdDSA keypair..."
+            mkdir -p "$_SPARKLE_DIR"
+            _KEY_OUTPUT=$("$_GEN_KEYS" 2>&1 || true)
+            # generate_keys outputs the private key to stdout and public key on a
+            # separate line. Newer versions may write to a file directly.
+            # The tool stores keys in ~/.config/sparkle by default — copy them.
+            _SPARKLE_DEFAULT_DIR="$HOME/.config/sparkle"
+            if [ -f "$_SPARKLE_DEFAULT_DIR/ed25519-key.pem" ]; then
+                cp "$_SPARKLE_DEFAULT_DIR/ed25519-key.pem" "$_SPARKLE_KEY_FILE"
+                echo "Copied private key to $_SPARKLE_KEY_FILE"
+            fi
+            # Extract the public key from generate_keys output
+            _PUB_KEY=$(echo "$_KEY_OUTPUT" | sed -n 's/.*SUPublicEDKey.*=.*"\([^"]*\)".*/\1/p' | head -1)
+            if [ -n "$_PUB_KEY" ]; then
+                echo "$_PUB_KEY" > "$_SPARKLE_PUB_FILE"
+                echo "Local Sparkle public key: $_PUB_KEY"
+            fi
+        else
+            echo "Note: generate_keys not found — install with 'brew install sparkle' for local Sparkle signing"
+        fi
+    fi
+
+    # Set the public key for Info.plist if we have one
+    if [ -f "$_SPARKLE_PUB_FILE" ]; then
+        export SU_PUBLIC_ED_KEY=$(cat "$_SPARKLE_PUB_FILE")
+    fi
+
+    # Poll for updates every 60s locally (default is 3600s / 1 hour).
+    export SU_SCHEDULED_CHECK_INTERVAL=60
+
+    echo "SU_FEED_URL=$SU_FEED_URL"
+fi
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -1048,6 +1139,10 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling assistant CLI binary..."
         cp "$ASSISTANT_CLI_BIN" "$MACOS_DIR/vellum-assistant"
         chmod +x "$MACOS_DIR/vellum-assistant"
+        # Create an 'assistant' symlink so `which assistant` inside any subprocess
+        # spawned by the app resolves to the bundled binary rather than a
+        # globally installed version (e.g. ~/.bun/bin/assistant).
+        ln -sf "vellum-assistant" "$MACOS_DIR/assistant"
     else
         echo "No assistant CLI binary at $ASSISTANT_CLI_BIN — skipping (dev mode)"
     fi
@@ -1348,7 +1443,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     $LSE_ENVIRONMENT_PLIST
     $COMMIT_SHA_PLIST
     <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+    <string>15.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSScreenRecordingUsageDescription</key>
@@ -1365,6 +1460,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>SUAutomaticallyUpdate</key>
     <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>${SU_SCHEDULED_CHECK_INTERVAL:-3600}</integer>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIconFile</key>
@@ -1407,7 +1504,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
             <string>$BUNDLE_ID.auth</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>vellum-assistant</string>
+                <string>$BUNDLE_URL_SCHEME</string>
             </array>
         </dict>
     </array>
@@ -1497,7 +1594,7 @@ if [ -d "$XCASSETS" ]; then
         if ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
             --compile "$RESOURCES_DIR" \
             --platform macosx \
-            --minimum-deployment-target 14.0 \
+            --minimum-deployment-target 15.0 \
             --app-icon AppIcon \
             --output-partial-info-plist /dev/null \
             2>&1); then
@@ -1517,7 +1614,7 @@ if [ -d "$XCASSETS" ]; then
         if xcrun actool "$XCASSETS" \
             --compile "$RESOURCES_DIR" \
             --platform macosx \
-            --minimum-deployment-target 14.0 \
+            --minimum-deployment-target 15.0 \
             --app-icon AppIcon \
             --output-partial-info-plist /dev/null \
             2>&1; then
@@ -1824,7 +1921,7 @@ if [ -d "$QLTHUMB_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLThumbnail \
         -emit-executable \
-        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx15.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookThumbnailing \
         -framework AppKit \
@@ -1853,7 +1950,7 @@ if [ -d "$QLPREV_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLPreview \
         -emit-executable \
-        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx15.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookUI \
         -framework UniformTypeIdentifiers \
@@ -2029,6 +2126,83 @@ if [ "$CONFIG" = "release" ]; then
     # separately via their SDK integration — no need to run dsymutil on it.
 fi
 
+# 6b. Register local build manifest
+#
+# For local builds, record a manifest entry so the localhost downloads page
+# can discover and serve previous builds. Each build gets a JSON file under
+# $_VELLUM_CONFIG_DIR/builds/ keyed by BUILD_VERSION, and a companion ZIP
+# of the .app bundle for download.
+if [ "$VELLUM_ENVIRONMENT" = "local" ] && [ -d "$APP_DIR" ]; then
+    _BUILDS_DIR="$_VELLUM_CONFIG_DIR/builds/macos"
+    mkdir -p "$_BUILDS_DIR"
+
+    # DISPLAY_VERSION is unique per local build (e.g. 0.6.6-local.20260429143709.b8d2555c5).
+    # BUILD_VERSION defaults to "1" for local builds and would overwrite on every build.
+    _BUILD_ZIP="$_BUILDS_DIR/${DISPLAY_VERSION}.zip"
+    _BUILD_MANIFEST="$_BUILDS_DIR/${DISPLAY_VERSION}.json"
+
+    # Create ZIP of the .app bundle (ditto preserves macOS metadata + code signatures)
+    echo "Registering local build $DISPLAY_VERSION (build $BUILD_VERSION)..."
+    if command -v ditto &>/dev/null; then
+        ditto -c -k --keepParent "$APP_DIR" "$_BUILD_ZIP"
+    else
+        (cd "$SCRIPT_DIR/dist" && zip -r -q "$_BUILD_ZIP" "$BUNDLE_DISPLAY_NAME.app")
+    fi
+
+    _BUILD_SHA=$(git -C "$SCRIPT_DIR/../.." rev-parse HEAD 2>/dev/null | head -c 10)
+    _BUILD_ARCH=$(uname -m)
+    _BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    _BUILD_SIZE=$(stat -f%z "$_BUILD_ZIP" 2>/dev/null || stat -c%s "$_BUILD_ZIP" 2>/dev/null || echo "0")
+
+    # Sign the ZIP with the local Sparkle EdDSA key (if available).
+    _ED_SIGNATURE=""
+    _SPARKLE_KEY_FILE="${_VELLUM_CONFIG_DIR}/sparkle/ed25519-key.pem"
+    if [ -f "$_SPARKLE_KEY_FILE" ]; then
+        _SIGN_UPDATE=$(command -v sign_update 2>/dev/null || true)
+        if [ -z "$_SIGN_UPDATE" ]; then
+            _SIGN_UPDATE=$(find /opt/homebrew/Caskroom/sparkle /usr/local/Caskroom/sparkle \
+                -name sign_update -type f 2>/dev/null | head -1 || true)
+        fi
+        if [ -n "$_SIGN_UPDATE" ]; then
+            _SIGN_OUTPUT=$("$_SIGN_UPDATE" "$_BUILD_ZIP" --ed-key-file "$_SPARKLE_KEY_FILE" 2>&1 || true)
+            _ED_SIGNATURE=$(echo "$_SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+            if [ -n "$_ED_SIGNATURE" ]; then
+                echo "Sparkle signature generated"
+            else
+                echo "Warning: sign_update ran but no signature parsed"
+            fi
+        fi
+    fi
+
+    cat > "$_BUILD_MANIFEST" << MANIFEST_EOF
+{
+  "version": "$DISPLAY_VERSION",
+  "buildVersion": "$BUILD_VERSION",
+  "displayName": "$BUNDLE_DISPLAY_NAME",
+  "bundleId": "$BUNDLE_ID",
+  "timestamp": "$_BUILD_TIMESTAMP",
+  "commitSha": "$_BUILD_SHA",
+  "architecture": "$_BUILD_ARCH",
+  "zipPath": "$_BUILD_ZIP",
+  "zipSize": $_BUILD_SIZE,
+  "edSignature": "$_ED_SIGNATURE"
+}
+MANIFEST_EOF
+
+    echo "Build registered: $_BUILD_MANIFEST"
+    echo "Build ZIP: $_BUILD_ZIP ($(du -h "$_BUILD_ZIP" | cut -f1))"
+
+    # Prune old builds — keep the latest 10
+    _build_count=$(ls -1 "$_BUILDS_DIR"/*.json 2>/dev/null | wc -l)
+    if [ "$_build_count" -gt 10 ]; then
+        ls -1t "$_BUILDS_DIR"/*.json | tail -n +11 | while read -r old_manifest; do
+            old_zip="${old_manifest%.json}.zip"
+            rm -f "$old_manifest" "$old_zip"
+        done
+        echo "Pruned old builds (keeping latest 10)"
+    fi
+fi
+
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
@@ -2053,8 +2227,8 @@ if [ "$CMD" = "run" ]; then
     # third-party app named "Vellum" (e.g. vellum.pub) is also ignored.
     _kill_targets=""
     while IFS= read -r line; do
-        pid=${line%% *}
-        exe_path=${line#* }
+        read -r pid exe_path <<< "$line"
+        [ -n "$pid" ] || continue
         case "$exe_path" in
             */Contents/MacOS/*) ;;
             *) continue ;;
@@ -2074,7 +2248,7 @@ if [ "$CMD" = "run" ]; then
         for i in {1..20}; do
             still_running=false
             while IFS= read -r pid_line; do
-                _pid=${pid_line%% *}
+                read -r _pid _ <<< "$pid_line"
                 kill -0 "$_pid" 2>/dev/null && still_running=true && break
             done <<< "$_kill_targets"
             $still_running || break
@@ -2087,8 +2261,8 @@ if [ "$CMD" = "run" ]; then
             echo "Force-killing remaining instance(s)..."
             survivors=""
             while IFS= read -r line; do
-                pid=${line%% *}
-                exe_path=${line#* }
+                read -r pid exe_path <<< "$line"
+                [ -n "$pid" ] || continue
                 case "$exe_path" in
                     */Contents/MacOS/*) ;;
                     *) continue ;;
@@ -2277,8 +2451,8 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     # a dev build doesn't kill production or vice versa).
     _install_targets=""
     while IFS= read -r line; do
-        pid=${line%% *}
-        exe_path=${line#* }
+        read -r pid exe_path <<< "$line"
+        [ -n "$pid" ] || continue
         case "$exe_path" in
             */Contents/MacOS/*) ;;
             *) continue ;;

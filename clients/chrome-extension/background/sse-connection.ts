@@ -24,13 +24,27 @@ const SSE_RECONNECT_MAX_MS = 30_000;
  * gateway base URL (e.g. `https://api.vellum.ai`); the `token` is the
  * bearer token for the gateway edge auth (WorkOS session JWT).
  */
-export type SseMode = {
-  kind: 'vellum-cloud';
-  runtimeUrl: string;
-  assistantId: string;
-  token: string | null;
-  organizationId: string | null;
-};
+export type SseMode =
+  | {
+      kind: 'vellum-cloud';
+      runtimeUrl: string;
+      assistantId: string;
+      token: string | null;
+      sessionToken: string | null;
+      organizationId: string | null;
+    }
+  | {
+      kind: 'self-hosted';
+      /** Local gateway base URL, e.g. `http://127.0.0.1:7830`. */
+      runtimeUrl: string;
+      /**
+       * Bearer token obtained from POST /v1/pair. Required for the gateway to
+       * forward SSE requests to the runtime (the loopback-without-token bypass
+       * was removed in ATL-429). May be null if pairing failed, in which case
+       * the SSE connection will be rejected with a 401.
+       */
+      token: string | null;
+    };
 
 export interface SseConnectionDeps {
   mode: SseMode;
@@ -116,17 +130,30 @@ export class SseConnection {
 
     const { mode } = this.deps;
     const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
-    const url = `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/events`;
+
+    // Self-hosted: the gateway proxies /v1/events using the pair token for auth.
+    // Cloud: use the assistant-scoped path with the session token.
+    const url =
+      mode.kind === 'self-hosted'
+        ? `${baseUrl}/v1/events`
+        : `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/events`;
 
     const headers: Record<string, string> = {
       Accept: 'text/event-stream',
       ...(await getClientRegistrationHeaders()),
     };
-    if (mode.token) {
+    if (mode.kind === 'vellum-cloud') {
+      if (mode.token) {
+        headers['Authorization'] = `Bearer ${mode.token}`;
+      }
+      if (mode.sessionToken) {
+        headers['X-Session-Token'] = mode.sessionToken;
+      }
+      if (mode.organizationId) {
+        headers['Vellum-Organization-Id'] = mode.organizationId;
+      }
+    } else if (mode.kind === 'self-hosted' && mode.token) {
       headers['Authorization'] = `Bearer ${mode.token}`;
-    }
-    if (mode.organizationId) {
-      headers['Vellum-Organization-Id'] = mode.organizationId;
     }
 
     const ac = new AbortController();

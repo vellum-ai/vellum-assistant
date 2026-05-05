@@ -12,6 +12,7 @@ export interface ToolInvocationRecord {
   result: string;
   decision: string;
   riskLevel: string;
+  matchedTrustRuleId?: string;
   durationMs: number;
 }
 
@@ -26,6 +27,7 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       result: record.result,
       decision: record.decision,
       riskLevel: record.riskLevel,
+      matchedTrustRuleId: record.matchedTrustRuleId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
     })

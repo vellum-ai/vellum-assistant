@@ -18,6 +18,8 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import type {
   SecureKeyBackend,
@@ -28,6 +30,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
+import { getProtectedDir } from "../util/platform.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type {
@@ -36,6 +39,7 @@ import type {
   DeleteResult,
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
+import { credentialKey } from "./credential-key.js";
 
 export type {
   CredentialListResult,
@@ -451,6 +455,8 @@ export async function setSecureKeyAsync(
         { account, backend: backend.name },
         "Credential backend set failed",
       );
+    } else {
+      log.info({ account, backend: backend.name }, "Credential stored");
     }
     updateCesHttpReachability(backend, !ok);
     return ok;
@@ -468,6 +474,9 @@ export async function deleteSecureKeyAsync(
   return withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync();
     const result = await backend.delete(account);
+    if (result === "deleted") {
+      log.info({ account, backend: backend.name }, "Credential deleted");
+    }
     updateCesHttpReachability(backend, result === "error");
     return result;
   }, "error");
@@ -485,21 +494,31 @@ export async function bulkSetSecureKeysAsync(
   return withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync();
+      let results: Array<{ account: string; ok: boolean }>;
       if (backend.bulkSet) {
-        const results = await backend.bulkSet(credentials);
+        results = await backend.bulkSet(credentials);
         const anyFailed = results.some((r) => !r.ok);
         updateCesHttpReachability(backend, anyFailed);
-        return results;
+      } else {
+        // Fallback: loop individual sets
+        results = [];
+        let anyFailed = false;
+        for (const { account, value } of credentials) {
+          const ok = await backend.set(account, value);
+          if (!ok) anyFailed = true;
+          results.push({ account, ok });
+        }
+        updateCesHttpReachability(backend, anyFailed);
       }
-      // Fallback: loop individual sets
-      const results = [];
-      let anyFailed = false;
-      for (const { account, value } of credentials) {
-        const ok = await backend.set(account, value);
-        if (!ok) anyFailed = true;
-        results.push({ account, ok });
+      const succeeded = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok).length;
+      if (succeeded > 0 || failed > 0) {
+        const level = succeeded > 0 ? "info" : "warn";
+        log[level](
+          { succeeded, failed, backend: backend.name },
+          "Bulk credential store completed",
+        );
       }
-      updateCesHttpReachability(backend, anyFailed);
       return results;
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
@@ -525,7 +544,11 @@ export async function bulkSetSecureKeysAsync(
 export async function getProviderKeyAsync(
   provider: string,
 ): Promise<string | undefined> {
-  const stored = await getSecureKeyAsync(provider);
+  // Check credential namespace first; fall back to bare name for the brief
+  // startup window before migration 002 has run.
+  const stored =
+    (await getSecureKeyAsync(credentialKey(provider, "api_key"))) ??
+    (await getSecureKeyAsync(provider));
   if (stored) return stored;
   const envVar = getAnyProviderEnvVar(provider);
   return envVar ? process.env[envVar] : undefined;
@@ -562,6 +585,58 @@ export async function getMaskedProviderKey(
  */
 export function getActiveBackendName(): string {
   return _resolvedBackend?.name ?? "none";
+}
+
+// ---------------------------------------------------------------------------
+// Backend introspection
+// ---------------------------------------------------------------------------
+
+export type BackendInfo =
+  | {
+      backend: "encrypted-store";
+      storePath: string;
+      storeKeyPath: string;
+      storeExists: boolean;
+      storeKeyExists: boolean;
+    }
+  | { backend: "ces-rpc"; ready: boolean }
+  | { backend: "ces-http"; url: string }
+  | { backend: "none" };
+
+/**
+ * Resolve the active credential backend (triggering resolution if not yet
+ * done) and return introspection details specific to that backend.
+ *
+ * Useful for `credentials status` — shows which store this process is talking
+ * to, so path/socket mismatches between the CLI and daemon are immediately
+ * visible.
+ */
+export function getActiveBackendInfoAsync(): Promise<BackendInfo> {
+  return withCredentialTimeout(async () => {
+    const backend = await resolveBackendAsync();
+    if (backend.name === "encrypted-store") {
+      const protectedDir = getProtectedDir();
+      const storePath = join(protectedDir, "keys.enc");
+      const storeKeyPath = join(protectedDir, "store.key");
+      return {
+        backend: "encrypted-store" as const,
+        storePath,
+        storeKeyPath,
+        storeExists: existsSync(storePath),
+        storeKeyExists: existsSync(storeKeyPath),
+      };
+    }
+    if (backend.name === "ces-rpc") {
+      return { backend: "ces-rpc" as const, ready: backend.isAvailable() };
+    }
+    if (backend.name === "ces-http") {
+      return {
+        backend: "ces-http" as const,
+        url: process.env.CES_CREDENTIAL_URL ?? "",
+      };
+    }
+    return { backend: "none" as const };
+  }, { backend: "none" as const });
 }
 
 /** @internal Test-only: reset the cached backends so they're re-created. */

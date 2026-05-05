@@ -6,6 +6,18 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+AuthLifecycle")
 
+enum ManagedSwitchAuthenticationGate {
+    static func shouldPromptForLogin(
+        assistant: LockfileAssistant,
+        isAuthenticated: Bool,
+        managedAuthenticationAlreadyVerified: Bool
+    ) -> Bool {
+        assistant.isManaged
+            && !isAuthenticated
+            && !managedAuthenticationAlreadyVerified
+    }
+}
+
 // MARK: - Auth lifecycle: login, logout, restart, retire, switch assistant
 
 extension AppDelegate {
@@ -632,9 +644,16 @@ extension AppDelegate {
     ///    the organization ID (cleared in step 3) before connecting
     /// 5. Reconfigure transport and reconnect
     /// 6. Resume credential bootstrap
-    func performSwitchAssistant(to assistant: LockfileAssistant) {
+    func performSwitchAssistant(
+        to assistant: LockfileAssistant,
+        managedAuthenticationAlreadyVerified: Bool = false
+    ) {
         // If switching to a managed assistant while logged out, prompt login first.
-        if assistant.isManaged && !authManager.isAuthenticated {
+        if ManagedSwitchAuthenticationGate.shouldPromptForLogin(
+            assistant: assistant,
+            isAuthenticated: authManager.isAuthenticated,
+            managedAuthenticationAlreadyVerified: managedAuthenticationAlreadyVerified
+        ) {
             // Persist the target so we can switch after login completes.
             UserDefaults.standard.set(assistant.assistantId, forKey: "pendingManagedSwitchAssistantId")
             showAuthWindow()
@@ -803,7 +822,7 @@ extension AppDelegate {
         for name in APIKeyManager.allSyncableProviders {
             guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
             let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
+            _ = try? await GatewayHTTPClient.post(path: "secrets", json: body, timeout: 5)
         }
 
         log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
@@ -868,6 +887,10 @@ extension AppDelegate {
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
+        // Apple Guideline 5.1.2(i): AI Data Sharing consent must be re-collected
+        // on the next onboarding pass after a full retire. ToS is intentionally
+        // sticky and not cleared (matches web behavior).
+        UserDefaults.standard.removeObject(forKey: "aiDataConsent")
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
@@ -958,65 +981,6 @@ extension AppDelegate {
             let client = AssistantManagementClient.create()
             let replacement = await client.forceRemoveActiveAssistant()
             finalizePostRetire(replacement: replacement)
-        }
-    }
-
-    // MARK: - Uninstall
-
-    /// Retires all local assistants registered in the lockfile, then moves
-    /// the application bundle to the Trash and terminates.
-    ///
-    /// Shows a confirmation alert before proceeding. Each local assistant is
-    /// retired sequentially via the CLI; failures are logged but do not block
-    /// subsequent retires or the final app removal.
-    public func performUninstall() {
-        let alert = NSAlert()
-        alert.messageText = "Uninstall Vellum"
-        alert.informativeText = "This will retire all local assistants and move Vellum to the Trash. This action cannot be undone."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "Uninstall")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        Task {
-            let allAssistants = LockfileAssistant.loadAll()
-            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker || $0.isAppleContainer }
-
-            // Disconnect SSE before retiring so the reconnect loop doesn't
-            // hit a half-torn-down gateway and produce 502 errors.
-            connectionManager.disconnect()
-
-            // Retire each local assistant so cloud resources are cleaned up.
-            for assistant in localAssistants {
-                let client = AssistantManagementClient.create(for: assistant)
-                do {
-                    log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
-                    try await client.retire(name: assistant.assistantId)
-                } catch {
-                    log.error("Failed to retire '\(assistant.assistantId, privacy: .public)' during uninstall: \(error.localizedDescription)")
-                }
-            }
-
-            // Stop any remaining assistant processes.
-            await vellumCli.stop()
-
-            // Move the app bundle to the Trash.
-            let bundleURL = Bundle.main.bundleURL
-            do {
-                try FileManager.default.trashItem(at: bundleURL, resultingItemURL: nil)
-                log.info("Moved app bundle to Trash")
-            } catch {
-                log.error("Failed to move app to Trash: \(error.localizedDescription)")
-                let failAlert = NSAlert()
-                failAlert.messageText = "Could Not Remove Vellum"
-                failAlert.informativeText = "All assistants have been retired, but the app could not be moved to the Trash: \(error.localizedDescription)\n\nYou can manually drag Vellum to the Trash."
-                failAlert.alertStyle = .warning
-                failAlert.addButton(withTitle: "OK")
-                failAlert.runModal()
-            }
-
-            NSApp.terminate(nil)
         }
     }
 

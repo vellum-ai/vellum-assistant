@@ -11,30 +11,36 @@ metadata:
 
 ## Overview
 
-Send emails through the user's own Mailgun account. This is for **Bring Your Own** email — the user provides their Mailgun API key and domain, and you send via their infrastructure.
-
-This skill is **not** related to Vellum's managed email (`assistant email` commands). It uses the Mailgun HTTP API directly.
+Send emails through the user's own Mailgun account. The user provides their Mailgun API key and domain, and you send via their infrastructure.
 
 ## Setup
 
-### API Key (for sending)
+### Step 0: Check Existing Configuration
 
-Use the `credential_store` tool to prompt the user for their API key via the secure UI. **Never ask for the key in chat.**
+Before starting, check whether Mailgun is already configured:
 
-```
-credential_store:
-  action: "prompt"
-  service: mailgun
-  field: api_key
-  label: "Mailgun API Key"
-  placeholder: "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  description: "Your Mailgun API key for sending emails"
-  allowed_domains: ["api.mailgun.net", "api.eu.mailgun.net"]
+```bash
+bun skills/mailgun-setup/scripts/check-config.ts
 ```
 
-**Note:** Mailgun uses HTTP Basic Auth with username `api` and the API key as the password. The credential proxy cannot construct Basic Auth headers automatically (it would need to base64-encode `api:<key>`). Instead, use `curl -u "api:$KEY"` in bash commands — retrieve the key from the vault at runtime. See the sending examples below.
+The script outputs JSON: `{ "configured": boolean, "hasApiKey": boolean, "hasWebhookKey": boolean, "details": string }`.
 
-### Domain Detection
+- If `configured` is `true` — Mailgun is already set up. Offer to verify the connection or reconfigure.
+- If `configured` is `false` — continue to Step 1.
+
+### Step 1: Store the API Key
+
+Run the store script to securely collect the API key:
+
+```bash
+bun skills/mailgun-setup/scripts/store-api-key.ts
+```
+
+The script opens a secure credential prompt, stores the key, and exits. If it exits 0, the key is stored. **Never ask for the key in chat.**
+
+**Note:** Mailgun uses HTTP Basic Auth with username `api` and the API key as the password. The credential proxy cannot construct Basic Auth headers automatically. Instead, use `curl -u "api:$KEY"` in bash commands — retrieve the key from the vault at runtime. See the sending examples below.
+
+### Step 2: Detect the Domain
 
 After storing the API key, **automatically detect the user's domain** — don't ask them for it. Retrieve the API key from the vault and call the Mailgun Domains API:
 
@@ -43,53 +49,46 @@ curl -s --user "api:$MAILGUN_API_KEY" \
   https://api.mailgun.net/v4/domains?state=active
 ```
 
-The response contains an `items` array of domain objects with `name` and `state` fields. Pick the first domain with `"state": "active"` (or the only domain if there's just one). If no active domains are found, try the EU endpoint (`https://api.eu.mailgun.net/v4/domains?state=active`). If still none, tell the user they need to verify a domain in their Mailgun dashboard first.
+The response contains an `items` array of domain objects with `name` and `state` fields. Pick the first domain with `"state": "active"`. If no active domains are found, try the EU endpoint (`https://api.eu.mailgun.net/v4/domains?state=active`). If still none, tell the user they need to verify a domain in their Mailgun dashboard first.
 
-Use `hi@<domain>` as the default sender address (consistent with Vellum's native email convention). Remember the domain for future sends.
+Use `hi@<domain>` as the default sender address. Remember the domain and region (US/EU) for future sends.
 
-### Webhook Setup (for receiving)
+### Step 3: Verify the Connection
 
-If the user also wants to **receive** emails via Mailgun, you need to get a webhook URL and create an inbound route in Mailgun.
+Confirm the API key works by checking the domain response returned in Step 2. A successful response (HTTP 200) with domain data confirms the connection.
 
-#### Getting the webhook URL
+### Step 4: Webhook Setup (for receiving email)
 
-Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
-
-```bash
-CALLBACK_URL=$(assistant webhooks register mailgun --source "$DOMAIN")
-```
-
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
-
-#### Creating the inbound route in Mailgun
-
-Create an inbound route via the Mailgun API using the webhook URL from above:
+If the user also wants to **receive** emails via Mailgun, run the webhook setup script:
 
 ```bash
-curl -s --user "api:$MAILGUN_API_KEY" \
-  https://api.mailgun.net/v3/routes \
-  -F priority=0 \
-  -F description="Forward inbound email to assistant" \
-  -F expression="match_recipient('.*@DOMAIN')" \
-  -F action="forward('<webhook URL>')" \
-  -F action="stop()"
+bun skills/mailgun-setup/scripts/setup-webhook.ts --domain "<verified domain>" [--region eu]
 ```
 
-Replace `DOMAIN` with the user's Mailgun receiving domain. Retrieve the API key from the vault at runtime (do not hardcode it). For EU-region accounts, use `https://api.eu.mailgun.net/v3/routes` instead.
+This script:
 
-#### Storing the webhook signing key
+1. Registers a callback URL via the webhooks system
+2. Creates an inbound route in Mailgun via their API
+3. Prompts the user for their webhook signing key (found in the Mailgun dashboard: **Settings > API Security > HTTP Webhook Signing Key**)
 
-Store the signing key so the gateway can verify inbound webhooks:
+If the script fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
 
-```
-credential_store:
-  action: "prompt"
-  service: mailgun
-  field: webhook_signing_key
-  label: "Mailgun Webhook Signing Key"
-  placeholder: "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  description: "Webhook signing key from your Mailgun dashboard (for verifying inbound emails)"
-```
+### Step 5: Report Success
+
+Summarize with the completed checklist:
+
+"Setup complete!
+✅ API key configured
+✅ Domain detected: `<domain>` (region: US/EU)
+✅ Connection verified
+{webhook_line}
+
+Default sender: hi@`<domain>`"
+
+For `{webhook_line}`:
+
+- If webhook was set up: `✅ Inbound route and webhook signing key configured`
+- If skipped: `⬜ Webhook — run setup again to enable inbound email`
 
 ## Sending Email
 

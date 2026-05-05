@@ -52,7 +52,9 @@ struct RecoveryModeBanner: View {
                             .foregroundStyle(VColor.contentSecondary)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
             }
 
             HStack(spacing: VSpacing.sm) {

@@ -1,8 +1,7 @@
 /**
  * Tests for inline-command skill load permission handling.
  *
- * When a skill contains inline command expansions (!\`...\`) and the
- * inline-skill-commands flag is on, the permission
+ * When a skill contains inline command expansions (!\`...\`), the permission
  * system must:
  *
  * 1. Emit skill_load_dynamic:<id>@<hash> / skill_load_dynamic:<id> candidates
@@ -16,8 +15,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
@@ -48,7 +45,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => testConfig,
   loadConfig: () => testConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -67,12 +63,13 @@ mockIpcResponse("classify_risk", {
 });
 mockIpcResponse("get_global_thresholds", {
   interactive: "low",
-  background: "medium",
+  autonomous: "medium",
   headless: "none",
 });
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
 import { clearRiskCache } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
@@ -120,13 +117,10 @@ describe("inline-command skill_load permissions", () => {
     _clearGlobalCacheForTesting();
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
-      background: "medium",
+      autonomous: "medium",
       headless: "none",
     });
     testConfig.skills = { load: { extraDirs: [] } };
-    _setOverridesForTesting({
-      "inline-skill-commands": true,
-    });
     try {
       rmSync(join(testDir, "protected", "trust.json"));
     } catch {
@@ -159,7 +153,7 @@ describe("inline-command skill_load permissions", () => {
       writeDynamicSkill("dynamic-strict", "Dynamic Strict Skill");
       mockIpcResponse("get_global_thresholds", {
         interactive: "none",
-        background: "none",
+        autonomous: "none",
         headless: "none",
       });
       _clearGlobalCacheForTesting();
@@ -188,7 +182,6 @@ describe("inline-command skill_load permissions", () => {
       );
       expect(result.decision).toBe("allow");
     });
-
   });
 
   // ── Feature flag disabled ────────────────────────────────────────────
@@ -253,5 +246,4 @@ describe("inline-command skill_load permissions", () => {
       }
     });
   });
-
 });

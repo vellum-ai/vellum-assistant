@@ -12,7 +12,7 @@
  */
 
 import { getNestedValue, loadRawConfig } from "../../config/loader.js";
-import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
+import type { ChannelInviteAdapter } from "../channel-invite-types.js";
 
 // ---------------------------------------------------------------------------
 // Adapter implementation

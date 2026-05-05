@@ -87,6 +87,8 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: { v2: { enabled: false } },
+    conversations: { skipAutoRetitling: false },
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },

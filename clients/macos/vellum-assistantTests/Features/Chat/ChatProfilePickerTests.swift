@@ -9,23 +9,44 @@ final class ChatProfilePickerTests: XCTestCase {
     // MARK: - Label
 
     func testLabelShowsDefaultWhenOverrideIsNil() {
+        let profiles = [InferenceProfile(name: "balanced")]
         XCTAssertEqual(
-            ChatProfilePicker.label(current: nil, activeProfile: "balanced"),
+            ChatProfilePicker.label(current: nil, profiles: profiles, activeProfile: "balanced"),
             "Default (balanced)"
         )
     }
 
     func testLabelShowsProfileNameWhenOverrideIsSet() {
+        let profiles = [
+            InferenceProfile(name: "quality-optimized"),
+            InferenceProfile(name: "balanced"),
+        ]
         XCTAssertEqual(
-            ChatProfilePicker.label(current: "quality-optimized", activeProfile: "balanced"),
+            ChatProfilePicker.label(current: "quality-optimized", profiles: profiles, activeProfile: "balanced"),
             "quality-optimized"
         )
     }
 
     func testLabelReflectsActiveProfileChange() {
+        let profiles = [InferenceProfile(name: "cost-optimized")]
         XCTAssertEqual(
-            ChatProfilePicker.label(current: nil, activeProfile: "cost-optimized"),
+            ChatProfilePicker.label(current: nil, profiles: profiles, activeProfile: "cost-optimized"),
             "Default (cost-optimized)"
+        )
+    }
+
+    func testLabelShowsDisplayNameWhenLabelIsSet() {
+        let profiles = [
+            InferenceProfile(name: "quality-optimized", label: "Quality"),
+            InferenceProfile(name: "balanced", label: "Balanced"),
+        ]
+        XCTAssertEqual(
+            ChatProfilePicker.label(current: "quality-optimized", profiles: profiles, activeProfile: "balanced"),
+            "Quality"
+        )
+        XCTAssertEqual(
+            ChatProfilePicker.label(current: nil, profiles: profiles, activeProfile: "balanced"),
+            "Default (Balanced)"
         )
     }
 

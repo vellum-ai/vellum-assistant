@@ -13,9 +13,7 @@
  */
 
 import {
-  findAssistantByName,
-  getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { loadGuardianToken } from "./guardian-token.js";
@@ -28,8 +26,8 @@ export interface AssistantClientOpts {
   /**
    * When provided alongside `orgId`, the client authenticates with a
    * session token instead of a guardian token.  The session token is
-   * sent as `Authorization: Bearer <sessionToken>` and the org id is
-   * sent via the `X-Vellum-Org-Id` header.
+   * sent as `X-Session-Token: <sessionToken>` and the org id is
+   * sent via the `Vellum-Organization-Id` header.
    */
   sessionToken?: string;
   /** Required when `sessionToken` is provided. */
@@ -48,6 +46,8 @@ export class AssistantClient {
 
   private readonly _assistantId: string;
   private readonly token: string | undefined;
+  /** True when token is a platform session token (X-Session-Token), false for guardian JWT (Authorization: Bearer). */
+  private readonly isSessionAuth: boolean;
   private readonly orgId: string | undefined;
 
   /**
@@ -58,27 +58,13 @@ export class AssistantClient {
    * @throws If no matching assistant is found.
    */
   constructor(opts?: AssistantClientOpts) {
-    const nameOrId = opts?.assistantId;
-    let entry = nameOrId ? findAssistantByName(nameOrId) : null;
-
-    if (nameOrId && !entry) {
-      throw new Error(`No assistant found with name '${nameOrId}'.`);
-    }
-
-    if (!entry) {
-      const active = getActiveAssistant();
-      if (active) {
-        entry = findAssistantByName(active);
-      }
-    }
-
-    if (!entry) {
-      entry = loadLatestAssistant();
-    }
+    const entry = resolveAssistant(opts?.assistantId);
 
     if (!entry) {
       throw new Error(
-        "No assistant found. Hatch one first with 'vellum hatch'.",
+        opts?.assistantId
+          ? `No assistant found with name '${opts.assistantId}'.`
+          : "No assistant found. Hatch one first with 'vellum hatch'.",
       );
     }
 
@@ -90,12 +76,14 @@ export class AssistantClient {
     this._assistantId = entry.assistantId;
 
     if (opts?.sessionToken) {
-      // Platform assistant: use session token + org id header.
+      // Platform assistant: use X-Session-Token + Vellum-Organization-Id.
       this.token = opts.sessionToken;
+      this.isSessionAuth = true;
       this.orgId = opts.orgId;
     } else {
       this.token =
         loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
+      this.isSessionAuth = false;
       this.orgId = undefined;
     }
   }
@@ -191,10 +179,14 @@ export class AssistantClient {
 
     const headers: Record<string, string> = { ...opts?.headers };
     if (this.token) {
-      headers["Authorization"] ??= `Bearer ${this.token}`;
+      if (this.isSessionAuth) {
+        headers["X-Session-Token"] ??= this.token;
+      } else {
+        headers["Authorization"] ??= `Bearer ${this.token}`;
+      }
     }
     if (this.orgId) {
-      headers["X-Vellum-Org-Id"] ??= this.orgId;
+      headers["Vellum-Organization-Id"] ??= this.orgId;
     }
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";

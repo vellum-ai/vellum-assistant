@@ -84,7 +84,6 @@ describe("011-backfill-installation-id migration", () => {
     getExternalAssistantIdFn.mockReturnValue("my-assistant");
     getMemoryCheckpointFn.mockReturnValue(null);
     randomUUIDFn.mockReturnValue("generated-uuid-1234");
-    delete process.env.BASE_DATA_DIR;
   });
 
   test("no-op when no lockfile exists", () => {
@@ -284,12 +283,9 @@ describe("011-backfill-installation-id migration", () => {
     expect(parsed.assistants[0].installationId).toBe("sqlite-id");
   });
 
-  test("ignores BASE_DATA_DIR and always reads lockfile from homedir", () => {
-    process.env.BASE_DATA_DIR = "/custom-base";
+  test("always reads lockfile from homedir (per-user, not per-instance)", () => {
     getMemoryCheckpointFn.mockReturnValue("sqlite-id");
 
-    // Lockfile under BASE_DATA_DIR should be ignored — the migration
-    // always reads from homedir() (per-user, not per-instance).
     setupFs({
       [LOCK_PATH]: makeLockfile([{ assistantId: "my-assistant" }]),
     });

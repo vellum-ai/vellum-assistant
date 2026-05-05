@@ -23,7 +23,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     routingEntries: [],
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,

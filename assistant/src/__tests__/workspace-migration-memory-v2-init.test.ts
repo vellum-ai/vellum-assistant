@@ -3,9 +3,10 @@
  *
  * The migration seeds the `memory/` directory tree used by the v2 memory
  * subsystem: `memory/`, `memory/concepts/`, `memory/archive/`,
- * `memory/.v2-state/`, plus an empty `edges.json` and the four prose files
- * (`essentials.md`, `threads.md`, `recent.md`, `buffer.md`). It must be
- * idempotent and must not touch existing files.
+ * `memory/.v2-state/`, plus the four prose files (`essentials.md`,
+ * `threads.md`, `recent.md`, `buffer.md`). It must be idempotent and must
+ * not touch existing files. Outgoing edges live directly in concept-page
+ * frontmatter — there is no separate edges-index file to seed.
  */
 
 import {
@@ -90,11 +91,9 @@ describe("060-memory-v2-init migration", () => {
     expect(statSync(join(memoryDir, "archive")).isDirectory()).toBe(true);
     expect(statSync(join(memoryDir, ".v2-state")).isDirectory()).toBe(true);
 
-    // edges.json is seeded with the canonical empty index.
-    const edgesPath = join(memoryDir, "edges.json");
-    expect(existsSync(edgesPath)).toBe(true);
-    const edges = JSON.parse(readFileSync(edgesPath, "utf-8"));
-    expect(edges).toEqual({ version: 1, edges: [] });
+    // No edges-index file is seeded — outgoing edges live in concept-page
+    // frontmatter under the directed-edges model.
+    expect(existsSync(join(memoryDir, "edges.json"))).toBe(false);
 
     // Each prose file is created and empty.
     for (const filename of [
@@ -124,26 +123,6 @@ describe("060-memory-v2-init migration", () => {
       expect(after[rel].content).toBe(prev.content);
       expect(after[rel].mtimeMs).toBe(prev.mtimeMs);
     }
-  });
-
-  test("preserves an existing edges.json with prior content", () => {
-    const memoryDir = join(workspaceDir, "memory");
-    mkdirSync(memoryDir, { recursive: true });
-
-    const customEdges = {
-      version: 1,
-      edges: [
-        ["alice-preferences", "bob-handoff"],
-        ["bob-handoff", "team-rituals"],
-      ],
-    };
-    const edgesPath = join(memoryDir, "edges.json");
-    writeFileSync(edgesPath, JSON.stringify(customEdges, null, 2), "utf-8");
-
-    memoryV2InitMigration.run(workspaceDir);
-
-    const reread = JSON.parse(readFileSync(edgesPath, "utf-8"));
-    expect(reread).toEqual(customEdges);
   });
 
   test("preserves existing prose files with content", () => {
@@ -247,8 +226,7 @@ describe("060-memory-v2-init migration", () => {
       // .v2-state/ is gone.
       expect(existsSync(join(memoryDir, ".v2-state"))).toBe(false);
 
-      // Prose files and edges.json remain.
-      expect(existsSync(join(memoryDir, "edges.json"))).toBe(true);
+      // Prose files remain.
       expect(existsSync(join(memoryDir, "essentials.md"))).toBe(true);
       expect(existsSync(join(memoryDir, "threads.md"))).toBe(true);
       expect(existsSync(join(memoryDir, "recent.md"))).toBe(true);

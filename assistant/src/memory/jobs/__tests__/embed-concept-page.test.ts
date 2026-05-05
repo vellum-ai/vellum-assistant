@@ -103,6 +103,12 @@ mock.module("../../v2/qdrant.js", () => ({
   deleteConceptPageEmbedding: async (slug: string) => {
     deleteCalls.push(slug);
   },
+  // Other exports from the real module — stubbed so transitive imports
+  // don't crash on missing names when the mock replaces the module wholesale.
+  hybridQueryConceptPages: async () => [],
+  _resetMemoryV2QdrantForTests: () => {},
+  ensureConceptPageCollection: async () => {},
+  MEMORY_V2_COLLECTION: "memory_v2_concept_pages",
 }));
 
 // ── Workspace setup ────────────────────────────────────────────────
@@ -321,7 +327,7 @@ describe("enqueueEmbedConceptPageJob", () => {
     const id = enqueueEmbedConceptPageJob({ slug: "alice-prefers-vs-code" });
     expect(id).toBeTruthy();
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     expect(claimed).toHaveLength(1);
     const [job] = claimed;
     expect(job.type).toBe("embed_concept_page");
@@ -337,7 +343,7 @@ describe("enqueueEmbedConceptPageJob", () => {
 
     enqueueEmbedConceptPageJob({ slug: "round-trip-slug" });
 
-    const claimed = claimMemoryJobs(10);
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
     expect(claimed).toHaveLength(1);
     const [job] = claimed;
     expect(job.type).toBe("embed_concept_page");

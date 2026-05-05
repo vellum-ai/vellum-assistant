@@ -3,8 +3,7 @@
 // ---------------------------------------------------------------------------
 //
 // The activation formula's `c_now` term needs a snapshot of the prose meta
-// files (`essentials.md`, `threads.md`, `recent.md`) that the system prompt
-// also autoloads (see `prompts/system-prompt.ts buildMemoryV2Section`).
+// files (`essentials.md`, `threads.md`, `recent.md`).
 // Missing or unreadable files are treated as empty so a fresh workspace
 // (no consolidation has run yet) still reaches the v2 injector with a
 // well-defined `nowText`.
@@ -16,7 +15,7 @@ const NOW_FILES = ["essentials.md", "threads.md", "recent.md"] as const;
 
 /**
  * Read `memory/{essentials,threads,recent}.md` and concatenate the trimmed
- * non-empty contents (in the same order the system prompt autoloads them).
+ * non-empty contents.
  *
  * Returns an empty string when none of the files exist or all are empty.
  */

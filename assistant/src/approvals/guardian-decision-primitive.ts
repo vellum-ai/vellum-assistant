@@ -355,6 +355,12 @@ export type CanonicalDecisionResult =
       resolverFailed?: boolean;
       resolverFailureReason?: string;
       resolverReplyText?: string;
+      activatedContact?: {
+        sourceChannel: string;
+        externalUserId: string;
+        externalChatId?: string;
+        displayName?: string;
+      };
     }
   | {
       applied: false;
@@ -521,6 +527,9 @@ export async function applyCanonicalGuardianDecision(
   let resolverFailed = false;
   let resolverFailureReason: string | undefined;
   let resolverReplyText: string | undefined;
+  let activatedContact:
+    | { sourceChannel: string; externalUserId: string; externalChatId?: string; displayName?: string }
+    | undefined;
   const resolver = getResolver(request.kind);
   if (resolver) {
     const resolverResult = await resolver.resolve({
@@ -549,6 +558,9 @@ export async function applyCanonicalGuardianDecision(
       resolverFailureReason = resolverResult.reason;
     } else {
       resolverReplyText = resolverResult.guardianReplyText;
+      if (resolverResult.activatedContact) {
+        activatedContact = resolverResult.activatedContact;
+      }
     }
   } else {
     log.info(
@@ -600,5 +612,6 @@ export async function applyCanonicalGuardianDecision(
     grantMinted,
     ...(resolverFailed ? { resolverFailed, resolverFailureReason } : {}),
     ...(resolverReplyText ? { resolverReplyText } : {}),
+    ...(activatedContact ? { activatedContact } : {}),
   };
 }

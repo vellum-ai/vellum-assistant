@@ -1,3 +1,30 @@
+import type { Server } from "bun";
+
+/**
+ * Check whether the TCP peer of a Bun HTTP request is a loopback address.
+ *
+ * When `trustProxy` is set, the first entry in `X-Forwarded-For` is used
+ * instead of the raw socket IP.
+ */
+export function isLoopbackPeer(
+  server: Server<unknown>,
+  req: Request,
+  opts?: { trustProxy?: boolean },
+): boolean {
+  if (opts?.trustProxy) {
+    const forwarded = req.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const first = forwarded.split(",")[0]?.trim();
+      if (!first) return false;
+      return isLoopbackAddress(first);
+    }
+  }
+
+  const peer = server.requestIP(req);
+  if (!peer) return false;
+  return isLoopbackAddress(peer.address);
+}
+
 /**
  * Stricter loopback-only check: accepts only 127.0.0.0/8 and ::1.
  * Use this instead of isPrivateNetworkPeer for endpoints that must be

@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Heart
 /// management.
 public protocol HeartbeatClientProtocol {
     func fetchConfig() async -> HeartbeatConfigResponse?
-    func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?) async -> HeartbeatConfigResponse?
+    func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?, cronExpression: String?, timezone: String?) async -> HeartbeatConfigResponse?
     func fetchRunsList(limit: Int?) async -> HeartbeatRunsListResponse?
     func runNow() async -> HeartbeatRunNowResponse?
     func fetchChecklist() async -> HeartbeatChecklistResponse?
@@ -23,7 +23,7 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
     public func fetchConfig() async -> HeartbeatConfigResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/heartbeat/config", timeout: 10
+                path: "heartbeat/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchConfig failed (HTTP \(response.statusCode))")
@@ -37,16 +37,18 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
         }
     }
 
-    public func updateConfig(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) async -> HeartbeatConfigResponse? {
+    public func updateConfig(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil, cronExpression: String? = nil, timezone: String? = nil) async -> HeartbeatConfigResponse? {
         do {
             var body: [String: Any] = [:]
             if let enabled { body["enabled"] = enabled }
             if let intervalMs { body["intervalMs"] = intervalMs }
             if let activeHoursStart { body["activeHoursStart"] = activeHoursStart }
             if let activeHoursEnd { body["activeHoursEnd"] = activeHoursEnd }
+            if let cronExpression { body["cronExpression"] = cronExpression }
+            if let timezone { body["timezone"] = timezone }
 
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/heartbeat/config", json: body, timeout: 10
+                path: "heartbeat/config", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateConfig failed (HTTP \(response.statusCode))")
@@ -66,7 +68,7 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
             if let limit { params["limit"] = String(limit) }
 
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/heartbeat/runs",
+                path: "heartbeat/runs",
                 params: params.isEmpty ? nil : params,
                 timeout: 10
             )
@@ -85,7 +87,7 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
     public func runNow() async -> HeartbeatRunNowResponse? {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/heartbeat/run-now", timeout: 10
+                path: "heartbeat/run-now", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("runNow failed (HTTP \(response.statusCode))")
@@ -102,7 +104,7 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
     public func fetchChecklist() async -> HeartbeatChecklistResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/heartbeat/checklist", timeout: 10
+                path: "heartbeat/checklist", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchChecklist failed (HTTP \(response.statusCode))")
@@ -120,7 +122,7 @@ public struct HeartbeatClient: HeartbeatClientProtocol {
         do {
             let body: [String: Any] = ["content": content]
             let response = try await GatewayHTTPClient.put(
-                path: "assistants/{assistantId}/heartbeat/checklist", json: body, timeout: 10
+                path: "heartbeat/checklist", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("writeChecklist failed (HTTP \(response.statusCode))")

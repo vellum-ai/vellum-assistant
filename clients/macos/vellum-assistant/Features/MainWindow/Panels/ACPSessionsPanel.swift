@@ -1,12 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Skeleton list view for the Coding Agents (ACP sessions) panel.
+/// List view for the Coding Agents (ACP sessions) panel.
 ///
 /// Drives off the shared ``ACPSessionStore`` so SSE-driven inserts/updates
-/// stream into the list without explicit refresh logic. Routing into the
-/// panel is wired up in a follow-up PR (see ``PanelCoordinator``); this PR
-/// only stands up the visual shell.
+/// stream into the list without explicit refresh logic. Visibility and
+/// right-slot routing are owned by ``PanelCoordinator``.
 ///
 /// The empty state mirrors ``SubagentDetailPanel`` — same `VEmptyState`
 /// shape, same panel chrome — so the two coding-agent surfaces feel like a

@@ -3,49 +3,39 @@
  * Uses the same fs.watch() + debounce pattern as CredentialWatcher.
  */
 
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, watch, type FSWatcher } from "node:fs";
+import { dirname } from "node:path";
+import {
+  CONFIG_FILENAME,
+  getConfigPath,
+  readConfigFileOrEmpty,
+} from "./config-file-utils.js";
 import { getLogger } from "./logger.js";
-import { getWorkspaceDir } from "./credential-reader.js";
 
 const log = getLogger("config-file-watcher");
 
 const DEBOUNCE_MS = 500;
-const CONFIG_FILENAME = "config.json";
 
 export type ConfigChangeEvent = {
   /** Full parsed config.json data. */
   data: Record<string, unknown>;
   /** Top-level keys whose serialized value changed since the last poll. */
   changedKeys: Set<string>;
+  /**
+   * Shallow object fields that changed for changed top-level object keys.
+   * Non-object replacements are represented by the top-level key only.
+   */
+  changedFields: Map<string, Set<string>>;
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
-
-function getConfigPath(): string {
-  return join(getWorkspaceDir(), CONFIG_FILENAME);
-}
-
-function readConfigFile(path: string): Record<string, unknown> {
-  try {
-    if (!existsSync(path)) return {};
-
-    const raw = readFileSync(path, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-
-    return data as Record<string, unknown>;
-  } catch (err) {
-    log.debug({ err }, "Failed to read config file");
-    return {};
-  }
-}
 
 export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
   private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
+  private lastValues: Map<string, unknown> = new Map();
   private callback: ConfigChangeCallback;
   private configPath: string;
 
@@ -134,9 +124,14 @@ export class ConfigFileWatcher {
   }
 
   private pollOnce(): void {
-    const data = readConfigFile(this.configPath);
+    const data = readConfigFileOrEmpty({
+      onMalformed: (detail) => {
+        log.debug({ err: detail }, "Failed to read config file");
+      },
+    });
 
     const changedKeys = new Set<string>();
+    const changedFields = new Map<string, Set<string>>();
 
     // Detect changed or added keys
     const allKeys = new Set([
@@ -150,10 +145,19 @@ export class ConfigFileWatcher {
 
       if (newVal !== oldVal) {
         changedKeys.add(key);
+        const fieldChanges = diffObjectFields(
+          this.lastValues.get(key),
+          key in data ? data[key] : undefined,
+        );
+        if (fieldChanges.size > 0) {
+          changedFields.set(key, fieldChanges);
+        }
         if (newVal !== undefined) {
           this.lastSerialized.set(key, newVal);
+          this.lastValues.set(key, data[key]);
         } else {
           this.lastSerialized.delete(key);
+          this.lastValues.delete(key);
         }
       }
     }
@@ -162,6 +166,34 @@ export class ConfigFileWatcher {
 
     log.info({ changedKeys: [...changedKeys] }, "Config file changed");
 
-    this.callback({ data, changedKeys });
+    this.callback({ data, changedKeys, changedFields });
   }
+}
+
+function diffObjectFields(oldValue: unknown, newValue: unknown): Set<string> {
+  if (!isPlainRecord(oldValue) && !isPlainRecord(newValue)) {
+    return new Set();
+  }
+
+  const oldRecord = isPlainRecord(oldValue) ? oldValue : {};
+  const newRecord = isPlainRecord(newValue) ? newValue : {};
+  const changed = new Set<string>();
+  const allKeys = new Set([
+    ...Object.keys(oldRecord),
+    ...Object.keys(newRecord),
+  ]);
+  for (const key of allKeys) {
+    const oldSerialized =
+      key in oldRecord ? JSON.stringify(oldRecord[key]) : undefined;
+    const newSerialized =
+      key in newRecord ? JSON.stringify(newRecord[key]) : undefined;
+    if (oldSerialized !== newSerialized) {
+      changed.add(key);
+    }
+  }
+  return changed;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }

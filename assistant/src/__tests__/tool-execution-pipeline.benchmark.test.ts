@@ -48,7 +48,7 @@ mock.module("../config/loader.js", () => ({
     timeouts: { permissionTimeoutSec: 5, toolExecutionTimeoutSec: 120 },
     permissions: {},
     skills: { load: { extraDirs: [] } },
-    secretDetection: { enabled: true, entropyThreshold: 4.0, action: "warn" },
+    secretDetection: { enabled: true },
     sandbox: { enabled: false },
     contextWindow: {},
     memory: {},
@@ -120,10 +120,10 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcClassifyRisk: async (): Promise<
     import("../permissions/ipc-risk-types.js").ClassificationResult
   > => ({
-      risk: "low",
-      reason: "mock",
-      matchType: "registry" as const,
-      scopeOptions: [],
+    risk: "low",
+    reason: "mock",
+    matchType: "registry" as const,
+    scopeOptions: [],
   }),
   ipcCall: async () => undefined,
   ipcCallPersistent: async () => undefined,
@@ -133,10 +133,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 import { check, classifyRisk } from "../permissions/checker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import {
-  DEFAULT_ENTROPY_CONFIG,
-  scanText,
-} from "../security/secret-scanner.js";
+import { scanText } from "../security/secret-scanner.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -371,10 +368,7 @@ describe("Tool execution pipeline benchmark", () => {
     const shortOutput =
       "Build succeeded. 42 tests passed, 0 failed.\nTime: 1.23s";
 
-    const { timings } = benchmarkSync(
-      () => scanText(shortOutput, DEFAULT_ENTROPY_CONFIG),
-      ITERATIONS,
-    );
+    const { timings } = benchmarkSync(() => scanText(shortOutput), ITERATIONS);
 
     const p50 = percentile(timings, 50);
     const p95 = percentile(timings, 95);
@@ -386,10 +380,7 @@ describe("Tool execution pipeline benchmark", () => {
   test("scanText: large output (100KB) within budget", () => {
     const largeOutput = generateLargeOutput(100 * 1024);
 
-    const { timings } = benchmarkSync(
-      () => scanText(largeOutput, DEFAULT_ENTROPY_CONFIG),
-      ITERATIONS,
-    );
+    const { timings } = benchmarkSync(() => scanText(largeOutput), ITERATIONS);
 
     const p50 = percentile(timings, 50);
     const p95 = percentile(timings, 95);
@@ -411,7 +402,7 @@ describe("Tool execution pipeline benchmark", () => {
     ].join("\n");
 
     const { timings, results } = benchmarkSync(
-      () => scanText(outputWithSecrets, DEFAULT_ENTROPY_CONFIG),
+      () => scanText(outputWithSecrets),
       ITERATIONS,
     );
 
@@ -438,7 +429,6 @@ describe("Tool execution pipeline benchmark", () => {
       // Phase 3: Secret scanning on output
       scanText(
         "diff --git a/file.ts b/file.ts\n+const x = 42;\n-const x = 41;",
-        DEFAULT_ENTROPY_CONFIG,
       );
 
       timings.push(performance.now() - start);

@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(macOS)
 import AppKit
-#else
-import UIKit
-#endif
 
 // MARK: - Color Extension
 
@@ -33,16 +29,10 @@ public extension Color {
 /// Creates a `Color` that automatically resolves to `light` or `dark` based on
 /// the current system / window appearance.
 public func adaptiveColor(light: Color, dark: Color) -> Color {
-    #if os(macOS)
     Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         return isDark ? NSColor(dark) : NSColor(light)
     }))
-    #else
-    Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
-    })
-    #endif
 }
 
 // MARK: - Canonical Semantic Tokens

@@ -73,11 +73,11 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertNotNil(sheet.body)
     }
 
-    // MARK: - Built-in detection
+    // MARK: - Managed detection
 
-    /// The badge wiring uses `builtInInferenceProfileNames.contains`, so
-    /// the row's badge presence should match the constant exactly.
-    func testBuiltInProfilesShowBadgeAndCustomDoesNot() {
+    /// Managed profiles (source == "managed") show a "Managed" badge;
+    /// user-created profiles without a source do not.
+    func testManagedProfilesShowBadgeAndCustomDoesNot() {
         seedBuiltInsAndCustom(includeCustom: true)
         XCTAssertEqual(store.profiles.count, 4)
 
@@ -87,18 +87,18 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertTrue(names.contains("cost-optimized"))
         XCTAssertTrue(names.contains("experimental"))
 
-        // The badge predicate is defined as a top-level constant so the
-        // row can stay declarative. Verify it directly here so the
-        // contract doesn't drift.
+        // Managed profiles have source == "managed" from the payload.
         for name in ["quality-optimized", "balanced", "cost-optimized"] {
+            let profile = store.profiles.first(where: { $0.name == name })
             XCTAssertTrue(
-                builtInInferenceProfileNames.contains(name),
-                "\(name) must render with a Built-in badge"
+                profile?.isManaged == true,
+                "\(name) must render with a Managed badge"
             )
         }
+        let custom = store.profiles.first(where: { $0.name == "experimental" })
         XCTAssertFalse(
-            builtInInferenceProfileNames.contains("experimental"),
-            "Custom profiles must not render the Built-in badge"
+            custom?.isManaged == true,
+            "Custom profiles must not render the Managed badge"
         )
     }
 
@@ -202,11 +202,13 @@ final class InferenceProfilesSheetTests: XCTestCase {
     /// Deleting the active profile produces `.blockedByActive`. The sheet
     /// uses this to drive its `BlockedDeleteState.active` presentation.
     func testDeletingActiveProfileReturnsBlockedByActiveResult() async {
-        seedBuiltInsAndCustom()
-        XCTAssertEqual(store.activeProfile, "balanced")
+        seedBuiltInsAndCustom(includeCustom: true)
+        let switched = await store.setActiveProfile("experimental")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(store.activeProfile, "experimental")
 
-        let result = await store.deleteProfile(name: "balanced")
-        XCTAssertEqual(result, .blockedByActive("balanced"))
+        let result = await store.deleteProfile(name: "experimental")
+        XCTAssertEqual(result, .blockedByActive("experimental"))
     }
 
     /// Deleting a profile that's referenced by call sites returns
@@ -245,15 +247,12 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertFalse(store.profiles.contains(where: { $0.name == "experimental" }))
     }
 
-    /// Built-in profiles remain deletable when nothing references them —
-    /// the badge is informational, not a guard. This protects the
-    /// invariant called out in the plan: "Built-ins render with the badge
-    /// but remain editable and deletable when not referenced."
-    func testBuiltInProfileIsDeletableWhenNotReferenced() async {
+    /// Managed profiles cannot be deleted — `deleteProfile` returns
+    /// `.blockedByManaged` regardless of reference state.
+    func testManagedProfileIsNotDeletable() async {
         seedBuiltInsAndCustom()
-        // Make a non-built-in the active profile so the built-in target
-        // isn't blocked by the active-profile check. Use a fresh custom
-        // entry to avoid colliding with the seeded set.
+        // Make a non-managed profile the active profile so the managed
+        // target isn't also blocked by the active-profile check.
         let custom = InferenceProfile(
             name: "alt",
             provider: "anthropic",
@@ -264,11 +263,11 @@ final class InferenceProfilesSheetTests: XCTestCase {
         let switched = await store.setActiveProfile("alt")
         XCTAssertTrue(switched)
 
-        // Now delete a built-in. No call-site override references it, so
-        // the result must be .deleted.
+        // Attempting to delete a managed profile must return
+        // `.blockedByManaged`.
         let result = await store.deleteProfile(name: "quality-optimized")
-        XCTAssertEqual(result, .deleted)
-        XCTAssertFalse(store.profiles.contains(where: { $0.name == "quality-optimized" }))
+        XCTAssertEqual(result, .blockedByManaged)
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "quality-optimized" }))
     }
 
     // MARK: - "+ New profile" flow
@@ -298,38 +297,40 @@ final class InferenceProfilesSheetTests: XCTestCase {
 
     // MARK: - Rename flow
 
-    /// Renaming the active profile must atomically migrate the
+    /// Renaming a custom active profile must atomically migrate the
     /// `activeProfile` pointer and any callsite overrides onto the new
     /// name BEFORE deleting the old key, so the rename never leaves a
     /// stale dangling reference. Mirrors the orchestration in
     /// `commitEditor` — exercised here at the store level.
     func testRenameActiveProfileMigratesActivePointerAndDropsOldKey() async {
-        seedBuiltInsAndCustom()
-        XCTAssertEqual(store.activeProfile, "balanced")
+        seedBuiltInsAndCustom(includeCustom: true)
+        let switched = await store.setActiveProfile("experimental")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(store.activeProfile, "experimental")
 
         // Step 1: write the new key with the migrated draft.
         let renamed = InferenceProfile(
-            name: "balanced-renamed",
+            name: "experimental-renamed",
             provider: "anthropic",
             model: "claude-sonnet-4-6",
             maxTokens: 16000,
             effort: "high"
         )
-        let setSuccess = await store.setProfile(name: "balanced-renamed", fragment: renamed)
+        let setSuccess = await store.setProfile(name: "experimental-renamed", fragment: renamed)
         XCTAssertTrue(setSuccess)
 
         // Step 2: re-target the active pointer.
-        let activeSuccess = await store.setActiveProfile("balanced-renamed")
+        let activeSuccess = await store.setActiveProfile("experimental-renamed")
         XCTAssertTrue(activeSuccess)
 
         // Step 3: drop the old key. After re-targeting, this must
         // succeed (no `.blockedByActive`).
-        let result = await store.deleteProfile(name: "balanced")
+        let result = await store.deleteProfile(name: "experimental")
         XCTAssertEqual(result, .deleted)
 
-        XCTAssertEqual(store.activeProfile, "balanced-renamed")
-        XCTAssertFalse(store.profiles.contains(where: { $0.name == "balanced" }))
-        XCTAssertTrue(store.profiles.contains(where: { $0.name == "balanced-renamed" }))
+        XCTAssertEqual(store.activeProfile, "experimental-renamed")
+        XCTAssertFalse(store.profiles.contains(where: { $0.name == "experimental" }))
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental-renamed" }))
     }
 
     /// Renaming a profile referenced by call sites must re-target every

@@ -1,6 +1,6 @@
 # Vellum Gateway
 
-Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
+Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ Telegram → gateway/ → Assistant Runtime (/v1/assistants/:id/channels/inbound
 Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 ```
 
-The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
+The web app is **not** in the Telegram request path. All non-Telegram requests that don't match a dedicated gateway route are forwarded to the assistant runtime with bearer token authentication.
 
 For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -26,11 +26,11 @@ bun run dev
 
 ## Configuration
 
-| Variable                  | Required | Default | Description                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                  | Required | Default | Description                                                                                                                                                                                                                                                                         |
+| ------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`      | No       | —       | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store: CES HTTP API first (when `CES_CREDENTIAL_URL` is configured), then the encrypted file store (`~/.vellum/protected/keys.enc`). |
-| `TELEGRAM_WEBHOOK_SECRET` | No       | —       | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`.                                                                                                                                            |
-| `GATEWAY_PORT`            | No       | `7830`  | Port for the gateway HTTP server                                                                                                                                                                                                                                                                                                                                                       |
+| `TELEGRAM_WEBHOOK_SECRET` | No       | —       | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`.                                                                                                                                             |
+| `GATEWAY_PORT`            | No       | `7830`  | Port for the gateway HTTP server                                                                                                                                                                                                                                                    |
 
 Most gateway behavior is now configured via hardcoded defaults or workspace config (`~/.vellum/workspace/config.json`) rather than environment variables. Channel operational settings (Telegram API base URL, timeouts, deliver auth bypass flags, runtime base URL, routing, proxy settings, attachment limits, shutdown drain) are managed via `workspace/config.json` through `ConfigFileCache`. See the channel-specific sections in `ARCHITECTURE.md` for details.
 
@@ -176,7 +176,7 @@ The gateway serves as the single public ingress point for all external callbacks
 
 ### Tunnel Setup
 
-To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:
+To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL. Ngrok, Cloudflare Tunnel, and other custom HTTPS/WSS tunnels remain supported.
 
 #### Test Gateway Source Changes Locally (No Release Needed)
 
@@ -210,6 +210,47 @@ In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typicall
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 
+### Velay for Twilio Local Testing
+
+Velay is an additional managed ingress transport for Twilio calls. It does not replace ngrok or `ingress.publicBaseUrl`. In this phase, Velay registration writes only `ingress.twilioPublicBaseUrl`; Twilio URL builders prefer that value when it is present, while Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs continue to use `ingress.publicBaseUrl`.
+
+Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades through the platform-managed tunnel:
+
+1. In `vellum-assistant-platform`, start the local Velay service:
+
+   ```bash
+   vel up velay
+   ```
+
+2. Ensure vembda injects the Velay endpoint into assistant gateway containers:
+
+   ```bash
+   VELAY_BASE_URL=http://host.docker.internal:8501
+   ```
+
+   The `host.docker.internal` host is important for Docker-hosted assistants because the gateway container must dial the Velay service running on the host.
+
+3. Re-hatch or restart the assistant so the gateway process receives `VELAY_BASE_URL`.
+4. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.twilioPublicBaseUrl` without changing `ingress.publicBaseUrl`.
+
+For an HTTP bridge smoke test, send a request to the registered Velay public URL and confirm it reaches the loopback gateway, for example:
+
+```bash
+curl -i "$VELAY_PUBLIC_BASE_URL/<assistant-id>/healthz"
+curl -i "$VELAY_PUBLIC_BASE_URL/<assistant-id>/schema"
+```
+
+When testing a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm the gateway logs or handler response show the request reached the loopback listener.
+
+For a synthetic Twilio WebSocket smoke test, connect a local WebSocket client to the Velay public URL using one of the gateway Twilio WebSocket paths, such as:
+
+```bash
+bun -e 'const ws = new WebSocket(process.argv[1]); ws.onopen = () => { console.log("open"); ws.close(); }; ws.onerror = (event) => console.error(event);' \
+  "wss://<velay-host>/<assistant-id>/webhooks/twilio/relay?callSessionId=session-123&token=<edge-token>"
+```
+
+For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/relay` or `/webhooks/twilio/media-stream/...` through the Velay URL. Keep using ngrok or another custom tunnel in `ingress.publicBaseUrl` when you need Telegram, OAuth, email, or non-Twilio webhook ingress.
+
 ## Ingress Boundary Guarantees
 
 The gateway is the **sole public ingress point** for all external webhooks. The assistant runtime never directly accepts public webhook traffic — all Twilio and Telegram webhook routes on the runtime return `410 GATEWAY_ONLY` when accessed directly.
@@ -218,13 +259,9 @@ The gateway is the **sole public ingress point** for all external webhooks. The 
 
 When the ingress public base URL is configured (via `ingress.publicBaseUrl` in workspace config, read through `ConfigFileCache`), the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
 
-## Default Mode: Dedicated Routes Only
+## Runtime Proxy
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/channel-verification-sessions/*`, `/v1/integrations/telegram/*`, `/v1/integrations/slack/*`, and `/v1/contacts/invites/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless the runtime proxy is enabled via workspace config.
-
-## Runtime Proxy Mode
-
-When the runtime proxy is enabled (via workspace config), the gateway forwards all non-Telegram HTTP requests to the assistant runtime. This allows the gateway to serve as a single ingress point for both Telegram and API traffic.
+The gateway acts as the single ingress point for all traffic. Dedicated gateway routes (webhooks, control-plane proxies, health checks) are matched first; any request that doesn't match a specific route is forwarded to the assistant runtime via a catch-all proxy.
 
 ### Auth behavior
 

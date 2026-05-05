@@ -57,6 +57,7 @@ struct ChatSearchBar: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .frame(height: 32)
+        .widthCap(280)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .vShadow(VShadow.sm)

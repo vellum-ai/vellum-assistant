@@ -7,36 +7,17 @@
  * {@link handleConversationUndoSignal}, which reads the payload, performs
  * the undo, and writes `signals/conversation-undo.result` so the CLI
  * receives feedback.
- *
- * Because the signal handler needs access to the daemon's conversation map, the
- * daemon registers a callback at startup via
- * {@link registerConversationUndoCallback}.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import { undoLastMessage } from "../daemon/handlers/conversations.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:conversation-undo");
-
-// ── Daemon callback registry ─────────────────────────────────────────
-
-type UndoCallback = (
-  conversationId: string,
-) => Promise<{ removedCount: number } | null>;
-
-let _undoLastMessage: UndoCallback | null = null;
-
-/**
- * Register the undo callback. Called once by the daemon server at startup
- * so the signal handler can reach the conversation map.
- */
-export function registerConversationUndoCallback(cb: UndoCallback): void {
-  _undoLastMessage = cb;
-}
 
 // ── Signal handler ───────────────────────────────────────────────────
 
@@ -93,13 +74,7 @@ export async function handleConversationUndoSignal(): Promise<void> {
       return;
     }
 
-    if (!_undoLastMessage) {
-      log.warn("Undo callback not registered; daemon may not be ready");
-      writeResult({ ok: false, error: "Assistant not ready", requestId });
-      return;
-    }
-
-    const result = await _undoLastMessage(conversationId);
+    const result = await undoLastMessage(conversationId);
     if (!result) {
       log.warn({ conversationId }, "No active conversation for undo signal");
       writeResult({ ok: false, error: "No active conversation", requestId });

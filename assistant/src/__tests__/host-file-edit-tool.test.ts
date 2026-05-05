@@ -1,7 +1,29 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+import type { HostFileInput } from "../daemon/host-file-proxy.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+
+// Mock HostFileProxy singleton so proxy delegation tests can control it.
+let mockFileProxyAvailable = false;
+let mockFileProxyRequestFn: (
+  input: HostFileInput,
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-file-proxy.js", () => ({
+  HostFileProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockFileProxyAvailable,
+        request: mockFileProxyRequestFn,
+      };
+    },
+  },
+}));
 
 import { hostFileEditTool } from "../tools/host-filesystem/edit.js";
 import type { ToolContext } from "../tools/types.js";
@@ -20,6 +42,8 @@ afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  mockFileProxyAvailable = false;
+  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_file_edit tool", () => {
@@ -267,5 +291,27 @@ describe("host_file_edit tool", () => {
         result.content.includes("fuzzy") ||
         result.content.includes("Successfully edited"),
     ).toBe(true);
+  });
+
+  test("passes target_client_id to HostFileProxy.instance.request", async () => {
+    const capturedInputs: HostFileInput[] = [];
+    mockFileProxyAvailable = true;
+    mockFileProxyRequestFn = async (input) => {
+      capturedInputs.push(input);
+      return { content: "proxied edit", isError: false };
+    };
+
+    await hostFileEditTool.execute(
+      {
+        path: "/host/file.txt",
+        old_string: "old",
+        new_string: "new",
+        target_client_id: "client-x",
+      },
+      makeContext(),
+    );
+
+    expect(capturedInputs).toHaveLength(1);
+    expect(capturedInputs[0].targetClientId).toBe("client-x");
   });
 });

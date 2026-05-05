@@ -3,19 +3,29 @@ set -euo pipefail
 
 # FlexFrame guardrail script
 #
-# Detects `.frame(maxWidth:)` / `.frame(maxHeight:)` usages in performance-sensitive
-# chat/window directories. These modifiers create `_FlexFrameLayout`, which queries
-# `explicitAlignment` on descendants — cascading O(depth × children) per layout pass
-# and causing multi-second hangs in LazyVStack-backed hierarchies.
+# Detects `.frame(maxWidth:)` / `.frame(maxHeight:)` / `.frame(minWidth:)` /
+# `.frame(minHeight:)` / `.frame(idealWidth:)` / `.frame(idealHeight:)` usages
+# in performance-sensitive chat/window directories.
+# These modifiers create `_FlexFrameLayout`, which queries `explicitAlignment`
+# on descendants — cascading O(depth × children) per layout pass and causing
+# multi-second hangs in LazyVStack-backed hierarchies.
 #
-# See clients/macos/AGENTS.md (section "No `.frame(maxWidth:)` ... in LazyVStack/
+# ALL parameters on the flexible frame overload — minWidth, minHeight, maxWidth,
+# maxHeight, idealWidth, idealHeight — create `_FlexFrameLayout`. The fixed
+# overload (width:, height:)
+# creates `_FrameLayout` instead. See:
+# https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)
+#
+# See clients/macos/AGENTS.md (section "No `_FlexFrameLayout` ... in LazyVStack/
 # LazyHStack/LazyVGrid cell hierarchy") for the rule and safe alternatives.
 #
 # Safe alternatives:
 #   - .widthCap(N)                         — O(1) width cap via WidthCapLayout
-#   - .frame(width: N)                     — _FrameLayout, no alignment query
+#   - .fixedWidth(N)                       — O(1) fixed width via FixedWidthLayout
+#   - .topAlignedMinHeight(N)              — O(1) min-height with top alignment
+#   - .bottomAlignedMinHeight(N)           — O(1) min-height with bottom alignment
+#   - .frame(width: N) / .frame(height: N) — _FrameLayout (but not safe as cascade barrier)
 #   - HStack { content; Spacer(minLength: 0) } / Spacer + content — alignment without FlexFrame
-#   - BottomAlignedMinHeightLayout         — vertical equivalent
 #
 # Historical context: this cascade has been fixed 9+ times in chat-surface code
 # (PRs #24019, #24091, #24584, #24589, #25844, #25947, #26007, #26053, #26092, #26220).
@@ -39,7 +49,7 @@ for arg in "$@"; do
   case "$arg" in
     --update-baseline) UPDATE_BASELINE=1 ;;
     -h|--help)
-      sed -n '2,25p' "$0" | sed 's/^# \?//'
+      sed -n '2,40p' "$0" | sed 's/^# \?//'
       exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -53,10 +63,13 @@ SCAN_DIRS=(
   "clients/macos/vellum-assistant/Features/MainWindow/"
 )
 
-# Matches .frame(maxWidth: ...) or .frame(maxHeight: ...) — any value.
+# Matches .frame(maxWidth: ...) / .frame(maxHeight: ...) / .frame(minWidth: ...)
+# / .frame(minHeight: ...) / .frame(idealWidth: ...) / .frame(idealHeight: ...)
+# — any value. ALL six parameters live on the flexible frame overload and
+# create `_FlexFrameLayout`.
 # Rust-regex compatible (no lookaround) so it works with ripgrep's default
 # engine; we strip comment-only lines in a second pass below.
-PATTERN='\.frame\(\s*max(Width|Height)\s*:'
+PATTERN='\.frame\(\s*(max|min|ideal)(Width|Height)\s*:'
 
 cd "$REPO_ROOT"
 
@@ -102,7 +115,7 @@ fi
 if [[ "$UPDATE_BASELINE" == "1" ]]; then
   {
     cat <<'HEADER'
-# FlexFrame allowlist — intentional `.frame(maxWidth:)` / `.frame(maxHeight:)` usages.
+# FlexFrame allowlist — intentional `.frame(max/minWidth:)` / `.frame(max/minHeight:)` usages.
 #
 # Each line is `<path>|<trimmed-line-content>` for one occurrence. Line numbers
 # are intentionally omitted so entries survive unrelated line drift.
@@ -119,7 +132,8 @@ if [[ "$UPDATE_BASELINE" == "1" ]]; then
 #     and no animated transition in the parent).
 #
 # Adding a new entry: BEFORE allowlisting, first try a safe alternative:
-#   .widthCap(N), .frame(width: N), HStack+Spacer, BottomAlignedMinHeightLayout.
+#   .widthCap(N), .fixedWidth(N), .topAlignedMinHeight(N),
+#   .bottomAlignedMinHeight(N), HStack+Spacer.
 # If and only if none of those preserve required semantics (truncation, exact
 # alignment, fill-parent for a modal root), add the entry and a one-line note
 # in the PR description explaining why. The default answer is "use a safe
@@ -128,7 +142,7 @@ if [[ "$UPDATE_BASELINE" == "1" ]]; then
 # Regenerate this file after an intentional bulk refactor with:
 #   bash clients/scripts/check-flexframe.sh --update-baseline
 #
-# See clients/macos/AGENTS.md §§ "No `.frame(maxWidth:)` ... in LazyVStack/
+# See clients/macos/AGENTS.md §§ "No `_FlexFrameLayout` ... in LazyVStack/
 # LazyHStack/LazyVGrid cell hierarchy" for the underlying rule.
 HEADER
     if [[ -n "$OBSERVED_NORMALIZED" ]]; then
@@ -224,16 +238,18 @@ print_new_violations() {
 if [[ "$NEW_COUNT" -gt 0 ]]; then
   echo "=== flexframe lint: $NEW_COUNT new violation(s) ==="
   echo
-  echo "  .frame(maxWidth:) / .frame(maxHeight:) create _FlexFrameLayout, which queries"
-  echo "  explicitAlignment on descendants and cascades O(depth × children) per layout"
-  echo "  pass. This causes multi-second hangs in LazyVStack-backed chat hierarchies."
+  echo "  .frame(max/min/idealWidth:) / .frame(max/min/idealHeight:)"
+  echo "  create _FlexFrameLayout, which queries explicitAlignment on descendants and"
+  echo "  cascades O(depth × children) per layout pass. This causes multi-second hangs"
+  echo "  in LazyVStack-backed chat hierarchies."
   echo
-  echo "  Safe alternatives (see clients/macos/AGENTS.md §§ 'No .frame(maxWidth:) ...'):"
+  echo "  Safe alternatives (see clients/macos/AGENTS.md §§ 'No _FlexFrameLayout ...'):"
   echo "    .widthCap(N)                              — O(1) width cap"
-  echo "    .frame(width: N)                          — _FrameLayout, no alignment query"
+  echo "    .fixedWidth(N)                            — O(1) fixed width"
+  echo "    .topAlignedMinHeight(N)                   — O(1) min-height, top-aligned"
+  echo "    .bottomAlignedMinHeight(N)                — O(1) min-height, bottom-aligned"
   echo "    HStack { content; Spacer(minLength: 0) }  — leading alignment, no FlexFrame"
   echo "    HStack { Spacer(minLength: 0); content }  — trailing alignment, no FlexFrame"
-  echo "    BottomAlignedMinHeightLayout              — vertical fill, no FlexFrame"
   echo
   echo "  If none of the above preserve the required semantics (e.g. single-line Text"
   echo "  truncation, modal-root fill-parent), add an entry to:"

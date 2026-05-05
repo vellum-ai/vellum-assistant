@@ -52,10 +52,10 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         loadRegistry()
     }
 
-    /// Load macOS-scope flag definitions from the bundled registry.
+    /// Load client-scope flag definitions from the bundled registry.
     private func loadRegistry() {
         if let registry = loadFeatureFlagRegistry() {
-            flagDefinitions = registry.macosScopeFlags()
+            flagDefinitions = registry.clientScopeFlags()
         } else {
             log.warning("Failed to load feature flag registry from bundle — falling back to empty definitions")
             flagDefinitions = []
@@ -77,7 +77,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         return false
     }
 
-    /// Return the resolved state of all macOS-scope flag definitions for UI display.
+    /// Return the resolved state of all client-scope flag definitions for UI display.
     public func allFlagStates() -> [MacOSFeatureFlagState] {
         lock.lock()
         defer { lock.unlock() }

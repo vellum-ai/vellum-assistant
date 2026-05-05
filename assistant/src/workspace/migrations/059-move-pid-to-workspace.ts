@@ -7,22 +7,17 @@
  */
 
 import { existsSync, renameSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
+import { getVellumRoot } from "./utils.js";
 
 export const movePidToWorkspaceMigration: WorkspaceMigration = {
   id: "059-move-pid-to-workspace",
   description: "Move vellum.pid from root to workspace",
 
   run(workspaceDir: string): void {
-    const oldPath = join(getRootDir(), "vellum.pid");
+    const oldPath = join(getVellumRoot(), "vellum.pid");
     const newPath = join(workspaceDir, "vellum.pid");
     if (!existsSync(oldPath)) return;
     if (existsSync(newPath)) {
@@ -37,7 +32,7 @@ export const movePidToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const oldPath = join(getRootDir(), "vellum.pid");
+    const oldPath = join(getVellumRoot(), "vellum.pid");
     const newPath = join(workspaceDir, "vellum.pid");
     if (!existsSync(newPath)) return;
     if (existsSync(oldPath)) {

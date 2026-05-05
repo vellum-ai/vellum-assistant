@@ -34,8 +34,8 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 **1. [Download the latest release](https://vellum.ai/download)**
 
 **2. Open the app and pick your mode**
-  - **Local** — everything runs on your machine
   - **Managed** — sign in via Vellum Cloud, no local runtime required
+  - **Local** — everything runs on your machine
 
 **3. Hatch your assistant**
   - Give it a name, a personality, and the keys to your work
@@ -82,6 +82,7 @@ vellum wake        # start services
 vellum sleep       # stop services, keep data
 vellum client      # interact through the terminal
 vellum ps          # view running assistants
+vellum terminal    # open a shell into a managed assistant container
 vellum upgrade     # upgrade to latest version
 ```
 

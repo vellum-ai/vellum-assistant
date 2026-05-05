@@ -254,7 +254,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:assistant_api_key", "value": key],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             log.error("Failed to inject API key into assistant: status=\(response.statusCode, privacy: .public) body=\(String(data: response.data, encoding: .utf8) ?? "<non-utf8>", privacy: .public)")
@@ -267,7 +268,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_base_url", "value": url],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
@@ -279,7 +281,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_assistant_id", "value": id],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
@@ -291,7 +294,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_organization_id", "value": id],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
@@ -303,7 +307,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_user_id", "value": id],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
@@ -315,7 +320,8 @@ public final class LocalAssistantBootstrapService {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:webhook_secret", "value": secret],
-            timeout: 10
+            timeout: 10,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
@@ -342,7 +348,7 @@ public final class LocalAssistantBootstrapService {
             let body: [String: String] = ["type": "credential", "name": name]
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                    path: "secrets", json: body, timeout: 5
                 )
                 if response.isSuccess || response.statusCode == 404 {
                     log.info("Cleared assistant credential: \(name, privacy: .public) (status \(response.statusCode))")

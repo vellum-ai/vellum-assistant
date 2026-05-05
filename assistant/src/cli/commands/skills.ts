@@ -37,11 +37,18 @@ import { log } from "../logger.js";
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString("en-US", {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
+    const time = d.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return `${date} ${time}`;
   } catch {
     return iso;
   }
@@ -391,17 +398,6 @@ Examples:
               : String(clawhubResult.reason);
         }
 
-        // ── Conflict detection ───────────────────────────────────────
-        const catalogIds = new Set(catalogMatches.map((s) => s.id));
-        const conflictIds = new Set([
-          ...registryResults
-            .filter((r) => catalogIds.has(r.skillId))
-            .map((r) => r.skillId),
-          ...clawhubResults
-            .filter((r) => catalogIds.has(r.slug))
-            .map((r) => r.slug),
-        ]);
-
         if (
           bundledMatches.length === 0 &&
           catalogMatches.length === 0 &&
@@ -532,9 +528,7 @@ Examples:
             } else {
               log.info(`    Install: assistant skills install ${s.id}`);
             }
-            if (conflictIds.has(s.id)) {
-              log.info(`    NOTE: Also found in community registry`);
-            }
+
             log.info("");
           }
         }
@@ -567,9 +561,7 @@ Examples:
                 `    Install: assistant skills add ${r.source}@${r.skillId}`,
               );
             }
-            if (conflictIds.has(r.skillId)) {
-              log.info(`    NOTE: Conflicts with Vellum catalog skill`);
-            }
+
             log.info("");
           }
         } else if (registryError) {
@@ -611,9 +603,7 @@ Examples:
             if (!installed) {
               log.info(`    Install: npx clawhub install ${r.slug}`);
             }
-            if (conflictIds.has(r.slug)) {
-              log.info(`    NOTE: Conflicts with Vellum catalog skill`);
-            }
+
             log.info("");
           }
         } else if (clawhubError) {

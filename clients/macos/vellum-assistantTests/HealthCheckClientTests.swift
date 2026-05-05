@@ -232,4 +232,5 @@ final class HealthCheckClientTests: XCTestCase {
         )
         XCTAssertTrue(assistant.isRemote)
     }
+
 }

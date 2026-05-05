@@ -1,5 +1,5 @@
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
-import type { SkillFileEntry } from "./catalog-files.js";
+import type { SkillFileEntry } from "./skill-file-types.js";
 
 /**
  * A file provider can resolve file listings and single-file content for

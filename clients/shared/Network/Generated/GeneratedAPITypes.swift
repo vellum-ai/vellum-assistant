@@ -264,64 +264,6 @@ public struct AppRestoreResponse: Codable, Sendable {
     }
 }
 
-public struct ApprovedDeviceRemove: Codable, Sendable {
-    public let type: String
-    public let hashedDeviceId: String
-
-    public init(type: String, hashedDeviceId: String) {
-        self.type = type
-        self.hashedDeviceId = hashedDeviceId
-    }
-}
-
-public struct ApprovedDeviceRemoveResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-
-    public init(type: String, success: Bool) {
-        self.type = type
-        self.success = success
-    }
-}
-
-public struct ApprovedDevicesClear: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct ApprovedDevicesList: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct ApprovedDevicesListResponse: Codable, Sendable {
-    public let type: String
-    public let devices: [ApprovedDevicesListResponseDevice]
-
-    public init(type: String, devices: [ApprovedDevicesListResponseDevice]) {
-        self.type = type
-        self.devices = devices
-    }
-}
-
-public struct ApprovedDevicesListResponseDevice: Codable, Sendable {
-    public let hashedDeviceId: String
-    public let deviceName: String
-    public let lastPairedAt: Int
-
-    public init(hashedDeviceId: String, deviceName: String, lastPairedAt: Int) {
-        self.hashedDeviceId = hashedDeviceId
-        self.deviceName = deviceName
-        self.lastPairedAt = lastPairedAt
-    }
-}
-
 public struct AppsListRequest: Codable, Sendable {
     public let type: String
 
@@ -1365,6 +1307,56 @@ public struct DictationResponse: Codable, Sendable {
     }
 }
 
+public struct DiskPressureStatus: Codable, Sendable {
+    public let enabled: Bool
+    public let state: String
+    public let locked: Bool
+    public let acknowledged: Bool
+    public let overrideActive: Bool
+    public let effectivelyLocked: Bool
+    public let lockId: String?
+    public let usagePercent: Double?
+    public let thresholdPercent: Double
+    public let path: String?
+    public let lastCheckedAt: String?
+    public let blockedCapabilities: [String]
+    public let error: String?
+
+    public init(enabled: Bool, state: String, locked: Bool, acknowledged: Bool, overrideActive: Bool, effectivelyLocked: Bool, lockId: String? = nil, usagePercent: Double? = nil, thresholdPercent: Double, path: String? = nil, lastCheckedAt: String? = nil, blockedCapabilities: [String], error: String? = nil) {
+        self.enabled = enabled
+        self.state = state
+        self.locked = locked
+        self.acknowledged = acknowledged
+        self.overrideActive = overrideActive
+        self.effectivelyLocked = effectivelyLocked
+        self.lockId = lockId
+        self.usagePercent = usagePercent
+        self.thresholdPercent = thresholdPercent
+        self.path = path
+        self.lastCheckedAt = lastCheckedAt
+        self.blockedCapabilities = blockedCapabilities
+        self.error = error
+    }
+}
+
+public struct DiskPressureStatusResponse: Codable, Sendable {
+    public let status: DiskPressureStatus
+
+    public init(status: DiskPressureStatus) {
+        self.status = status
+    }
+}
+
+public struct DiskPressureStatusChanged: Codable, Sendable {
+    public let type: String
+    public let status: DiskPressureStatus
+
+    public init(type: String, status: DiskPressureStatus) {
+        self.type = type
+        self.status = status
+    }
+}
+
 public struct DocumentEditorShow: Codable, Sendable {
     public let type: String
     public let conversationId: String
@@ -1897,14 +1889,18 @@ public struct HeartbeatConfig: Codable, Sendable {
     public let intervalMs: Double?
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
+    public let cronExpression: String?
+    public let timezone: String?
 
-    public init(type: String, action: String, enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) {
+    public init(type: String, action: String, enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil, cronExpression: String? = nil, timezone: String? = nil) {
         self.type = type
         self.action = action
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
+        self.cronExpression = cronExpression
+        self.timezone = timezone
     }
 }
 
@@ -1914,17 +1910,21 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     public let intervalMs: Double
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
+    public let cronExpression: String?
+    public let timezone: String?
     public let nextRunAt: Int?
     public let lastRunAt: Int?
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, cronExpression: String? = nil, timezone: String? = nil, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
+        self.cronExpression = cronExpression
+        self.timezone = timezone
         self.nextRunAt = nextRunAt
         self.lastRunAt = lastRunAt
         self.success = success
@@ -1934,6 +1934,7 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
 
 public struct FilingConfigResponse: Codable, Sendable {
     public let type: String
+    public let available: Bool
     public let enabled: Bool
     public let intervalMs: Double
     public let activeHoursStart: Double?
@@ -1943,8 +1944,9 @@ public struct FilingConfigResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+    public init(type: String, available: Bool = true, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
+        self.available = available
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
@@ -1966,6 +1968,44 @@ public struct FilingRunNowResponse: Codable, Sendable {
         self.type = type
         self.success = success
         self.ran = ran
+        self.error = error
+    }
+}
+
+public struct ConsolidationConfigResponse: Codable, Sendable {
+    public let type: String
+    public let available: Bool
+    public let enabled: Bool
+    public let intervalMs: Double
+    public let nextRunAt: Int?
+    public let lastRunAt: Int?
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, available: Bool, enabled: Bool, intervalMs: Double, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+        self.type = type
+        self.available = available
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct ConsolidationRunNowResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let ran: Bool
+    public let jobId: String?
+    public let error: String?
+
+    public init(type: String, success: Bool, ran: Bool, jobId: String? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.ran = ran
+        self.jobId = jobId
         self.error = error
     }
 }
@@ -2012,17 +2052,31 @@ public struct HeartbeatRunsListResponse: Codable, Sendable {
 
 public struct HeartbeatRunsListResponseRun: Codable, Sendable {
     public let id: String
-    public let title: String
+    public let scheduledFor: Int
+    public let startedAt: Int?
+    public let finishedAt: Int?
+    public let durationMs: Int?
+    public let status: String
+    public let skipReason: String?
+    public let error: String?
+    public let conversationId: String?
     public let createdAt: Int
-    public let result: String
-    public let summary: String?
 
-    public init(id: String, title: String, createdAt: Int, result: String, summary: String? = nil) {
+    public init(
+        id: String, scheduledFor: Int, startedAt: Int?, finishedAt: Int?,
+        durationMs: Int?, status: String, skipReason: String?,
+        error: String?, conversationId: String?, createdAt: Int
+    ) {
         self.id = id
-        self.title = title
+        self.scheduledFor = scheduledFor
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.durationMs = durationMs
+        self.status = status
+        self.skipReason = skipReason
+        self.error = error
+        self.conversationId = conversationId
         self.createdAt = createdAt
-        self.result = result
-        self.summary = summary
     }
 }
 
@@ -2196,10 +2250,18 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     public let riskLevel: String?
     /// Human-readable reason for the risk classification.
     public let riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public let matchedTrustRuleId: String?
     /// Whether the tool was auto-approved (true) or required explicit user input (false).
     public let autoApproved: Bool?
+    /// How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown" (legacy).
+    public let approvalMode: String?
+    /// Why the approval decision was reached (stable enum for client display).
+    public let approvalReason: String?
+    /// Snapshot of the auto-approve threshold at execution time: "none" | "low" | "medium" | "high".
+    public let riskThreshold: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, autoApproved: Bool? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, autoApproved: Bool? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
@@ -2211,7 +2273,11 @@ public struct HistoryResponseToolCall: Codable, Sendable {
         self.confirmationLabel = confirmationLabel
         self.riskLevel = riskLevel
         self.riskReason = riskReason
+        self.matchedTrustRuleId = matchedTrustRuleId
         self.autoApproved = autoApproved
+        self.approvalMode = approvalMode
+        self.approvalReason = approvalReason
+        self.riskThreshold = riskThreshold
     }
 }
 
@@ -3059,32 +3125,6 @@ public struct OpenConversation: Codable, Sendable {
         self.title = title
         self.anchorMessageId = anchorMessageId
         self.focus = focus
-    }
-}
-
-public struct PairingApprovalRequest: Codable, Sendable {
-    public let type: String
-    public let pairingRequestId: String
-    public let deviceId: String
-    public let deviceName: String
-
-    public init(type: String, pairingRequestId: String, deviceId: String, deviceName: String) {
-        self.type = type
-        self.pairingRequestId = pairingRequestId
-        self.deviceId = deviceId
-        self.deviceName = deviceName
-    }
-}
-
-public struct PairingApprovalResponse: Codable, Sendable {
-    public let type: String
-    public let pairingRequestId: String
-    public let decision: String
-
-    public init(type: String, pairingRequestId: String, decision: String) {
-        self.type = type
-        self.pairingRequestId = pairingRequestId
-        self.decision = decision
     }
 }
 
@@ -4785,11 +4825,11 @@ public struct ToolPermissionSimulateResponse: Codable, Sendable {
     /// Resolved execution target for the tool.
     public let executionTarget: String?
     /// ID of the trust rule that matched (if any).
-    public let matchedRuleId: String?
+    public let matchedTrustRuleId: String?
     /// Error message when success is false.
     public let error: String?
 
-    public init(type: String, success: Bool, decision: String? = nil, riskLevel: String? = nil, reason: String? = nil, promptPayload: ToolPermissionSimulateResponsePromptPayload? = nil, executionTarget: String? = nil, matchedRuleId: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, decision: String? = nil, riskLevel: String? = nil, reason: String? = nil, promptPayload: ToolPermissionSimulateResponsePromptPayload? = nil, executionTarget: String? = nil, matchedTrustRuleId: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.decision = decision
@@ -4797,7 +4837,7 @@ public struct ToolPermissionSimulateResponse: Codable, Sendable {
         self.reason = reason
         self.promptPayload = promptPayload
         self.executionTarget = executionTarget
-        self.matchedRuleId = matchedRuleId
+        self.matchedTrustRuleId = matchedTrustRuleId
         self.error = error
     }
 }
@@ -4850,13 +4890,21 @@ public struct ToolResult: Codable, Sendable {
     public let riskLevel: String?
     /// Human-readable reason for the risk classification.
     public let riskReason: String?
+    /// ID of the trust rule that matched this invocation (if any).
+    public let matchedTrustRuleId: String?
+    /// How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown" (legacy).
+    public let approvalMode: String?
+    /// Why the approval decision was reached (stable enum for client display).
+    public let approvalReason: String?
+    /// Snapshot of the auto-approve threshold at execution time: "none" | "low" | "medium" | "high".
+    public let riskThreshold: String?
     /// Whether the daemon is running in a containerized (Docker) environment.
     public let isContainerized: Bool?
     /// Scope options ladder for the rule editor modal (narrowest to broadest).
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4868,6 +4916,10 @@ public struct ToolResult: Codable, Sendable {
         self.toolUseId = toolUseId
         self.riskLevel = riskLevel
         self.riskReason = riskReason
+        self.matchedTrustRuleId = matchedTrustRuleId
+        self.approvalMode = approvalMode
+        self.approvalReason = approvalReason
+        self.riskThreshold = riskThreshold
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
@@ -5876,5 +5928,40 @@ public struct WorkspaceFilesListResponseFile: Codable, Sendable {
         self.path = path
         self.name = name
         self.exists = exists
+    }
+}
+
+/// Server → Client prompt requesting the user to enter a contact channel address.
+/// Emitted by the contacts/prompt IPC route when the assistant needs a new contact.
+public struct ContactRequest: Codable, Sendable {
+    public let type: String
+    public let requestId: String
+    /// Suggested channel type (e.g. "phone", "email") — hint only, not enforced.
+    public let channel: String?
+    /// Placeholder text for the address input field.
+    public let placeholder: String?
+    /// Display label shown above the input field.
+    public let label: String?
+    /// Longer description shown below the label.
+    public let description: String?
+    /// Suggested role for the new contact (guardian / trusted-contact / unknown).
+    public let role: String?
+
+    public init(
+        type: String,
+        requestId: String,
+        channel: String? = nil,
+        placeholder: String? = nil,
+        label: String? = nil,
+        description: String? = nil,
+        role: String? = nil
+    ) {
+        self.type = type
+        self.requestId = requestId
+        self.channel = channel
+        self.placeholder = placeholder
+        self.label = label
+        self.description = description
+        self.role = role
     }
 }

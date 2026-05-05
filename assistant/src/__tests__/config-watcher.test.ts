@@ -73,6 +73,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
   }),
+  loadConfig: () => ({ ui: {} }),
   invalidateConfigCache: () => {},
 }));
 
@@ -85,15 +86,26 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 mock.module("../providers/registry.js", () => ({
+  getProvider: () => undefined,
+  listProviders: () => [],
+  getProviderRoutingSource: () => undefined,
   initializeProviders: () => {},
 }));
 
-mock.module("../signals/mcp-reload.js", () => ({
-  handleMcpReloadSignal: () => {},
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
 }));
 
 mock.module("../signals/conversation-undo.js", () => ({
   handleConversationUndoSignal: () => {},
+}));
+
+mock.module("../signals/user-message.js", () => ({
+  handleUserMessageSignal: async () => {},
+}));
+
+mock.module("../signals/cancel.js", () => ({
+  handleCancelSignal: () => {},
 }));
 
 // Import after mocks are set up

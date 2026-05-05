@@ -12,7 +12,13 @@ import type {
 const log = getLogger("rate-limit");
 
 export class RateLimitProvider implements Provider {
-  public readonly name: string;
+  // Delegate name dynamically so that wrapper providers (e.g.
+  // CallSiteRoutingProvider) whose name getter reflects per-call async context
+  // (AsyncLocalStorage) are reached correctly during streaming — rather than
+  // returning a stale snapshot captured at construction time.
+  get name(): string {
+    return this.inner.name;
+  }
 
   get tokenEstimationProvider(): string | undefined {
     return this.inner.tokenEstimationProvider;
@@ -25,7 +31,6 @@ export class RateLimitProvider implements Provider {
     private readonly config: RateLimitConfig,
     sharedRequestTimestamps?: number[],
   ) {
-    this.name = inner.name;
     this.requestTimestamps = sharedRequestTimestamps ?? [];
   }
 

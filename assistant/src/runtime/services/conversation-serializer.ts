@@ -27,9 +27,7 @@ import { getBindingsForConversations } from "../../memory/external-conversation-
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function buildAssistantAttention(
-  attentionState: AttentionState | undefined,
-):
+function buildAssistantAttention(attentionState: AttentionState | undefined):
   | {
       hasUnseenLatestAssistantMessage: boolean;
       latestAssistantMessageAt?: number;
@@ -65,7 +63,7 @@ export function buildAssistantAttention(
   };
 }
 
-export function buildForkParent(
+function buildForkParent(
   conversation: ConversationRow,
   parentCache: Map<string, ConversationRow | null>,
 ): { conversationId: string; messageId: string; title: string } | undefined {

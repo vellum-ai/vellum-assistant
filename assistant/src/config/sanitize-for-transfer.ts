@@ -5,6 +5,7 @@
  * Fields removed or reset:
  * - `ingress.publicBaseUrl` → set to `""`
  * - `ingress.enabled` → deleted
+ * - `ingress.publicBaseUrlManagedBy` → deleted
  * - `daemon` → deleted entirely
  * - `skills.load.extraDirs` → set to `[]`
  * - `hostBrowser.cdpInspect.desktopAuto` → deleted **only when the source
@@ -41,6 +42,7 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     const ingress = config.ingress as Record<string, unknown>;
     ingress.publicBaseUrl = "";
     delete ingress.enabled;
+    delete ingress.publicBaseUrlManagedBy;
   }
 
   // Strip daemon entirely

@@ -1,8 +1,8 @@
 /**
  * Managed CES contract and wiring tests.
  *
- * Validates the contract surface, behavioral invariants, and feature-flag
- * gating for the managed (three-container pod) CES sidecar integration:
+ * Validates the contract surface and behavioral invariants for the managed
+ * (three-container pod) CES sidecar integration:
  *
  * 1. Pod creation contract: well-known path constants match the
  *    stateful_template.yaml K8s spec (read-only mount + private PVC).
@@ -18,25 +18,11 @@
  *    (UpdateManagedCredential, MakeAuthenticatedRequest) validate expected
  *    payloads and reject malformed ones at the contract level.
  *
- * 5. Feature-flag rollback: when the `ces-managed-sidecar` flag is off,
- *    the process manager falls back to local discovery and never attempts
- *    the managed sidecar path.
- *
  * All tests use contract schemas and handle parsers to verify behavioral
  * contracts — no real CES process or socket dependencies are needed.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
-beforeEach(() => {
-  _setOverridesForTesting({});
-});
-
-afterEach(() => {
-  _setOverridesForTesting({});
-});
+import { describe, expect, test } from "bun:test";
 
 import {
   CES_PROTOCOL_VERSION,
@@ -53,25 +39,10 @@ import {
   UpdateManagedCredentialSchema,
 } from "@vellumai/service-contracts/credential-rpc";
 
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  isCesManagedSidecarEnabled,
-  isCesToolsEnabled,
-} from "../credential-execution/feature-gates.js";
 import {
   CES_ASSISTANT_DATA_READONLY_MOUNT,
   CES_PRIVATE_DATA_DIR,
-  type CesProcessManagerConfig,
 } from "../credential-execution/process-manager.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Create a minimal AssistantConfig (flag overrides are now set via _setOverridesForTesting). */
-function makeConfig(): AssistantConfig {
-  return {} as AssistantConfig;
-}
 
 // ---------------------------------------------------------------------------
 // Well-known paths contract
@@ -438,104 +409,5 @@ describe("managed OAuth materialization through CES sidecar", () => {
         expect(parsed.handle.connectionId).toBe("conn_abc123");
       }
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Feature-flag rollback safety
-// ---------------------------------------------------------------------------
-
-describe("feature-flag rollback safety", () => {
-  test("managed sidecar flag defaults to true (enabled by default)", () => {
-    const config = makeConfig();
-    expect(isCesManagedSidecarEnabled(config)).toBe(true);
-  });
-
-  test("managed sidecar flag can be explicitly enabled", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": true,
-    });
-    const config = makeConfig();
-    expect(isCesManagedSidecarEnabled(config)).toBe(true);
-  });
-
-  test("managed sidecar flag can be explicitly disabled", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": false,
-    });
-    const config = makeConfig();
-    expect(isCesManagedSidecarEnabled(config)).toBe(false);
-  });
-
-  test("enabling managed sidecar does not enable CES tools", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": true,
-    });
-    const config = makeConfig();
-    // CES tools flag should remain independently controlled
-    expect(isCesToolsEnabled(config)).toBe(false);
-  });
-
-  test("disabling managed sidecar does not affect other CES flags", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": false,
-      "ces-tools": true,
-    });
-    const config = makeConfig();
-    expect(isCesToolsEnabled(config)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Process manager config wiring
-// ---------------------------------------------------------------------------
-
-describe("process manager config wiring", () => {
-  test("CesProcessManagerConfig accepts assistantConfig for flag gating", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": true,
-    });
-    const config: CesProcessManagerConfig = {
-      assistantConfig: makeConfig(),
-    };
-    expect(config.assistantConfig).toBeDefined();
-    expect(isCesManagedSidecarEnabled(config.assistantConfig!)).toBe(true);
-  });
-
-  test("CesProcessManagerConfig requires assistantConfig for feature-flag gate", () => {
-    const config: CesProcessManagerConfig = {
-      assistantConfig: makeConfig(),
-    };
-    expect(config.assistantConfig).toBeDefined();
-  });
-
-  test("when flag is off, managed discovery is skipped", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": false,
-    });
-    const config: CesProcessManagerConfig = {
-      assistantConfig: makeConfig(),
-    };
-    // The managed path should be gated
-    expect(isCesManagedSidecarEnabled(config.assistantConfig!)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Non-CES internal consumers intact
-// ---------------------------------------------------------------------------
-
-describe("non-CES internal consumers intact when flag is off", () => {
-  test("existing non-agent flows are unaffected by managed sidecar flag", () => {
-    _setOverridesForTesting({
-      "ces-managed-sidecar": false,
-    });
-    const config = makeConfig();
-    expect(isCesManagedSidecarEnabled(config)).toBe(false);
-  });
-
-  test("process manager without config allows managed mode (backward compat)", () => {
-    const config: CesProcessManagerConfig = {};
-    expect(config.assistantConfig).toBeUndefined();
   });
 });

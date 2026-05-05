@@ -66,8 +66,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: true,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
 };
@@ -76,7 +74,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -90,12 +87,30 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: (...args: unknown[]) => ({
-    command: "bash",
-    args: ["-c", "--", args[0]],
-    sandboxed: false,
-  }),
+// Mock HostBashProxy singleton — proxy delegation tests configure this.
+let mockProxyAvailable = false;
+let mockProxyRequestImpl: (
+  input: {
+    command: string;
+    working_dir?: string;
+    timeout_seconds?: number;
+    env?: Record<string, string>;
+  },
+  conversationId: string,
+  signal?: AbortSignal,
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
+
+mock.module("../daemon/host-bash-proxy.js", () => ({
+  HostBashProxy: {
+    get instance() {
+      return {
+        isAvailable: () => mockProxyAvailable,
+        request: (...args: Parameters<typeof mockProxyRequestImpl>) =>
+          mockProxyRequestImpl(...args),
+      };
+    },
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -118,7 +133,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-function makeMockProxy(result: ToolExecutionResult) {
+function setupMockProxy(result: ToolExecutionResult) {
   const requestMock = mock(
     (
       _input: {
@@ -132,17 +147,10 @@ function makeMockProxy(result: ToolExecutionResult) {
     ) => Promise.resolve(result),
   );
 
-  return {
-    proxy: {
-      isAvailable: () => true,
-      request: requestMock,
-      updateSender: () => {},
-      dispose: () => {},
-      resolve: () => {},
-      hasPendingRequest: () => false,
-    },
-    requestMock,
-  };
+  mockProxyAvailable = true;
+  mockProxyRequestImpl = requestMock;
+
+  return requestMock;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,10 +166,13 @@ beforeEach(() => {
   mockIsBackgroundToolLimitReached.mockClear();
   mockIsBackgroundToolLimitReached.mockReturnValue(false);
   latestChild = undefined;
+  mockProxyAvailable = false;
+  mockProxyRequestImpl = () => Promise.resolve({ content: "", isError: false });
 });
 
 afterEach(() => {
   latestChild = undefined;
+  mockProxyAvailable = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -174,11 +185,9 @@ describe("host_bash background mode — proxy path", () => {
       content: "proxy output",
       isError: false,
     };
-    const { proxy } = makeMockProxy(proxyResult);
+    setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -196,11 +205,9 @@ describe("host_bash background mode — proxy path", () => {
       content: "proxy output",
       isError: false,
     };
-    const { proxy } = makeMockProxy(proxyResult);
+    setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -221,11 +228,9 @@ describe("host_bash background mode — proxy path", () => {
       content: "proxy success output",
       isError: false,
     };
-    const { proxy } = makeMockProxy(proxyResult);
+    setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
@@ -252,11 +257,9 @@ describe("host_bash background mode — proxy path", () => {
       content: "command not found",
       isError: true,
     };
-    const { proxy } = makeMockProxy(proxyResult);
+    setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "bad-command", background: true },
@@ -274,22 +277,11 @@ describe("host_bash background mode — proxy path", () => {
   });
 
   test("calls wakeAgentForOpportunity on proxy rejection", async () => {
-    const requestMock = mock(() =>
-      Promise.reject(new Error("proxy transport error")),
-    );
+    mockProxyAvailable = true;
+    mockProxyRequestImpl = () =>
+      Promise.reject(new Error("proxy transport error"));
 
-    const proxy = {
-      isAvailable: () => true,
-      request: requestMock,
-      updateSender: () => {},
-      dispose: () => {},
-      resolve: () => {},
-      hasPendingRequest: () => false,
-    };
-
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     await hostShellTool.execute(
       { command: "echo fail", background: true },
@@ -311,11 +303,9 @@ describe("host_bash background mode — proxy path", () => {
       content: "done",
       isError: false,
     };
-    const { proxy } = makeMockProxy(proxyResult);
+    setupMockProxy(proxyResult);
 
-    const ctx = makeContext({
-      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
-    });
+    const ctx = makeContext({});
 
     const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },

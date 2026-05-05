@@ -393,15 +393,24 @@ describe("CES data paths", () => {
   });
 
   test("getBootstrapSocketPath respects CES_BOOTSTRAP_SOCKET env var", () => {
-    const saved = process.env["CES_BOOTSTRAP_SOCKET"];
+    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
+    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    // CES_BOOTSTRAP_SOCKET_DIR takes precedence; clear it so the
+    // CES_BOOTSTRAP_SOCKET fallback is actually exercised.
+    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
     process.env["CES_BOOTSTRAP_SOCKET"] = "/tmp/test-ces.sock";
     try {
       expect(getBootstrapSocketPath()).toBe("/tmp/test-ces.sock");
     } finally {
-      if (saved !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = saved;
+      if (savedSocket !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET"] = savedSocket;
       } else {
         delete process.env["CES_BOOTSTRAP_SOCKET"];
+      }
+      if (savedDir !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
       }
     }
   });

@@ -50,7 +50,7 @@ public struct STTClient: STTClientProtocol {
         do {
             let json = Self.buildRequestBody(audioData: audioData, contentType: contentType)
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/stt/transcribe",
+                path: "stt/transcribe",
                 json: json,
                 timeout: Self.requestTimeout
             )

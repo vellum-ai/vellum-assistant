@@ -2,14 +2,15 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
-import type { BackupWorkerHandle } from "../backup/backup-worker.js";
-import { startBackupWorker } from "../backup/backup-worker.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
+import {
+  initFeatureFlagOverrides,
+  isAssistantFeatureFlagEnabled,
+} from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
@@ -19,12 +20,9 @@ import {
 } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
+import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
-import {
-  isCesCredentialBackendEnabled,
-  isCesToolsEnabled,
-} from "../credential-execution/feature-gates.js";
 import {
   type CesProcessManager,
   CesUnavailableError,
@@ -46,16 +44,12 @@ import {
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  selectEmbeddingBackend,
-  SPARSE_EMBEDDING_VERSION,
-} from "../memory/embedding-backend.js";
+import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
-import { deleteOldTraceEvents } from "../memory/trace-event-store.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -63,8 +57,10 @@ import {
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
+import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -72,6 +68,7 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
+import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -104,6 +101,11 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import {
+  evaluateDiskPressureNow,
+  startDiskPressureGuard,
+  stopDiskPressureGuard,
+} from "./disk-pressure-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
@@ -124,9 +126,55 @@ import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 
 const log = getLogger("lifecycle");
+let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
+}
+
+function runDeferredDiskPressureStartupSample(): void {
+  diskPressureStartupSampleTimer = null;
+  try {
+    const status = evaluateDiskPressureNow();
+    if (status.error) {
+      log.warn(
+        { error: status.error },
+        "Disk pressure guard sample failed during startup — continuing unlocked",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
+export function startDiskPressureGuardForLifecycle(): void {
+  try {
+    const startedStatus = startDiskPressureGuard();
+    if (!startedStatus.enabled) return;
+    if (!diskPressureStartupSampleTimer) {
+      diskPressureStartupSampleTimer = setTimeout(
+        runDeferredDiskPressureStartupSample,
+        0,
+      );
+      (diskPressureStartupSampleTimer as { unref?: () => void }).unref?.();
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
+export function stopDiskPressureGuardForLifecycle(): void {
+  if (diskPressureStartupSampleTimer) {
+    clearTimeout(diskPressureStartupSampleTimer);
+    diskPressureStartupSampleTimer = null;
+  }
+  stopDiskPressureGuard();
 }
 
 export interface CesStartupResult {
@@ -148,17 +196,6 @@ export interface CesStartupResult {
 async function startCesProcess(
   config: AssistantConfig,
 ): Promise<CesStartupResult> {
-  const shouldStartCes =
-    isCesToolsEnabled(config) || isCesCredentialBackendEnabled(config);
-  if (!shouldStartCes) {
-    return {
-      client: undefined,
-      processManager: undefined,
-      clientPromise: undefined,
-      abortController: undefined,
-    };
-  }
-
   const pm = createCesProcessManager({ assistantConfig: config });
   const abortController = new AbortController();
   let clientRef: CesClient | undefined;
@@ -282,9 +319,16 @@ export async function runDaemon(): Promise<void> {
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
     // daemon startup (the IPC call has a 3s connect + 5s call timeout
     // that would otherwise stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    //
+    // On resolve, retry the v2 skill seed: the synchronous gate at the
+    // skill-seed call site below evaluates the memory-v2-enabled flag
+    // before the gateway has populated overrides, so a cold-boot race
+    // can leave the v2 skill collection unseeded for the lifetime of
+    // the daemon. seedV2SkillEntries is idempotent, so re-running after
+    // overrides land is safe.
+    void initFeatureFlagOverrides()
+      .then(() => maybeSeedMemoryV2Skills(loadConfig()))
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     seedInterfaceFiles();
 
@@ -451,6 +495,20 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
+    // Seed managed inference profiles into the workspace config. Runs after
+    // workspace migrations and before mergeDefaultWorkspaceConfig / loadConfig
+    // so fresh hatches have profiles on disk before the first config load; the
+    // hatch overlay still merges afterward and can override seeded fields.
+    try {
+      seedInferenceProfiles();
+      log.info("Inference profile seeding complete");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Inference profile seeding failed — continuing startup",
+      );
+    }
+
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before the first loadConfig() call so
     // onboarding preferences are persisted alongside schema defaults.
@@ -501,89 +559,81 @@ export async function runDaemon(): Promise<void> {
     // bootstrap connection, so startup must happen at the process level.
     const cesStartupPromise = startCesProcess(config);
 
-    // When the credential backend flag is enabled, CES startup must complete
-    // BEFORE provider initialization so credential reads can go through CES.
-    // Block with a 20-second timeout — fall back to direct credential store
-    // on timeout.
-    if (isCesCredentialBackendEnabled(config)) {
-      const cesResult = await cesStartupPromise;
-      // startCesProcess() returns immediately — the actual handshake runs
-      // inside clientPromise. Await it (with a 20s timeout) so the CES client
-      // is available before provider initialization.
-      if (cesResult.clientPromise) {
-        const client = await awaitCesClientWithTimeout(
-          cesResult.clientPromise,
-          {
-            timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
-            onTimeout: () => {
-              log.warn(
-                "CES handshake timed out after 20s — falling back to direct credential store",
-              );
-            },
-          },
-        );
-        if (client) {
-          setCesClient(client);
-        }
-      }
-
-      // Register CES reconnection callback so the credential layer can
-      // re-establish the connection when the transport dies, instead of
-      // falling back to the encrypted file store.
-      if (cesResult.processManager) {
-        const pm = cesResult.processManager;
-
-        // Snapshot the managed-proxy context and assistant ID at CES startup
-        // so the reconnect closure below never calls back into
-        // `resolveManagedProxyContext()`. That function reads the assistant
-        // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
-        // has resolved the backend to CES RPC — routes the read through CES
-        // itself. During a reconnect the old transport is dead and a new
-        // one is being set up by this very closure, so the nested credential
-        // read recursively awaits its own in-flight reconnection and
-        // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
-        // 45-second stall delays every CES restart and causes dependent
-        // credential reads (e.g. Meet's STT provider resolution) to return
-        // `undefined` during the window. API key rotation uses the
-        // `updateAssistantApiKey` RPC on the live client, not a reconnect,
-        // so caching at startup is safe.
-        const startupProxyCtx = await resolveManagedProxyContext();
-        const startupAssistantId = getPlatformAssistantId();
-
-        setCesReconnect(async () => {
-          try {
-            await pm.stop();
-            const transport = await pm.start();
-            const newClient = createCesClient(transport);
-            const { accepted, reason } = await newClient.handshake({
-              ...(startupProxyCtx.assistantApiKey
-                ? { assistantApiKey: startupProxyCtx.assistantApiKey }
-                : {}),
-              ...(startupAssistantId
-                ? { assistantId: startupAssistantId }
-                : {}),
-            });
-            if (accepted) {
-              log.info("CES reconnection handshake accepted");
-              return newClient;
-            }
-            log.warn({ reason }, "CES reconnection handshake rejected");
-            newClient.close();
-            await pm.stop().catch(() => {});
-            return undefined;
-          } catch (err) {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "CES reconnection attempt failed",
-            );
-            await pm.stop().catch(() => {});
-            return undefined;
-          }
-        });
+    // CES startup must complete BEFORE provider initialization so credential
+    // reads can go through CES. Block with a 20-second timeout — fall back to
+    // direct credential store on timeout.
+    const cesResult = await cesStartupPromise;
+    // startCesProcess() returns immediately — the actual handshake runs
+    // inside clientPromise. Await it (with a 20s timeout) so the CES client
+    // is available before provider initialization.
+    if (cesResult.clientPromise) {
+      const client = await awaitCesClientWithTimeout(cesResult.clientPromise, {
+        timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
+        onTimeout: () => {
+          log.warn(
+            "CES handshake timed out after 20s — falling back to direct credential store",
+          );
+        },
+      });
+      if (client) {
+        setCesClient(client);
       }
     }
 
-    // Populate the registry with user plugins from `~/.vellum/plugins/*`
+    // Register CES reconnection callback so the credential layer can
+    // re-establish the connection when the transport dies, instead of
+    // falling back to the encrypted file store.
+    if (cesResult.processManager) {
+      const pm = cesResult.processManager;
+
+      // Snapshot the managed-proxy context and assistant ID at CES startup
+      // so the reconnect closure below never calls back into
+      // `resolveManagedProxyContext()`. That function reads the assistant
+      // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
+      // has resolved the backend to CES RPC — routes the read through CES
+      // itself. During a reconnect the old transport is dead and a new
+      // one is being set up by this very closure, so the nested credential
+      // read recursively awaits its own in-flight reconnection and
+      // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
+      // 45-second stall delays every CES restart and causes dependent
+      // credential reads (e.g. Meet's STT provider resolution) to return
+      // `undefined` during the window. API key rotation uses the
+      // `updateAssistantApiKey` RPC on the live client, not a reconnect,
+      // so caching at startup is safe.
+      const startupProxyCtx = await resolveManagedProxyContext();
+      const startupAssistantId = getPlatformAssistantId();
+
+      setCesReconnect(async () => {
+        try {
+          await pm.stop();
+          const transport = await pm.start();
+          const newClient = createCesClient(transport);
+          const { accepted, reason } = await newClient.handshake({
+            ...(startupProxyCtx.assistantApiKey
+              ? { assistantApiKey: startupProxyCtx.assistantApiKey }
+              : {}),
+            ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
+          });
+          if (accepted) {
+            log.info("CES reconnection handshake accepted");
+            return newClient;
+          }
+          log.warn({ reason }, "CES reconnection handshake rejected");
+          newClient.close();
+          await pm.stop().catch(() => {});
+          return undefined;
+        } catch (err) {
+          log.warn(
+            { error: err instanceof Error ? err.message : String(err) },
+            "CES reconnection attempt failed",
+          );
+          await pm.stop().catch(() => {});
+          return undefined;
+        }
+      });
+    }
+
+    // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
     // side-effect imports. User plugins may fail to load individually; a
     // failing user plugin is logged and skipped so one bad install can't
@@ -622,6 +672,7 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+    startDiskPressureGuardForLifecycle();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake
@@ -637,13 +688,12 @@ export async function runDaemon(): Promise<void> {
         );
     }
 
-    // Mutable refs for Qdrant, memory worker, and backup worker so background
+    // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
       qdrantManager: QdrantManager | null;
       memoryWorker: { stop(): void } | null;
-      backupWorker: BackupWorkerHandle | null;
-    } = { qdrantManager: null, memoryWorker: null, backupWorker: null };
+    } = { qdrantManager: null, memoryWorker: null };
 
     // Initialize Qdrant vector store and memory worker in the background so the
     // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
@@ -684,8 +734,11 @@ export async function runDaemon(): Promise<void> {
       if (qdrantStarted) {
         try {
           const embeddingSelection = await selectEmbeddingBackend(config);
+          // Sentinel only encodes the dense provider+model identity; sparse
+          // encoder changes never require collection recreation, so they
+          // intentionally do not contribute to the v1 collection identity.
           const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
             : undefined;
           const qdrantClient = initQdrantClient({
             url: qdrantUrl,
@@ -737,20 +790,31 @@ export async function runDaemon(): Promise<void> {
             );
           }
         })();
+
+        // Build the BM25 corpus stats (per-token document frequencies and
+        // average document length) used by the v2 sparse channel. Without
+        // this, document-side sparse embeddings fall back to legacy TF-only
+        // weighting via the chicken-and-egg guard in
+        // `embed-concept-page.ts`. Fire-and-forget for the same reason as
+        // PKB reconcile — the stats are an optional optimization, never a
+        // boot-blocking dependency.
+        void (async () => {
+          try {
+            const { rebuildConceptPageCorpusStats } =
+              await import("../memory/v2/sparse-bm25.js");
+            await rebuildConceptPageCorpusStats(getWorkspaceDir());
+            log.info("Memory v2 BM25 corpus stats built");
+          } catch (err) {
+            log.warn(
+              { err },
+              "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
+            );
+          }
+        })();
       }
 
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
-
-      log.info("Daemon startup: starting backup worker");
-      try {
-        bgRefs.backupWorker = startBackupWorker();
-      } catch (err) {
-        log.warn(
-          { err },
-          "Backup worker failed to start — continuing without backups",
-        );
-      }
 
       // Seed capability graph nodes (new memory graph system)
       try {
@@ -793,7 +857,13 @@ export async function runDaemon(): Promise<void> {
 
     // Register the broadcast function for the notification signal pipeline's
     // macOS adapter so it can deliver notification_intent messages to clients.
-    registerBroadcastFn((msg) => server.broadcast(msg));
+    registerBroadcastFn((msg) => broadcastMessage(msg));
+
+    try {
+      recoverStaleSchedules();
+    } catch (err) {
+      log.error({ err }, "Schedule recovery failed — continuing startup");
+    }
 
     const scheduler = startScheduler(
       async (conversationId, message, options) => {
@@ -862,7 +932,7 @@ export async function runDaemon(): Promise<void> {
         });
       },
       (info) => {
-        server.broadcast({
+        broadcastMessage({
           type: "schedule_conversation_created",
           conversationId: info.conversationId,
           scheduleJobId: info.scheduleJobId,
@@ -926,7 +996,7 @@ export async function runDaemon(): Promise<void> {
     });
     try {
       await runtimeHttp.start();
-      setRelayBroadcast((msg) => server.broadcast(msg));
+      setRelayBroadcast((msg) => broadcastMessage(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
           const conversation =
@@ -1145,30 +1215,14 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Prune trace events older than 7 days to keep the database lean.
-    // Deferred so synchronous cleanup doesn't block the startup path.
-    setTimeout(() => {
-      try {
-        const deletedTraceEvents = deleteOldTraceEvents(7);
-        if (deletedTraceEvents > 0) {
-          log.debug(
-            { deletedTraceEvents },
-            `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
-          );
-        }
-      } catch (err) {
-        log.warn({ err }, "Trace event cleanup failed");
-      }
-    }, 0);
-
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
     workspaceHeartbeat.start();
 
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
-      alerter: (alert) => server.broadcast(alert),
+      alerter: (alert) => broadcastMessage(alert),
       onConversationCreated: (info) =>
-        server.broadcast({
+        broadcastMessage({
           type: "heartbeat_conversation_created",
           conversationId: info.conversationId,
           title: info.title,
@@ -1183,16 +1237,37 @@ export async function runDaemon(): Promise<void> {
       "Heartbeat service configured",
     );
 
-    const filingConfig = config.filing;
-    const filing = new FilingService();
-    filing.start();
-    log.info(
-      {
-        enabled: filingConfig.enabled,
-        intervalMs: filingConfig.intervalMs,
-      },
-      "Filing service configured",
+    try {
+      backfillGuardIfNeeded();
+    } catch (err) {
+      log.warn({ err }, "Proactive artifact backfill failed");
+    }
+
+    // Filing yields to the memory v2 consolidation job when the flag is on —
+    // both serve the same role (periodic background memory processing) and
+    // running both is redundant. The consolidation job runs through the
+    // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
+    const memoryV2Enabled = isAssistantFeatureFlagEnabled(
+      "memory-v2-enabled",
+      config,
     );
+    let filing: FilingService | null = null;
+    if (!memoryV2Enabled) {
+      const filingConfig = config.filing;
+      filing = new FilingService();
+      filing.start();
+      log.info(
+        {
+          enabled: filingConfig.enabled,
+          intervalMs: filingConfig.intervalMs,
+        },
+        "Filing service configured",
+      );
+    } else {
+      log.info(
+        "Filing service skipped — memory v2 consolidation is the active background memory job",
+      );
+    }
 
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().
@@ -1209,14 +1284,17 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp,
       scheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
-      getBackupWorker: () => bgRefs.backupWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
-      cleanupPidFile,
+      cleanupPidFile: () => {
+        stopDiskPressureGuardForLifecycle();
+        cleanupPidFile();
+      },
     });
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
+    stopDiskPressureGuardForLifecycle();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }

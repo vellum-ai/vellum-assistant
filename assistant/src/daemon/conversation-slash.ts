@@ -1,5 +1,7 @@
 import type { InterfaceId } from "../channels/types.js";
+import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
+import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 
@@ -8,7 +10,7 @@ export type SlashResolution =
   | { kind: "unknown"; message: string }
   | { kind: "compact" };
 
-// ── /status command ──────────────────────────────────────────────────
+// ── /context and /status commands ────────────────────────────────────
 
 export interface SlashContext {
   messageCount: number;
@@ -19,6 +21,39 @@ export interface SlashContext {
   provider: string;
   estimatedCost: number;
   userMessageInterface?: InterfaceId;
+}
+
+export interface SlashContextSource {
+  conversationId: string;
+  messageCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  userMessageInterface?: InterfaceId;
+}
+
+export function buildSlashContextForContent(
+  content: string,
+  source: SlashContextSource,
+): SlashContext | undefined {
+  if (classifySlash(content) === "passthrough") return undefined;
+
+  const config = getConfig();
+  const contextWindow = resolveEffectiveContextWindow({
+    llm: config.llm,
+    callSite: "mainAgent",
+    overrideProfile: getConversationOverrideProfile(source.conversationId),
+  });
+  return {
+    messageCount: source.messageCount,
+    inputTokens: source.inputTokens,
+    outputTokens: source.outputTokens,
+    maxInputTokens: contextWindow.maxInputTokens,
+    model: contextWindow.model,
+    provider: contextWindow.provider,
+    estimatedCost: source.estimatedCost,
+    userMessageInterface: source.userMessageInterface,
+  };
 }
 
 // ── Deprecated model-switching shortcuts ─────────────────────────────
@@ -107,8 +142,11 @@ function resolveCommandsList(context?: SlashContext): string[] {
   const fallbackLines = [
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
-    "/models — List all available models",
   ];
+  if (context) {
+    fallbackLines.push("/context — Show conversation context usage");
+  }
+  fallbackLines.push("/models — List all available models");
   if (context) {
     fallbackLines.push("/status — Show conversation status and context usage");
   }
@@ -119,6 +157,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     return [
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/context — Show conversation context usage",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -130,6 +169,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     return [
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/context — Show conversation context usage",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -140,6 +180,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
   return [
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
+    "/context — Show conversation context usage",
     "/models — List all available models",
     "/status — Show conversation status and context usage",
     "/btw — Ask a side question while the assistant is working",
@@ -174,13 +215,14 @@ export function classifySlash(
   }
   if (trimmed === "/models") return "unknown";
   if (trimmed === "/compact") return "compact";
+  if (trimmed === "/context") return "unknown";
   if (trimmed === "/status") return "unknown";
   if (trimmed === "/commands") return "unknown";
   return "passthrough";
 }
 
 /**
- * Resolve built-in slash commands (/models, /status, /commands, /compact).
+ * Resolve built-in slash commands (/models, /context, /status, /commands, /compact).
  * Returns `unknown` with a deterministic message, `compact` for forced compaction,
  * or the (possibly rewritten) content as `passthrough`.
  */
@@ -223,8 +265,8 @@ export async function resolveSlash(
     return { kind: "compact" };
   }
 
-  // Handle /status command
-  if (trimmed === "/status") {
+  // Handle /context and legacy /status commands
+  if (trimmed === "/context" || trimmed === "/status") {
     if (!context) {
       return {
         kind: "unknown",

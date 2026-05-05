@@ -22,8 +22,9 @@ import type { WorkspaceMigration } from "./types.js";
  *   2. **Fresh install** (config.json absent): write a minimal starter
  *      config with just the callSite seeds, using the default provider
  *      (anthropic — same as the schema default). `loadConfig()` runs
- *      after migrations and backfills the remaining schema defaults via
- *      `deepMergeMissing`, which preserves our seeded callSites.
+ *      after migrations and applies schema defaults only to the
+ *      in-memory config (disk is left untouched), so our seeded
+ *      callSites are preserved verbatim.
  *
  * Without the fresh-install branch, new users permanently fall through
  * to `llm.default` (opus + max effort) because `LLMSchema.callSites`

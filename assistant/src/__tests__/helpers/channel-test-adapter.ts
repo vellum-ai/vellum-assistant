@@ -47,12 +47,13 @@ export function setAdapterProcessMessage(
 mock.module("../../daemon/process-message.js", () => ({
   resolveTurnChannel: () => "telegram",
   resolveTurnInterface: () => "telegram",
-  makePendingInteractionRegistrar: () => () => {},
+
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
     if (_adapterProcessMessage) return _adapterProcessMessage(...args);
     return Promise.resolve({ messageId: `mock-msg-adapter-${Date.now()}` });
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
 }));
 
 mock.module("../../daemon/approval-generators.js", () => ({
@@ -158,4 +159,3 @@ export async function handleReplayDeadLetters(req: Request): Promise<Response> {
   const body = await req.json();
   return wrapHandler(() => _handleReplayDeadLetters({ body }));
 }
-

@@ -2,8 +2,10 @@
 // Memory Graph — Qdrant vector search for graph nodes
 // ---------------------------------------------------------------------------
 
+import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { embedAndUpsert } from "../job-utils.js";
@@ -36,18 +38,20 @@ export interface GraphSearchResult {
  * Semantic search across graph nodes in Qdrant. Returns scored node IDs
  * that the caller can hydrate from the graph store.
  *
- * Filters to `target_type: "graph_node"` and optionally by scope.
- * `excludeScopeIds` adds a `must_not` against `memory_scope_id` for callers
- * that need to omit specific scopes from a broader recall search.
+ * Filters to `target_type: "graph_node"`.
  */
 export async function searchGraphNodes(
   queryVector: number[],
   limit: number,
-  scopeIds?: string[],
   sparseVector?: QdrantSparseVector,
   dateRange?: { afterMs?: number; beforeMs?: number },
-  excludeScopeIds?: string[],
 ): Promise<GraphSearchResult[]> {
+  // v2 owns the read path when both gates are on. The v1 `memory` collection
+  // is in active retirement and a corrupted sparse segment can OOM-crash the
+  // shared Qdrant process — short-circuiting here keeps v1 background work
+  // and stale callers from taking v2 down with them.
+  if (isMemoryV2ReadActive(getConfig())) return [];
+
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
     return [];
@@ -58,21 +62,12 @@ export async function searchGraphNodes(
   const mustNot: Record<string, unknown>[] = [
     { key: "_meta", match: { value: true } },
   ];
-  if (excludeScopeIds && excludeScopeIds.length > 0) {
-    mustNot.push({
-      key: "memory_scope_id",
-      match: { any: excludeScopeIds },
-    });
-  }
 
   // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
   // sparse vector is available; otherwise fall back to dense-only search.
   if (sparseVector && sparseVector.indices.length > 0) {
     const must: Record<string, unknown>[] = [
       { key: "target_type", match: { value: "graph_node" } },
-      ...(scopeIds && scopeIds.length > 0
-        ? [{ key: "memory_scope_id", match: { any: scopeIds } }]
-        : []),
     ];
     if (dateRange?.afterMs != null) {
       must.push({ key: "created_at", range: { gte: dateRange.afterMs } });
@@ -112,12 +107,6 @@ export async function searchGraphNodes(
     },
   ];
 
-  if (scopeIds && scopeIds.length > 0) {
-    denseMusts.push({
-      key: "memory_scope_id",
-      match: { any: scopeIds },
-    });
-  }
   if (dateRange?.afterMs != null) {
     denseMusts.push({ key: "created_at", range: { gte: dateRange.afterMs } });
   }

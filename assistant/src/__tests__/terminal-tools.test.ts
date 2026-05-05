@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ShellOutputResult } from "../tools/shared/shell-output.js";
-import type { SandboxBackend } from "../tools/terminal/backends/types.js";
 import type { Tool } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
@@ -70,9 +69,6 @@ import {
   buildSanitizedEnv,
   SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
-import type { SandboxConfig } from "../tools/terminal/sandbox.js";
-import { wrapCommand } from "../tools/terminal/sandbox.js";
-import { ToolError } from "../util/errors.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Safe Environment — buildSanitizedEnv()
@@ -170,91 +166,6 @@ describe("buildSanitizedEnv", () => {
       expect(safeKeys).toContain(key);
     }
   });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Sandbox wrapCommand
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("wrapCommand", () => {
-  const disabledConfig: SandboxConfig = {
-    enabled: false,
-  };
-
-  test("disabled sandbox returns plain bash invocation", () => {
-    const result = wrapCommand("echo hello", "/tmp", disabledConfig);
-    expect(result.command).toBe("bash");
-    expect(result.args).toEqual(["-c", "--", "echo hello"]);
-    expect(result.sandboxed).toBe(false);
-  });
-
-  test("disabled sandbox preserves command verbatim", () => {
-    const cmd = 'ls -la /foo && echo "done"';
-    const result = wrapCommand(cmd, "/tmp", disabledConfig);
-    expect(result.args[2]).toBe(cmd);
-  });
-
-  test("disabled sandbox works with special characters in command", () => {
-    const cmd = "echo 'hello world' | grep 'hello'";
-    const result = wrapCommand(cmd, "/tmp", disabledConfig);
-    expect(result.args[2]).toBe(cmd);
-    expect(result.sandboxed).toBe(false);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Native sandbox backend — path safety
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("Native sandbox backend", () => {
-  // We test NativeBackend directly rather than through wrapCommand to avoid
-  // platform-dependent sandbox-exec/bwrap availability.
-  let NativeBackend: new () => SandboxBackend;
-
-  beforeEach(async () => {
-    const mod = await import("../tools/terminal/backends/native.js");
-    NativeBackend = mod.NativeBackend;
-  });
-
-  if (process.platform === "darwin") {
-    test("wraps command with sandbox-exec on macOS", () => {
-      const backend = new NativeBackend();
-      const result = backend.wrap("echo hello", "/tmp");
-      expect(result.command).toBe("sandbox-exec");
-      expect(result.args[0]).toBe("-f");
-      // Profile path is the second arg
-      expect(result.args[1]).toMatch(/sandbox-profile-.*\.sb$/);
-      expect(result.args).toContain("bash");
-      expect(result.args).toContain("-c");
-      expect(result.args).toContain("--");
-      expect(result.args[result.args.length - 1]).toBe("echo hello");
-      expect(result.sandboxed).toBe(true);
-    });
-
-    test("escapes working dir with SBPL metacharacters", () => {
-      // SBPL metacharacters (", (, ), ;, \) are backslash-escaped inside the
-      // profile string rather than rejected, so wrap() should succeed.
-      const backend = new NativeBackend();
-      expect(backend.wrap("echo hi", '/tmp/foo"bar').sandboxed).toBe(true);
-      expect(backend.wrap("echo hi", "/tmp/foo(bar").sandboxed).toBe(true);
-      expect(backend.wrap("echo hi", "/tmp/foo;bar").sandboxed).toBe(true);
-      expect(backend.wrap("echo hi", "/tmp/foo\\bar").sandboxed).toBe(true);
-    });
-
-    test("rejects working dir with newline characters", () => {
-      // Newlines/CRs cannot appear in real paths and would break the profile.
-      const backend = new NativeBackend();
-      expect(() => backend.wrap("echo hi", "/tmp/foo\nbar")).toThrow(ToolError);
-      expect(() => backend.wrap("echo hi", "/tmp/foo\rbar")).toThrow(ToolError);
-    });
-
-    test("accepts working dir with safe special characters", () => {
-      // Spaces, dots, hyphens, underscores are fine
-      const backend = new NativeBackend();
-      const result = backend.wrap("ls", "/tmp/my-dir_name.2024");
-      expect(result.sandboxed).toBe(true);
-    });
-  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

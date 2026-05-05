@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import {
   getMessages as defaultGetMessages,
@@ -21,13 +22,18 @@ import {
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
+  compareSlackTs,
   extractTagLineTexts,
   isReactionTagLine,
+  isSlackTsAfter,
   type RenderableSlackMessage,
+  type RenderedSlackTranscriptMessage,
   renderSlackTranscript,
+  renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
 import type {
+  DiskPressureInjectionContext,
   InjectionBlock,
   InjectionPlacement,
   TurnContext,
@@ -499,11 +505,6 @@ function injectVoiceCallControlContext(
   };
 }
 
-/** Strip `<voice_call_control>` blocks injected by `injectVoiceCallControlContext`. */
-export function stripVoiceCallControlContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<voice_call_control>"]);
-}
-
 // ---------------------------------------------------------------------------
 // NOW.md scratchpad injection
 // ---------------------------------------------------------------------------
@@ -635,19 +636,6 @@ export function readPkbContext(): string | null {
   }
 
   return parts.length > 0 ? parts.join("\n\n") : null;
-}
-
-// The `<knowledge_base>` block is emitted by the `pkb-context` default
-// injector (`plugins/defaults/injectors.ts`) as an `after-memory-prefix`
-// placement, splicing immediately after any leading memory-prefix blocks.
-// Use {@link applyRuntimeInjections} with `options.pkbContext` set.
-
-/** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
-export function stripPkbContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    "<knowledge_base>",
-    "<pkb>", // backward-compat: strip legacy blocks from pre-rename history
-  ]);
 }
 
 /**
@@ -1010,31 +998,6 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<channel_capabilities>"]);
 }
 
-// The workspace top-level context block is emitted by the
-// `workspace-context` default injector (`plugins/defaults/injectors.ts`)
-// as a `prepend-user-tail` placement. Use {@link applyRuntimeInjections}
-// with `options.workspaceTopLevelContext` set.
-
-/**
- * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
- * injected by `injectActiveSurfaceContext`.
- */
-export function stripActiveSurfaceContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    "<active_workspace>",
-    "<active_dynamic_page>",
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Declarative strip pipeline
-// ---------------------------------------------------------------------------
-
-/** Strip `<channel_command_context>` blocks injected by `injectChannelCommandContext`. */
-export function stripChannelCommandContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<channel_command_context>"]);
-}
-
 // ---------------------------------------------------------------------------
 // Transport hints injection (e.g. Slack thread context from the gateway)
 // ---------------------------------------------------------------------------
@@ -1047,9 +1010,15 @@ function injectTransportHints(message: Message, hints: string[]): Message {
   };
 }
 
-/** Strip `<transport_hints>` blocks injected by `injectTransportHints`. */
-export function stripTransportHints(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
+function injectSlackRuntimeContextNotice(
+  message: Message,
+  notice: string,
+): Message {
+  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
+  return {
+    ...message,
+    content: [{ type: "text", text: block }, ...message.content],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1095,6 +1064,29 @@ export interface SlackTranscriptInputRow {
   createdAt: number;
   /** Raw `metadata` column value (JSON string with optional `slackMeta` sub-key). */
   metadata: string | null;
+}
+
+export interface SlackChronologicalContext {
+  readonly renderedMessages: readonly RenderedSlackTranscriptMessage[];
+  /** Convenience projection of `renderedMessages[].message`. */
+  readonly messages: Message[];
+  readonly compactableStartIndex: number;
+}
+
+interface SlackBoundaryOptions {
+  readonly contextCompactedMessageCount?: number;
+  readonly slackContextCompactionWatermarkTs?: string | null;
+}
+
+function messageRowsToSlackTranscriptRows(
+  rows: MessageRow[],
+): SlackTranscriptInputRow[] {
+  return rows.map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
 }
 
 /**
@@ -1242,9 +1234,10 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
 }
 
 /**
- * Build a chronological Slack transcript for Slack conversations (both DMs
- * and group/channel/mpim) and project it onto the LLM-facing `Message[]`
- * shape.
+ * Compatibility projection for callers that still need the legacy
+ * `Message[] | null` shape. New runtime callers should use
+ * `assembleSlackChronologicalContext` so compaction provenance stays
+ * available with the rendered messages.
  *
  * Returns `null` when the channel is not Slack (caller should fall through
  * to the default message history). Legacy pre-upgrade rows without
@@ -1259,20 +1252,110 @@ export function assembleSlackChronologicalMessages(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
 ): Message[] | null {
+  return (
+    assembleSlackChronologicalContext(rows, capabilities)?.messages ?? null
+  );
+}
+
+function maxSlackTs(values: readonly (string | null)[]): string | null {
+  let max: string | null = null;
+  for (const value of values) {
+    if (value === null) continue;
+    if (max === null || compareSlackTs(value, max) > 0) {
+      max = value;
+    }
+  }
+  return max;
+}
+
+function legacyRowIsAfterWatermark(
+  row: SlackTranscriptInputRow,
+  watermarkTs: string,
+): boolean {
+  return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
+}
+
+function filterRowsAfterSlackCompactionBoundary(
+  rows: SlackTranscriptInputRow[],
+  options: SlackBoundaryOptions,
+): SlackTranscriptInputRow[] {
+  const fallbackCount = Math.max(
+    0,
+    Math.floor(options.contextCompactedMessageCount ?? 0),
+  );
+  const watermarkTs = options.slackContextCompactionWatermarkTs ?? null;
+  if (watermarkTs === null) {
+    return fallbackCount > 0 ? rows.slice(fallbackCount) : rows;
+  }
+
+  return rows.filter((row, index) => {
+    const meta = rowToRenderable(row).metadata;
+    if (meta) {
+      return isSlackTsAfter(meta.channelTs, watermarkTs);
+    }
+    if (index < fallbackCount) {
+      return false;
+    }
+    return legacyRowIsAfterWatermark(row, watermarkTs);
+  });
+}
+
+export function getSlackCompactionWatermarkForPrefix(
+  context: SlackChronologicalContext | null,
+  compactedRenderedMessages: number,
+): string | null {
+  if (!context || compactedRenderedMessages <= 0) return null;
+  const start = context.compactableStartIndex;
+  const end = Math.min(
+    context.renderedMessages.length,
+    start + compactedRenderedMessages,
+  );
+  if (end <= start) return null;
+  return maxSlackTs(
+    context.renderedMessages
+      .slice(start, end)
+      .map((entry) => entry.sourceChannelTs),
+  );
+}
+
+function assembleSlackChronologicalContext(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+  options: {
+    contextSummary?: string | null;
+  } = {},
+): SlackChronologicalContext | null {
   if (capabilities.channel !== "slack") {
     return null;
   }
   const renderable = rows.map(rowToRenderable);
-  return renderSlackTranscript(renderable);
+  const rendered = renderSlackTranscriptWithProvenance(renderable);
+  const contextSummary = options.contextSummary?.trim();
+  const renderedMessages = rendered.renderedMessages;
+  if (contextSummary) {
+    const withSummary: RenderedSlackTranscriptMessage[] = [
+      {
+        message: createContextSummaryMessage(contextSummary),
+        sourceChannelTs: null,
+      },
+      ...renderedMessages,
+    ];
+    return {
+      renderedMessages: withSummary,
+      messages: withSummary.map((entry) => entry.message),
+      compactableStartIndex: 1,
+    };
+  }
+  return {
+    renderedMessages,
+    messages: renderedMessages.map((entry) => entry.message),
+    compactableStartIndex: 0,
+  };
 }
 
 /**
- * Load DB rows for a Slack conversation and project them onto the
- * chronological transcript shape.
- *
- * Convenience wrapper over `getMessages` + `assembleSlackChronologicalMessages`.
- * The loader is exposed as a parameter so tests can substitute a stub. In
- * production it defaults to `getMessages` from `conversation-crud.ts`.
+ * Compatibility wrapper over `loadSlackChronologicalContext` for callers that
+ * still need only the legacy `Message[] | null` projection.
  *
  * When `trustClass` identifies an untrusted actor (guardian-scoped rows
  * must not leak into the model context), rows are passed through
@@ -1289,8 +1372,39 @@ export function loadSlackChronologicalMessages(
   options: {
     loader?: (id: string) => MessageRow[];
     trustClass?: TrustClass;
+    contextSummary?: string | null;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): Message[] | null {
+  return (
+    loadSlackChronologicalContext(conversationId, capabilities, options)
+      ?.messages ?? null
+  );
+}
+
+/**
+ * Load DB rows for a Slack conversation and project them onto the
+ * chronological transcript shape plus source metadata used by compaction.
+ *
+ * If a Slack timestamp watermark exists, rows at or before that Slack
+ * `channelTs` are omitted. When no timestamp watermark exists yet, the
+ * legacy `contextCompactedMessageCount` is used as a DB-order fallback so
+ * old compacted Slack conversations do not immediately resurrect history;
+ * the next successful Slack compaction replaces that count boundary with a
+ * durable Slack timestamp watermark.
+ */
+export function loadSlackChronologicalContext(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+    contextSummary?: string | null;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
+  } = {},
+): SlackChronologicalContext | null {
   if (capabilities.channel !== "slack") {
     return null;
   }
@@ -1299,14 +1413,15 @@ export function loadSlackChronologicalMessages(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  // Coerce MessageRow.role (string) to the structural row's stricter union.
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
-  return assembleSlackChronologicalMessages(rows, capabilities);
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
+  return assembleSlackChronologicalContext(rows, capabilities, {
+    contextSummary: isUntrustedTrustClass(options.trustClass)
+      ? null
+      : options.contextSummary,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1473,6 +1588,8 @@ export function loadSlackActiveThreadFocusBlock(
   options: {
     loader?: (id: string) => MessageRow[];
     trustClass?: TrustClass;
+    contextCompactedMessageCount?: number;
+    slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): string | null {
   if (capabilities.channel !== "slack") return null;
@@ -1482,12 +1599,10 @@ export function loadSlackActiveThreadFocusBlock(
   const scopedRows = isUntrustedTrustClass(options.trustClass)
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
-  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
-    role: row.role === "assistant" ? "assistant" : "user",
-    content: row.content,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  }));
+  const rows = filterRowsAfterSlackCompactionBoundary(
+    messageRowsToSlackTranscriptRows(scopedRows),
+    options,
+  );
   return assembleSlackActiveThreadFocusBlock(rows, capabilities);
 }
 
@@ -1495,6 +1610,7 @@ export function loadSlackActiveThreadFocusBlock(
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
   "<channel_command_context>",
+  "<disk_pressure_warning>",
   "<channel_turn_context>", // backward-compat: strip legacy separate channel blocks
   "<guardian_context>",
   "<inbound_actor_context>", // backward-compat: strip legacy separate actor blocks
@@ -1503,11 +1619,12 @@ const RUNTIME_INJECTION_PREFIXES = [
   // blocks persist in history so the assistant retains temporal/actor grounding.
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
-  // NOTE: <memory __injected> is intentionally NOT stripped — memory
-  // injections persist in history so the assistant can reference them.
-  // Context compaction handles these blocks during history reduction, and
-  // the InContextTracker deduplicates nodes across turns, so accumulation
-  // does not cause unbounded context growth.
+  // NOTE: `<memory>` blocks (both the dynamic activation block from
+  // `injectTextBlock` and the static `memory-v2-static` injector) are
+  // intentionally NOT stripped — memory injections persist in history so
+  // the assistant retains intra-turn memory state. The activation pipeline
+  // dedupes via `everInjected`, and compaction handles aggregate growth, so
+  // accumulation does not cause unbounded context growth.
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // NOTE: <workspace> is intentionally NOT stripped — workspace context
@@ -1525,6 +1642,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
+  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1756,6 +1874,7 @@ function applyInjectionBlock(
  * plugin-overridable default injectors.
  */
 export interface RuntimeInjectionOptions {
+  diskPressureContext?: DiskPressureInjectionContext | null;
   /**
    * Active dashboard-surface context (read from `<active_workspace>`). Kept
    * on the options bag rather than an injector because it is a
@@ -1797,10 +1916,19 @@ export interface RuntimeInjectionOptions {
    * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
    */
   pkbWorkingDir?: string;
+  /**
+   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
+   * concatenated, header-wrapped). When non-null on full-mode turns the
+   * `memory-v2-static` injector wraps it in `<memory>` and splices it onto
+   * the user message; subsequent turns leave the prior block cached on its
+   * original user message.
+   */
+  memoryV2Static?: string | null;
   nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   transportHints?: string[] | null;
+  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -1814,7 +1942,7 @@ export interface RuntimeInjectionOptions {
    * skipped for any Slack conversation so the persisted view isn't
    * duplicated by gateway-side hints.
    *
-   * Callers build this via `loadSlackChronologicalMessages` (or the
+   * Callers build this via `loadSlackChronologicalContext` (or the
    * underlying `assembleSlackChronologicalMessages`) before invoking
    * this function so the assembly path stays free of direct DB calls
    * and remains easy to test.
@@ -1865,6 +1993,7 @@ function buildTurnInjectionInputs(
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
+    diskPressureContext: options.diskPressureContext,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
     pkbContext: options.pkbContext,
@@ -1876,6 +2005,7 @@ function buildTurnInjectionInputs(
     pkbAutoInjectList: options.pkbAutoInjectList,
     pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
+    memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,
@@ -2128,6 +2258,23 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  if (
+    mode === "full" &&
+    slackConversation &&
+    options.slackRuntimeContextNotice
+  ) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectSlackRuntimeContextNotice(
+          userTail,
+          options.slackRuntimeContextNotice,
+        ),
       ];
     }
   }

@@ -411,28 +411,6 @@ describe("compilePlaybooks", () => {
 describe("playbook tool edge cases", () => {
   beforeEach(clearPlaybooks);
 
-  test("create uses memoryScopeId from context when present", async () => {
-    const scopedCtx: ToolContext = { ...ctx, memoryScopeId: "custom-scope" };
-    const result = await executePlaybookCreate(
-      {
-        trigger: "scoped trigger",
-        action: "scoped action",
-      },
-      scopedCtx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Playbook created successfully");
-
-    // Verify it's invisible to default scope
-    const defaultList = await executePlaybookList({}, ctx);
-    expect(defaultList.content).toContain("No playbooks found");
-
-    // Visible to custom scope
-    const scopedList = await executePlaybookList({}, scopedCtx);
-    expect(scopedList.content).toContain("scoped trigger");
-  });
-
   test("update detects collision with another playbook", async () => {
     const _r1 = await executePlaybookCreate(
       { trigger: "trigger A", action: "action A" },
@@ -586,26 +564,5 @@ describe("playbook tool edge cases", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Found 1 playbook");
     expect(result.content).toContain("**a**");
-  });
-
-  test("delete is scoped and does not affect other scopes", async () => {
-    const scopedCtx: ToolContext = { ...ctx, memoryScopeId: "scope-A" };
-    const createResult = await executePlaybookCreate(
-      { trigger: "x", action: "y" },
-      scopedCtx,
-    );
-    const id = createResult.content.match(/ID: (\S+)/)![1];
-
-    // Try to delete from default scope
-    const deleteResult = await executePlaybookDelete({ playbook_id: id }, ctx);
-    expect(deleteResult.isError).toBe(true);
-    expect(deleteResult.content).toContain("not found");
-
-    // Delete from correct scope succeeds
-    const correctDelete = await executePlaybookDelete(
-      { playbook_id: id },
-      scopedCtx,
-    );
-    expect(correctDelete.isError).toBe(false);
   });
 });

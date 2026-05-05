@@ -511,14 +511,19 @@ describe("connectCdpWsTransport", () => {
   });
 
   test("addEventListener returns an unsubscribe function", async () => {
+    // Use a sentinel request to gate event emission on the server: the
+    // listener is registered before send() runs, so by the time the server
+    // receives the sentinel and starts emitting events the client listener
+    // is guaranteed to be attached. A bare setTimeout-after-open race is
+    // tight enough to flake on busy CI runners.
     const server = startFakeWsServer({
-      onOpen(ws) {
+      onMessage(ws, frame) {
+        if (frame.method !== "Test.startEvents") return;
+        ws.send(JSON.stringify({ id: frame.id, result: {} }));
+        ws.send(JSON.stringify({ method: "Ev.first", params: {} }));
         setTimeout(() => {
-          ws.send(JSON.stringify({ method: "Ev.first", params: {} }));
-          setTimeout(() => {
-            ws.send(JSON.stringify({ method: "Ev.second", params: {} }));
-          }, 10);
-        }, 5);
+          ws.send(JSON.stringify({ method: "Ev.second", params: {} }));
+        }, 10);
       },
     });
     try {
@@ -528,6 +533,7 @@ describe("connectCdpWsTransport", () => {
           received.push(ev.method);
           if (ev.method === "Ev.first") unsub();
         });
+        await transport.send("Test.startEvents");
         await new Promise((r) => setTimeout(r, 60));
         expect(received).toEqual(["Ev.first"]);
       });

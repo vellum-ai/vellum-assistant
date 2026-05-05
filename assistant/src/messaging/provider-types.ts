@@ -41,6 +41,12 @@ export interface SearchResult {
   nextCursor?: string;
 }
 
+export interface HistoryPageResult {
+  messages: Message[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
 export interface SendResult {
   id: string;
   timestamp: number;
@@ -66,6 +72,8 @@ export interface HistoryOptions {
   limit?: number;
   before?: string;
   after?: string;
+  cursor?: string;
+  inclusive?: boolean;
 }
 
 export interface SearchOptions {

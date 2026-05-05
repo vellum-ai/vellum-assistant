@@ -105,6 +105,17 @@ export interface IpcResponse {
   id: string;
   result?: unknown;
   error?: string;
+  /** HTTP-style status code mirrored from `RouteError.statusCode`. */
+  statusCode?: number;
+  /** Machine-readable error code (e.g. "UNPROCESSABLE_ENTITY"). */
+  errorCode?: string;
+  /**
+   * Structured error payload mirroring `RouteError.details` — present only
+   * when the originating error carried a `details` field. Mirrors the HTTP
+   * adapter's `error.details` envelope so IPC clients can recover the same
+   * machine-readable context as HTTP clients.
+   */
+  errorDetails?: unknown;
 }
 
 // ---------------------------------------------------------------------------

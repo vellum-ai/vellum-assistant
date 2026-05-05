@@ -181,6 +181,26 @@ export {
   downActivationState,
   migrateActivationState,
 } from "./232-activation-state.js";
+export { migrateCreateDocumentConversations } from "./233-document-conversations.js";
+export {
+  downMemoryV2ActivationLogs,
+  migrateMemoryV2ActivationLogs,
+} from "./234-memory-v2-activation-logs.js";
+export { migrateLlmUsageAttribution } from "./235-llm-usage-attribution.js";
+export {
+  downSlackCompactionWatermark,
+  migrateSlackCompactionWatermark,
+} from "./235-slack-compaction-watermark.js";
+export {
+  downToolInvocationsMatchedRuleId,
+  migrateToolInvocationsMatchedRuleId,
+} from "./236-tool-invocations-matched-rule-id.js";
+export {
+  downHeartbeatRuns,
+  migrateHeartbeatRuns,
+} from "./237-heartbeat-runs.js";
+export { migrateScheduleRetryPolicy } from "./238-schedule-retry-policy.js";
+export { migrateTraceEventsCreatedAtIndex } from "./239-trace-events-created-at-index.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

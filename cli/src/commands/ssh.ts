@@ -1,9 +1,6 @@
 import { spawn } from "child_process";
 
-import {
-  findAssistantByName,
-  loadLatestAssistant,
-} from "../lib/assistant-config";
+import { resolveAssistant } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
@@ -58,7 +55,7 @@ export async function ssh(): Promise<void> {
   }
 
   const name = process.argv[3];
-  const entry = name ? findAssistantByName(name) : loadLatestAssistant();
+  const entry = resolveAssistant(name);
 
   if (!entry) {
     if (name) {

@@ -26,7 +26,7 @@ public struct InlineChatErrorAlert: View {
 
     private var accentColor: Color {
         switch category {
-        case .rateLimit, .providerOverloaded, .providerNetwork, .contextTooLarge, .providerOrdering, .providerWebSearch:
+        case .rateLimit, .managedUsageLimit, .providerOverloaded, .providerNetwork, .contextTooLarge, .providerOrdering, .providerWebSearch:
             return VColor.systemMidStrong
         case .conversationAborted:
             return VColor.systemPositiveStrong
@@ -39,6 +39,7 @@ public struct InlineChatErrorAlert: View {
         switch category {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
+        case .managedUsageLimit: return .clockAlert
         case .providerOverloaded: return .cloudOff
         case .providerApi, .providerOrdering, .providerWebSearch: return .cloudOff
         case .providerBilling: return .creditCard
@@ -56,6 +57,7 @@ public struct InlineChatErrorAlert: View {
         switch category {
         case .providerNetwork: return "Network Error"
         case .rateLimit: return "Rate Limited"
+        case .managedUsageLimit: return "Vellum Usage Limit"
         case .providerOverloaded: return "Provider Overloaded"
         case .providerApi: return "API Error"
         case .providerBilling: return "Billing Error"

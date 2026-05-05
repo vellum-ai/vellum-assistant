@@ -118,11 +118,10 @@ extension AppDelegate {
         let assistant = loadAssistantFromLockfile()
 
         configureDaemonTransport(for: assistant)
-        services.diskPressureMonitor.refreshForCurrentAssistant()
 
         // Set recovery credentials for automatic 401 re-bootstrap
         connectionManager.recoveryPlatform = "macos"
-        connectionManager.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
+        connectionManager.recoveryDeviceId = HostIdComputer.computeHostId()
 
         // Auto-wake: if a connection attempt finds the assistant process dead,
         // wake it via the CLI before retrying.
@@ -150,7 +149,6 @@ extension AppDelegate {
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
-        rebindDiskPressureConnectionObserver()
 
         // Observe the managed-assistant-gone signal (health check 404) once
         // per setup so a retired/deleted platform assistant no longer leaves
@@ -192,28 +190,20 @@ extension AppDelegate {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
             if connectionManager.isConnected {
-                services.diskPressureMonitor.connectionStateChanged(isConnected: true)
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
                 syncPrivacyConfig()
-                featureFlagStore.reloadFromGateway()
+                let flagReloadTask = featureFlagStore.reloadFromGateway()
+                Task { @MainActor [weak self] in
+                    await flagReloadTask.value
+                    self?.diskPressureStatusStore.refreshForCurrentAssistant()
+                }
             }
         }
     }
 
     // MARK: - SSE Event Subscription
-
-    func rebindDiskPressureConnectionObserver() {
-        diskPressureConnectionTask?.cancel()
-        diskPressureConnectionTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await isConnected in self.connectionManager.isConnectedStream {
-                guard !Task.isCancelled else { break }
-                self.services.diskPressureMonitor.connectionStateChanged(isConnected: isConnected)
-            }
-        }
-    }
 
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
@@ -286,14 +276,6 @@ extension AppDelegate {
                     self.showPlatformLogin()
                 case .platformDisconnected:
                     self.performLogout()
-                case .pairingApprovalRequest(let msg):
-                    if self.pairingApprovalWindow == nil {
-                        self.pairingApprovalWindow = PairingApprovalWindow()
-                    }
-                    self.pairingApprovalWindow?.show(
-                        pairingRequestId: msg.pairingRequestId,
-                        deviceName: msg.deviceName
-                    )
                 case .taskRunConversationCreated(let msg):
                     guard !self.isBootstrapping else { break }
                     self.ensureMainWindowExists()
@@ -384,13 +366,46 @@ extension AppDelegate {
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
                 case .featureFlagsChanged:
-                    self.featureFlagStore.reloadFromGateway()
+                    let flagReloadTask = self.featureFlagStore.reloadFromGateway()
+                    Task { @MainActor [weak self] in
+                        await flagReloadTask.value
+                        self?.diskPressureStatusStore.refreshForCurrentAssistant()
+                    }
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
+                    // Accept if the request is explicitly targeted at this client, OR if
+                    // the request is untargeted and the conversation is locally owned.
+                    // Do NOT accept if targetClientId is set to a different client, even
+                    // if this conversation is in the local list (all clients sync the same
+                    // conversation list, so isLocalConversation alone is not sufficient).
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
                     HostToolExecutor.executeHostBashRequest(msg)
                 case .hostFileRequest(let msg):
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
                     HostToolExecutor.executeHostFileRequest(msg)
                 case .hostCuRequest(let msg):
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
                     let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
                     let task = Task { @MainActor in
                         defer { self.inFlightCuTasks.removeValue(forKey: msg.requestId) }
@@ -416,12 +431,35 @@ extension AppDelegate {
                     }
                     self.inFlightCuTasks[msg.requestId] = task
 
+                case .hostAppControlRequest(let msg):
+                    let task = Task { @MainActor in
+                        defer { self.inFlightAppControlTasks.removeValue(forKey: msg.requestId) }
+
+                        guard !Task.isCancelled else { return }
+                        let result = await AppControlExecutor.perform(msg)
+                        guard !Task.isCancelled else { return }
+
+                        // Suppress stale POST if cancelled
+                        if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            log.debug("Host app-control result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
+                            return
+                        }
+                        _ = await HostProxyClient().postAppControlResult(result)
+                    }
+                    self.inFlightAppControlTasks[msg.requestId] = task
+
                 case .hostBrowserRequest(let msg):
                     self.hostBrowserExecutor.execute(msg)
                 case .hostBrowserCancel(let msg):
                     self.hostBrowserExecutor.cancel(msg.requestId)
 
                 case .hostTransferRequest(let msg):
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else { break }
                     HostToolExecutor.executeHostTransferRequest(msg)
                 case .hostTransferCancel(let msg):
                     HostToolExecutor.cancelHostTransferRequest(msg.requestId)
@@ -432,6 +470,8 @@ extension AppDelegate {
                     HostToolExecutor.cancelHostFileRequest(msg.requestId)
                 case .hostCuCancel(let msg):
                     self.cancelHostCuRequest(msg.requestId)
+                case .hostAppControlCancel(let msg):
+                    self.cancelHostAppControlRequest(msg.requestId)
 
                 // Signing identity
                 case .signBundlePayload(let msg):
@@ -475,6 +515,11 @@ extension AppDelegate {
                     self.secretPromptManager.showPrompt(msg)
                     SoundManager.shared.play(.needsInput)
 
+                // Contact address prompt
+                case .contactRequest(let msg):
+                    self.contactPromptManager.showPrompt(msg)
+                    SoundManager.shared.play(.needsInput)
+
                 case .conversationError(let msg):
                     if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
@@ -508,6 +553,19 @@ extension AppDelegate {
         log.info("Cancelling host CU — requestId=\(requestId, privacy: .public)")
     }
 
+    // MARK: - Host App Control Cancel
+
+    /// Cancel an in-flight host app-control request: mark it cancelled and
+    /// cancel the Swift Task. App-control has no overlay to dismiss; the
+    /// daemon-side proxy resolves the awaiter on cancellation.
+    func cancelHostAppControlRequest(_ requestId: String) {
+        HostToolExecutor.markCancelled(requestId)
+        if let task = inFlightAppControlTasks.removeValue(forKey: requestId) {
+            task.cancel()
+        }
+        log.info("Cancelling host app-control — requestId=\(requestId, privacy: .public)")
+    }
+
     // MARK: - Signing Identity
 
     /// Handle a sign_bundle_payload request from the assistant.
@@ -520,7 +578,7 @@ extension AppDelegate {
                 let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/sign-bundle-response",
+                    path: "sign-bundle-response",
                     json: [
                         "requestId": msg.requestId,
                         "signature": signature.base64EncodedString(),
@@ -531,7 +589,7 @@ extension AppDelegate {
             } catch {
                 log.error("Failed to sign bundle payload: \(error.localizedDescription)")
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/sign-bundle-response",
+                    path: "sign-bundle-response",
                     json: [
                         "requestId": msg.requestId,
                         "error": error.localizedDescription
@@ -549,7 +607,7 @@ extension AppDelegate {
                 let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/signing-identity-response",
+                    path: "signing-identity-response",
                     json: [
                         "requestId": msg.requestId,
                         "keyId": keyId,
@@ -559,7 +617,7 @@ extension AppDelegate {
             } catch {
                 log.error("Failed to get signing identity: \(error.localizedDescription)")
                 _ = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/signing-identity-response",
+                    path: "signing-identity-response",
                     json: [
                         "requestId": msg.requestId,
                         "error": error.localizedDescription

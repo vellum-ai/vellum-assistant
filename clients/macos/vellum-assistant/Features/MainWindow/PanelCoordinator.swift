@@ -11,8 +11,33 @@ private let panelCoordinatorLog = Logger(
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
-    fileprivate static let conversationStartersFeatureFlagKey =
-        "conversation-starters"
+    /// Current conversation being rendered by `chatView`.
+    private var renderedConversationIdForChatSurface: UUID? {
+        conversationManager.activeConversationId ?? conversationManager.draftLocalId
+    }
+
+    /// True while the chat surface should show a loading skeleton instead of
+    /// rendering a stale or partially-initialized conversation.
+    private func shouldShowConversationSwitchSkeleton() -> Bool {
+        guard let targetConversationId = pendingConversationSwitchId else { return false }
+        guard renderedConversationIdForChatSurface == targetConversationId else {
+            // Explicit switch pending but ConversationManager has not activated yet.
+            return true
+        }
+
+        // Draft conversations are local-only and immediately ready.
+        if conversationManager.activeConversationId == nil,
+           conversationManager.draftLocalId == targetConversationId {
+            return false
+        }
+
+        // Require the selected VM history to load before enabling interaction.
+        // Use the active VM only (no cache/LRU mutations during body eval).
+        guard let targetViewModel = conversationManager.activeViewModel else {
+            return true
+        }
+        return !targetViewModel.isHistoryLoaded
+    }
 
     // MARK: - Config-Driven Slot Rendering
 
@@ -152,11 +177,13 @@ extension MainWindowView {
         case .home:
             homePanelView(onDismiss: { windowState.selection = nil })
         case .acpSessions:
-            ACPSessionsPanel(
-                store: acpSessionStore,
-                activeConversationId: conversationManager.activeConversationId?.uuidString,
-                onClose: { windowState.navigateBackOrDismiss() }
-            )
+            if CodingAgentsPanelFeatureFlag.isEnabled {
+                ACPSessionsPanel(
+                    store: acpSessionStore,
+                    activeConversationId: conversationManager.activeConversationId?.uuidString,
+                    onClose: { windowState.hideRightSlot(.acpSessions) }
+                )
+            }
         }
     }
 
@@ -594,8 +621,12 @@ extension MainWindowView {
     @ViewBuilder
     func defaultChatLayout(windowSize: CGSize) -> some View {
         let config = windowState.layoutConfig
-        let showConfigPanel = config.right.visible && config.right.content != .empty
-        let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
+        let isDisabledACPSessionsRightSlot = Self.isDisabledACPSessionsRightSlot(config.right)
+        let showConfigPanel = config.right.visible && config.right.content != .empty && !isDisabledACPSessionsRightSlot
+        let isSwitchingConversation = shouldShowConversationSwitchSkeleton()
+        let showSubagentPanel = !isSwitchingConversation
+            && windowState.selectedSubagentId != nil
+            && conversationManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: clampedSidePanelWidth(windowSize: windowSize),
@@ -604,13 +635,14 @@ extension MainWindowView {
             mainCornerRadius: 0,
             main: { slotView(for: config.center.content) },
             panel: {
-                if let subagentId = windowState.selectedSubagentId,
+                if !isSwitchingConversation,
+                   let subagentId = windowState.selectedSubagentId,
                    let viewModel = conversationManager.activeViewModel {
                     SubagentDetailPanel(
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
+                        showInspectButton: MacOSClientFeatureFlagManager.shared.isEnabled("settings-developer-nav"),
                         onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
@@ -634,16 +666,35 @@ extension MainWindowView {
                 }
             }
         )
+        .onAppear {
+            hideDisabledACPSessionsRightSlotIfNeeded(config.right)
+        }
+        .onChange(of: config.right) { _, rightSlot in
+            hideDisabledACPSessionsRightSlotIfNeeded(rightSlot)
+        }
+    }
+
+    static func isDisabledACPSessionsRightSlot(_ rightSlot: SlotConfig) -> Bool {
+        !CodingAgentsPanelFeatureFlag.isEnabled
+            && rightSlot.visible
+            && rightSlot.content == .native(.acpSessions)
+    }
+
+    private func hideDisabledACPSessionsRightSlotIfNeeded(_ rightSlot: SlotConfig) {
+        guard Self.isDisabledACPSessionsRightSlot(rightSlot) else { return }
+        Task { @MainActor in
+            windowState.hideRightSlot(.acpSessions)
+        }
     }
 
     @ViewBuilder
     var chatView: some View {
-        if let viewModel = conversationManager.activeViewModel {
+        if shouldShowConversationSwitchSkeleton() {
+            ConversationSwitchLoadingView()
+        } else if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
-            let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
-                Self.conversationStartersFeatureFlagKey
-            )
-            let showInspectButton = assistantFeatureFlagStore.isEnabled(
+            let conversationStartersEnabled = true
+            let showInspectButton = MacOSClientFeatureFlagManager.shared.isEnabled(
                 "settings-developer-nav"
             )
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
@@ -663,6 +714,7 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
+                diskPressureStatusStore: diskPressureStatusStore,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isReadonly: activeConversation?.isChannelConversation ?? false,
                 voiceModeManager: voiceModeManager,
@@ -676,9 +728,28 @@ extension MainWindowView {
                 onVoiceModeToggle: isVoiceModeEnabled ? {
                     toggleVoiceMode()
                 } : nil,
+                onOpenConversationApp: { [connectionManager, eventStreamClient] artifact in
+                    guard let appId = artifact.appId else { return }
+                    Task {
+                        await AppsClient.openAppAndDispatchSurface(
+                            id: appId,
+                            connectionManager: connectionManager,
+                            eventStreamClient: eventStreamClient
+                        )
+                    }
+                },
+                onOpenConversationDocument: { artifact in
+                    guard let surfaceId = artifact.surfaceId else { return }
+                    NotificationCenter.default.post(
+                        name: .openDocumentEditor,
+                        object: nil,
+                        userInfo: ["documentSurfaceId": surfaceId]
+                    )
+                },
                 conversationId: conversationManager.activeConversationId ?? conversationManager.draftLocalId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
-                highlightedMessageId: $conversationManager.highlightedMessageId
+                highlightedMessageId: $conversationManager.highlightedMessageId,
+                isInteractionEnabled: viewModel.isHistoryLoaded
             )
         }
     }
@@ -869,6 +940,7 @@ struct ActiveChatViewWrapper: View {
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
+    let diskPressureStatusStore: DiskPressureStatusStore
     let onMicrophoneToggle: () -> Void
     var isReadonly: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
@@ -876,9 +948,12 @@ struct ActiveChatViewWrapper: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
+    var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
+    var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
+    var isInteractionEnabled: Bool = true
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -916,13 +991,19 @@ struct ActiveChatViewWrapper: View {
                     settingsStore.pendingSettingsTab = .modelsAndServices
                     windowState.selection = .panel(.settings)
                 },
-                diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
-                onReviewDiskUsage: {
+                safeStorageRequiresAcknowledgement: diskPressureStatusStore.requiresAcknowledgement,
+                safeStorageCleanupState: SafeStorageCleanupStatusViewState(
+                    status: diskPressureStatusStore.status,
+                    isCleanupModeActive: diskPressureStatusStore.isCleanupModeActive
+                ),
+                onOpenStorageCleanup: {
                     windowState.showWorkspace()
                 },
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
+                onOpenConversationApp: onOpenConversationApp,
+                onOpenConversationDocument: onOpenConversationDocument,
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                 onResumeAssistant: {
@@ -935,7 +1016,7 @@ struct ActiveChatViewWrapper: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
-                isInteractionEnabled: windowState.inspectorMessageId == nil,
+                isInteractionEnabled: isInteractionEnabled && windowState.inspectorMessageId == nil,
                 isReadonly: isReadonly,
                 isBootstrapping: isBootstrapping,
                 isBootstrapTimedOut: isBootstrapTimedOut,
@@ -952,7 +1033,7 @@ struct ActiveChatViewWrapper: View {
                 showThresholdPicker: showThresholdPicker
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-            .disabled(windowState.inspectorMessageId != nil)
+            .disabled(windowState.inspectorMessageId != nil || !isInteractionEnabled)
 
             if let messageId = windowState.inspectorMessageId {
                 MessageInspectorView(
@@ -983,6 +1064,24 @@ struct ActiveChatViewWrapper: View {
         withAnimation(VAnimation.standard) {
             windowState.inspectorMessageId = nil
         }
+    }
+}
+
+/// Immediate visual placeholder while switching conversations.
+private struct ConversationSwitchLoadingView: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                ChatLoadingSkeleton()
+                    .padding(VSpacing.lg)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Loading chat history")
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+        }
+            .background(VColor.surfaceBase)
     }
 }
 

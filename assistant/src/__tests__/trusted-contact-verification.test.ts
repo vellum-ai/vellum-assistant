@@ -27,7 +27,6 @@ import {
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
 import {
-  createGuardianBinding,
   revokeMember,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
@@ -38,6 +37,7 @@ import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 

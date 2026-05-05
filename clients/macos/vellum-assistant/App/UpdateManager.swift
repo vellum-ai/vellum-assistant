@@ -220,7 +220,7 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
             // Fetch the current service group version from health endpoint.
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
 

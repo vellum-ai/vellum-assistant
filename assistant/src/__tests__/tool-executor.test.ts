@@ -1,10 +1,4 @@
-import {
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AllowlistOption,
@@ -12,10 +6,7 @@ import type {
   ScopeOption,
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
-import type {
-  Tool,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolExecutionResult } from "../tools/types.js";
 
 const mockConfig = {
   provider: "anthropic",
@@ -41,8 +32,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
   permissions: {},
 };
@@ -93,7 +82,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -157,10 +145,6 @@ mock.module("../tools/registry.js", () => ({
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
-}));
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -415,7 +399,11 @@ describe("ToolExecutor policy context plumbing", () => {
     };
 
     const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute("no_target_tool", {}, makeContext({ requireFreshApproval: true }));
+    const result = await executor.execute(
+      "no_target_tool",
+      {},
+      makeContext({ requireFreshApproval: true }),
+    );
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
@@ -924,7 +912,11 @@ describe("integration regressions — prompt payload (PR 11)", () => {
     } as unknown as PermissionPrompter;
 
     const executor = new ToolExecutor(prompter);
-    await executor.execute("bash", { command: "npm install" }, makeContext({ forcePromptSideEffects: true }));
+    await executor.execute(
+      "bash",
+      { command: "npm install" },
+      makeContext({ forcePromptSideEffects: true }),
+    );
 
     // Verify that the prompter received allowlist options
     expect(capturedAllowlist).toBeDefined();

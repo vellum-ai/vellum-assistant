@@ -518,6 +518,157 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
     public let queryContext: String?
 }
 
+public struct MemoryV2ActivationData: Codable, Sendable, Equatable {
+    public let turn: Int
+    public let mode: String // "context-load" | "per-turn"
+    /// All v2 entries scored for this turn, ranked together. Skill entries
+    /// appear with a `slug` prefixed `skills/`; concept-page entries use
+    /// their on-disk slug directly. Filtering on the prefix yields a
+    /// skills-only or concepts-only view.
+    public let concepts: [MemoryV2ConceptRow]
+    public let config: MemoryV2Config
+
+    public init(
+        turn: Int,
+        mode: String,
+        concepts: [MemoryV2ConceptRow],
+        config: MemoryV2Config
+    ) {
+        self.turn = turn
+        self.mode = mode
+        self.concepts = concepts
+        self.config = config
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turn, mode, concepts, config
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        turn = try container.decode(Int.self, forKey: .turn)
+        mode = try container.decode(String.self, forKey: .mode)
+        concepts = try container.decode([MemoryV2ConceptRow].self, forKey: .concepts)
+        config = try container.decode(MemoryV2Config.self, forKey: .config)
+    }
+}
+
+public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { slug }
+    public let slug: String
+    public let finalActivation: Double
+    public let ownActivation: Double
+    public let priorActivation: Double
+    public let simUser: Double
+    public let simAssistant: Double
+    public let simNow: Double
+    /// Portion of `simUser` contributed by the cross-encoder rerank step.
+    /// Zero when rerank is disabled or the slug fell outside the top-K
+    /// window. Older log rows that pre-date this field decode as 0.
+    public let simUserRerankBoost: Double
+    /// Portion of `simAssistant` contributed by the cross-encoder rerank
+    /// step. Same semantics as `simUserRerankBoost`. NOW channel bypasses
+    /// rerank, so there is no corresponding NOW boost.
+    public let simAssistantRerankBoost: Double
+    /// True when this slug was in the unified top-K rerank pool. Lets the
+    /// inspector keep the rerank rows visible at `+0.000` when the channel
+    /// max normalised to 0, distinguishing "cross-encoder looked and chose
+    /// 0" from "rerank skipped this slug." Older log rows decode as `false`.
+    public let inRerankPool: Bool
+    public let spreadContribution: Double
+    public let source: String  // "prior_state" | "ann_top50" | "both"
+    public let status: String  // "in_context" | "injected" | "not_injected"
+
+    public init(
+        slug: String,
+        finalActivation: Double,
+        ownActivation: Double,
+        priorActivation: Double,
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        simUserRerankBoost: Double = 0,
+        simAssistantRerankBoost: Double = 0,
+        inRerankPool: Bool = false,
+        spreadContribution: Double,
+        source: String,
+        status: String
+    ) {
+        self.slug = slug
+        self.finalActivation = finalActivation
+        self.ownActivation = ownActivation
+        self.priorActivation = priorActivation
+        self.simUser = simUser
+        self.simAssistant = simAssistant
+        self.simNow = simNow
+        self.simUserRerankBoost = simUserRerankBoost
+        self.simAssistantRerankBoost = simAssistantRerankBoost
+        self.inRerankPool = inRerankPool
+        self.spreadContribution = spreadContribution
+        self.source = source
+        self.status = status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.slug = try c.decode(String.self, forKey: .slug)
+        self.finalActivation = try c.decode(Double.self, forKey: .finalActivation)
+        self.ownActivation = try c.decode(Double.self, forKey: .ownActivation)
+        self.priorActivation = try c.decode(Double.self, forKey: .priorActivation)
+        self.simUser = try c.decode(Double.self, forKey: .simUser)
+        self.simAssistant = try c.decode(Double.self, forKey: .simAssistant)
+        self.simNow = try c.decode(Double.self, forKey: .simNow)
+        // Default to 0 so log rows written before the rerank-boost fields
+        // were added still decode and render as "no boost" instead of
+        // failing the whole inspector tab.
+        self.simUserRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simUserRerankBoost) ?? 0
+        self.simAssistantRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simAssistantRerankBoost) ?? 0
+        self.inRerankPool = try c.decodeIfPresent(Bool.self, forKey: .inRerankPool) ?? false
+        self.spreadContribution = try c.decode(Double.self, forKey: .spreadContribution)
+        self.source = try c.decode(String.self, forKey: .source)
+        self.status = try c.decode(String.self, forKey: .status)
+    }
+}
+
+public struct MemoryV2Config: Codable, Sendable, Equatable {
+    public let d: Double
+    public let cUser: Double
+    public let cAssistant: Double
+    public let cNow: Double
+    public let k: Double
+    public let hops: Int
+    public let topK: Int
+    public let epsilon: Double
+
+    enum CodingKeys: String, CodingKey {
+        case d, k, hops, epsilon
+        case cUser = "c_user"
+        case cAssistant = "c_assistant"
+        case cNow = "c_now"
+        case topK = "top_k"
+    }
+
+    public init(
+        d: Double,
+        cUser: Double,
+        cAssistant: Double,
+        cNow: Double,
+        k: Double,
+        hops: Int,
+        topK: Int,
+        epsilon: Double
+    ) {
+        self.d = d
+        self.cUser = cUser
+        self.cAssistant = cAssistant
+        self.cNow = cNow
+        self.k = k
+        self.hops = hops
+        self.topK = topK
+        self.epsilon = epsilon
+    }
+}
+
 /// A single LLM request/response log entry returned by the context endpoint.
 /// `requestPayload` and `responsePayload` are nil in the initial response and
 /// fetched on demand via the dedicated payload endpoint.
@@ -538,11 +689,61 @@ public struct LLMLogPayloadResponse: Codable, Sendable {
     public let responsePayload: AnyCodable
 }
 
+/// Conversation kinds the daemon may report for an LLM-context lookup.
+/// Wire raw values mirror the daemon's `CONVERSATION_KINDS` constant in
+/// `assistant/src/runtime/routes/conversation-query-routes.ts`. Unknown
+/// values from a newer daemon decode to `nil` rather than failing the
+/// whole response.
+public enum ConversationKind: String, Codable, Sendable, Equatable, Hashable {
+    case user
+    case background
+    case backgroundMemoryConsolidation = "background_memory_consolidation"
+    case scheduled
+}
+
 /// Response wrapper for the LLM context endpoint.
 public struct LLMContextResponse: Codable, Sendable {
     public let messageId: String
+    /// `nil` when the daemon predates the field or sends a value the client
+    /// doesn't recognize — render the generic empty state in that case.
+    public let conversationKind: ConversationKind?
     public let logs: [LLMRequestLogEntry]
     public let memoryRecall: MemoryRecallData?
+    public let memoryV2Activation: MemoryV2ActivationData?
+
+    public init(
+        messageId: String,
+        conversationKind: ConversationKind? = nil,
+        logs: [LLMRequestLogEntry],
+        memoryRecall: MemoryRecallData? = nil,
+        memoryV2Activation: MemoryV2ActivationData? = nil
+    ) {
+        self.messageId = messageId
+        self.conversationKind = conversationKind
+        self.logs = logs
+        self.memoryRecall = memoryRecall
+        self.memoryV2Activation = memoryV2Activation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case messageId
+        case conversationKind
+        case logs
+        case memoryRecall
+        case memoryV2Activation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.messageId = try container.decode(String.self, forKey: .messageId)
+        // Lossy decode: unknown daemon kinds collapse to nil so the response
+        // still parses and the inspector falls back to the generic empty state.
+        let rawKind = try container.decodeIfPresent(String.self, forKey: .conversationKind)
+        self.conversationKind = rawKind.flatMap(ConversationKind.init(rawValue:))
+        self.logs = try container.decode([LLMRequestLogEntry].self, forKey: .logs)
+        self.memoryRecall = try container.decodeIfPresent(MemoryRecallData.self, forKey: .memoryRecall)
+        self.memoryV2Activation = try container.decodeIfPresent(MemoryV2ActivationData.self, forKey: .memoryV2Activation)
+    }
 }
 
 /// Explicit outcome for an LLM context fetch.
@@ -558,6 +759,12 @@ public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
     func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
     func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse?
+    /// Reads the raw rendered (frontmatter + body) markdown for a single
+    /// memory v2 concept page. `nil` when the page has no on-disk file
+    /// (e.g. stale activation log row referencing a deleted slug) or when
+    /// the daemon is unreachable. The activation-log inspector lazy-fetches
+    /// this on disclosure-row expansion.
+    func fetchConceptPage(slug: String) async -> String?
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
@@ -585,7 +792,7 @@ public struct LLMContextClient: LLMContextClientProtocol {
         do {
             try Task.checkCancellation()
             response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
+                path: "messages/\(messageId)/llm-context",
                 timeout: 15
             )
             try Task.checkCancellation()
@@ -605,7 +812,10 @@ public struct LLMContextClient: LLMContextClientProtocol {
         do {
             let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
             try Task.checkCancellation()
-            return decoded.logs.isEmpty ? .empty : .loaded(decoded)
+            // Always return `.loaded` so the view state receives `conversationKind`
+            // even when the log list is empty — the empty-state branch is derived
+            // from `logs.isEmpty` inside `MessageInspectorViewState.finishLoading`.
+            return .loaded(decoded)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -645,7 +855,7 @@ public struct LLMContextClient: LLMContextClientProtocol {
     public func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/llm-request-logs/\(logId)/payload",
+                path: "llm-request-logs/\(logId)/payload",
                 timeout: 30
             )
             guard response.isSuccess else {
@@ -658,6 +868,36 @@ public struct LLMContextClient: LLMContextClientProtocol {
             return nil
         }
     }
+
+    public func fetchConceptPage(slug: String) async -> String? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "memory/v2/concept-page",
+                json: ["slug": slug],
+                timeout: 15
+            )
+            // 404 = page no longer on disk (stale slug). Surface as nil so
+            // the inspector can render a "page missing" affordance instead
+            // of treating it as a transport error.
+            if response.statusCode == 404 { return nil }
+            guard response.isSuccess else {
+                log.error("fetchConceptPage failed (HTTP \(response.statusCode)) for slug \(slug)")
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(ConceptPageResponse.self, from: response.data)
+            return decoded.rendered
+        } catch is CancellationError {
+            return nil
+        } catch {
+            log.error("fetchConceptPage error for slug \(slug): \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
+
+private struct ConceptPageResponse: Decodable {
+    let slug: String
+    let rendered: String
 }
 
 public extension LLMContextClientProtocol {
@@ -666,10 +906,14 @@ public extension LLMContextClientProtocol {
             return .failed
         }
 
-        return response.logs.isEmpty ? .empty : .loaded(response)
+        return .loaded(response)
     }
 
     func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
+        nil
+    }
+
+    func fetchConceptPage(slug: String) async -> String? {
         nil
     }
 }

@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.6.6
+  version: 0.7.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -465,6 +465,13 @@ paths:
                 required:
                   - apps
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter apps by conversation ID
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get
@@ -2439,6 +2446,40 @@ paths:
           schema:
             type: string
           description: Filter clients by a specific capability.
+  /v1/clients/disconnect:
+    post:
+      operationId: clients_disconnect_post
+      summary: Force-disconnect a client
+      description: Dispose all hub subscribers for the given clientId, forcibly closing their SSE streams.
+      tags:
+        - clients
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: number
+                    description: Number of disposed subscribers.
+                required:
+                  - disconnected
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clientId:
+                  type: string
+                  description: The client UUID to disconnect.
+              required:
+                - clientId
+              additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -2491,6 +2532,18 @@ paths:
               required:
                 - provider
               additionalProperties: false
+  /v1/config/llm/call-sites:
+    get:
+      operationId: config_llm_callsites_get
+      summary: List LLM call sites
+      description:
+        Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by
+        clients to render the per-call-site override settings UI.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/config/llm/profiles/{name}:
     put:
       operationId: config_llm_profiles_by_name_put
@@ -2594,6 +2647,76 @@ paths:
                 - requestId
                 - decision
               additionalProperties: false
+  /v1/consolidation/config:
+    get:
+      operationId: consolidation_config_get
+      summary: Get consolidation config
+      description: Return the current memory v2 consolidation schedule configuration.
+      tags:
+        - consolidation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - available
+                  - enabled
+                  - intervalMs
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/consolidation/run-now:
+    post:
+      operationId: consolidation_runnow_post
+      summary: Run consolidation now
+      description:
+        Enqueue an immediate memory v2 consolidation job. Returns once the job is queued; the job itself runs
+        through the memory jobs worker.
+      tags:
+        - consolidation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ran:
+                    type: boolean
+                    description: Whether a job was enqueued
+                  jobId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - success
+                  - ran
+                  - jobId
+                additionalProperties: false
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -2763,21 +2886,6 @@ paths:
                 - assistantMetadata
               additionalProperties: false
   /v1/contacts/{id}:
-    delete:
-      operationId: contacts_by_id_delete
-      summary: Delete a contact
-      description: Delete a contact by ID.
-      tags:
-        - contacts
-      responses:
-        "204":
-          description: Successful response
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
     get:
       operationId: contacts_by_id_get
       summary: Get a contact
@@ -3082,6 +3190,68 @@ paths:
               required:
                 - keepId
                 - mergeId
+              additionalProperties: false
+  /v1/contacts/prompt:
+    post:
+      operationId: contacts_prompt_post
+      summary: Prompt user to register a contact channel
+      description:
+        Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway.
+        The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  contactId:
+                    type: string
+                  channelId:
+                    type: string
+                  channelType:
+                    type: string
+                  address:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  description: Suggested channel type hint (e.g. phone, email, telegram). Free text — not enforced.
+                  type: string
+                placeholder:
+                  description: Placeholder text for the address input field.
+                  type: string
+                label:
+                  description: Display label shown in the prompt UI.
+                  type: string
+                description:
+                  description: Longer description for the prompt UI.
+                  type: string
+                role:
+                  default: unknown
+                  description: Intended role of the contact being registered.
+                  type: string
+                  enum:
+                    - guardian
+                    - trusted-contact
+                    - unknown
+              required:
+                - role
               additionalProperties: false
   /v1/contacts/search:
     post:
@@ -4059,6 +4229,55 @@ paths:
                   - schedules
                   - timestamp
                 additionalProperties: false
+  /v1/debug/bash:
+    post:
+      operationId: debug_bash_post
+      summary: Execute a shell command in the assistant process
+      description: Developer debugging tool. Requires the assistant to be running with VELLUM_DEBUG=1.
+      tags:
+        - debug
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stdout:
+                    type: string
+                  stderr:
+                    type: string
+                  exitCode:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  timedOut:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - stdout
+                  - stderr
+                  - exitCode
+                  - timedOut
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  description: Shell command to execute via bash -c
+                timeoutMs:
+                  description: "Execution timeout in milliseconds (default: 30000)"
+                  type: number
+              required:
+                - command
+              additionalProperties: false
   /v1/defer/cancel:
     post:
       operationId: defer_cancel_post
@@ -4269,6 +4488,275 @@ paths:
                 - transcription
                 - context
               additionalProperties: false
+  /v1/disk-pressure/acknowledge:
+    post:
+      operationId: diskpressure_acknowledge_post
+      summary: Acknowledge disk pressure
+      description: Acknowledge the current disk pressure lock and enter cleanup mode without overriding assistant protections.
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
+        "409":
+          description: No active lock or lock already acknowledged.
+  /v1/disk-pressure/override:
+    post:
+      operationId: diskpressure_override_post
+      summary: Override disk pressure
+      description: Override the current disk pressure lock only after confirming "I understand the risks".
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
+        "400":
+          description: Confirmation phrase is invalid.
+        "409":
+          description: No active lock or lock already overridden.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation:
+                  type: string
+              required:
+                - confirmation
+              additionalProperties: false
+  /v1/disk-pressure/status:
+    get:
+      operationId: diskpressure_status_get
+      summary: Get disk pressure status
+      description:
+        Return the current disk pressure status snapshot. When safe storage limits are disabled, returns a disabled
+        status.
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
   /v1/documents:
     get:
       operationId: documents_get
@@ -4397,6 +4885,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/documents/{id}/pdf:
+    get:
+      operationId: documents_by_id_pdf_get
+      summary: Export a document as PDF
+      description: Render a document to PDF and return the binary content.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/events:
     get:
       operationId: events_get
@@ -4414,6 +4918,32 @@ paths:
           schema:
             type: string
           description: Scope to a single conversation
+  /v1/events/emit:
+    post:
+      operationId: events_emit_post
+      summary: Emit an assistant event
+      description:
+        Trigger an in-process assistant event by kind. Used by the gateway after owning a write that the assistant
+        runtime would normally emit.
+      tags:
+        - events
+      responses:
+        "204":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - contacts_changed
+              required:
+                - kind
+              additionalProperties: false
   /v1/export:
     post:
       operationId: export_post
@@ -4466,6 +4996,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  available:
+                    type: boolean
                   enabled:
                     type: boolean
                   intervalMs:
@@ -4489,6 +5021,7 @@ paths:
                   success:
                     type: boolean
                 required:
+                  - available
                   - enabled
                   - intervalMs
                   - activeHoursStart
@@ -4521,6 +5054,35 @@ paths:
                   - success
                   - ran
                 additionalProperties: false
+  /v1/gateway/logs/tail:
+    get:
+      operationId: gateway_logs_tail_get
+      summary: Tail gateway log entries
+      description: Return the last N structured log entries from the gateway log files.
+      tags:
+        - gateway-logs
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: n
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Number of lines to return (1–1000, default: 10)"
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Minimum pino level name (default: info)"
+        - name: module
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter to exact pino module name
   /v1/groups:
     get:
       operationId: groups_get
@@ -5049,6 +5611,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  cronExpression:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  timezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -5064,6 +5634,8 @@ paths:
                   - intervalMs
                   - activeHoursStart
                   - activeHoursEnd
+                  - cronExpression
+                  - timezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -5094,6 +5666,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  cronExpression:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  timezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -5109,6 +5689,8 @@ paths:
                   - intervalMs
                   - activeHoursStart
                   - activeHoursEnd
+                  - cronExpression
+                  - timezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -5121,22 +5703,31 @@ paths:
               type: object
               properties:
                 enabled:
-                  type: boolean
                   description: Enable or disable heartbeat
+                  type: boolean
                 intervalMs:
-                  type: number
                   description: Heartbeat interval in ms
+                  type: number
                 activeHoursStart:
-                  type: number
                   description: Active hours start (0–23)
+                  anyOf:
+                    - type: number
+                    - type: "null"
                 activeHoursEnd:
-                  type: number
                   description: Active hours end (0–23)
-              required:
-                - enabled
-                - intervalMs
-                - activeHoursStart
-                - activeHoursEnd
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                cronExpression:
+                  description: Cron expression for heartbeat timing, or null for fixed interval
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                timezone:
+                  description: Timezone for cron evaluation
+                  anyOf:
+                    - type: string
+                    - type: "null"
               additionalProperties: false
   /v1/heartbeat/run-now:
     post:
@@ -5179,7 +5770,53 @@ paths:
                 properties:
                   runs:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        scheduledFor:
+                          type: number
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        status:
+                          type: string
+                        skipReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - scheduledFor
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - status
+                        - skipReason
+                        - error
+                        - conversationId
+                        - createdAt
+                      additionalProperties: false
                     description: Heartbeat run records
                 required:
                   - runs
@@ -5623,11 +6260,13 @@ paths:
                 additionalProperties: false
         "500":
           description: Failed to compute relationship state
-  /v1/host-bash-result:
+  /v1/host-app-control-result:
     post:
-      operationId: hostbashresult_post
-      summary: Submit host bash result
-      description: Resolve a pending host bash request by requestId.
+      operationId: hostappcontrolresult_post
+      summary: Submit host app-control result
+      description:
+        Resolve a pending host app-control request by requestId. Returns 200 even when no pending interaction
+        matches (late delivery is tolerated).
       tags:
         - host
       responses:
@@ -5652,6 +6291,81 @@ paths:
               properties:
                 requestId:
                   type: string
+                  description: Pending app-control request ID
+                state:
+                  type: string
+                  enum:
+                    - running
+                    - missing
+                    - minimized
+                  description: Lifecycle state of the targeted application
+                pngBase64:
+                  type: string
+                  description: Base64 PNG screenshot of the targeted app window
+                windowBounds:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+                    width:
+                      type: number
+                    height:
+                      type: number
+                  required:
+                    - x
+                    - y
+                    - width
+                    - height
+                  additionalProperties: false
+                executionResult:
+                  type: string
+                executionError:
+                  type: string
+              required:
+                - requestId
+                - state
+              additionalProperties: false
+  /v1/host-bash-result:
+    post:
+      operationId: hostbashresult_post
+      summary: Submit host bash result
+      description: Resolve a pending host bash request by requestId.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host bash request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
+        "404":
+          description: No pending interaction found for the given requestId.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_file, host_cu).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
                   description: Pending bash request ID
                 stdout:
                   type: string
@@ -5663,6 +6377,44 @@ paths:
                   type: boolean
               required:
                 - requestId
+              additionalProperties: false
+  /v1/host-browser-event:
+    post:
+      operationId: hostbrowserevent_post
+      summary: Forward a CDP event from the browser extension
+      description: Publishes a chrome.debugger.onEvent firing into the runtime-side browser-session event bus.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method:
+                  type: string
+                  description: CDP event method name
+                params:
+                  description: CDP event parameters
+                cdpSessionId:
+                  description: CDP session ID (if target-scoped)
+                  type: string
+              required:
+                - method
               additionalProperties: false
   /v1/host-browser-result:
     post:
@@ -5701,6 +6453,40 @@ paths:
               required:
                 - requestId
               additionalProperties: false
+  /v1/host-browser-session-invalidated:
+    post:
+      operationId: hostbrowsersessioninvalidated_post
+      summary: Notify runtime that a CDP session was invalidated
+      description: Marks the target as invalidated in the runtime-side browser session registry.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetId:
+                  description: CDP target that was detached
+                  type: string
+                reason:
+                  description: Detach reason
+                  type: string
+              additionalProperties: false
   /v1/host-cu-result:
     post:
       operationId: hostcuresult_post
@@ -5721,6 +6507,16 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host CU request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
+        "404":
+          description: No pending interaction found for the given requestId, or the conversation/proxy no longer exists.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_bash, host_file).
       requestBody:
         required: true
         content:
@@ -5779,6 +6575,16 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host file request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
+        "404":
+          description: No pending interaction found for the given requestId.
+        "409":
+          description: Pending interaction exists but is of a different kind (e.g. host_bash, host_cu).
       requestBody:
         required: true
         content:
@@ -5821,6 +6627,12 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host transfer request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       requestBody:
         required: true
         content:
@@ -5882,7 +6694,9 @@ paths:
     get:
       operationId: identity_intro_get
       summary: Get identity intro text
-      description: Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.
+      description:
+        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
+        LLM-generated cache.
       tags:
         - identity
       responses:
@@ -6167,6 +6981,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/auth/start:
+    post:
+      operationId: internal_mcp_auth_start_post
+      summary: Start MCP OAuth flow
+      description: Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                serverId:
+                  type: string
+              required:
+                - serverId
+              additionalProperties: false
+  /v1/internal/mcp/auth/status/{serverId}:
+    get:
+      operationId: internal_mcp_auth_status_by_serverId_get
+      summary: Poll MCP OAuth flow status
+      description: Returns the current status of an in-flight MCP OAuth flow (pending/complete/error).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+        "404":
+          description: No active OAuth flow for the given serverId
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/internal/mcp/reload:
+    post:
+      operationId: internal_mcp_reload_post
+      summary: Trigger MCP server reload
+      description: Kicks off reloadMcpServers() async on the daemon. Returns immediately.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post
@@ -6195,6 +7059,61 @@ paths:
               required:
                 - state
               additionalProperties: false
+  /v1/internal/oauth/connect/start:
+    post:
+      operationId: internal_oauth_connect_start_post
+      summary: Start daemon-owned OAuth connect flow
+      description: Starts an OAuth connect flow in the daemon and returns the authorization URL for the CLI to open in the browser.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                clientId:
+                  type: string
+                clientSecret:
+                  type: string
+                callbackTransport:
+                  type: string
+                  enum:
+                    - loopback
+                    - gateway
+                requestedScopes:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - service
+                - clientId
+                - callbackTransport
+              additionalProperties: false
+  /v1/internal/oauth/connect/status/{state}:
+    get:
+      operationId: internal_oauth_connect_status_by_state_get
+      summary: Poll daemon OAuth connect flow status
+      description: Returns the current status of an in-flight daemon-owned OAuth connect flow (pending/complete/error).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+        "404":
+          description: No active OAuth connect flow for the given state token
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/internal/twilio/connect-action:
     post:
       operationId: internal_twilio_connectaction_post
@@ -6522,13 +7441,159 @@ paths:
                   type: string
                   enum:
                     - migrate
-                    - rebuild-edges
                     - reembed
                     - activation-recompute
                 force:
                   type: boolean
               required:
                 - op
+              additionalProperties: false
+  /v1/memory/v2/concept-frequency:
+    post:
+      operationId: memory_v2_conceptfrequency_post
+      summary: Aggregate per-concept injection frequency from activation logs
+      description:
+        "Debug-only. Aggregates the existing memory_v2_activation_logs table by (slug, status) and cross-references
+        on-disk concept pages so an operator can see which concepts get injected often, which get scored but rejected,
+        and which on-disk pages never even surface as candidates. Optional filters: conversationId narrows to a single
+        conversation; sinceMs restricts to logs created at-or-after the given epoch ms timestamp."
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                sinceMs:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
+  /v1/memory/v2/concept-page:
+    post:
+      operationId: memory_v2_conceptpage_post
+      summary: Read a single memory v2 concept page
+      description:
+        Returns the rendered (frontmatter + body) markdown for a slug. 404 when the slug has no on-disk page — the
+        activation log inspector uses this to show what got injected.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slug:
+                  type: string
+                  minLength: 1
+              required:
+                - slug
+              additionalProperties: false
+  /v1/memory/v2/explain-similarity:
+    post:
+      operationId: memory_v2_explainsimilarity_post
+      summary: Diagnose dense vs sparse similarity score distributions
+      description:
+        Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the
+        concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus
+        per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userText:
+                  type: string
+                  minLength: 1
+                assistantText:
+                  type: string
+                nowText:
+                  type: string
+                top:
+                  default: 25
+                  type: integer
+                  minimum: 1
+                  maximum: 9007199254740991
+              required:
+                - userText
+                - top
+              additionalProperties: false
+  /v1/memory/v2/fit-anisotropy:
+    post:
+      operationId: memory_v2_fitanisotropy_post
+      summary: Fit the embedding anisotropy correction for memory v2
+      description:
+        Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal
+        components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries
+        apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the
+        new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                k:
+                  default: 1
+                  type: integer
+                  minimum: 1
+                  maximum: 16
+                sample:
+                  default: 5000
+                  type: integer
+                  minimum: 1
+                  maximum: 100000
+              required:
+                - k
+                - sample
+              additionalProperties: false
+  /v1/memory/v2/rebuild-corpus-stats:
+    post:
+      operationId: memory_v2_rebuildcorpusstats_post
+      summary: Rebuild the BM25 corpus statistics for memory v2
+      description:
+        Walks every concept page on disk, recomputes the document-frequency table and average document length used
+        by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to
+        recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with
+        `assistant memory v2 reembed` when document-side weights need refreshing.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
               additionalProperties: false
   /v1/memory/v2/reembed-skills:
     post:
@@ -6687,17 +7752,34 @@ paths:
                 properties:
                   messageId:
                     type: string
+                  conversationKind:
+                    type: string
+                    enum:
+                      - user
+                      - background
+                      - background_memory_consolidation
+                      - scheduled
                   logs:
                     type: array
                     items: {}
                   memoryRecall:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                  memoryV2Activation:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
                 required:
                   - messageId
+                  - conversationKind
                   - logs
                   - memoryRecall
+                  - memoryV2Activation
                 additionalProperties: false
       parameters:
         - name: id
@@ -7497,7 +8579,9 @@ paths:
     get:
       operationId: pendinginteractions_get
       summary: List pending interactions
-      description: Return pending confirmations and secrets for a conversation.
+      description:
+        Return pending interactions. When conversationKey or conversationId is provided, returns details for that
+        conversation. When neither is provided, returns all pending interactions.
       tags:
         - approvals
       responses:
@@ -7518,9 +8602,27 @@ paths:
                     properties: {}
                     additionalProperties: {}
                     description: Pending secret request or null
-                required:
-                  - pendingConfirmation
-                  - pendingSecret
+                  interactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        requestId:
+                          type: string
+                        conversationId:
+                          type: string
+                        kind:
+                          type: string
+                        toolName:
+                          type: string
+                        riskLevel:
+                          type: string
+                      required:
+                        - requestId
+                        - conversationId
+                        - kind
+                      additionalProperties: false
+                    description: All pending interactions (returned when no filters given)
                 additionalProperties: false
       parameters:
         - name: conversationKey
@@ -7528,13 +8630,13 @@ paths:
           required: false
           schema:
             type: string
-          description: Conversation key
+          description: Conversation key (optional)
         - name: conversationId
           in: query
           required: false
           schema:
             type: string
-          description: Conversation ID
+          description: Conversation ID (optional)
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post
@@ -8027,6 +9129,16 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/resolve_contact_prompt:
+    post:
+      operationId: resolve_contact_prompt_post
+      summary: "Gateway callback: resolve a pending contact prompt"
+      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
   /v1/schedules:
     get:
       operationId: schedules_get
@@ -8141,6 +9253,12 @@ paths:
                   type: boolean
                 reuseConversation:
                   type: boolean
+                maxRetries:
+                  type: number
+                  description: Maximum retry attempts
+                retryBackoffMs:
+                  type: number
+                  description: Retry backoff in milliseconds
               required:
                 - name
                 - expression
@@ -8151,6 +9269,8 @@ paths:
                 - routingIntent
                 - quiet
                 - reuseConversation
+                - maxRetries
+                - retryBackoffMs
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
@@ -10639,6 +11759,12 @@ paths:
       responses:
         "200":
           description: Successful response
+        "400":
+          description: x-vellum-client-id header is missing for a targeted transfer.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       parameters:
         - name: transferId
           in: path
@@ -10654,6 +11780,12 @@ paths:
       responses:
         "200":
           description: Successful response
+        "400":
+          description: x-vellum-client-id header is missing for a targeted transfer.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       parameters:
         - name: transferId
           in: path
@@ -10689,78 +11821,6 @@ paths:
           schema:
             type: string
           description: Include unmodified defaults
-    post:
-      operationId: trustrules_post
-      summary: Create a trust rule
-      description: Create a new trust rule with tool, pattern, risk level, and optional description.
-      tags:
-        - trust-rules
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tool:
-                  type: string
-                pattern:
-                  type: string
-                risk:
-                  type: string
-                description:
-                  type: string
-              required:
-                - tool
-                - pattern
-                - risk
-              additionalProperties: false
-  /v1/trust-rules/{id}:
-    delete:
-      operationId: trustrules_by_id_delete
-      summary: Remove a trust rule
-      description: Delete a trust rule by ID.
-      tags:
-        - trust-rules
-      responses:
-        "200":
-          description: Successful response
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-    patch:
-      operationId: trustrules_by_id_patch
-      summary: Update a trust rule
-      description: Update the risk level or description of an existing trust rule.
-      tags:
-        - trust-rules
-      responses:
-        "200":
-          description: Successful response
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                risk:
-                  type: string
-                description:
-                  type: string
-              additionalProperties: false
   /v1/trust-rules/suggest:
     post:
       operationId: trustrules_suggest_post
@@ -10876,6 +11936,20 @@ paths:
                   enum:
                     - auto_approve
                     - escalate
+                existingRule:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    pattern:
+                      type: string
+                    risk:
+                      type: string
+                  required:
+                    - id
+                    - pattern
+                    - risk
+                  additionalProperties: false
               required:
                 - tool
                 - command
@@ -10979,7 +12053,9 @@ paths:
     get:
       operationId: usage_breakdown_get
       summary: Get usage breakdown
-      description: Return grouped usage breakdown (by actor, provider, model, or conversation).
+      description:
+        Return grouped usage breakdown. Prefer call_site for user-facing task breakdowns; actor is a
+        legacy/internal dimension.
       tags:
         - usage
       responses:
@@ -11015,7 +12091,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, model, or conversation (required)"
+          description: "Group by: actor, provider, model, conversation, call_site, inference_profile (required)"
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
@@ -11068,6 +12144,64 @@ paths:
           description:
             IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
             this timezone. Defaults to "UTC" for backwards compatibility.
+  /v1/usage/series:
+    get:
+      operationId: usage_series_get
+      summary: Get grouped usage series
+      description: Return usage buckets with per-group values for stacked charts. Prefer call_site for user-facing task stacks.
+      tags:
+        - usage
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  buckets:
+                    type: array
+                    items: {}
+                    description: Grouped usage bucket objects
+                required:
+                  - buckets
+                additionalProperties: false
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Start epoch millis (required)
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: End epoch millis (required)
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - daily
+              - hourly
+          description: 'Bucket granularity: "daily" (default) or "hourly"'
+        - name: groupBy
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Group by: actor, provider, model, call_site, inference_profile (required)"
+        - name: tz
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
+            this timezone. Defaults to "UTC".
   /v1/usage/totals:
     get:
       operationId: usage_totals_get

@@ -5,15 +5,8 @@
  * atomic-write pattern (write .tmp → rename → chmod).
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -250,18 +243,6 @@ function loadFromDisk(): DictationProfilesConfig {
   }
 }
 
-function saveToDisk(config: DictationProfilesConfig): void {
-  const path = getStorePath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = path + ".tmp." + process.pid;
-  writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-  renameSync(tmpPath, path);
-  chmodSync(path, 0o600);
-}
-
 // --- Public API ---
 
 export function loadConfig(): DictationProfilesConfig {
@@ -269,11 +250,6 @@ export function loadConfig(): DictationProfilesConfig {
     cachedConfig = loadFromDisk();
   }
   return cachedConfig;
-}
-
-export function saveConfig(config: DictationProfilesConfig): void {
-  cachedConfig = config;
-  saveToDisk(config);
 }
 
 function isProfileEnabled(profile: DictationProfile): boolean {

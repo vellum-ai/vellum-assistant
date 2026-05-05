@@ -104,6 +104,12 @@ final class AvatarAppearanceManager {
     @ObservationIgnored private var identityLoadTask: Task<Void, Never>?
 
     func start() {
+        // Warm `bundledAppIcon` off the main thread so a later main-thread
+        // read in `restoreBundleIcon()` (resetForDisconnect, clearCustomAvatar,
+        // or 404 fall-through in updateDockIcon) doesn't pay the
+        // NSWorkspace.icon(forFile:) cost on the main thread.
+        Task.detached { _ = Self.bundledAppIcon }
+
         identityLoadTask = Task {
             let info = await IdentityInfo.loadAsync()
             guard !Task.isCancelled else { return }
@@ -178,7 +184,7 @@ final class AvatarAppearanceManager {
     private func fetchAvatarViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/workspace/file/content",
+                path: "workspace/file/content",
                 params: ["path": "data/avatar/avatar-image.png"],
                 timeout: 10
             )
@@ -217,7 +223,7 @@ final class AvatarAppearanceManager {
     private func fetchTraitsViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/workspace/file/content",
+                path: "workspace/file/content",
                 params: ["path": "data/avatar/character-traits.json"],
                 timeout: 10
             )
@@ -417,7 +423,7 @@ final class AvatarAppearanceManager {
         for attempt in 1...3 {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/avatar/render-from-traits",
+                    path: "avatar/render-from-traits",
                     json: json,
                     timeout: 15
                 )
@@ -550,8 +556,18 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
-    private static let bundledAppIcon: NSImage = {
+    /// Marked `nonisolated` to opt this static out of the enclosing
+    /// `@MainActor` isolation so the background prefetch in `start()` can
+    /// trigger the lazy initializer off the main thread without crossing
+    /// an actor boundary. The initializer is safe to run on any thread:
+    /// `NSWorkspace.icon(forFile:)` is documented thread-safe, and the
+    /// resulting `NSImage` is treated as a single immutable value for the
+    /// life of the process.
+    ///
+    /// References:
+    /// - https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+    /// - https://github.com/swiftlang/swift-evolution/blob/main/proposals/0434-global-actor-isolated-types-usability.md
+    private nonisolated static let bundledAppIcon: NSImage = {
         NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 

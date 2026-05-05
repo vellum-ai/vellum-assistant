@@ -61,6 +61,16 @@ export interface McpOAuthCallbackResult {
 /** Which callback transport to use for receiving the OAuth redirect. */
 export type McpOAuthCallbackTransport = "loopback" | "gateway";
 
+export interface McpOAuthProviderOptions {
+  /**
+   * If provided, called with the authorization URL during
+   * redirectToAuthorization() instead of opening a browser.
+   * Used by the daemon-side orchestrator so it can return the
+   * URL to the IPC caller (CLI / web client).
+   */
+  onAuthorizationUrl?: (url: string) => void;
+}
+
 export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
   private readonly serverUrl: string;
@@ -75,6 +85,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   /** Deferred resolver/rejector for the gateway code promise. */
   private _gatewayCodeResolve: ((code: string) => void) | undefined;
   private _gatewayCodeReject: ((err: Error) => void) | undefined;
+  private readonly _onAuthorizationUrl: ((url: string) => void) | undefined;
 
   /**
    * @param interactive When true (e.g. `mcp auth` CLI), opens browser for OAuth.
@@ -82,17 +93,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * @param callbackTransport Which transport to use for the OAuth redirect.
    *   - `"loopback"` (default): localhost HTTP server — for desktop clients.
    *   - `"gateway"`: platform ingress + callback registry — for Docker/platform.
+   * @param options Additional options for the provider.
    */
   constructor(
     serverId: string,
     serverUrl: string,
     interactive = false,
     callbackTransport: McpOAuthCallbackTransport = "loopback",
+    options: McpOAuthProviderOptions = {},
   ) {
     this.serverId = serverId;
     this.serverUrl = serverUrl;
     this.interactive = interactive;
     this.callbackTransport = callbackTransport;
+    this._onAuthorizationUrl = options.onAuthorizationUrl;
   }
 
   // --- redirectUrl ---
@@ -267,6 +281,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
           "Authorization URL missing state parameter — gateway callback may not resolve",
         );
       }
+    }
+
+    if (this._onAuthorizationUrl) {
+      this._onAuthorizationUrl(url);
+      return;
     }
 
     if (!this.interactive) {

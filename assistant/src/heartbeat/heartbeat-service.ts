@@ -2,17 +2,36 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
+import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
+import { getConversation, getMessages } from "../memory/conversation-crud.js";
+import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import {
+  completeHeartbeatRun,
+  insertPendingHeartbeatRun,
+  markStaleRunningAsError,
+  markStaleRunsAsMissed,
+  skipHeartbeatRun,
+  startHeartbeatRun,
+  supersedePendingRun,
+} from "./heartbeat-run-store.js";
 
 const log = getLogger("heartbeat-check");
 
@@ -25,6 +44,9 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const HEARTBEAT_ALERT_MARKER = "HEARTBEAT_ALERT";
+const HEARTBEAT_OK_MARKER = "HEARTBEAT_OK";
+const HEARTBEAT_ALERT_SUMMARY_MAX_CHARS = 700;
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -77,6 +99,69 @@ function recordReengagementTimestamp(): void {
   }
 }
 
+type HeartbeatDisposition = "alert" | "ok" | "unknown";
+
+function parseHeartbeatDisposition(text: string | null): HeartbeatDisposition {
+  if (!text) return "unknown";
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const lastLine = lines.at(-1);
+  if (lastLine === HEARTBEAT_ALERT_MARKER) return "alert";
+  if (lastLine === HEARTBEAT_OK_MARKER) return "ok";
+  return "unknown";
+}
+
+function stripHeartbeatDispositionMarkers(text: string): string {
+  return text
+    .replace(
+      new RegExp(
+        `(?:\\r?\\n)?\\s*(?:${HEARTBEAT_ALERT_MARKER}|${HEARTBEAT_OK_MARKER})\\s*$`,
+      ),
+      "",
+    )
+    .trim();
+}
+
+function truncateSummary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function buildHeartbeatAlertSummary(text: string | null): string {
+  const summary = text ? stripHeartbeatDispositionMarkers(text) : "";
+  return truncateSummary(
+    summary || "Your assistant found something worth your attention.",
+    HEARTBEAT_ALERT_SUMMARY_MAX_CHARS,
+  );
+}
+
+function extractVisibleTextFromStoredMessageContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (!Array.isArray(parsed)) return "";
+    const texts: string[] = [];
+    for (const block of parsed) {
+      if (
+        block != null &&
+        typeof block === "object" &&
+        "type" in block &&
+        block.type === "text" &&
+        "text" in block &&
+        typeof block.text === "string"
+      ) {
+        texts.push(block.text);
+      }
+    }
+    return texts.join("\n").trim();
+  } catch {
+    return raw;
+  }
+}
+
 export interface HeartbeatDeps {
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
@@ -96,10 +181,20 @@ export class HeartbeatService {
   }
 
   private readonly deps: HeartbeatDeps;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer:
+    | ReturnType<typeof setInterval>
+    | ReturnType<typeof setTimeout>
+    | null = null;
   private activeRun: Promise<void> | null = null;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
+  private cronMode = false;
+  private stopped = false;
+  private configEpoch = 0;
+  private _pendingRunId: string | null = null;
+  private _startupMissedCount = 0;
+  private _startupCrashedCount = 0;
+  private _hasRunStartupRecovery = false;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -117,6 +212,7 @@ export class HeartbeatService {
   }
 
   start(): void {
+    this.stopped = false;
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
@@ -125,7 +221,73 @@ export class HeartbeatService {
     }
     if (this.timer) return;
 
-    log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
+    if (!this._hasRunStartupRecovery) {
+      this._hasRunStartupRecovery = true;
+      try {
+        this._startupMissedCount = markStaleRunsAsMissed();
+        this._startupCrashedCount = markStaleRunningAsError();
+      } catch (err) {
+        log.error({ err }, "Failed to recover stale heartbeat runs on startup");
+      }
+      if (this._startupMissedCount > 0 || this._startupCrashedCount > 0) {
+        log.info(
+          {
+            missedCount: this._startupMissedCount,
+            crashedCount: this._startupCrashedCount,
+          },
+          "Recovered stale heartbeat runs on startup",
+        );
+
+        if (!isDiskPressureBackgroundLocked("heartbeat-startup")) {
+          const total = this._startupMissedCount + this._startupCrashedCount;
+          const today = new Date().toISOString().split("T")[0];
+          void emitNotificationSignal({
+            sourceChannel: "scheduler",
+            sourceContextId: "heartbeat",
+            sourceEventName: "activity.failed",
+            dedupeKey: `activity-failed:heartbeat-missed:${today}`,
+            contextPayload: {
+              jobName: "heartbeat",
+              errorMessage: `${total} heartbeat run${
+                total > 1 ? "s were" : " was"
+              } missed while the assistant was offline.`,
+              errorKind: "exception",
+            },
+            attentionHints: {
+              requiresAction: false,
+              urgency: "medium",
+              isAsyncBackground: true,
+              visibleInSourceNow: false,
+            },
+          }).catch((err) => {
+            log.warn(
+              { err },
+              "Failed to emit missed-heartbeat activity.failed notification",
+            );
+          });
+        }
+      }
+    }
+
+    if (config.cronExpression != null) {
+      this.cronMode = true;
+      this.scheduleNextCronRun(config);
+    } else {
+      this.startIntervalMode(config);
+    }
+  }
+
+  private startIntervalMode(config: HeartbeatConfig): void {
+    this.cronMode = false;
+    if (this.timer) {
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
+      this.timer = null;
+    }
+    log.info(
+      { intervalMs: config.intervalMs },
+      "Heartbeat service started (interval mode)",
+    );
     this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
@@ -134,13 +296,69 @@ export class HeartbeatService {
     }, config.intervalMs);
   }
 
+  private scheduleNextCronRun(config: HeartbeatConfig): void {
+    if (this.stopped) return;
+    try {
+      const nextRunAt = computeNextRunAt({
+        syntax: "cron",
+        expression: config.cronExpression!,
+        timezone: config.timezone,
+      });
+      this._nextRunAt = nextRunAt;
+      if (this.timer) {
+        clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+        clearInterval(this.timer as ReturnType<typeof setInterval>);
+        this.timer = null;
+      }
+      const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const delayMs = Math.max(0, nextRunAt - Date.now());
+      const epoch = this.configEpoch;
+      if (delayMs > MAX_TIMEOUT_MS) {
+        // Re-evaluate after 24h — the actual cron time is still far away
+        this.timer = setTimeout(() => {
+          if (this.configEpoch === epoch) {
+            this.scheduleNextCronRun(getConfig().heartbeat);
+          }
+        }, MAX_TIMEOUT_MS);
+      } else {
+        this.timer = setTimeout(() => {
+          this.runOnce()
+            .catch((err) => log.error({ err }, "Cron heartbeat failed"))
+            .finally(() => {
+              if (this.configEpoch === epoch) {
+                this.scheduleNextCronRun(getConfig().heartbeat);
+              }
+            });
+        }, delayMs);
+      }
+      (this.timer as ReturnType<typeof setTimeout>).unref();
+      log.info(
+        { nextRunAt: new Date(nextRunAt).toISOString(), delayMs },
+        "Heartbeat cron run scheduled",
+      );
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to compute next cron run, falling back to interval mode",
+      );
+      this.startIntervalMode(config);
+    }
+  }
+
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
+    this.configEpoch++;
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
+    }
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
       this.timer = null;
     }
     this._nextRunAt = null;
+    this.cronMode = false;
     this.start();
   }
 
@@ -151,8 +369,15 @@ export class HeartbeatService {
    */
   resetTimer(): void {
     if (!this.timer) return;
+    if (this.cronMode) {
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
+      this.timer = null;
+      this.scheduleNextCronRun(getConfig().heartbeat);
+      return;
+    }
     const config = getConfig().heartbeat;
-    clearInterval(this.timer);
+    clearInterval(this.timer as ReturnType<typeof setInterval>);
     this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
@@ -162,9 +387,15 @@ export class HeartbeatService {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer as ReturnType<typeof setTimeout>);
+      clearInterval(this.timer as ReturnType<typeof setInterval>);
       this.timer = null;
+    }
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
     }
     this._nextRunAt = null;
     if (this.activeRun) {
@@ -182,7 +413,26 @@ export class HeartbeatService {
    *  When `force` is true (e.g. manual "Run Now"), skip enabled & active-hours guards. */
   async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
-    if (!force && !config.enabled) return false;
+
+    if (!force && isDiskPressureBackgroundLocked("heartbeat")) {
+      return false;
+    }
+
+    let runId: string | null;
+    let scheduledFor: number;
+    if (force) {
+      scheduledFor = Date.now();
+      runId = insertPendingHeartbeatRun(scheduledFor);
+    } else {
+      runId = this._pendingRunId;
+      scheduledFor = this._nextRunAt ?? Date.now();
+      this._pendingRunId = null;
+    }
+
+    if (!force && !config.enabled) {
+      if (runId) skipHeartbeatRun(runId, "disabled");
+      return false;
+    }
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
@@ -191,7 +441,17 @@ export class HeartbeatService {
       config.activeHoursStart != null &&
       config.activeHoursEnd != null
     ) {
-      const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
+      let hour: number;
+      if (this.cronMode && config.timezone) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: config.timezone,
+          hourCycle: "h23",
+          hour: "numeric",
+        }).formatToParts(new Date());
+        hour = Number(parts.find((p) => p.type === "hour")!.value);
+      } else {
+        hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
+      }
       if (
         !isWithinActiveHours(
           hour,
@@ -207,7 +467,10 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
-        this.scheduleNextRun(config.intervalMs);
+        if (runId) skipHeartbeatRun(runId, "outside_active_hours");
+        if (!this.cronMode) {
+          this.scheduleNextRun(config.intervalMs);
+        }
         return false;
       }
     }
@@ -215,6 +478,7 @@ export class HeartbeatService {
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
+      if (runId) skipHeartbeatRun(runId, "overlap");
       return false;
     }
 
@@ -222,7 +486,10 @@ export class HeartbeatService {
     // outer Promise.race here. The activeRun guard prevents a wedged run
     // from spawning concurrent heartbeat work; the runner's timeout is
     // what actually unblocks the in-flight run.
-    const run = this.executeRun();
+    if (!runId) {
+      runId = insertPendingHeartbeatRun(scheduledFor);
+    }
+    const run = this.executeRun(runId, scheduledFor);
     this.activeRun = run;
     try {
       await run;
@@ -233,13 +500,19 @@ export class HeartbeatService {
         this.activeRun = null;
       }
       this._lastRunAt = Date.now();
-      this.scheduleNextRun(getConfig().heartbeat.intervalMs);
+      if (!this.cronMode) {
+        this.scheduleNextRun(getConfig().heartbeat.intervalMs);
+      }
     }
     return true;
   }
 
   private scheduleNextRun(intervalMs: number): void {
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+    }
     this._nextRunAt = Date.now() + intervalMs;
+    this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
   }
 
   /**
@@ -252,11 +525,25 @@ export class HeartbeatService {
         await import("../credential-health/credential-health-service.js");
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
-        await this.notifyUnhealthyCredentials(report.unhealthy);
-        // Only block providers for hard-failure statuses — expiring and ping_failed
-        // are transient/still-usable and should not disable provider tools.
-        // missing_scopes is a hard failure because required scopes are absent and
-        // provider tools will predictably fail.
+        // Filter out unreachable results — CES wake/startup blips should not
+        // produce user-facing credential alerts. Only actionable failures notify.
+        const notifiable = report.unhealthy.filter(
+          (r) => r.status !== "unreachable",
+        );
+        const unreachableCount = report.unhealthy.length - notifiable.length;
+        if (unreachableCount > 0) {
+          log.warn(
+            { unreachableCount },
+            "Credential backend unreachable — skipping health alerts for affected providers",
+          );
+        }
+        if (notifiable.length > 0) {
+          await this.notifyUnhealthyCredentials(notifiable);
+        }
+        // Only block providers for hard-failure statuses — expiring, ping_failed,
+        // and unreachable are transient/still-usable and should not disable
+        // provider tools. missing_scopes is a hard failure because required
+        // scopes are absent and provider tools will predictably fail.
         const hardFailureStatuses = new Set([
           "revoked",
           "missing_token",
@@ -347,8 +634,72 @@ export class HeartbeatService {
     }
   }
 
-  private async executeRun(): Promise<void> {
+  private getLatestAssistantMessage(
+    conversationId: string,
+  ): { id: string; text: string } | null {
+    try {
+      const messages = getMessages(conversationId);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i]!;
+        if (message.role !== "assistant") continue;
+        return {
+          id: message.id,
+          text: extractVisibleTextFromStoredMessageContent(message.content),
+        };
+      }
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to read heartbeat assistant message",
+      );
+    }
+    return null;
+  }
+
+  private async emitHeartbeatAlertNotification(params: {
+    runId: string;
+    conversationId: string;
+    messageId?: string;
+    conversationTitle: string;
+    summary: string;
+  }): Promise<void> {
+    const { emitNotificationSignal } =
+      await import("../notifications/emit-signal.js");
+
+    await emitNotificationSignal({
+      sourceEventName: "heartbeat.alert",
+      sourceChannel: "watcher",
+      sourceContextId: params.runId,
+      dedupeKey: `heartbeat:alert:${params.runId}`,
+      attentionHints: {
+        requiresAction: true,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        title: "Heartbeat Alert",
+        summary: params.summary,
+        conversationTitle: params.conversationTitle,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+      },
+      routingIntent: "single_channel",
+      conversationAffinityHint: { vellum: params.conversationId },
+      conversationMetadata: {
+        source: "heartbeat",
+        groupId: "system:background",
+      },
+    });
+  }
+
+  private async executeRun(runId: string, scheduledFor: number): Promise<void> {
     log.info("Running heartbeat");
+
+    startHeartbeatRun(runId);
+
+    const latenessMs = Date.now() - scheduledFor;
+    const LATE_THRESHOLD_MS = 5 * 60 * 1000;
 
     // Credential health check — surface broken credentials proactively
     // before the LLM heartbeat prompt runs. Returns unhealthy provider
@@ -369,6 +720,7 @@ export class HeartbeatService {
     // after bootstrap and before processMessage starts. That way the
     // macOS sidebar gets the new conversation immediately rather than
     // waiting up to HEARTBEAT_TIMEOUT_MS for the run to finish.
+    let conversationId: string | undefined;
     const result = await runBackgroundJob({
       jobName: "heartbeat",
       source: "heartbeat",
@@ -380,9 +732,10 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: HEARTBEAT_TIMEOUT_MS,
       origin: "heartbeat",
-      onConversationCreated: (conversationId) => {
+      onConversationCreated: (newConversationId) => {
+        conversationId = newConversationId;
         this.deps.onConversationCreated?.({
-          conversationId,
+          conversationId: newConversationId,
           title: "Heartbeat",
         });
       },
@@ -396,6 +749,66 @@ export class HeartbeatService {
         { conversationId: result.conversationId },
         "Heartbeat completed",
       );
+
+      // Mark the run record as ok and surface any disposition-driven
+      // alert the assistant decided to raise. The runner owns failure
+      // emission via `activity.failed`; success-side surfacing (alerts,
+      // late warnings) lives here so it can read the actual conversation
+      // contents.
+      const transitioned = completeHeartbeatRun(runId, {
+        status: "ok",
+        conversationId: result.conversationId,
+      });
+
+      if (transitioned) {
+        let title = "Heartbeat";
+        try {
+          const row = getConversation(result.conversationId);
+          if (row?.title && row.title !== GENERATING_TITLE) {
+            title = row.title;
+          }
+        } catch {
+          // Best-effort; fall back to generic title.
+        }
+
+        const assistantMessage = this.getLatestAssistantMessage(
+          result.conversationId,
+        );
+        const disposition = parseHeartbeatDisposition(
+          assistantMessage?.text ?? null,
+        );
+        if (disposition === "alert") {
+          this.deps.onConversationCreated?.({
+            conversationId: result.conversationId,
+            title,
+          });
+          void this.emitHeartbeatAlertNotification({
+            runId,
+            conversationId: result.conversationId,
+            messageId: assistantMessage?.id,
+            conversationTitle: title,
+            summary: buildHeartbeatAlertSummary(assistantMessage?.text ?? null),
+          }).catch((err) => {
+            log.warn(
+              { err, conversationId: result.conversationId },
+              "Failed to emit heartbeat alert notification",
+            );
+          });
+        }
+
+        if (latenessMs > LATE_THRESHOLD_MS) {
+          const lateMinutes = Math.round(latenessMs / 60_000);
+          log.warn(
+            {
+              latenessMs,
+              lateMinutes,
+              scheduledFor,
+              runId,
+            },
+            "Heartbeat ran late",
+          );
+        }
+      }
       return;
     }
 
@@ -403,6 +816,16 @@ export class HeartbeatService {
       { err: result.error, errorKind: result.errorKind },
       "Heartbeat failed",
     );
+
+    // The runner has already emitted `activity.failed` for the failure;
+    // we still record the run-level error and broadcast the in-app
+    // heartbeat alert so the existing surfacing keeps working.
+    completeHeartbeatRun(runId, {
+      status: "error",
+      conversationId: conversationId ?? result.conversationId,
+      error: result.error?.message ?? "Unknown error",
+    });
+
     try {
       this.deps.alerter({
         type: "heartbeat_alert",
@@ -441,6 +864,9 @@ Do NOT attempt to use tools for these providers — they will fail. Skip any che
     }
 
     prompt += `\n\n<heartbeat-disposition>
+This heartbeat runs frequently. Do not manufacture a report just because it ran.
+If there is nothing genuinely useful, actionable, or interesting to surface, keep the response brief and end with HEARTBEAT_OK.
+If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
 After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
@@ -454,6 +880,21 @@ After completing your review, end your response with one of:
 
     return { prompt, includedReengagement };
   }
+}
+
+function isDiskPressureBackgroundLocked(logKey: string): boolean {
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "allow") return false;
+  if (shouldLogDiskPressureBackgroundSkip(logKey)) {
+    log.warn(
+      {
+        source: "heartbeat",
+        ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+      },
+      "Heartbeat skipped during disk pressure cleanup mode",
+    );
+  }
+  return true;
 }
 
 /**

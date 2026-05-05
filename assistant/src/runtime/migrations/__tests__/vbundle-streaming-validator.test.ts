@@ -27,7 +27,11 @@ import {
   parseVBundleStream,
   type StreamedTarEntry,
 } from "../vbundle-tar-stream.js";
-import { computeManifestSha256 } from "../vbundle-validator.js";
+import {
+  computeLegacyManifestSha256,
+  computeManifestChecksum,
+} from "../vbundle-validator.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,15 +140,19 @@ async function firstEntryOf(
 // ---------------------------------------------------------------------------
 
 describe("readAndValidateManifest — happy path", () => {
-  test("parses manifest and populates expected map from manifest.files", async () => {
+  test("parses manifest and populates expected map from manifest.contents", async () => {
     const fileA = new TextEncoder().encode("alpha payload\n");
     const fileB = new TextEncoder().encode("beta payload\n");
     const { archive, manifest } = buildVBundle({
       files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
         { path: "workspace/a.txt", data: fileA },
         { path: "workspace/b.txt", data: fileB },
       ],
-      source: "test",
+      ...defaultV1Options(),
     });
 
     const { entry, drainRest } = await firstEntryOf(archive);
@@ -152,19 +160,20 @@ describe("readAndValidateManifest — happy path", () => {
     await drainRest();
 
     expect(result.manifest.schema_version).toBe(manifest.schema_version);
-    expect(result.manifest.files).toHaveLength(2);
-    expect(result.manifest.manifest_sha256).toBe(manifest.manifest_sha256);
+    // Includes the synthetic data/db/assistant.db entry plus a/b.txt.
+    expect(result.manifest.contents).toHaveLength(3);
+    expect(result.manifest.checksum).toBe(manifest.checksum);
 
-    expect(result.expected.size).toBe(2);
+    expect(result.expected.size).toBe(3);
     const expectA = result.expected.get("workspace/a.txt");
     expect(expectA?.size).toBe(fileA.length);
     expect(expectA?.sha256).toBe(
-      manifest.files.find((f) => f.path === "workspace/a.txt")?.sha256,
+      manifest.contents.find((f) => f.path === "workspace/a.txt")?.sha256,
     );
     const expectB = result.expected.get("workspace/b.txt");
     expect(expectB?.size).toBe(fileB.length);
     expect(expectB?.sha256).toBe(
-      manifest.files.find((f) => f.path === "workspace/b.txt")?.sha256,
+      manifest.contents.find((f) => f.path === "workspace/b.txt")?.sha256,
     );
   });
 });
@@ -283,13 +292,33 @@ describe("readAndValidateManifest — negative paths", () => {
 
   test("throws manifest_sha256 when the declared digest doesn't match canonical JSON", async () => {
     const badManifest = {
-      schema_version: "1.0",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
       created_at: new Date().toISOString(),
-      files: [],
-      // Deliberately wrong digest. The canonical hash of a 4-field manifest
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256:
+            "1111111111111111111111111111111111111111111111111111111111111111",
+          size_bytes: 10,
+        },
+      ],
+      // Deliberately wrong digest. The canonical hash of a v1 manifest
       // won't match this, regardless of ordering.
-      manifest_sha256:
+      checksum:
         "0000000000000000000000000000000000000000000000000000000000000000",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     };
     const archive = buildRawVBundle([
       {
@@ -313,27 +342,41 @@ describe("readAndValidateManifest — negative paths", () => {
 
   test("throws manifest_duplicate_path when the same archive path appears twice", async () => {
     const baseManifest = {
-      schema_version: "1.0",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000001",
       created_at: new Date().toISOString(),
-      files: [
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [
         {
-          path: "workspace/a.txt",
+          path: "data/db/assistant.db",
           sha256:
             "1111111111111111111111111111111111111111111111111111111111111111",
-          size: 10,
+          size_bytes: 10,
         },
         {
-          // Deliberately duplicate path — malicious bundle could exploit this
-          // to bypass per-entry integrity checks if we silently collapsed.
-          path: "workspace/a.txt",
+          // Deliberately duplicate path — malicious bundle could exploit
+          // this to bypass per-entry integrity checks if we silently
+          // collapsed.
+          path: "data/db/assistant.db",
           sha256:
             "2222222222222222222222222222222222222222222222222222222222222222",
-          size: 20,
+          size_bytes: 20,
         },
       ],
-      manifest_sha256: "",
+      checksum: "",
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     };
-    baseManifest.manifest_sha256 = computeManifestSha256(baseManifest);
+    baseManifest.checksum = computeManifestChecksum(baseManifest);
 
     const archive = buildRawVBundle([
       {
@@ -353,7 +396,7 @@ describe("readAndValidateManifest — negative paths", () => {
 
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("manifest_duplicate_path");
-    expect(err?.message).toContain("workspace/a.txt");
+    expect(err?.message).toContain("data/db/assistant.db");
   });
 });
 
@@ -449,5 +492,82 @@ describe("createHashVerifier — identity + integrity", () => {
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("entry_size");
     expect(err?.archivePath).toBe("workspace/bad-size.txt");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readAndValidateManifest — legacy fallback (backwards compatibility)
+// ---------------------------------------------------------------------------
+
+describe("readAndValidateManifest — legacy fallback", () => {
+  test("accepts a valid legacy six-field manifest and translates to v1 shape", async () => {
+    const dbBytes = new TextEncoder().encode("legacy-db");
+    const dbSha = createHash("sha256").update(dbBytes).digest("hex");
+
+    const legacyManifest: Record<string, unknown> = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      source: "runtime-export",
+      description: "legacy fixture",
+      files: [
+        { path: "data/db/assistant.db", sha256: dbSha, size: dbBytes.length },
+      ],
+      manifest_sha256: "",
+    };
+    legacyManifest.manifest_sha256 =
+      computeLegacyManifestSha256(legacyManifest);
+
+    const archive = buildRawVBundle([
+      {
+        name: "manifest.json",
+        data: new TextEncoder().encode(JSON.stringify(legacyManifest)),
+      },
+      { name: "data/db/assistant.db", data: dbBytes },
+    ]);
+
+    const { entry, drainRest } = await firstEntryOf(archive);
+    const result = await readAndValidateManifest(entry);
+    await drainRest();
+
+    expect(result.manifest.schema_version).toBe(1);
+    expect(result.manifest.contents).toHaveLength(1);
+    expect(result.manifest.contents[0]?.path).toBe("data/db/assistant.db");
+    expect(result.manifest.contents[0]?.size_bytes).toBe(dbBytes.length);
+    expect(result.expected.get("data/db/assistant.db")?.sha256).toBe(dbSha);
+  });
+
+  test("throws manifest_sha256 on a legacy manifest with a wrong checksum", async () => {
+    const dbBytes = new TextEncoder().encode("legacy-db");
+    const dbSha = createHash("sha256").update(dbBytes).digest("hex");
+
+    const badLegacy = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      files: [
+        { path: "data/db/assistant.db", sha256: dbSha, size: dbBytes.length },
+      ],
+      // Deliberately wrong checksum.
+      manifest_sha256:
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    const archive = buildRawVBundle([
+      {
+        name: "manifest.json",
+        data: new TextEncoder().encode(JSON.stringify(badLegacy)),
+      },
+    ]);
+    const { entry, drainRest } = await firstEntryOf(archive);
+
+    let err: StreamingValidationError | null = null;
+    try {
+      await readAndValidateManifest(entry);
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+    await drainRest();
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("manifest_sha256");
   });
 });

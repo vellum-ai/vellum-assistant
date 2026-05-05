@@ -119,11 +119,3 @@ function clearRequestedIfLatest(requestSeq: number): void {
     lastRequestedName = lastSyncedName;
   }
 }
-
-/** Reset cached state (for testing). */
-export function _resetSyncState(): void {
-  lastSyncedName = null;
-  lastRequestedName = null;
-  seq = 0;
-  pending = Promise.resolve();
-}

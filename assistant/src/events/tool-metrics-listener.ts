@@ -69,23 +69,6 @@ export function registerToolMetricsLoggingListener(
         }
         return;
       }
-      case "tool.secret.detected": {
-        const types = [
-          ...new Set(event.payload.matches.map((match) => match.type)),
-        ];
-        logger.warn(
-          {
-            toolName: event.payload.toolName,
-            matchCount: event.payload.matches.length,
-            types,
-            action: event.payload.action,
-            conversationId: event.payload.conversationId,
-            requestId: event.payload.requestId,
-          },
-          "Secrets detected in tool output",
-        );
-        return;
-      }
       case "tool.execution.finished":
         if (!debugEnabled()) return;
         logger.debug(

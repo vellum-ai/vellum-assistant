@@ -6,10 +6,17 @@
  */
 import { z } from "zod";
 
+import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -18,7 +25,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-bash-result
 // ---------------------------------------------------------------------------
 
-function handleHostBashResult({ body }: RouteHandlerArgs) {
+function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -35,11 +42,15 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
     throw new BadRequestError("requestId is required");
   }
 
+  const submittingClientId =
+    headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_bash") {
@@ -48,9 +59,33 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
+  const { targetClientId } = peeked;
+  if (targetClientId) {
+    if (!submittingClientId) {
+      throw new BadRequestError(
+        "x-vellum-client-id header is required for targeted host bash requests",
+      );
+    }
+    if (submittingClientId !== targetClientId) {
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
 
-  interaction.conversation!.resolveHostBash(requestId, {
+    // Defense-in-depth on top of the client-id header binding above: the
+    // submitting actor's principal must match the actor principal stored
+    // for the target client at SSE subscription time. This prevents a
+    // cross-user submission even when the attacker can guess or spoof the
+    // target's client ID.
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
+      targetClientId,
+      op: "host_bash",
+    });
+  }
+
+  HostBashProxy.instance.resolveResult(requestId, {
     stdout: stdout ?? "",
     stderr: stderr ?? "",
     exitCode: exitCode ?? null,
@@ -83,6 +118,22 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host bash request.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+      "404": {
+        description: "No pending interaction found for the given requestId.",
+      },
+      "409": {
+        description:
+          "Pending interaction exists but is of a different kind (e.g. host_file, host_cu).",
+      },
+    },
     handler: handleHostBashResult,
   },
 ];

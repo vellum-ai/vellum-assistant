@@ -228,7 +228,7 @@ struct AssistantTransferSection: View {
         do {
             // Step 1 — Initiate export
             currentStep = "Requesting cloud export..."
-            let exportResponse = try await GatewayHTTPClient.post(path: "migrations/export")
+            let exportResponse = try await GatewayHTTPClient.post(path: "migrations/export", unprefixed: true)
             guard exportResponse.isSuccess else {
                 throw TransferError.exportFailed(statusCode: exportResponse.statusCode)
             }
@@ -246,7 +246,8 @@ struct AssistantTransferSection: View {
             while Date().timeIntervalSince(exportPollStart) < exportPollTimeout {
                 try Task.checkCancellation()
                 let (statusResult, statusResponse): (ExportStatusResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "migrations/export/\(jobId)/status"
+                    path: "migrations/export/\(jobId)/status",
+                    unprefixed: true
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 guard statusResponse.isSuccess, let statusResult else {
                     throw TransferError.exportFailed(statusCode: statusResponse.statusCode)
@@ -320,7 +321,8 @@ struct AssistantTransferSection: View {
                     path: "migrations/import",
                     body: bundleData,
                     contentType: "application/octet-stream",
-                    timeout: 3600
+                    timeout: 3600,
+                    unprefixed: true
                 )
             }
             guard importResponse.isSuccess else {
@@ -342,7 +344,7 @@ struct AssistantTransferSection: View {
             do {
                 let retireResponse = try await GatewayHTTPClient.withAssistant(managedAssistantId) {
                     try await GatewayHTTPClient.delete(
-                        path: "assistants/{assistantId}/retire",
+                        path: "retire",
                         timeout: 30
                     )
                 }
@@ -365,7 +367,8 @@ struct AssistantTransferSection: View {
     private func exportAssistantBundle() async throws -> Data {
         let response = try await GatewayHTTPClient.post(
             path: "migrations/export",
-            timeout: 3600
+            timeout: 3600,
+            unprefixed: true
         )
         guard response.isSuccess else {
             throw TransferError.exportFailed(statusCode: response.statusCode)
@@ -378,7 +381,7 @@ struct AssistantTransferSection: View {
     /// Uses the process-local assistant override to route requests to the local
     /// assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(localAssistantId: String) async throws -> String {
-        let deviceId = PairingQRCodeSheet.computeHostId()
+        let deviceId = HostIdComputer.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
         return try await GatewayHTTPClient.withAssistant(localAssistantId) {
@@ -387,7 +390,7 @@ struct AssistantTransferSection: View {
                 try Task.checkCancellation()
 
                 if let response = try? await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/guardian/init",
+                    path: "guardian/init",
                     json: body,
                     timeout: 15
                 ), response.isSuccess,
@@ -412,7 +415,7 @@ struct AssistantTransferSection: View {
     /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
     private func importBundleToManaged(bundleData: Data) async throws {
         // Step 1: Request a signed upload URL from the platform
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+        let uploadInfo = try await PlatformMigrationClient.requestSignedUploadUrl()
 
         // Step 2: Upload bundle directly to GCS via signed URL
         try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
@@ -442,9 +445,9 @@ struct AssistantTransferSection: View {
             while Date().timeIntervalSince(start) < timeout {
                 try await Task.sleep(nanoseconds: pollInterval)
 
-                let status: PlatformMigrationClient.ImportJobStatus
+                let status: PlatformMigrationClient.JobStatus
                 do {
-                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                    status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as PlatformMigrationClient.PlatformMigrationError {

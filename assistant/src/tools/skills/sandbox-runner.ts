@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
-import { wrapCommand } from "../terminal/sandbox.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -138,12 +137,8 @@ function spawnRunner(
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
 
-    // The assistant runs exclusively in Docker or platform-managed
-    // environments where the container provides isolation.
-    const sandboxConfig = { enabled: false } as const;
-
     const bunRunCmd = "bun run __skill_runner.ts";
-    const wrapped = wrapCommand(bunRunCmd, runDir, sandboxConfig);
+    const wrapped = { command: "bash", args: ["-c", "--", bunRunCmd] };
 
     const env = buildSanitizedEnv();
     env.__SKILL_INPUT_JSON = JSON.stringify(input);

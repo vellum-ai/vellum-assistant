@@ -1,12 +1,14 @@
 import { v4 as uuid } from "uuid";
 
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { getClientRegistry } from "../runtime/client-registry.js";
+import type { InterfaceId } from "../channels/types.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type { HostBrowserRequest } from "./message-types/host-browser.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -22,13 +24,11 @@ export type HostBrowserInput = DistributiveOmit<
 
 const log = getLogger("host-browser-proxy");
 
-interface PendingRequest {
-  resolve: (result: ToolExecutionResult) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
-  detachAbort: () => void;
-}
+/** Interface priority order for host_browser: Chrome Extension first, macOS SSE bridge second. */
+const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
+  "chrome-extension",
+  "macos",
+];
 
 export class HostBrowserProxy {
   private static _instance: HostBrowserProxy | null = null;
@@ -59,24 +59,29 @@ export class HostBrowserProxy {
     HostBrowserProxy._instance = null;
   }
 
-  private pending = new Map<string, PendingRequest>();
-
   /**
    * Whether a client with `host_browser` capability is connected.
+   * Returns `true` when either the Chrome Extension or the macOS SSE
+   * bridge is available — i.e. any transport can forward host-browser
+   * requests.
    */
   isAvailable(): boolean {
     return (
-      getClientRegistry().getMostRecentByCapability("host_browser") != null
+      assistantEventHub.getPreferredClientByCapability(
+        "host_browser",
+        HOST_BROWSER_INTERFACE_PREFERENCE,
+      ) != null
     );
   }
 
   /**
-   * Publish a ServerMessage through the assistant event hub.
+   * Whether a Chrome Extension client specifically is connected.
+   * Returns `false` when only the macOS SSE bridge is available.
+   * Unlike {@link isAvailable}, this does not consider the macOS bridge
+   * a valid extension transport.
    */
-  private sendToExtension(msg: ServerMessage): void {
-    void assistantEventHub.publish(buildAssistantEvent(msg)).catch((err) => {
-      log.warn({ err }, "failed to publish host_browser event to hub");
-    });
+  hasExtensionClient(): boolean {
+    return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
   }
 
   request(
@@ -91,42 +96,34 @@ export class HostBrowserProxy {
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      // CDP operations should be fast — 30 second default timeout matches host_file.
       const timeoutSec = input.timeout_seconds ?? 30;
 
-      // Declared up-front so onAbort (defined before detachAbort is assigned)
-      // can close over a stable reference once it's wired below.
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        detachAbort();
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod },
           "Host browser proxy request timed out",
         );
         resolve({
           content:
-            "Host browser proxy timed out waiting for extension response (check browser-relay connectivity and /v1/host-browser-result callback failures such as 404/401).",
+            "Host browser proxy timed out waiting for extension response (check SSE connectivity and /v1/host-browser-result callback failures such as 404/401).",
           isError: true,
         });
       }, timeoutSec * 1000);
 
       if (signal) {
         const onAbort = () => {
-          if (this.pending.has(requestId)) {
-            clearTimeout(timer);
-            this.pending.delete(requestId);
-            // Abort fired — nothing to detach, but call the no-op for symmetry
-            // so callers can rely on detachAbort being idempotent.
-            detachAbort();
+          if (pendingInteractions.get(requestId)) {
+            pendingInteractions.resolve(requestId);
             try {
-              this.sendToExtension({
+              broadcastMessage({
                 type: "host_browser_cancel",
                 requestId,
-              } as ServerMessage);
+              });
             } catch {
-              // Best-effort cancel notification — connection may already be closed.
+              // Best-effort cancel notification
             }
             resolve({ content: "Aborted", isError: true });
           }
@@ -135,13 +132,22 @@ export class HostBrowserProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+      pendingInteractions.register(requestId, {
+        conversationId,
+        kind: "host_browser",
+        rpcResolve: resolve,
+        rpcReject: reject,
+        timer,
+        detachAbort,
+      });
 
       try {
-        if (!this.isAvailable()) {
-          clearTimeout(timer);
-          this.pending.delete(requestId);
-          detachAbort();
+        const preferredClient = assistantEventHub.getPreferredClientByCapability(
+          "host_browser",
+          HOST_BROWSER_INTERFACE_PREFERENCE,
+        );
+        if (!preferredClient) {
+          pendingInteractions.resolve(requestId);
           reject(
             new Error(
               "host_browser send failed: no active extension connection",
@@ -150,19 +156,13 @@ export class HostBrowserProxy {
           return;
         }
 
-        this.sendToExtension({
-          ...input,
-          type: "host_browser_request",
-          requestId,
+        broadcastMessage(
+          { ...input, type: "host_browser_request", requestId, conversationId },
           conversationId,
-        } as ServerMessage);
+          { targetClientId: preferredClient.clientId },
+        );
       } catch (err) {
-        // Sender threw synchronously (e.g. client transport error during
-        // event emission). Clean up pending state and timer so we don't
-        // leak an in-flight entry that nothing will ever resolve.
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        detachAbort();
+        pendingInteractions.resolve(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod, err },
           "Host browser proxy send failed",
@@ -172,55 +172,44 @@ export class HostBrowserProxy {
     });
   }
 
-  resolve(
+  /**
+   * Process a client result and resolve the RPC. Called by route handlers.
+   */
+  resolveResult(
     requestId: string,
     response: { content: string; isError: boolean },
   ): void {
-    const entry = this.pending.get(requestId);
-    if (!entry) {
-      // Benign race, not an error. A late result frame with no matching
-      // pending entry means one of:
-      //   - the proxy-side setTimeout has already resolved the caller;
-      //   - the caller's AbortSignal fired and the entry was torn down;
-      //   - a duplicate result frame was delivered (e.g. retry after a
-      //     transient WS drop).
-      // Log at debug so operators don't chase false-positive "timeout"
-      // alerts on what is actually a cleanly-handled race.
+    const interaction = pendingInteractions.resolve(requestId);
+    if (!interaction?.rpcResolve) {
       log.debug(
         { requestId },
         "Ignoring host_browser_result for unknown or already-resolved request",
       );
       return;
     }
-    clearTimeout(entry.timer);
-    entry.detachAbort();
-    this.pending.delete(requestId);
-    entry.resolve({ content: response.content, isError: response.isError });
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    interaction.rpcResolve({
+      content: response.content,
+      isError: response.isError,
+    });
   }
 
   dispose(): void {
-    for (const [requestId, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.detachAbort();
+    for (const entry of pendingInteractions.getByKind("host_browser")) {
+      pendingInteractions.resolve(entry.requestId);
       try {
-        this.sendToExtension({
+        broadcastMessage({
           type: "host_browser_cancel",
-          requestId,
-        } as ServerMessage);
+          requestId: entry.requestId,
+        });
       } catch {
-        // Best-effort cancel notification — connection may already be closed.
+        // Best-effort cancel notification
       }
-      entry.reject(
+      entry.rpcReject?.(
         new AssistantError(
           "Host browser proxy disposed",
           ErrorCode.INTERNAL_ERROR,
         ),
       );
     }
-    this.pending.clear();
   }
 }

@@ -51,7 +51,8 @@ public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
         organizationId: String,
         name: String?,
         description: String?,
-        anthropicApiKey: String?
+        anthropicApiKey: String?,
+        mode: HatchAssistantMode
     ) async throws -> HatchAssistantResult
 }
 
@@ -171,13 +172,52 @@ public final class ManagedAssistantBootstrapService {
         // No selected assistant (or stale one was cleared) — hatch is idempotent
         // and will return the existing assistant if one exists.
         log.info("No stored assistant ID — calling idempotent hatch")
+        return try await hatchManagedAssistant(
+            organizationId: organizationId,
+            name: name,
+            description: description,
+            anthropicApiKey: anthropicApiKey,
+            mode: .ensure
+        )
+    }
+
+    /// Create an additional managed assistant for the current organization.
+    ///
+    /// Unlike `ensureManagedAssistant()`, this skips the stored-id lookup and
+    /// list-first reuse path. It directly opts into the platform's
+    /// multi-assistant hatch semantics (`mode=create`), which creates a new
+    /// assistant unless the backend is deduping an in-flight hatch.
+    public func createManagedAssistant(
+        name: String? = nil,
+        description: String? = nil,
+        anthropicApiKey: String? = nil
+    ) async throws -> ManagedBootstrapOutcome {
+        let organizationId = try await resolveOrganizationId()
+        log.info("Requesting additional managed assistant via create hatch mode")
+        return try await hatchManagedAssistant(
+            organizationId: organizationId,
+            name: name,
+            description: description,
+            anthropicApiKey: anthropicApiKey,
+            mode: .create
+        )
+    }
+
+    private func hatchManagedAssistant(
+        organizationId: String,
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?,
+        mode: HatchAssistantMode
+    ) async throws -> ManagedBootstrapOutcome {
         let hatchResult: HatchAssistantResult
         do {
             hatchResult = try await authService.hatchAssistant(
                 organizationId: organizationId,
                 name: name,
                 description: description,
-                anthropicApiKey: anthropicApiKey
+                anthropicApiKey: anthropicApiKey,
+                mode: mode
             )
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)

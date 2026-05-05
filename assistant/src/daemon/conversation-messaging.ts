@@ -309,6 +309,7 @@ export function enqueueMessage(
   if (!accepted) {
     onEvent({
       type: "error",
+      conversationId: ctx.conversationId,
       message:
         "The assistant is busy and cannot accept more messages right now. Please try again shortly.",
       category: "queue_full",

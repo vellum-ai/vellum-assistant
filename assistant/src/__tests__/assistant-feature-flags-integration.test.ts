@@ -12,8 +12,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // Test-scoped config state
 // ---------------------------------------------------------------------------
 
-const DECLARED_FLAG_ID = "sounds";
+const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
+const SAFE_STORAGE_LIMITS_FLAG = "safe-storage-limits";
 
 const { isAssistantFeatureFlagEnabled, _setOverridesForTesting } =
   await import("../config/assistant-feature-flags.js");
@@ -54,10 +55,29 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: true for sounds
+    // which has defaultEnabled: false for email-channel
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
+  });
+
+  test("safe-storage-limits defaults to disabled", () => {
+    const config = {} as any;
+
+    expect(
+      isAssistantFeatureFlagEnabled(SAFE_STORAGE_LIMITS_FLAG, config),
+    ).toBe(false);
+  });
+
+  test("safe-storage-limits respects explicit override", () => {
+    _setOverridesForTesting({ [SAFE_STORAGE_LIMITS_FLAG]: true });
+    const config = {} as any;
+
+    expect(
+      isAssistantFeatureFlagEnabled(SAFE_STORAGE_LIMITS_FLAG, config),
+    ).toBe(true);
   });
 
   test("unknown flag defaults to true when no persisted override", () => {
@@ -67,10 +87,12 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("undeclared flag respects persisted override", () => {
-    _setOverridesForTesting({ browser: false });
+    _setOverridesForTesting({ "some-undeclared-flag": false });
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
+      false,
+    );
   });
 });
 
@@ -87,7 +109,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     ).toBe(false);
   });
 
-  test("enabled when no override set (registry default is true)", () => {
+  test("disabled when no override set (registry default is false)", () => {
     const config = {} as any;
 
     expect(
@@ -95,35 +117,6 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
         config,
       ),
-    ).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// compaction-v2 flag (opt-in): ensures registry-declared defaultEnabled=false
-// is honored and that an explicit override can flip it on. Guards the rollout
-// gate for the boundary-message-based compaction pipeline introduced in
-// later PRs.
-// ---------------------------------------------------------------------------
-
-describe("compaction-v2 flag", () => {
-  test("defaults to false (disabled) when no override is set", () => {
-    const config = {} as any;
-
-    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(false);
-  });
-
-  test("returns true when explicitly overridden to true", () => {
-    _setOverridesForTesting({ "compaction-v2": true });
-    const config = {} as any;
-
-    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(true);
-  });
-
-  test("returns false when explicitly overridden to false", () => {
-    _setOverridesForTesting({ "compaction-v2": false });
-    const config = {} as any;
-
-    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(false);
+    ).toBe(false);
   });
 });

@@ -492,7 +492,9 @@ describe("DM threading", () => {
     const result = normalizeSlackDirectMessage(event, "evt-dm-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBe("im");
     expect(result!.threadTs).toBeUndefined();
+    expect(result!.event.source.threadId).toBeUndefined();
   });
 
   it("threaded DM preserves threadTs", () => {
@@ -501,7 +503,9 @@ describe("DM threading", () => {
     const result = normalizeSlackDirectMessage(event, "evt-dm-2", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBe("im");
     expect(result!.threadTs).toBe("1700000000.000050");
+    expect(result!.event.source.threadId).toBe("1700000000.000050");
   });
 });
 
@@ -724,6 +728,39 @@ describe("attachment extraction in normalize functions", () => {
         expect(result!.slackFiles!.get("F030")!.id).toBe("F030");
       });
 
+      it("normalizes DM file_share mentions without stripping the bot mention", () => {
+        const config = makeConfig();
+        const event = makeDmEvent({
+          subtype: "file_share",
+          text: "<@UBOT> <@ULEO> shared this",
+          files: [
+            makeSlackFile({
+              id: "F032",
+              mimetype: "image/png",
+              name: "mention.png",
+            }),
+          ],
+        });
+        const result = normalizeSlackDirectMessage(
+          event,
+          "evt-fs-mentions-dm",
+          config,
+          "UBOT",
+          undefined,
+          { userLabels: { UBOT: "assistant", ULEO: "leo" } },
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.content).toBe(
+          "@assistant @leo shared this",
+        );
+        expect(result!.event.message.content).not.toContain("ULEO");
+        expect(result!.event.message.attachments).toHaveLength(1);
+        expect(result!.event.message.attachments![0].fileId).toBe("F032");
+        expect(result!.slackFiles).toBeDefined();
+        expect(result!.slackFiles!.get("F032")!.id).toBe("F032");
+      });
+
       it("normalizes DM with file_share subtype without files", () => {
         const config = makeConfig();
         const event = makeDmEvent({ subtype: "file_share" });
@@ -763,6 +800,43 @@ describe("attachment extraction in normalize functions", () => {
         expect(result!.event.message.attachments![0].fileId).toBe("F031");
         expect(result!.event.message.attachments![0].type).toBe("image");
         expect(result!.slackFiles).toBeDefined();
+      });
+
+      it("normalizes channel file_share mentions and renders the bot mention", () => {
+        const config = makeConfig();
+        const event = makeChannelEvent({
+          subtype: "file_share",
+          text: "<@UBOT> <@ULEO> shared this",
+          files: [
+            makeSlackFile({
+              id: "F033",
+              mimetype: "application/pdf",
+              name: "mention.pdf",
+            }),
+          ],
+        });
+        const result = normalizeSlackChannelMessage(
+          event,
+          "evt-fs-mentions-channel",
+          config,
+          "UBOT",
+          undefined,
+          { userLabels: { UBOT: "vex", ULEO: "leo" } },
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.content).toBe("@vex @leo shared this");
+        expect(result!.event.message.content).not.toContain("ULEO");
+        expect(result!.event.message.attachments).toHaveLength(1);
+        expect(result!.event.message.attachments![0]).toEqual({
+          type: "document",
+          fileId: "F033",
+          fileName: "mention.pdf",
+          mimeType: "application/pdf",
+          fileSize: 12345,
+        });
+        expect(result!.slackFiles).toBeDefined();
+        expect(result!.slackFiles!.get("F033")!.id).toBe("F033");
       });
 
       it("normalizes channel message with file_share subtype without files", () => {
@@ -1156,6 +1230,30 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result!.routing.assistantId).toBe("ast-1");
     // DMs should not be tagged as channel chat even when inferred.
     expect(result!.event.source.chatType).toBeUndefined();
+  });
+
+  it("returns null when previous_message author is the bot itself", () => {
+    // Slack echoes self-deletes back via Socket Mode. Without this filter,
+    // the bot's user ID flows through as the actor and triggers a spurious
+    // ingress access-request notification to the guardian.
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+      previous_message: {
+        user: "UBOT",
+        text: "deleted bot message",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-self",
+      config,
+      "UBOT",
+    );
+
+    expect(result).toBeNull();
   });
 });
 

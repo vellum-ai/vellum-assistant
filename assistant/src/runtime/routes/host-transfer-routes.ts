@@ -7,29 +7,31 @@
  */
 import { z } from "zod";
 
+import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
- * Find the HostTransferProxy that owns a given transferId by scanning
- * all pending host_transfer interactions. Returns the proxy and the
- * interaction entry (with its requestId) so callers can resolve the
- * pending interaction when appropriate.
+ * Find the singleton HostTransferProxy if it owns the given transferId.
+ * Returns the proxy and the matching requestId so callers can resolve
+ * the pending interaction when appropriate.
  */
 function findProxyByTransferId(transferId: string) {
-  const interactions = pendingInteractions.getByKind("host_transfer");
-  for (const interaction of interactions) {
-    const proxy = interaction.conversation?.getHostTransferProxy();
-    if (proxy?.hasPendingTransfer(transferId)) {
-      return { proxy, interaction };
-    }
-  }
-  return null;
+  const proxy = HostTransferProxy.instance;
+  const requestId = proxy.getRequestIdForTransfer(transferId);
+  if (!requestId) return null;
+  return { proxy, requestId };
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ function findProxyByTransferId(transferId: string) {
 
 function handleTransferContentGet({
   pathParams = {},
+  headers = {},
 }: RouteHandlerArgs): Uint8Array {
   const transferId = pathParams.transferId;
   if (!transferId) {
@@ -47,6 +50,35 @@ function handleTransferContentGet({
   const match = findProxyByTransferId(transferId);
   if (!match) {
     throw new NotFoundError("Unknown or consumed transfer");
+  }
+
+  const targetClientId = match.proxy.getTargetClientIdForTransfer(transferId);
+  if (targetClientId != null) {
+    const headerMap = headers as Record<string, string | undefined>;
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId)
+      throw new BadRequestError(
+        "x-vellum-client-id header required for targeted transfer",
+      );
+    if (submittingClientId !== targetClientId)
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the owner of this transfer`,
+      );
+
+    // Defense-in-depth: the submitting actor's principal must match the
+    // actor that opened the target client's SSE stream. Compare against
+    // the value persisted at registration time so a brief reconnect does
+    // not 403 a legitimate fetch.
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId:
+        match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
+      targetClientId,
+      op: "host_transfer",
+    });
   }
 
   const content = match.proxy.getTransferContent(transferId);
@@ -59,8 +91,11 @@ function handleTransferContentGet({
 
 /**
  * Resolve Content-Length and X-Transfer-SHA256 response headers for the
- * GET transfer content endpoint. Called by the HTTP adapter before
- * sending the response.
+ * GET transfer content endpoint. Called by the HTTP adapter AFTER the handler
+ * runs (`http-adapter.ts:107-125`), so the entry has already been consumed by
+ * `getTransferContent`. We read the size/sha256 from
+ * `takeJustConsumedTransferMetadata`, which the proxy populates synchronously
+ * during the handler's `getTransferContent` call.
  */
 function resolveTransferContentGetHeaders({
   pathParams = {},
@@ -70,16 +105,14 @@ function resolveTransferContentGetHeaders({
   const transferId = pathParams?.transferId;
   if (!transferId) return { "Content-Type": "application/octet-stream" };
 
-  const match = findProxyByTransferId(transferId);
-  if (!match) return { "Content-Type": "application/octet-stream" };
-
-  const content = match.proxy.getTransferContent(transferId);
-  if (!content) return { "Content-Type": "application/octet-stream" };
+  const meta =
+    HostTransferProxy.instance.takeJustConsumedTransferMetadata(transferId);
+  if (!meta) return { "Content-Type": "application/octet-stream" };
 
   return {
     "Content-Type": "application/octet-stream",
-    "Content-Length": content.sizeBytes.toString(),
-    "X-Transfer-SHA256": content.sha256,
+    "Content-Length": meta.sizeBytes.toString(),
+    "X-Transfer-SHA256": meta.sha256,
   };
 }
 
@@ -102,6 +135,31 @@ async function handleTransferContentPut({
     throw new NotFoundError("Unknown or consumed transfer");
   }
 
+  const targetClientId = match.proxy.getTargetClientIdForTransfer(transferId);
+  if (targetClientId != null) {
+    const headerMap = headers as Record<string, string | undefined>;
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId)
+      throw new BadRequestError(
+        "x-vellum-client-id header required for targeted transfer",
+      );
+    if (submittingClientId !== targetClientId)
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the owner of this transfer`,
+      );
+
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId:
+        match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
+      targetClientId,
+      op: "host_transfer",
+    });
+  }
+
   const data = rawBody ? Buffer.from(rawBody) : Buffer.alloc(0);
   const sha256 = headers["x-transfer-sha256"] ?? "";
 
@@ -110,11 +168,6 @@ async function handleTransferContentPut({
     data,
     sha256,
   );
-
-  // For to_sandbox transfers there is no separate /v1/host-transfer-result
-  // callback — the PUT handler is the terminal event. Always clean up the
-  // pending interaction so it doesn't leak.
-  pendingInteractions.resolve(match.interaction.requestId);
 
   if (!result.accepted) {
     throw new BadRequestError(result.error ?? "Transfer content rejected");
@@ -127,7 +180,7 @@ async function handleTransferContentPut({
 // POST /v1/host-transfer-result
 // ---------------------------------------------------------------------------
 
-function handleTransferResult({ body }: RouteHandlerArgs) {
+function handleTransferResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -145,9 +198,7 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    throw new NotFoundError(
-      "No pending interaction found for this requestId",
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   if (peeked.kind !== "host_transfer") {
@@ -156,9 +207,30 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
+  if (peeked.targetClientId != null) {
+    const headerMap = (headers as Record<string, string | undefined>) ?? {};
+    const rawClientId = headerMap["x-vellum-client-id"];
+    const submittingClientId = rawClientId?.trim() || undefined;
+    if (!submittingClientId)
+      throw new BadRequestError(
+        "x-vellum-client-id header is missing for a targeted host transfer request.",
+      );
+    if (submittingClientId !== peeked.targetClientId)
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}").`,
+      );
 
-  interaction.conversation!.resolveHostTransfer(requestId, {
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_transfer",
+    });
+  }
+
+  HostTransferProxy.instance.resolveTransferResult(requestId, {
     isError: isError ?? false,
     bytesWritten,
     errorMessage,
@@ -183,6 +255,15 @@ export const ROUTES: RouteDefinition[] = [
       "Serve raw file bytes for a to_host transfer. Single-use: returns 404 after first consumption.",
     tags: ["host-transfer"],
     responseHeaders: resolveTransferContentGetHeaders,
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted transfer.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+    },
     handler: handleTransferContentGet,
   },
   {
@@ -195,6 +276,15 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Receive raw file bytes for a to_sandbox transfer. Verifies SHA-256 integrity via the X-Transfer-SHA256 header.",
     tags: ["host-transfer"],
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted transfer.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+    },
     handler: handleTransferContentPut,
   },
   {
@@ -215,6 +305,15 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host transfer request.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+    },
     handler: handleTransferResult,
   },
 ];

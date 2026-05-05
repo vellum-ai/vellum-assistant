@@ -25,17 +25,10 @@ import {
   renameSync,
   unlinkSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
-
-/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
-function getRootDir(): string {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(base, ".vellum");
-}
-
+import { getVellumRoot } from "./utils.js";
 /** Individual files to move from root → workspace (with optional subdirectory). */
 const FILE_MOVES: Array<{ name: string; subdir?: string }> = [
   { name: "daemon-stderr.log", subdir: "logs" },
@@ -93,7 +86,7 @@ export const moveRuntimeFilesToWorkspaceMigration: WorkspaceMigration = {
     "Move daemon-stderr.log, daemon-startup.lock, embed-worker.pid, external/, and bin/ from root to workspace",
 
   run(workspaceDir: string): void {
-    const rootDir = getRootDir();
+    const rootDir = getVellumRoot();
 
     // Move individual files
     for (const { name, subdir } of FILE_MOVES) {
@@ -110,7 +103,7 @@ export const moveRuntimeFilesToWorkspaceMigration: WorkspaceMigration = {
   },
 
   down(workspaceDir: string): void {
-    const rootDir = getRootDir();
+    const rootDir = getVellumRoot();
 
     // Move individual files back
     for (const { name, subdir } of FILE_MOVES) {

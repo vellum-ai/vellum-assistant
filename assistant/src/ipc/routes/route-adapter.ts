@@ -6,7 +6,7 @@
 import type { RouteDefinition } from "../../runtime/routes/types.js";
 
 function isIpcEligible(r: RouteDefinition): boolean {
-  return !r.requireGuardian && !r.isPublic && !r.requirePolicyEnforcement;
+  return !r.requireGuardian && !r.isPublic;
 }
 
 export function routeDefinitionsToIpcMethods(

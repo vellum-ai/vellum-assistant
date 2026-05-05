@@ -7,6 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
+    "./ingress": "./src/ingress.ts",
+    "./twilio-ingress": "./src/twilio-ingress.ts",
     "./trust-rules": "./src/trust-rules.ts",
     "./handles": "./src/handles.ts",
     "./grants": "./src/grants.ts",

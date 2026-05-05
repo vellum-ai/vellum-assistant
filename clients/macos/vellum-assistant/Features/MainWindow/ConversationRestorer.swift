@@ -49,6 +49,18 @@ final class ConversationRestorer {
     /// Exposed as internal for `@testable` test access.
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
+    /// In-flight history reconstruction tasks spawned by `handleHistoryResponse`.
+    /// Each task offloads message reconstruction to a background thread, then
+    /// applies the result on the main actor. Exposed as internal so tests can
+    /// `await` pending work before asserting on view-model state. Each task
+    /// removes itself from this list after completing, keyed by `id`, so the
+    /// list does not grow unboundedly in production.
+    struct InFlightHistoryReconstructionTask {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+    var inFlightHistoryReconstructionTasks: [InFlightHistoryReconstructionTask] = []
+
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
@@ -505,20 +517,37 @@ final class ConversationRestorer {
         let messages = response.messages
         let hasMore = response.hasMore
         let oldestTimestamp = response.oldestTimestamp
-        Task { @MainActor [weak viewModel] in
+        let taskId = UUID()
+        let task = Task { @MainActor [weak viewModel, weak self] in
             let result = await Task.detached(priority: .userInitiated) {
                 HistoryReconstructionService.reconstructMessages(from: messages, conversationId: convId)
             }.value
-            guard let viewModel else { return }
-            viewModel.applyReconstructedHistory(
+            viewModel?.applyReconstructedHistory(
                 result,
                 hasMore: hasMore,
                 oldestTimestamp: oldestTimestamp,
                 isPaginationLoad: isPaginationLoad
             )
+            self?.inFlightHistoryReconstructionTasks.removeAll(where: { $0.id == taskId })
         }
+        inFlightHistoryReconstructionTasks.append(InFlightHistoryReconstructionTask(id: taskId, task: task))
 
         log.info("Loaded \(response.messages.count) history messages for conversation \(localId) (hasMore: \(hasMore), isPagination: \(isPaginationLoad))")
+    }
+
+    /// Waits for every history-reconstruction task currently in flight to
+    /// finish. Internal helper used by tests that need to assert on
+    /// view-model state mutated by the reconstruction task.
+    func awaitPendingHistoryReconstructions() async {
+        // Snapshot the in-flight list so concurrently-appended tasks (e.g. from
+        // chained handleHistoryResponse calls in the test) are picked up on the
+        // next iteration rather than leaving the loop racing against itself.
+        while !inFlightHistoryReconstructionTasks.isEmpty {
+            let snapshot = inFlightHistoryReconstructionTasks
+            for entry in snapshot {
+                _ = await entry.task.value
+            }
+        }
     }
 
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {

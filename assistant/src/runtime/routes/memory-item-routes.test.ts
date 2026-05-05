@@ -6,6 +6,13 @@
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
+
+// This test exercises v1 memory CRUD routes. The `memory-v2-enabled` flag
+// (registry default `true`) flips memory routing to v2 — disable it here so
+// the v1 paths under test stay active.
+_setOverridesForTesting({ "memory-v2-enabled": false });
+
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -68,11 +75,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import { ROUTES } from "./memory-item-routes.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -269,7 +272,9 @@ describe("Memory Item Routes", () => {
         content: "s2\nst2",
       });
 
-      const res = await callHandler(route, { queryParams: { kind: "semantic" } });
+      const res = await callHandler(route, {
+        queryParams: { kind: "semantic" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -319,7 +324,9 @@ describe("Memory Item Routes", () => {
         lastAccessed: 3000,
       });
 
-      const res = await callHandler(route, { queryParams: { limit: "1", offset: "1" } });
+      const res = await callHandler(route, {
+        queryParams: { limit: "1", offset: "1" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -344,7 +351,9 @@ describe("Memory Item Routes", () => {
         created: 1000,
       });
 
-      const res = await callHandler(route, { queryParams: { sort: "firstSeenAt", order: "asc" } });
+      const res = await callHandler(route, {
+        queryParams: { sort: "firstSeenAt", order: "asc" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
       };
@@ -366,7 +375,9 @@ describe("Memory Item Routes", () => {
         significance: 0.9,
       });
 
-      const res = await callHandler(route, { queryParams: { sort: "importance", order: "desc" } });
+      const res = await callHandler(route, {
+        queryParams: { sort: "importance", order: "desc" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
       };
@@ -418,7 +429,9 @@ describe("Memory Item Routes", () => {
         },
       ];
 
-      const res = await callHandler(route, { queryParams: { search: "alice" } });
+      const res = await callHandler(route, {
+        queryParams: { search: "alice" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -503,7 +516,9 @@ describe("Memory Item Routes", () => {
       ];
 
       // Request page 2 (offset=1, limit=1)
-      const res = await callHandler(route, { queryParams: { search: "item", limit: "1", offset: "1" } });
+      const res = await callHandler(route, {
+        queryParams: { search: "item", limit: "1", offset: "1" },
+      });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -563,7 +578,10 @@ describe("Memory Item Routes", () => {
         content: "dark mode\nPrefers dark mode",
       });
 
-      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "i1" } });
+      const res = await callHandler(route, {
+        queryParams: {},
+        pathParams: { id: "i1" },
+      });
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         item: { id: string; subject: string };
@@ -573,7 +591,10 @@ describe("Memory Item Routes", () => {
     });
 
     test("returns 404 for non-existent item", async () => {
-      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "nonexistent" } });
+      const res = await callHandler(route, {
+        queryParams: {},
+        pathParams: { id: "nonexistent" },
+      });
       expect(res.status).toBe(404);
     });
 
@@ -584,7 +605,10 @@ describe("Memory Item Routes", () => {
         content: "some content\nsome statement",
       });
 
-      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "i1" } });
+      const res = await callHandler(route, {
+        queryParams: {},
+        pathParams: { id: "i1" },
+      });
       const body = (await res.json()) as {
         item: { supersedes: unknown; supersededBy: unknown };
       };
@@ -862,7 +886,9 @@ describe("Memory Item Routes", () => {
     });
 
     test("returns 404 for non-existent item", async () => {
-      const res = await callHandler(route, { pathParams: { id: "nonexistent" } });
+      const res = await callHandler(route, {
+        pathParams: { id: "nonexistent" },
+      });
       expect(res.status).toBe(404);
     });
 

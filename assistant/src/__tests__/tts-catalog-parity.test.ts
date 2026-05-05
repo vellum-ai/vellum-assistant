@@ -67,22 +67,33 @@ function loadClientCatalog(): ClientCatalog {
  * catalog entry's secret requirements.
  *
  * Convention:
- * - If the first secretRequirement.credentialStoreKey starts with "credential/",
- *   the client uses credentialMode "credential" and credentialNamespace is the
- *   second path segment.
+ * - If the first secretRequirement.credentialStoreKey starts with "credential/"
+ *   AND the setCommand uses "assistant keys set" (api-key flow), the client uses
+ *   credentialMode "api-key" with apiKeyProviderName as the second path segment.
+ * - If the first secretRequirement.credentialStoreKey starts with "credential/"
+ *   and the setCommand uses the credentials flow, the client uses credentialMode
+ *   "credential" and credentialNamespace is the second path segment.
  * - Otherwise, the client uses credentialMode "api-key" and apiKeyProviderName
  *   is the bare key.
  */
 function deriveCredentialMetadata(daemonEntry: {
-  secretRequirements: readonly { readonly credentialStoreKey: string }[];
+  secretRequirements: readonly {
+    readonly credentialStoreKey: string;
+    readonly setCommand?: string;
+  }[];
 }): {
   credentialMode: "api-key" | "credential";
   apiKeyProviderName?: string;
   credentialNamespace?: string;
 } {
-  const key = daemonEntry.secretRequirements[0]?.credentialStoreKey ?? "";
+  const req = daemonEntry.secretRequirements[0];
+  const key = req?.credentialStoreKey ?? "";
+  const cmd = req?.setCommand ?? "";
   if (key.startsWith("credential/")) {
     const parts = key.split("/");
+    if (cmd.startsWith("assistant keys set ")) {
+      return { credentialMode: "api-key", apiKeyProviderName: parts[1] };
+    }
     return { credentialMode: "credential", credentialNamespace: parts[1] };
   }
   return { credentialMode: "api-key", apiKeyProviderName: key };

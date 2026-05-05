@@ -7,7 +7,7 @@ describe("MemoryV2ConfigSchema", () => {
   test("parses an empty object to documented defaults", () => {
     const parsed = MemoryV2ConfigSchema.parse({});
     expect(parsed).toEqual({
-      enabled: false,
+      enabled: true,
       sweep_enabled: false,
       d: 0.3,
       c_user: 0.3,
@@ -15,13 +15,23 @@ describe("MemoryV2ConfigSchema", () => {
       c_now: 0.2,
       k: 0.5,
       hops: 2,
-      top_k: 20,
-      top_k_skills: 5,
+      top_k: 25,
+      ann_candidate_limit: null,
       epsilon: 0.01,
-      dense_weight: 0.7,
-      sparse_weight: 0.3,
+      dense_weight: 0.85,
+      sparse_weight: 0.15,
+      bm25_k1: 1.2,
+      bm25_b: 0.4,
       consolidation_interval_hours: 4,
       max_page_chars: 5000,
+      consolidation_prompt_path: null,
+      rerank: {
+        enabled: false,
+        top_k: 50,
+        alpha: 0.3,
+        model: "Alibaba-NLP/gte-reranker-modernbert-base",
+        dtype: "q8",
+      },
     });
   });
 
@@ -151,12 +161,11 @@ describe("MemoryConfigSchema integration with v2 block", () => {
   test("parses an empty memory config and includes a v2 block with defaults", () => {
     const parsed = MemoryConfigSchema.parse({});
     expect(parsed.v2).toBeDefined();
-    expect(parsed.v2.enabled).toBe(false);
+    expect(parsed.v2.enabled).toBe(true);
     expect(parsed.v2.sweep_enabled).toBe(false);
     expect(parsed.v2.d).toBe(0.3);
-    expect(parsed.v2.dense_weight).toBe(0.7);
-    expect(parsed.v2.sparse_weight).toBe(0.3);
-    expect(parsed.v2.top_k_skills).toBe(5);
+    expect(parsed.v2.dense_weight).toBe(0.85);
+    expect(parsed.v2.sparse_weight).toBe(0.15);
     expect(parsed.v2.consolidation_interval_hours).toBe(4);
     expect(parsed.v2.max_page_chars).toBe(5000);
   });

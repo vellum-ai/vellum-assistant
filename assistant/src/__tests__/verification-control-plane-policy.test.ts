@@ -40,8 +40,6 @@ const mockConfig = {
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
-    action: "warn" as const,
-    entropyThreshold: 4.0,
   },
 };
 
@@ -51,7 +49,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
-  saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
@@ -104,10 +101,6 @@ mock.module("../tools/registry.js", () => ({
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
-}));
-
-mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
 // Re-assert the real verification-control-plane-policy implementation.
@@ -194,7 +187,10 @@ mock.module("../tools/verification-control-plane-policy.js", () => {
     };
   }
 
-  return { isVerificationControlPlaneInvocation, enforceVerificationControlPlanePolicy };
+  return {
+    isVerificationControlPlaneInvocation,
+    enforceVerificationControlPlanePolicy,
+  };
 });
 
 // -- Real imports --
@@ -703,15 +699,14 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("non-guardian invocation of unrelated bash command is allowed (sandbox bash is auto-approved)", async () => {
+  test("non-guardian invocation of unrelated bash command requires guardian grant", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
       { command: "curl http://localhost:3000/v1/messages" },
       makeContext({ trustClass: "trusted_contact" }),
     );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("ok");
+    expect(result.isError).toBe(true);
   });
 
   test("non-guardian invocation of unrelated tool is unaffected", async () => {

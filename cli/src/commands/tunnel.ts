@@ -1,7 +1,4 @@
-import {
-  findAssistantByName,
-  loadLatestAssistant,
-} from "../lib/assistant-config";
+import { resolveAssistant } from "../lib/assistant-config";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -63,9 +60,7 @@ function parseArgs(): TunnelArgs {
 export async function tunnel(): Promise<void> {
   const { assistantName, provider } = parseArgs();
 
-  const entry = assistantName
-    ? findAssistantByName(assistantName)
-    : loadLatestAssistant();
+  const entry = resolveAssistant(assistantName ?? undefined);
 
   if (!entry) {
     if (assistantName) {

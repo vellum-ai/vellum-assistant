@@ -21,13 +21,8 @@ import type {
 
 export type {
   ApprovalCopyGenerator,
-  ApprovalMessageContext,
-  ApprovalMessageScenario,
   ComposeApprovalMessageGenerativeOptions,
-  ComposeGuardianActionMessageOptions,
   GuardianActionCopyGenerator,
-  GuardianActionMessageContext,
-  GuardianActionMessageScenario,
 } from "./message-composer-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 
@@ -118,6 +113,8 @@ export interface RuntimeMessageConversationOptions {
   isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Slack-only non-persisted notice injected into the active model turn. */
+  slackRuntimeContextNotice?: string;
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
   /**
@@ -206,6 +203,9 @@ export interface RuntimeMessagePayload {
     riskLevel?: string;
     riskReason?: string;
     autoApproved?: boolean;
+    approvalMode?: string;
+    approvalReason?: string;
+    riskThreshold?: string;
   }>;
   interfaces?: string[];
   surfaces?: Array<{

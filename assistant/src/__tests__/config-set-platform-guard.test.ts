@@ -40,20 +40,37 @@ mock.module("../platform/client.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ services: {} }),
   loadConfig: () => ({ services: {} }),
-  saveConfig: () => {},
   invalidateConfigCache: () => {},
   loadRawConfig: () => mockLoadRawConfig(),
   saveRawConfig: (raw: Record<string, unknown>) => {
     mockSaveRawConfigCalls.push(raw);
   },
   applyNestedDefaults: (c: unknown) => c,
-  deepMergeMissing: (a: unknown) => a,
   deepMergeOverwrite: (a: unknown) => a,
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: (obj: Record<string, unknown>, key: string) =>
     mockGetNestedValue(obj, key),
-  setNestedValue: (obj: Record<string, unknown>, key: string, value: unknown) =>
-    mockSetNestedValueCalls.push({ obj, key, value }),
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ) => {
+    mockSetNestedValueCalls.push({ obj, key, value });
+    const keys = key.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const segment = keys[i]!;
+      if (
+        current[segment] == null ||
+        typeof current[segment] !== "object" ||
+        Array.isArray(current[segment])
+      ) {
+        current[segment] = {};
+      }
+      current = current[segment] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]!] = value;
+  },
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
@@ -238,6 +255,33 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSetNestedValueCalls[0]!.key).toBe("calls.enabled");
     expect(mockSetNestedValueCalls[0]!.value).toBe(true);
     expect(mockSaveRawConfigCalls).toHaveLength(1);
+  });
+
+  test("config set ingress.publicBaseUrl overwrites existing value", async () => {
+    mockLoadRawConfig = () => ({
+      ingress: {
+        publicBaseUrl: "https://stale-velay.example.test",
+        publicBaseUrlManagedBy: "velay",
+      },
+    });
+
+    const { exitCode } = await runCli([
+      "node",
+      "assistant",
+      "config",
+      "set",
+      "ingress.publicBaseUrl",
+      "https://manual.example.test",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(mockSaveRawConfigCalls).toHaveLength(1);
+    expect(mockSaveRawConfigCalls[0]).toEqual({
+      ingress: {
+        publicBaseUrl: "https://manual.example.test",
+        publicBaseUrlManagedBy: "velay",
+      },
+    });
   });
 
   test("config get services.inference.mode — works without platform connection", async () => {

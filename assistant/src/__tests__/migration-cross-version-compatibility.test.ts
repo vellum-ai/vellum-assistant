@@ -87,6 +87,10 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
+import {
+  buildTestManifest,
+  defaultV1Options,
+} from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   analyzeImport,
@@ -101,7 +105,6 @@ import {
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-
 // ---------------------------------------------------------------------------
 // Test fixture data
 // ---------------------------------------------------------------------------
@@ -233,19 +236,6 @@ function sha256Hex(data: Uint8Array | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-function canonicalizeJson(obj: unknown): string {
-  return JSON.stringify(obj, (_key, value) => {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const sorted: Record<string, unknown> = {};
-      for (const k of Object.keys(value as Record<string, unknown>).sort()) {
-        sorted[k] = (value as Record<string, unknown>)[k];
-      }
-      return sorted;
-    }
-    return value;
-  });
-}
-
 interface VBundleFile {
   path: string;
   data: Uint8Array;
@@ -253,34 +243,26 @@ interface VBundleFile {
 
 function createValidVBundle(
   files?: VBundleFile[],
-  overrides?: Partial<{
-    schema_version: string;
-    source: string;
-    description: string;
-  }>,
+  overrides?: Partial<{ schema_version: number }>,
 ): Uint8Array {
   const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
   const bundleFiles = files ?? [{ path: "data/db/assistant.db", data: dbData }];
 
-  const fileEntries = bundleFiles.map((f) => ({
+  const contents = bundleFiles.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
-  const manifestWithoutChecksum = {
-    schema_version: overrides?.schema_version ?? "1.0",
-    created_at: new Date().toISOString(),
-    source: overrides?.source ?? "test",
-    description: overrides?.description ?? "Test bundle",
-    files: fileEntries,
-  };
-
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
+  const manifest = buildTestManifest({
+    contents,
+    overrides: {
+      bundle_id: "00000000-0000-4000-8000-000000000000",
+      ...(overrides?.schema_version !== undefined
+        ? { schema_version: overrides.schema_version }
+        : {}),
+    },
+  });
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
@@ -374,85 +356,22 @@ interface ImportCommitResponse {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("schema version compatibility", () => {
-  test("bundle with schema_version 1.0 validates successfully", () => {
-    const vbundle = createValidVBundle(undefined, {
-      schema_version: "1.0",
-    });
+  test("bundle with schema_version 1 validates successfully", () => {
+    const vbundle = createValidVBundle();
     const result = validateVBundle(vbundle);
 
     expect(result.is_valid).toBe(true);
-    expect(result.manifest?.schema_version).toBe("1.0");
+    expect(result.manifest?.schema_version).toBe(1);
   });
 
-  test("bundle with schema_version 2.0 validates successfully (forward compat)", () => {
-    // A structurally valid bundle with a future version should still pass
-    // validation because the schema_version field is a string and the
-    // archive structure is unchanged.
-    const vbundle = createValidVBundle(undefined, {
-      schema_version: "2.0",
-    });
+  test("bundle with schema_version != 1 is rejected by the v1 validator", () => {
+    // The v1 validator pins `schema_version: z.literal(1)`. Bundles that
+    // claim a different schema version are rejected outright; this used to
+    // be permissive when schema_version was a free-form string.
+    const vbundle = createValidVBundle(undefined, { schema_version: 2 });
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(true);
-    expect(result.manifest?.schema_version).toBe("2.0");
-  });
-
-  test("bundle with schema_version 99.0 validates when structurally valid", () => {
-    const vbundle = createValidVBundle(undefined, {
-      schema_version: "99.0",
-    });
-    const result = validateVBundle(vbundle);
-
-    expect(result.is_valid).toBe(true);
-    expect(result.manifest?.schema_version).toBe("99.0");
-  });
-
-  test("bundle with arbitrary version string validates when structurally valid", () => {
-    const vbundle = createValidVBundle(undefined, {
-      schema_version: "alpha-preview-3",
-    });
-    const result = validateVBundle(vbundle);
-
-    expect(result.is_valid).toBe(true);
-    expect(result.manifest?.schema_version).toBe("alpha-preview-3");
-  });
-
-  test("future-versioned bundle can be imported successfully", () => {
-    const newDbData = new Uint8Array([0xfa, 0xce, 0xb0, 0x0c]);
-    const vbundle = createValidVBundle(
-      [{ path: "data/db/assistant.db", data: newDbData }],
-      { schema_version: "3.0" },
-    );
-
-    const resolver = new DefaultPathResolver(testDir);
-    const result = commitImport({
-      archiveData: vbundle,
-      pathResolver: resolver,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.report.manifest.schema_version).toBe("3.0");
-      expect(result.report.success).toBe(true);
-    }
-  });
-
-  test("future-versioned bundle shows correct version in preflight report", () => {
-    const vbundle = createValidVBundle(undefined, {
-      schema_version: "5.0-beta",
-    });
-
-    const resolver = new DefaultPathResolver(testDir);
-    const validationResult = validateVBundle(vbundle);
-    expect(validationResult.manifest).toBeDefined();
-
-    const report = analyzeImport({
-      manifest: validationResult.manifest!,
-      pathResolver: resolver,
-    });
-
-    expect(report.manifest.schema_version).toBe("5.0-beta");
-    expect(report.can_import).toBe(true);
+    expect(result.is_valid).toBe(false);
   });
 });
 
@@ -541,20 +460,19 @@ describe("missing or malformed version fields", () => {
     );
   });
 
-  test("empty string schema_version passes validation (empty strings are valid)", () => {
-    // The Zod schema accepts any string, including empty. An empty string
-    // is technically a valid schema_version value, even if unconventional.
-    const vbundle = createValidVBundle(undefined, { schema_version: "" });
+  test("zero schema_version is rejected by the v1 validator", () => {
+    // The v1 schema pins schema_version to the literal `1`; any other
+    // numeric value (including 0) is rejected.
+    const vbundle = createValidVBundle(undefined, { schema_version: 0 });
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(true);
-    expect(result.manifest?.schema_version).toBe("");
+    expect(result.is_valid).toBe(false);
   });
 
   test("missing created_at produces MANIFEST_SCHEMA_ERROR", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifestObj = {
-      schema_version: "1.0",
+      schema_version: 1,
       // created_at intentionally omitted
       files: [
         {
@@ -572,15 +490,20 @@ describe("missing or malformed version fields", () => {
     const result = validateVBundle(vbundle);
 
     expect(result.is_valid).toBe(false);
+    // The v1 schema reports errors per missing required field; we just
+    // assert at least one MANIFEST_SCHEMA_ERROR fires for any of the
+    // newly-required fields. The legacy assertion looking for "created_at"
+    // in the message specifically is no longer meaningful — the validator
+    // surfaces the first missing field it finds, which under the v1
+    // schema may be `bundle_id`, `assistant`, `origin`, etc.
     const error = result.errors.find((e) => e.code === "MANIFEST_SCHEMA_ERROR");
     expect(error).toBeDefined();
-    expect(error!.message).toContain("created_at");
   });
 
   test("missing files array produces MANIFEST_SCHEMA_ERROR", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifestObj = {
-      schema_version: "1.0",
+      schema_version: 1,
       created_at: new Date().toISOString(),
       // files intentionally omitted
       manifest_sha256: "placeholder",
@@ -600,7 +523,7 @@ describe("missing or malformed version fields", () => {
   test("missing manifest_sha256 produces MANIFEST_SCHEMA_ERROR", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifestObj = {
-      schema_version: "1.0",
+      schema_version: 1,
       created_at: new Date().toISOString(),
       files: [
         {
@@ -626,7 +549,7 @@ describe("missing or malformed version fields", () => {
   test("file entry missing sha256 produces MANIFEST_SCHEMA_ERROR", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifestObj = {
-      schema_version: "1.0",
+      schema_version: 1,
       created_at: new Date().toISOString(),
       files: [
         {
@@ -652,7 +575,7 @@ describe("missing or malformed version fields", () => {
   test("file entry with negative size produces MANIFEST_SCHEMA_ERROR", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifestObj = {
-      schema_version: "1.0",
+      schema_version: 1,
       created_at: new Date().toISOString(),
       files: [
         {
@@ -744,7 +667,10 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
         body: toArrayBuffer(archiveData),
       },
     );
-    const preflightRes = await callHandler(handleMigrationImportPreflight, preflightReq);
+    const preflightRes = await callHandler(
+      handleMigrationImportPreflight,
+      preflightReq,
+    );
     const preflightBody = (await preflightRes.json()) as ImportDryRunResponse;
 
     expect(preflightRes.status).toBe(200);
@@ -793,20 +719,16 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
         { path: "data/db/assistant.db", data: dbData },
         { path: "config/settings.json", data: configData },
       ],
-      schemaVersion: "1.0",
-      source: "round-trip-test",
-      description: "Testing round-trip",
+      ...defaultV1Options(),
     });
 
-    expect(manifest.schema_version).toBe("1.0");
-    expect(manifest.files).toHaveLength(2);
+    expect(manifest.schema_version).toBe(1);
+    expect(manifest.contents).toHaveLength(2);
 
     // Step 2: Validate
     const validationResult = validateVBundle(archive);
     expect(validationResult.is_valid).toBe(true);
-    expect(validationResult.manifest?.manifest_sha256).toBe(
-      manifest.manifest_sha256,
-    );
+    expect(validationResult.manifest?.checksum).toBe(manifest.checksum);
 
     // Step 3: Analyze (preflight)
     const resolver = new DefaultPathResolver(testDir);
@@ -827,7 +749,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     expect(commitResult.ok).toBe(true);
     if (commitResult.ok) {
       expect(commitResult.report.success).toBe(true);
-      expect(commitResult.report.manifest.schema_version).toBe("1.0");
+      expect(commitResult.report.manifest.schema_version).toBe(1);
       expect(commitResult.report.summary.total_files).toBe(2);
 
       // Verify data on disk matches what we built
@@ -848,14 +770,15 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     const exportRes = await callHandler(handleMigrationExport, exportReq);
     const archiveData = new Uint8Array(await exportRes.arrayBuffer());
 
-    // The X-Vbundle-Manifest-Sha256 response header should match
-    // the manifest_sha256 inside the archive
+    // The X-Vbundle-Manifest-Sha256 response header value should match
+    // the manifest's `checksum` field inside the archive (the legacy
+    // header name is preserved across the v1 rename).
     const headerSha = exportRes.headers.get("X-Vbundle-Manifest-Sha256");
     expect(headerSha).toBeDefined();
 
     const validationResult = validateVBundle(archiveData);
     expect(validationResult.is_valid).toBe(true);
-    expect(validationResult.manifest?.manifest_sha256).toBe(headerSha!);
+    expect(validationResult.manifest?.checksum).toBe(headerSha!);
   });
 });
 
@@ -967,7 +890,7 @@ describe("partial failure scenarios", () => {
     // Create bundle with corrupted checksum
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const manifest = {
-      schema_version: "1.0",
+      schema_version: 1,
       created_at: new Date().toISOString(),
       files: [
         {
@@ -1015,7 +938,7 @@ describe("edge cases", () => {
 
     const result = validateVBundle(vbundle);
     expect(result.is_valid).toBe(true);
-    expect(result.manifest?.files[0].size).toBe(0);
+    expect(result.manifest?.contents[0].size_bytes).toBe(0);
 
     // Import should also succeed
     const resolver = new DefaultPathResolver(testDir);
@@ -1042,7 +965,7 @@ describe("edge cases", () => {
 
     const result = validateVBundle(vbundle);
     expect(result.is_valid).toBe(true);
-    expect(result.manifest?.files[0].size).toBe(100 * 1024);
+    expect(result.manifest?.contents[0].size_bytes).toBe(100 * 1024);
   });
 
   test("bundle with duplicate archive paths uses last occurrence in tar", () => {
@@ -1051,26 +974,17 @@ describe("edge cases", () => {
     const dbData1 = new Uint8Array([0x01, 0x02, 0x03]);
     const dbData2 = new Uint8Array([0x04, 0x05, 0x06]);
 
-    // Build a valid manifest that references the second data
-    const fileEntries = [
-      {
-        path: "data/db/assistant.db",
-        sha256: sha256Hex(dbData2),
-        size: dbData2.length,
-      },
-    ];
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      source: "test",
-      description: "Duplicate path test",
-      files: fileEntries,
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+    // Build a valid v1 manifest that references the second data.
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(dbData2),
+          size_bytes: dbData2.length,
+        },
+      ],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     // Build tar with duplicate data/db/assistant.db entries
@@ -1093,22 +1007,16 @@ describe("edge cases", () => {
     const wrongChecksum =
       "0000000000000000000000000000000000000000000000000000000000000000";
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = buildTestManifest({
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: wrongChecksum,
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1132,27 +1040,21 @@ describe("edge cases", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
     const ghostSha = sha256Hex(new TextEncoder().encode("ghost-content"));
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = buildTestManifest({
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
         {
           path: "data/extra/ghost.bin",
           sha256: ghostSha,
-          size: 13,
+          size_bytes: 13,
         },
       ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1172,20 +1074,16 @@ describe("edge cases", () => {
     expect(missingError!.message).toContain("data/extra/ghost.bin");
   });
 
-  test("bundle with only manifest (no data files) is valid", () => {
-    // After the workspace walk refactor, only manifest.json is required.
-    // A bundle with no data files is structurally valid — it just won't
-    // restore anything meaningful.
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+  test("bundle with empty contents is rejected by the v1 contents refine", () => {
+    // The v1 schema's `.refine()` requires `data/db/assistant.db` (legacy)
+    // or its `workspace/`-prefixed counterpart. A manifest declaring an
+    // empty contents array is valid at the field level but rejected by
+    // the refine.
+    const dbBytes = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
+    const manifest = buildTestManifest({
+      contents: [],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1194,7 +1092,9 @@ describe("edge cases", () => {
     const vbundle = gzipSync(tar);
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(true);
+    expect(result.is_valid).toBe(false);
+    // Sanity: this manifest WOULD be valid if it included the DB entry.
+    expect(dbBytes).toBeDefined();
   });
 
   test("completely empty gzip content (no tar entries) fails gracefully", () => {
@@ -1244,24 +1144,16 @@ describe("edge cases", () => {
     const extraData = new TextEncoder().encode("bonus content");
 
     // Manifest only declares the db file
-    const fileEntries = [
-      {
-        path: "data/db/assistant.db",
-        sha256: sha256Hex(dbData),
-        size: dbData.length,
-      },
-    ];
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      source: "test",
-      files: fileEntries,
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+    const manifest = buildTestManifest({
+      contents: [
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(dbData),
+          size_bytes: dbData.length,
+        },
+      ],
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     // Archive has an extra file not in the manifest
@@ -1310,16 +1202,29 @@ describe("diagnostic quality", () => {
     const badHash =
       "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     const manifest = {
-      schema_version: "1.0",
+      schema_version: 1,
+      bundle_id: "00000000-0000-4000-8000-000000000000",
       created_at: new Date().toISOString(),
-      files: [
+      assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+      origin: { mode: "self-hosted-local" as const },
+      compatibility: {
+        min_runtime_version: "0.0.0-test",
+        max_runtime_version: null,
+      },
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
-      manifest_sha256: badHash,
+      checksum: badHash,
+      secrets_redacted: false,
+      export_options: {
+        include_logs: false,
+        include_browser_state: false,
+        include_memory_vectors: false,
+      },
     };
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
@@ -1342,22 +1247,16 @@ describe("diagnostic quality", () => {
     const wrongSha =
       "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = buildTestManifest({
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: wrongSha,
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
       ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
@@ -1376,22 +1275,16 @@ describe("diagnostic quality", () => {
   test("FILE_SIZE_MISMATCH includes file path and both sizes", () => {
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
 
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = buildTestManifest({
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: 99999,
+          size_bytes: 99999,
         },
       ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
@@ -1461,27 +1354,21 @@ describe("multiple error accumulation", () => {
 
     // Manifest declares correct db checksum but wrong config checksum and
     // also wrong config size
-    const manifestWithoutChecksum = {
-      schema_version: "1.0",
-      created_at: new Date().toISOString(),
-      files: [
+    const manifest = buildTestManifest({
+      contents: [
         {
           path: "data/db/assistant.db",
           sha256: sha256Hex(dbData),
-          size: dbData.length,
+          size_bytes: dbData.length,
         },
         {
           path: "config/settings.json",
           sha256: wrongSha,
-          size: 999,
+          size_bytes: 999,
         },
       ],
-    };
-    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-    const manifest = {
-      ...manifestWithoutChecksum,
-      manifest_sha256: manifestSha256,
-    };
+      overrides: { bundle_id: "00000000-0000-4000-8000-000000000000" },
+    });
     const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
     const tar = createTarArchive([
@@ -1535,8 +1422,8 @@ describe("multiple error accumulation", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("builder -> validator consistency", () => {
-  test("buildVBundle always produces archives that pass validation", () => {
-    const testCases = [
+  test("buildVBundle archives across content shapes pass validation", () => {
+    const testCases: Array<{ files: VBundleFile[] }> = [
       {
         files: [
           {
@@ -1544,7 +1431,6 @@ describe("builder -> validator consistency", () => {
             data: new Uint8Array([0x01]),
           },
         ],
-        schemaVersion: "1.0",
       },
       {
         files: [
@@ -1557,7 +1443,6 @@ describe("builder -> validator consistency", () => {
             data: new TextEncoder().encode('{"big":"config","keys":[1,2,3]}'),
           },
         ],
-        schemaVersion: "2.0",
       },
       {
         files: [
@@ -1566,23 +1451,22 @@ describe("builder -> validator consistency", () => {
             data: new Uint8Array(0), // empty
           },
         ],
-        schemaVersion: "0.1-alpha",
       },
     ];
 
     for (const tc of testCases) {
       const { archive } = buildVBundle({
         files: tc.files,
-        schemaVersion: tc.schemaVersion,
+        ...defaultV1Options(),
       });
 
       const result = validateVBundle(archive);
       expect(result.is_valid).toBe(true);
-      expect(result.manifest?.schema_version).toBe(tc.schemaVersion);
+      expect(result.manifest?.schema_version).toBe(1);
     }
   });
 
-  test("builder output manifest_sha256 matches validator computation", () => {
+  test("builder output checksum matches validator computation", () => {
     const { archive, manifest } = buildVBundle({
       files: [
         {
@@ -1590,24 +1474,27 @@ describe("builder -> validator consistency", () => {
           data: new Uint8Array([0xca, 0xfe]),
         },
       ],
-      schemaVersion: "1.0",
+      ...defaultV1Options(),
     });
 
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(true);
-    expect(result.manifest?.manifest_sha256).toBe(manifest.manifest_sha256);
+    expect(result.manifest?.checksum).toBe(manifest.checksum);
   });
 
   test("builder output file checksums match validator computation", () => {
     const fileData = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     const { archive, manifest } = buildVBundle({
       files: [{ path: "data/db/assistant.db", data: fileData }],
+      ...defaultV1Options(),
     });
 
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(true);
-    expect(result.manifest?.files[0].sha256).toBe(manifest.files[0].sha256);
-    expect(result.manifest?.files[0].sha256).toBe(sha256Hex(fileData));
+    expect(result.manifest?.contents[0].sha256).toBe(
+      manifest.contents[0].sha256,
+    );
+    expect(result.manifest?.contents[0].sha256).toBe(sha256Hex(fileData));
   });
 });
 
@@ -1622,21 +1509,34 @@ describe("import analyzer edge cases", () => {
 
     const report = analyzeImport({
       manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
+        created_at: "2026-03-01T00:00:00Z",
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [
           {
             path: "data/db/assistant.db",
             sha256: sha256Hex(EXISTING_DB_DATA),
-            size: EXISTING_DB_DATA.length,
+            size_bytes: EXISTING_DB_DATA.length,
           },
           {
             path: "config/settings.json",
             sha256: sha256Hex(existingConfig),
-            size: existingConfig.length,
+            size_bytes: existingConfig.length,
           },
         ],
-        manifest_sha256: "test",
+        checksum: "test",
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       pathResolver: resolver,
     });
@@ -1654,23 +1554,24 @@ describe("import analyzer edge cases", () => {
     );
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
+      manifest: buildTestManifest({
+        contents: [
           {
             path: "data/db/assistant.db",
             sha256: sha256Hex(new Uint8Array([1])),
-            size: 1,
+            size_bytes: 1,
           },
           {
             path: "config/settings.json",
             sha256: sha256Hex(new Uint8Array([2])),
-            size: 1,
+            size_bytes: 1,
           },
         ],
-        manifest_sha256: "test",
-      },
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
+        },
+      }),
       pathResolver: resolver,
     });
 
@@ -1688,23 +1589,24 @@ describe("import analyzer edge cases", () => {
     const existingConfig = new Uint8Array(readFileSync(testConfigPath));
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
+      manifest: buildTestManifest({
+        contents: [
           {
             path: "data/db/assistant.db",
             sha256: sha256Hex(new Uint8Array([0xff])),
-            size: 1,
+            size_bytes: 1,
           },
           {
             path: "config/settings.json",
             sha256: sha256Hex(existingConfig),
-            size: existingConfig.length,
+            size_bytes: existingConfig.length,
           },
         ],
-        manifest_sha256: "test",
-      },
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
+        },
+      }),
       pathResolver: resolver,
     });
 
@@ -1717,23 +1619,24 @@ describe("import analyzer edge cases", () => {
     const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
+      manifest: buildTestManifest({
+        contents: [
           {
             path: "data/db/assistant.db",
             sha256: sha256Hex(EXISTING_DB_DATA),
-            size: EXISTING_DB_DATA.length,
+            size_bytes: EXISTING_DB_DATA.length,
           },
           {
             path: "future/unknown-file.dat",
             sha256: sha256Hex(new Uint8Array([0])),
-            size: 1,
+            size_bytes: 1,
           },
         ],
-        manifest_sha256: "test",
-      },
+        overrides: {
+          bundle_id: "00000000-0000-4000-8000-000000000000",
+          created_at: "2026-03-01T00:00:00Z",
+        },
+      }),
       pathResolver: resolver,
     });
 
@@ -1792,7 +1695,10 @@ describe("HTTP endpoint error consistency", () => {
         body: toArrayBuffer(invalidData),
       },
     );
-    const preflightRes = await callHandler(handleMigrationImportPreflight, preflightReq);
+    const preflightRes = await callHandler(
+      handleMigrationImportPreflight,
+      preflightReq,
+    );
     const preflightBody = (await preflightRes.json()) as ImportDryRunResponse;
 
     expect(validateBody.is_valid).toBe(false);

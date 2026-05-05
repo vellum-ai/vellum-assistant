@@ -7,7 +7,6 @@ import { SttError } from "../../../stt/types.js";
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-let mockFeatureFlagEnabled = true;
 let mockAttachments: Array<{
   id: string;
   mimeType: string;
@@ -19,14 +18,6 @@ let mockAttachments: Array<{
   createdAt: number;
 }> = [];
 let mockTranscriber: BatchTranscriber | null = null;
-
-mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => mockFeatureFlagEnabled,
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
 
 mock.module("../../../memory/attachments-store.js", () => ({
   getAttachmentsByIds: (ids: string[]) =>
@@ -115,7 +106,6 @@ function makeImageAttachment(id: string) {
 
 describe("tryTranscribeAudioAttachments", () => {
   beforeEach(() => {
-    mockFeatureFlagEnabled = true;
     mockAttachments = [];
     mockTranscriber = null;
   });
@@ -187,16 +177,6 @@ describe("tryTranscribeAudioAttachments", () => {
     expect((result as { reason: string }).reason).toBe(
       "API rate limit exceeded",
     );
-  });
-
-  test("feature flag disabled returns disabled", async () => {
-    mockFeatureFlagEnabled = false;
-    const audio = makeAudioAttachment("a1");
-    mockAttachments = [audio];
-
-    const result = await tryTranscribeAudioAttachments(["a1"]);
-
-    expect(result).toEqual({ status: "disabled" });
   });
 
   test("30-second timeout fires and returns error without blocking", async () => {

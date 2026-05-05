@@ -68,8 +68,35 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../runtime/migrations/vbundle-import-analyzer.js";
+import type { ManifestType } from "../runtime/migrations/vbundle-validator.js";
 import { handleMigrationImportPreflight } from "../runtime/routes/migration-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+
+/** Build a v1-compliant manifest with the given file entries. */
+function v1Manifest(
+  contents: Array<{ path: string; sha256: string; size_bytes: number }>,
+): ManifestType {
+  return {
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
+    created_at: new Date().toISOString(),
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents,
+    checksum:
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  } as ManifestType;
+}
 
 // Test fixture data
 const EXISTING_DB_DATA = new Uint8Array([
@@ -194,36 +221,38 @@ interface VBundleFile {
   data: Uint8Array;
 }
 
-function createValidVBundle(
-  files?: VBundleFile[],
-  overrides?: Partial<{
-    schema_version: string;
-    source: string;
-    description: string;
-  }>,
-): Uint8Array {
+function createValidVBundle(files?: VBundleFile[]): Uint8Array {
   const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
   const bundleFiles = files ?? [{ path: "data/db/assistant.db", data: dbData }];
 
-  const fileEntries = bundleFiles.map((f) => ({
+  const contents = bundleFiles.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
-  const manifestWithoutChecksum = {
-    schema_version: overrides?.schema_version ?? "1.0",
+  const manifestWithEmptyChecksum = {
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
     created_at: new Date().toISOString(),
-    source: overrides?.source ?? "test",
-    description: overrides?.description ?? "Test bundle",
-    files: fileEntries,
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents,
+    checksum: "",
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
   };
 
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
+  const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
+  const manifest = { ...manifestWithEmptyChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
 
   const tarEntries = [
@@ -378,10 +407,7 @@ describe("handleMigrationImportPreflight", () => {
   });
 
   test("includes manifest in response", async () => {
-    const vbundle = createValidVBundle(undefined, {
-      source: "test-export",
-      description: "Test import preflight",
-    });
+    const vbundle = createValidVBundle();
 
     const req = new Request("http://localhost/v1/migrations/import-preflight", {
       method: "POST",
@@ -393,9 +419,9 @@ describe("handleMigrationImportPreflight", () => {
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.manifest).toBeDefined();
-    expect(body.manifest.schema_version).toBe("1.0");
-    expect(body.manifest.source).toBe("test-export");
-    expect(body.manifest.description).toBe("Test import preflight");
+    expect(body.manifest.schema_version).toBe(1);
+    expect(body.manifest.bundle_id).toBeDefined();
+    expect(body.manifest.contents).toBeDefined();
   });
 
   test("POST with multipart form data works", async () => {
@@ -504,18 +530,13 @@ describe("analyzeImport", () => {
     );
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
-          {
-            path: "data/db/assistant.db",
-            sha256: sha256Hex(new Uint8Array([1, 2, 3])),
-            size: 3,
-          },
-        ],
-        manifest_sha256: "test",
-      },
+      manifest: v1Manifest([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(new Uint8Array([1, 2, 3])),
+          size_bytes: 3,
+        },
+      ]),
       pathResolver: resolver,
     });
 
@@ -530,18 +551,13 @@ describe("analyzeImport", () => {
     const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
-          {
-            path: "data/db/assistant.db",
-            sha256: sha256Hex(EXISTING_DB_DATA),
-            size: EXISTING_DB_DATA.length,
-          },
-        ],
-        manifest_sha256: "test",
-      },
+      manifest: v1Manifest([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(EXISTING_DB_DATA),
+          size_bytes: EXISTING_DB_DATA.length,
+        },
+      ]),
       pathResolver: resolver,
     });
 
@@ -554,18 +570,13 @@ describe("analyzeImport", () => {
     const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
-          {
-            path: "data/db/assistant.db",
-            sha256: sha256Hex(new Uint8Array([0xca, 0xfe])),
-            size: 2,
-          },
-        ],
-        manifest_sha256: "test",
-      },
+      manifest: v1Manifest([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(new Uint8Array([0xca, 0xfe])),
+          size_bytes: 2,
+        },
+      ]),
       pathResolver: resolver,
     });
 
@@ -579,23 +590,18 @@ describe("analyzeImport", () => {
     const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
-      manifest: {
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [
-          {
-            path: "data/db/assistant.db",
-            sha256: sha256Hex(EXISTING_DB_DATA),
-            size: EXISTING_DB_DATA.length,
-          },
-          {
-            path: "unknown/extra-file.bin",
-            sha256: sha256Hex(new Uint8Array([1])),
-            size: 1,
-          },
-        ],
-        manifest_sha256: "test",
-      },
+      manifest: v1Manifest([
+        {
+          path: "data/db/assistant.db",
+          sha256: sha256Hex(EXISTING_DB_DATA),
+          size_bytes: EXISTING_DB_DATA.length,
+        },
+        {
+          path: "unknown/extra-file.bin",
+          sha256: sha256Hex(new Uint8Array([1])),
+          size_bytes: 1,
+        },
+      ]),
       pathResolver: resolver,
     });
 
@@ -615,25 +621,19 @@ describe("analyzeImport", () => {
 
   test("includes manifest in report", () => {
     const resolver = new DefaultPathResolver(testDir);
-    const manifest = {
-      schema_version: "1.0",
-      created_at: "2024-01-01T00:00:00.000Z",
-      source: "test",
-      files: [
-        {
-          path: "data/db/assistant.db",
-          sha256: sha256Hex(EXISTING_DB_DATA),
-          size: EXISTING_DB_DATA.length,
-        },
-      ],
-      manifest_sha256: "test",
-    };
+    const manifest = v1Manifest([
+      {
+        path: "data/db/assistant.db",
+        sha256: sha256Hex(EXISTING_DB_DATA),
+        size_bytes: EXISTING_DB_DATA.length,
+      },
+    ]);
 
     const report = analyzeImport({ manifest, pathResolver: resolver });
 
     expect(report.manifest).toBe(manifest);
-    expect(report.manifest.schema_version).toBe("1.0");
-    expect(report.manifest.source).toBe("test");
+    expect(report.manifest.schema_version).toBe(1);
+    expect(report.manifest.assistant.id).toBe("self");
   });
 });
 

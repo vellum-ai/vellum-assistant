@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import type { RecallSearchContext } from "../memory/context-search/types.js";
+import type {
+  RecallEvidence,
+  RecallSearchContext,
+  RecallSearchResult,
+} from "../memory/context-search/types.js";
 import type { MemoryNode } from "../memory/graph/types.js";
 
 const loggerModule = import.meta.resolve("../util/logger.js");
@@ -11,6 +16,8 @@ const embeddingBackendModule = import.meta
 const graphSearchModule = import.meta
   .resolve("../memory/graph/graph-search.js");
 const graphStoreModule = import.meta.resolve("../memory/graph/store.js");
+const memoryV2SourceModule = import.meta
+  .resolve("../memory/context-search/sources/memory-v2.js");
 
 const warnCalls: unknown[][] = [];
 mock.module(loggerModule, () => ({
@@ -48,6 +55,11 @@ mock.module(embedModule, () => ({
 }));
 
 mock.module(embeddingBackendModule, () => ({
+  embedWithBackend: async () => ({
+    provider: "test",
+    model: "test-model",
+    vectors: [[0.1, 0.2, 0.3]],
+  }),
   generateSparseEmbedding: (text: string) =>
     text.trim().length === 0
       ? { indices: [], values: [] }
@@ -57,7 +69,6 @@ mock.module(embeddingBackendModule, () => ({
 type SearchCall = {
   vector: number[];
   limit: number;
-  scopeIds?: string[];
   sparseVector?: { indices: number[]; values: number[] };
 };
 
@@ -69,10 +80,9 @@ mock.module(graphSearchModule, () => ({
   searchGraphNodes: async (
     vector: number[],
     limit: number,
-    scopeIds?: string[],
     sparseVector?: { indices: number[]; values: number[] },
   ) => {
-    searchCalls.push({ vector, limit, scopeIds, sparseVector });
+    searchCalls.push({ vector, limit, sparseVector });
     if (searchShouldThrow) {
       throw new Error("qdrant unavailable");
     }
@@ -90,6 +100,28 @@ mock.module(graphStoreModule, () => ({
   },
 }));
 
+const v2Calls: Array<{
+  query: string;
+  context: RecallSearchContext;
+  limit: number;
+}> = [];
+let v2EvidenceReturn: RecallEvidence[] = [];
+
+const realMemoryV2 =
+  await import("../memory/context-search/sources/memory-v2.js");
+
+mock.module(memoryV2SourceModule, () => ({
+  isMemoryV2ReadActive: realMemoryV2.isMemoryV2ReadActive,
+  searchMemoryV2Source: async (
+    query: string,
+    context: RecallSearchContext,
+    limit: number,
+  ): Promise<RecallSearchResult> => {
+    v2Calls.push({ query, context, limit });
+    return { evidence: v2EvidenceReturn };
+  },
+}));
+
 const { searchMemorySource } =
   await import("../memory/context-search/sources/memory.js");
 
@@ -104,6 +136,9 @@ describe("searchMemorySource", () => {
     searchCalls.length = 0;
     hydratedNodes = [];
     getNodesByIdsCalls.length = 0;
+    v2Calls.length = 0;
+    v2EvidenceReturn = [];
+    _setOverridesForTesting({ "memory-v2-enabled": false });
   });
 
   test("hydrates graph hits into memory recall evidence", async () => {
@@ -168,13 +203,13 @@ describe("searchMemorySource", () => {
     expect(second.lastAccessed).toBe(222);
   });
 
-  test("forwards memory scope and abort signal to graph search dependencies", async () => {
+  test("forwards abort signal to graph search dependencies", async () => {
     const controller = new AbortController();
     searchHits = [];
 
     await searchMemorySource(
       "deployment checklist",
-      makeContext({ memoryScopeId: "scope-abc", signal: controller.signal }),
+      makeContext({ signal: controller.signal }),
       3,
     );
 
@@ -189,7 +224,6 @@ describe("searchMemorySource", () => {
     expect(searchCalls[0]).toMatchObject({
       vector: [0.1, 0.2, 0.3],
       limit: 3,
-      scopeIds: ["scope-abc"],
     });
     expect(searchCalls[0]?.sparseVector?.indices.length).toBeGreaterThan(0);
   });
@@ -263,14 +297,95 @@ describe("searchMemorySource", () => {
       "Failed to search memory graph for recall",
     );
   });
+
+  test("routes to v2 source when both v2 gates are on", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    v2EvidenceReturn = [
+      {
+        id: "memory:v2:alice",
+        source: "memory",
+        title: "alice",
+        locator: "memory/concepts/alice.md",
+        excerpt: "Alice prefers concise notes.",
+        score: 0.9,
+        metadata: {
+          path: "memory/concepts/alice.md",
+          slug: "alice",
+          retrieval: "activation",
+        },
+      },
+    ];
+
+    const result = await searchMemorySource(
+      "alice",
+      makeContext({
+        config: makeV2EnabledConfig(),
+      }),
+      6,
+    );
+
+    expect(v2Calls).toHaveLength(1);
+    expect(v2Calls[0]?.query).toBe("alice");
+    expect(v2Calls[0]?.limit).toBe(6);
+    expect(searchCalls).toHaveLength(0);
+    expect(getNodesByIdsCalls).toHaveLength(0);
+    expect(result.evidence.map((e) => e.locator)).toEqual([
+      "memory/concepts/alice.md",
+    ]);
+  });
+
+  test("stays on legacy path when feature flag is on but config.memory.v2.enabled is off", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    searchHits = [{ nodeId: "node-a", score: 0.7, text: "" }];
+    hydratedNodes = [makeNode({ id: "node-a", content: "Legacy hit" })];
+
+    await searchMemorySource(
+      "alice",
+      makeContext({ config: makeV2DisabledConfig() }),
+      5,
+    );
+
+    expect(v2Calls).toHaveLength(0);
+    expect(searchCalls).toHaveLength(1);
+  });
+
+  test("stays on legacy path when feature flag is off", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": false });
+    searchHits = [{ nodeId: "node-a", score: 0.7, text: "" }];
+    hydratedNodes = [makeNode({ id: "node-a", content: "Legacy hit" })];
+
+    await searchMemorySource(
+      "alice",
+      makeContext({ config: makeV2EnabledConfig() }),
+      5,
+    );
+
+    expect(v2Calls).toHaveLength(0);
+    expect(searchCalls).toHaveLength(1);
+  });
 });
+
+function makeV2EnabledConfig(): AssistantConfig {
+  return {
+    memory: {
+      v2: { enabled: true },
+    },
+  } as unknown as AssistantConfig;
+}
+
+function makeV2DisabledConfig(): AssistantConfig {
+  return {
+    memory: {
+      v2: { enabled: false },
+    },
+  } as unknown as AssistantConfig;
+}
 
 function makeContext(
   overrides: Partial<RecallSearchContext> = {},
 ): RecallSearchContext {
   return {
     workingDir: "/tmp/example-workspace",
-    memoryScopeId: "scope-default",
     conversationId: "conv-123",
     config: {} as AssistantConfig,
     ...overrides,

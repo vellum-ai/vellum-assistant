@@ -1,13 +1,17 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
-  resetCleanupScheduleThrottle as resetCleanupScheduleThrottleImpl,
 } from "./cleanup-schedule-state.js";
+import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -24,6 +28,7 @@ import { backfillJob } from "./job-handlers/backfill.js";
 import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
+  pruneOldTraceEventsJob,
 } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
@@ -51,20 +56,22 @@ import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
+  EMBED_JOB_TYPES,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
   enqueuePruneOldLlmRequestLogsJob,
+  enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
+  SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
-  memoryV2RebuildEdgesJob,
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
 import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
@@ -88,6 +95,7 @@ const LEGACY_JOB_TYPES = new Set([
   "journal_carry_forward",
   "generate_capability_cards",
   "generate_thread_starters",
+  "memory_v2_rebuild_edges",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -157,12 +165,28 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   };
 }
 
-async function runMemoryJobsOnce(
+type ProcessGroup = (group: MemoryJob[]) => Promise<number>;
+
+export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
   if (!config.memory.enabled) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("memory-jobs-worker")) {
+      log.warn(
+        {
+          source: "memory",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Memory jobs worker skipped during disk pressure cleanup mode",
+      );
+    }
+    return 0;
+  }
 
   // Fail jobs that have been running longer than the configured timeout
   const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
@@ -170,10 +194,20 @@ async function runMemoryJobsOnce(
     log.warn({ timedOut }, "Timed out stalled memory jobs");
   }
 
-  const batchSize = Math.max(1, config.memory.jobs.batchSize);
-  const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
-  const jobs = claimMemoryJobs(batchSize);
-  if (jobs.length === 0) {
+  const cfgSlow = Math.max(1, config.memory.jobs.slowLlmConcurrency);
+  const cfgFast = Math.max(1, config.memory.jobs.fastConcurrency);
+  const cfgEmbed = Math.max(1, config.memory.jobs.embedConcurrency);
+
+  // Claim per-lane budgets so a backlog of slow LLM jobs cannot starve fast
+  // jobs (and vice versa). The Qdrant circuit breaker still gates only the
+  // embed lane inside `claimMemoryJobs`.
+  const claimed = claimMemoryJobs({
+    slowLlm: cfgSlow,
+    fast: cfgFast,
+    embed: cfgEmbed,
+  });
+
+  if (claimed.length === 0) {
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
     }
@@ -182,34 +216,22 @@ async function runMemoryJobsOnce(
     return 0;
   }
 
-  // Group jobs so they can run concurrently across independent work units.
-  // Jobs targeting different conversations (via payload.conversationId) are
-  // placed in separate groups and can run in parallel. Jobs targeting the
-  // same conversation, or global jobs without a conversationId (backfill,
-  // cleanup, rebuild_index), are grouped together and run sequentially to
-  // prevent checkpoint races.
-  const jobGroups = new Map<string, MemoryJob[]>();
-  for (const job of jobs) {
-    const convId =
-      typeof job.payload.conversationId === "string"
-        ? job.payload.conversationId
-        : null;
-    const groupKey = convId ? `${job.type}:${convId}` : job.type;
-    let group = jobGroups.get(groupKey);
-    if (!group) {
-      group = [];
-      jobGroups.set(groupKey, group);
+  const slowSet = new Set<MemoryJobType>(SLOW_LLM_JOB_TYPES);
+  const embedSet = new Set<MemoryJobType>(EMBED_JOB_TYPES);
+  const slowJobs: MemoryJob[] = [];
+  const fastJobs: MemoryJob[] = [];
+  const embedJobs: MemoryJob[] = [];
+  for (const job of claimed) {
+    if (slowSet.has(job.type)) {
+      slowJobs.push(job);
+    } else if (embedSet.has(job.type)) {
+      embedJobs.push(job);
+    } else {
+      fastJobs.push(job);
     }
-    group.push(job);
   }
 
-  let processed = 0;
-  const typeGroups = [...jobGroups.values()];
-
-  // Run type groups concurrently using a task pool (up to workerConcurrency
-  // active at a time). Unlike the old wave approach, a new group starts as
-  // soon as any slot frees up — no waiting for an entire wave to finish.
-  const processGroup = async (group: MemoryJob[]): Promise<number> => {
+  const processGroup: ProcessGroup = async (group) => {
     let groupProcessed = 0;
     for (const job of group) {
       try {
@@ -230,8 +252,59 @@ async function runMemoryJobsOnce(
     return groupProcessed;
   };
 
+  // Run all three lanes in parallel. Each lane runs its own bounded task pool
+  // so a slow `graph_consolidate` cannot block embed or fast jobs from making
+  // progress, and per-`(type, conversationId)` grouping inside each lane keeps
+  // same-conversation jobs serialized.
+  const [slowProcessed, fastProcessed, embedProcessed] = await Promise.all([
+    runLanePool(slowJobs, cfgSlow, processGroup),
+    runLanePool(fastJobs, cfgFast, processGroup),
+    runLanePool(embedJobs, cfgEmbed, processGroup),
+  ]);
+
+  if (enableScheduledCleanup) {
+    maybeEnqueueScheduledCleanupJobs(config);
+  }
+  maybeEnqueueGraphMaintenanceJobs(config);
+  maybeRunDbMaintenance();
+  return slowProcessed + fastProcessed + embedProcessed;
+}
+
+/**
+ * Run a single lane's jobs through a bounded task pool of size `concurrency`.
+ *
+ * Jobs targeting different conversations (via payload.conversationId) are
+ * placed in separate groups and run in parallel up to the lane's concurrency
+ * cap. Jobs targeting the same conversation — or global jobs without a
+ * conversationId — share a group and run sequentially to avoid checkpoint
+ * races.
+ */
+async function runLanePool(
+  jobs: MemoryJob[],
+  concurrency: number,
+  processGroup: ProcessGroup,
+): Promise<number> {
+  if (jobs.length === 0) return 0;
+
+  const groups = new Map<string, MemoryJob[]>();
+  for (const job of jobs) {
+    const convId =
+      typeof job.payload.conversationId === "string"
+        ? job.payload.conversationId
+        : null;
+    const groupKey = convId ? `${job.type}:${convId}` : job.type;
+    let group = groups.get(groupKey);
+    if (!group) {
+      group = [];
+      groups.set(groupKey, group);
+    }
+    group.push(job);
+  }
+
+  let processed = 0;
+  const typeGroups = [...groups.values()];
+
   if (typeGroups.length <= concurrency) {
-    // Fast path: all groups fit within the concurrency limit
     const results = await Promise.allSettled(typeGroups.map(processGroup));
     for (const result of results) {
       if (result.status === "fulfilled") {
@@ -243,39 +316,35 @@ async function runMemoryJobsOnce(
         );
       }
     }
-  } else {
-    // Task pool: maintain `concurrency` in-flight groups at all times
-    let nextIdx = 0;
-
-    const startNext = (): Promise<void> | undefined => {
-      if (nextIdx >= typeGroups.length) return undefined;
-      const group = typeGroups[nextIdx++]!;
-      return processGroup(group)
-        .then(
-          (count) => {
-            processed += count;
-          },
-          (err) => {
-            log.error(
-              { err },
-              "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
-            );
-          },
-        )
-        .then(() => startNext());
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, typeGroups.length) },
-      () => startNext()!,
-    );
-    await Promise.all(workers);
+    return processed;
   }
-  if (enableScheduledCleanup) {
-    maybeEnqueueScheduledCleanupJobs(config);
-  }
-  maybeEnqueueGraphMaintenanceJobs(config);
-  maybeRunDbMaintenance();
+
+  // Task pool: keep `concurrency` groups in flight at all times so a new group
+  // starts the instant any slot frees up.
+  let nextIdx = 0;
+  const startNext = (): Promise<void> | undefined => {
+    if (nextIdx >= typeGroups.length) return undefined;
+    const group = typeGroups[nextIdx++]!;
+    return processGroup(group)
+      .then(
+        (count) => {
+          processed += count;
+        },
+        (err) => {
+          log.error(
+            { err },
+            "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
+          );
+        },
+      )
+      .then(() => startNext());
+  };
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, typeGroups.length) },
+    () => startNext()!,
+  );
+  await Promise.all(workers);
   return processed;
 }
 
@@ -407,6 +476,9 @@ async function processJob(
     case "prune_old_llm_request_logs":
       pruneOldLlmRequestLogsJob(job, config);
       return;
+    case "prune_old_trace_events":
+      pruneOldTraceEventsJob(job, config);
+      return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
@@ -473,9 +545,6 @@ async function processJob(
     case "memory_v2_migrate":
       await memoryV2MigrateJob(job, config);
       return;
-    case "memory_v2_rebuild_edges":
-      await memoryV2RebuildEdgesJob(job, config);
-      return;
     case "memory_v2_reembed":
       await memoryV2ReembedJob(job, config);
       return;
@@ -493,16 +562,6 @@ async function processJob(
     }
   }
 }
-
-// ── Cleanup scheduling ─────────────────────────────────────────────
-
-/**
- * Re-export of the shared throttle-reset helper. The underlying state lives
- * in cleanup-schedule-state.ts so that lighter-weight callers (e.g.
- * ConfigWatcher) can reset it without pulling in jobs-worker's transitive
- * imports.
- */
-export const resetCleanupScheduleThrottle = resetCleanupScheduleThrottleImpl;
 
 /**
  * Enqueue periodic cleanup jobs using config-driven retention windows.
@@ -525,14 +584,20 @@ function maybeEnqueueScheduledCleanupJobs(
     cleanup.llmRequestLogRetentionMs !== null
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
+  const pruneTraceEventsJobId =
+    cleanup.traceEventRetentionDays > 0
+      ? enqueuePruneOldTraceEventsJob(cleanup.traceEventRetentionDays)
+      : null;
   markScheduledCleanupEnqueued(nowMs);
   log.debug(
     {
       pruneConversationsJobId,
       pruneLlmRequestLogsJobId,
+      pruneTraceEventsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
       llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
+      traceEventRetentionDays: cleanup.traceEventRetentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",
   );
@@ -546,7 +611,7 @@ const GRAPH_CONSOLIDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
-const GRAPH_MAINTENANCE_CHECKPOINTS = {
+export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   decay: "graph_maintenance:decay:last_run",
   consolidate: "graph_maintenance:consolidate:last_run",
   patternScan: "graph_maintenance:pattern_scan:last_run",
@@ -555,58 +620,66 @@ const GRAPH_MAINTENANCE_CHECKPOINTS = {
 } as const;
 
 /**
- * Enqueue periodic graph maintenance jobs (decay, consolidation, pattern scan, narrative).
- * Uses durable checkpoints so intervals survive daemon restarts — jobs only fire
- * when the actual elapsed time since last run exceeds the interval.
+ * Enqueue periodic graph maintenance jobs.
  *
- * The v2 consolidation entry is gated on both the `memory-v2-enabled` feature
- * flag and the `memory.v2.enabled` config — both must be true for the cron
- * to fire. Sweep is intentionally not on this schedule: it is debounced from
- * the live `graph_extract` trigger path (see `indexMessageNow` in
- * `indexer.ts`) so it runs on the same idle/message-count cadence.
+ * Mutually exclusive between v1 and v2:
+ *   - v2 active (both `memory-v2-enabled` flag and `memory.v2.enabled`
+ *     config on) → only `memory_v2_consolidate` is scheduled.
+ *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
+ *     narrative) are scheduled instead.
+ *
+ * Read/write paths route to v2 when the flag is on, so v1 graph data goes
+ * unread; running v1 maintenance alongside v2 is wasted compute and LLM
+ * spend. The v1 code path remains live so flipping the flag back to off
+ * fully re-engages v1.
+ *
+ * Uses durable checkpoints so intervals survive daemon restarts — jobs only
+ * fire when the actual elapsed time since last run exceeds the interval.
+ * Sweep is intentionally not on this schedule: it is debounced from the
+ * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
+ * so it runs on the same idle/message-count cadence.
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
+  const v2Active = isMemoryV2ReadActive(config);
+
   const schedule: Array<{
     key: string;
     intervalMs: number;
     jobType: MemoryJobType;
-  }> = [
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
-      intervalMs: GRAPH_DECAY_INTERVAL_MS,
-      jobType: "graph_decay",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
-      intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
-      jobType: "graph_consolidate",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
-      intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
-      jobType: "graph_pattern_scan",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
-      intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
-      jobType: "graph_narrative_refine",
-    },
-  ];
-
-  if (
-    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
-    config.memory.v2.enabled
-  ) {
-    schedule.push({
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
-      intervalMs:
-        config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
-      jobType: "memory_v2_consolidate",
-    });
-  }
+  }> = v2Active
+    ? [
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
+          intervalMs:
+            config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
+          jobType: "memory_v2_consolidate",
+        },
+      ]
+    : [
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
+          intervalMs: GRAPH_DECAY_INTERVAL_MS,
+          jobType: "graph_decay",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
+          intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
+          jobType: "graph_consolidate",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
+          intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
+          jobType: "graph_pattern_scan",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
+          intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
+          jobType: "graph_narrative_refine",
+        },
+      ];
 
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);

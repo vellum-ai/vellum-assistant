@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/credential-executor",
-  "version": "0.6.6",
+  "version": "0.7.2",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -8,7 +8,8 @@
   },
   "bin": {
     "credential-executor": "./src/main.ts",
-    "credential-executor-managed": "./src/managed-main.ts"
+    "credential-executor-managed": "./src/managed-main.ts",
+    "ces": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run src/main.ts",

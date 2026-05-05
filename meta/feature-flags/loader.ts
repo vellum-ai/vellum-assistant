@@ -14,7 +14,7 @@ import { join } from 'path';
 // Types
 // ---------------------------------------------------------------------------
 
-export type FeatureFlagScope = 'assistant' | 'macos';
+export type FeatureFlagScope = 'assistant' | 'client';
 
 export interface FeatureFlagDefinition {
   id: string;
@@ -55,7 +55,7 @@ export function getAssistantScopeFlags(registry: FeatureFlagRegistry): FeatureFl
   return registry.flags.filter((f) => f.scope === 'assistant');
 }
 
-/** Return only flags with `scope === 'macos'`. */
-export function getMacosScopeFlags(registry: FeatureFlagRegistry): FeatureFlagDefinition[] {
-  return registry.flags.filter((f) => f.scope === 'macos');
+/** Return only flags with `scope === 'client'`. */
+export function getClientScopeFlags(registry: FeatureFlagRegistry): FeatureFlagDefinition[] {
+  return registry.flags.filter((f) => f.scope === 'client');
 }

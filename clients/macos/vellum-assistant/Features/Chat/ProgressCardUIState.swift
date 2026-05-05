@@ -43,6 +43,14 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// exact regression the anchor is meant to prevent.
     var cardCompletedDates: [UUID: Date] = [:]
 
+    // MARK: - Thinking Expansion (String-Keyed)
+
+    /// Set of thinking expansion keys currently expanded. Used by
+    /// `ThinkingStepDetailRow` inside `ProgressExpandedItem` traces where
+    /// thinking blocks are identified by a caller-provided string key rather
+    /// than a `UUID`.
+    var expandedThinkingKeys: Set<String> = []
+
     // MARK: - Rehydration Tracking
 
     /// Set of group IDs (first tool call UUID) for which rehydration has already
@@ -83,6 +91,11 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// Returns the persisted completion timestamp for the given card, or nil if none.
     func cardCompletedAt(for cardKey: UUID) -> Date? {
         cardCompletedDates[cardKey]
+    }
+
+    /// Returns whether the thinking block with the given string key is expanded.
+    func isThinkingExpanded(_ key: String) -> Bool {
+        expandedThinkingKeys.contains(key)
     }
 
     /// Whether rehydration has already been performed for the given group.
@@ -140,6 +153,15 @@ struct ProgressCardUIState: Equatable, Sendable {
         thinkingDurations.removeValue(forKey: cardKey)
     }
 
+    /// Sets the expansion state for a thinking block by string key.
+    mutating func setThinkingExpanded(_ key: String, expanded: Bool) {
+        if expanded {
+            expandedThinkingKeys.insert(key)
+        } else {
+            expandedThinkingKeys.remove(key)
+        }
+    }
+
     /// Marks a group as having been rehydrated.
     mutating func markRehydrated(groupId: UUID) {
         rehydratedGroupIds.insert(groupId)
@@ -151,6 +173,7 @@ struct ProgressCardUIState: Equatable, Sendable {
         cardExpansionOverrides.removeAll()
         thinkingDurations.removeAll()
         cardCompletedDates.removeAll()
+        expandedThinkingKeys.removeAll()
         rehydratedGroupIds.removeAll()
     }
 }

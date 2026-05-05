@@ -21,6 +21,12 @@ export const conversations = sqliteTable(
       .notNull()
       .default(0),
     contextCompactedAt: integer("context_compacted_at"),
+    slackContextCompactionWatermarkTs: text(
+      "slack_context_compaction_watermark_ts",
+    ),
+    slackContextCompactionWatermarkAt: integer(
+      "slack_context_compaction_watermark_at",
+    ),
     conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
     memoryScopeId: text("memory_scope_id").notNull().default("default"),
@@ -72,6 +78,7 @@ export const toolInvocations = sqliteTable(
     result: text("result").notNull(),
     decision: text("decision").notNull(),
     riskLevel: text("risk_level").notNull(),
+    matchedTrustRuleId: text("matched_trust_rule_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
   },

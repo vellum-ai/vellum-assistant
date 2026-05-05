@@ -38,6 +38,9 @@ interface ClientCatalogModel {
   displayName: string;
   contextWindowTokens?: number;
   maxOutputTokens?: number;
+  defaultContextWindowTokens?: number;
+  longContextPricingThresholdTokens?: number;
+  longContextMode?: "native-model" | "provider-request-option" | "unsupported";
   supportsThinking?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
@@ -149,6 +152,13 @@ describe("LLM catalog parity: daemon vs client", () => {
           daemonModel.contextWindowTokens,
         );
         expect(clientModel.maxOutputTokens).toBe(daemonModel.maxOutputTokens);
+        expect(clientModel.defaultContextWindowTokens).toBe(
+          daemonModel.defaultContextWindowTokens,
+        );
+        expect(clientModel.longContextPricingThresholdTokens).toBe(
+          daemonModel.longContextPricingThresholdTokens,
+        );
+        expect(clientModel.longContextMode).toBe(daemonModel.longContextMode);
         expect(clientModel.supportsThinking).toBe(daemonModel.supportsThinking);
         expect(clientModel.supportsCaching).toBe(daemonModel.supportsCaching);
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
@@ -170,5 +180,85 @@ describe("LLM catalog parity: daemon vs client", () => {
         `defaultModel "${entry.defaultModel}" not in models for provider "${entry.id}"`,
       ).toBe(true);
     }
+  });
+
+  test("every model default context is capped by its context window", () => {
+    const json = loadClientCatalog();
+
+    for (const entry of PROVIDER_CATALOG) {
+      for (const model of entry.models) {
+        expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
+        if (model.contextWindowTokens === undefined) continue;
+        expect(
+          model.defaultContextWindowTokens,
+          `${entry.id}/${model.id} default context exceeds context window`,
+        ).toBeLessThanOrEqual(model.contextWindowTokens);
+      }
+    }
+
+    for (const entry of json.providers) {
+      for (const model of entry.models) {
+        expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
+        if (model.contextWindowTokens === undefined) continue;
+        expect(
+          model.defaultContextWindowTokens,
+          `${entry.id}/${model.id} JSON default context exceeds context window`,
+        ).toBeLessThanOrEqual(model.contextWindowTokens);
+      }
+    }
+  });
+
+  test("sub-200k model defaults are clamped to model context caps", () => {
+    const ollama = PROVIDER_CATALOG.find((entry) => entry.id === "ollama");
+    expect(
+      ollama?.models.find((model) => model.id === "llama3.2"),
+    ).toMatchObject({
+      contextWindowTokens: 128000,
+      defaultContextWindowTokens: 128000,
+    });
+    expect(
+      ollama?.models.find((model) => model.id === "mistral"),
+    ).toMatchObject({
+      contextWindowTokens: 32768,
+      defaultContextWindowTokens: 32768,
+    });
+  });
+
+  test("OpenAI catalog includes long-context pricing metadata", () => {
+    const openai = PROVIDER_CATALOG.find((entry) => entry.id === "openai");
+    expect(
+      openai?.models.find((model) => model.id === "gpt-5.5-pro"),
+    ).toMatchObject({
+      displayName: "GPT-5.5 Pro",
+      contextWindowTokens: 1050000,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 128000,
+      longContextPricingThresholdTokens: 272000,
+      longContextMode: "native-model",
+    });
+    expect(
+      openai?.models.find((model) => model.id === "gpt-5.4"),
+    ).toMatchObject({
+      displayName: "GPT-5.4",
+      contextWindowTokens: 1050000,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 128000,
+      longContextPricingThresholdTokens: 272000,
+      longContextMode: "native-model",
+    });
+  });
+
+  test("Gemini 2.5 Pro catalog context matches provider limits", () => {
+    const gemini = PROVIDER_CATALOG.find((entry) => entry.id === "gemini");
+    expect(
+      gemini?.models.find((model) => model.id === "gemini-2.5-pro"),
+    ).toMatchObject({
+      displayName: "Gemini 2.5 Pro",
+      contextWindowTokens: 1048576,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 65536,
+      longContextPricingThresholdTokens: 200000,
+      longContextMode: "native-model",
+    });
   });
 });

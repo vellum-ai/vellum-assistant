@@ -1,8 +1,16 @@
+export type LongContextMode =
+  | "native-model"
+  | "provider-request-option"
+  | "unsupported";
+
 export interface CatalogModel {
   id: string;
   displayName: string;
   contextWindowTokens?: number;
   maxOutputTokens?: number;
+  defaultContextWindowTokens?: number;
+  longContextPricingThresholdTokens?: number;
+  longContextMode?: LongContextMode;
   supportsThinking?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
@@ -12,6 +20,31 @@ export interface CatalogModel {
     outputPer1mTokens: number;
     cacheWritePer1mTokens?: number;
     cacheReadPer1mTokens?: number;
+  };
+}
+
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
+const OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS = 272000;
+
+function catalogModel(model: CatalogModel): CatalogModel {
+  const configuredDefaultContextWindowTokens =
+    model.defaultContextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+  const defaultContextWindowTokens =
+    model.contextWindowTokens === undefined
+      ? configuredDefaultContextWindowTokens
+      : Math.min(
+          configuredDefaultContextWindowTokens,
+          model.contextWindowTokens,
+        );
+
+  return {
+    ...model,
+    defaultContextWindowTokens,
+    longContextMode:
+      model.longContextMode ??
+      ((model.contextWindowTokens ?? 0) > DEFAULT_CONTEXT_WINDOW_TOKENS
+        ? "native-model"
+        : "unsupported"),
   };
 }
 
@@ -33,8 +66,26 @@ export interface ProviderCatalogEntry {
   };
 }
 
-/** Single source of truth for all inference provider metadata and models. */
-export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
+/**
+ * Canonical assistant catalog for inference provider metadata and models.
+ * `meta/llm-provider-catalog.json` mirrors the client-facing subset and is
+ * kept in parity by `llm-catalog-parity.test.ts`; native-client fallbacks
+ * mirror only the startup-critical display/setup/context metadata.
+ *
+ * Model limits verified 2026-04-30 against official provider docs:
+ * - Anthropic model overview and context window docs:
+ *   https://platform.claude.com/docs/en/about-claude/models/overview
+ *   https://platform.claude.com/docs/en/build-with-claude/context-windows
+ * - OpenAI model comparison and model detail docs:
+ *   https://developers.openai.com/api/docs/models/compare
+ *   https://developers.openai.com/api/docs/models
+ * - Google Gemini model docs:
+ *   https://ai.google.dev/gemini-api/docs/models
+ *
+ * contextWindowTokens is the maximum known input context. maxOutputTokens is
+ * the maximum standard synchronous Messages/Responses output limit.
+ */
+const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "anthropic",
     displayName: "Anthropic",
@@ -52,8 +103,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "claude-opus-4-7",
         displayName: "Claude Opus 4.7",
-        contextWindowTokens: 200000,
-        maxOutputTokens: 32000,
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -68,8 +120,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "claude-opus-4-6",
         displayName: "Claude Opus 4.6",
-        contextWindowTokens: 200000,
-        maxOutputTokens: 32000,
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -84,8 +137,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "claude-sonnet-4-6",
         displayName: "Claude Sonnet 4.6",
-        contextWindowTokens: 200000,
+        contextWindowTokens: 1000000,
         maxOutputTokens: 64000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -101,7 +155,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         id: "claude-haiku-4-5-20251001",
         displayName: "Claude Haiku 4.5",
         contextWindowTokens: 200000,
-        maxOutputTokens: 16000,
+        maxOutputTokens: 64000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -137,6 +191,8 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "GPT-5.5",
         contextWindowTokens: 1050000,
         maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -148,10 +204,28 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "gpt-5.5-pro",
+        displayName: "GPT-5.5 Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 30.0,
+          outputPer1mTokens: 180.0,
+        },
+      },
+      {
         id: "gpt-5.4",
         displayName: "GPT-5.4",
-        contextWindowTokens: 400000,
+        contextWindowTokens: 1050000,
         maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -187,9 +261,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.5,
-          outputPer1mTokens: 3.0,
-          cacheReadPer1mTokens: 0.05,
+          inputPer1mTokens: 0.75,
+          outputPer1mTokens: 4.5,
+          cacheReadPer1mTokens: 0.075,
         },
       },
       {
@@ -232,6 +306,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "Gemini 3.1 Pro Preview",
         contextWindowTokens: 1048576,
         maxOutputTokens: 65536,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -247,6 +322,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "Gemini 3.1 Pro Preview (Custom Tools)",
         contextWindowTokens: 1048576,
         maxOutputTokens: 65536,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -320,8 +396,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "gemini-2.5-pro",
         displayName: "Gemini 2.5 Pro",
-        contextWindowTokens: 2000000,
+        contextWindowTokens: 1048576,
         maxOutputTokens: 65536,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -426,8 +503,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "anthropic/claude-opus-4.7",
         displayName: "Claude Opus 4.7",
-        contextWindowTokens: 200000,
-        maxOutputTokens: 32000,
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -442,8 +520,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "anthropic/claude-opus-4.6",
         displayName: "Claude Opus 4.6",
-        contextWindowTokens: 200000,
-        maxOutputTokens: 32000,
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -458,8 +537,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "anthropic/claude-sonnet-4.6",
         displayName: "Claude Sonnet 4.6",
-        contextWindowTokens: 200000,
+        contextWindowTokens: 1000000,
         maxOutputTokens: 64000,
+        longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -475,7 +555,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         id: "anthropic/claude-haiku-4.5",
         displayName: "Claude Haiku 4.5",
         contextWindowTokens: 200000,
-        maxOutputTokens: 16000,
+        maxOutputTokens: 64000,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
@@ -676,6 +756,12 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "sk-or-v1-...",
   },
 ];
+
+export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
+  RAW_PROVIDER_CATALOG.map((entry) => ({
+    ...entry,
+    models: entry.models.map(catalogModel),
+  }));
 
 /** Check if a model ID is in the catalog for a given provider. */
 export function isModelInCatalog(provider: string, modelId: string): boolean {

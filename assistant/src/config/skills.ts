@@ -5,7 +5,6 @@ import {
   readFileSync,
   realpathSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import {
   basename,
@@ -22,11 +21,6 @@ import {
   getPluginContributedSkillDefinition,
   getPluginContributedSkillSummaries,
 } from "../plugins/plugin-skill-contributions.js";
-import {
-  extractAllText,
-  getConfiguredProvider,
-  userMessage,
-} from "../providers/provider-send-message.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
@@ -1232,87 +1226,3 @@ export function loadSkillBySelector(
 }
 
 // ─── Icon generation ─────────────────────────────────────────────────────────
-
-async function generateSkillIcon(
-  name: string,
-  description: string,
-): Promise<string> {
-  const provider = await getConfiguredProvider("skillCategoryInference");
-  if (!provider) {
-    throw new Error("Configured provider unavailable for icon generation");
-  }
-
-  const response = await provider.sendMessage(
-    [
-      userMessage(
-        `Create a 16x16 pixel art SVG icon representing this skill:\nName: ${name}\nDescription: ${description}`,
-      ),
-    ],
-    undefined,
-    'You are a pixel art icon designer. When asked, return ONLY a single <svg> element — no explanation, no markdown, no code fences. The SVG must be a 16x16 grid pixel art icon using <rect> elements. Use a limited palette (3-5 colors). Keep it under 2KB. The viewBox should be "0 0 16 16" with each pixel being a 1x1 rect.',
-    {
-      config: {
-        callSite: "skillCategoryInference",
-        max_tokens: 1024,
-      },
-    },
-  );
-
-  const text = extractAllText(response);
-
-  const svgMatch = text.match(/<svg[\s\S]*<\/svg>/i);
-  if (!svgMatch) {
-    throw new Error("No <svg> element found in response");
-  }
-
-  return svgMatch[0];
-}
-
-/**
- * Synchronously read a cached icon if it exists on disk. Returns undefined if not cached yet.
- */
-export function readCachedSkillIcon(directoryPath: string): string | undefined {
-  const iconPath = join(directoryPath, "icon.svg");
-  if (existsSync(iconPath)) {
-    try {
-      return readFileSync(iconPath, "utf-8");
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-export async function ensureSkillIcon(
-  directoryPath: string,
-  name: string,
-  description: string,
-): Promise<string | undefined> {
-  const iconPath = join(directoryPath, "icon.svg");
-
-  if (existsSync(iconPath)) {
-    try {
-      return readFileSync(iconPath, "utf-8");
-    } catch {
-      log.warn({ iconPath }, "Failed to read existing icon.svg");
-      return undefined;
-    }
-  }
-
-  try {
-    const svg = await generateSkillIcon(name, description);
-    try {
-      writeFileSync(iconPath, svg, "utf-8");
-      log.info({ iconPath }, "Generated skill icon");
-    } catch (writeErr) {
-      log.warn(
-        { err: writeErr, iconPath },
-        "Failed to cache icon.svg (returning generated icon anyway)",
-      );
-    }
-    return svg;
-  } catch (err) {
-    log.warn({ err, iconPath }, "Failed to generate skill icon");
-    return undefined;
-  }
-}

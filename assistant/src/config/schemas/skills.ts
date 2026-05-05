@@ -24,7 +24,7 @@ export const SkillEntryConfigSchema = z
   })
   .describe("Configuration for an individual skill");
 
-export const SkillsLoadConfigSchema = z
+const SkillsLoadConfigSchema = z
   .object({
     extraDirs: z
       .array(
@@ -49,7 +49,7 @@ export const SkillsLoadConfigSchema = z
   })
   .describe("Controls how skills are discovered and loaded");
 
-export const SkillsInstallConfigSchema = z
+const SkillsInstallConfigSchema = z
   .object({
     nodeManager: z
       .enum(["npm", "pnpm", "yarn", "bun"], {
@@ -61,7 +61,7 @@ export const SkillsInstallConfigSchema = z
   })
   .describe("Skill dependency installation settings");
 
-export const RemoteProviderConfigSchema = z
+const RemoteProviderConfigSchema = z
   .object({
     enabled: z
       .boolean({
@@ -72,7 +72,7 @@ export const RemoteProviderConfigSchema = z
   })
   .describe("Configuration for a remote skill provider");
 
-export const RemoteProvidersConfigSchema = z
+const RemoteProvidersConfigSchema = z
   .object({
     skillssh: RemoteProviderConfigSchema.default(
       RemoteProviderConfigSchema.parse({}),
@@ -93,7 +93,7 @@ const VALID_MAX_RISK_LEVELS = [
   "critical",
 ] as const;
 
-export const RemotePolicyConfigSchema = z
+const RemotePolicyConfigSchema = z
   .object({
     blockSuspicious: z
       .boolean({
@@ -149,9 +149,3 @@ export const SkillsConfigSchema = z
   );
 
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
-export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
-export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
-export type RemoteProviderConfig = z.infer<typeof RemoteProviderConfigSchema>;
-export type RemoteProvidersConfig = z.infer<typeof RemoteProvidersConfigSchema>;
-export type RemotePolicyConfig = z.infer<typeof RemotePolicyConfigSchema>;
-export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;

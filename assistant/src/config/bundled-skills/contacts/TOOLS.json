@@ -51,10 +51,6 @@
               },
               "required": ["type", "address"]
             }
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["display_name"]
@@ -85,10 +81,6 @@
           "limit": {
             "type": "number",
             "description": "Maximum results to return (default 20, max 100)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -111,10 +103,6 @@
           "merge_id": {
             "type": "string",
             "description": "ID of the contact to merge into the kept contact (will be deleted)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["keep_id", "merge_id"]
@@ -146,10 +134,6 @@
           "page_token": {
             "type": "string",
             "description": "Pagination token (for list)"
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
           },
           "account": {
             "type": "string",

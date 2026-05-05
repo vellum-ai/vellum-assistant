@@ -28,7 +28,10 @@ import { pgrepExact } from "../lib/pgrep";
 import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
-import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
+import {
+  syncCloudAssistants,
+  type SyncLogger,
+} from "../lib/sync-cloud-assistants";
 
 // ── Table formatting helpers ────────────────────────────────────
 
@@ -469,7 +472,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
 // ── List all assistants (no arg) ────────────────────────────────
 
-async function listAllAssistants(): Promise<void> {
+async function listAllAssistants(verbose: boolean): Promise<void> {
   const { name: envName, source: envSource } = resolveEnvironmentSource();
   const sourceLabels: Record<typeof envSource, string> = {
     flag: "--environment flag",
@@ -477,10 +480,31 @@ async function listAllAssistants(): Promise<void> {
     config: "~/.config/vellum/environment",
     default: "default",
   };
-  console.log(`Environment: ${envName} (${sourceLabels[envSource]})\n`);
+  console.log(`Environment: ${envName} (${sourceLabels[envSource]})`);
+
+  const log: SyncLogger | undefined = verbose
+    ? (msg) => console.log(`  [verbose] ${msg}`)
+    : undefined;
 
   // Refresh cloud assistants from the platform before listing.
-  await syncCloudAssistants();
+  const syncResult = await syncCloudAssistants({ log });
+
+  // Show platform login status
+  if (syncResult) {
+    const parts = [`Platform: logged in`];
+    if (syncResult.email) parts[0] += ` as ${syncResult.email}`;
+    if (syncResult.added > 0 || syncResult.removed > 0) {
+      const changes: string[] = [];
+      if (syncResult.added > 0) changes.push(`${syncResult.added} added`);
+      if (syncResult.removed > 0)
+        changes.push(`${syncResult.removed} removed`);
+      parts.push(`(${changes.join(", ")})`);
+    }
+    console.log(parts.join(" "));
+  } else {
+    console.log("Platform: not logged in");
+  }
+  console.log("");
 
   const assistants = loadAllAssistants();
   const activeId = getActiveAssistant();
@@ -603,21 +627,28 @@ async function listAllAssistants(): Promise<void> {
 export async function ps(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum ps [<name>]");
+    console.log("Usage: vellum ps [<name>] [--verbose]");
     console.log("");
     console.log(
       "List all assistants, or show processes for a specific assistant.",
     );
     console.log("");
     console.log("Arguments:");
-    console.log("  <name>    Show processes for the named assistant");
+    console.log("  <name>       Show processes for the named assistant");
+    console.log("");
+    console.log("Options:");
+    console.log(
+      "  --verbose    Show diagnostic logs (platform sync, auth issues)",
+    );
     process.exit(0);
   }
 
-  const assistantId = process.argv[3];
+  const verbose = args.includes("--verbose");
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const assistantId = positional[0];
 
   if (!assistantId) {
-    await listAllAssistants();
+    await listAllAssistants(verbose);
     return;
   }
 

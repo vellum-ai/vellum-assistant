@@ -14,7 +14,6 @@
 
 import { z } from "zod";
 
-import { broadcastToAllClients } from "../../acp/index.js";
 import {
   getActiveRestartToken,
   handleRecordingPause,
@@ -24,7 +23,6 @@ import {
   handleRecordingStop,
   isRecordingIdle,
 } from "../../daemon/handlers/recording.js";
-import type { BroadcastContext } from "../../daemon/handlers/shared.js";
 import type {
   RecordingOptions,
   RecordingStatus,
@@ -41,17 +39,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const log = getLogger("recording-routes");
 
 // ---------------------------------------------------------------------------
-// Broadcast shim — recording handlers only use ctx.broadcast()
-// ---------------------------------------------------------------------------
-
-function getBroadcastCtx(): BroadcastContext {
-  if (!broadcastToAllClients) {
-    throw new InternalError("Broadcast not initialized");
-  }
-  return { broadcast: broadcastToAllClients };
-}
-
-// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -60,11 +47,9 @@ async function handleStartRecording({ body }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = getBroadcastCtx();
   const recordingId = handleRecordingStart(
     body.conversationId,
     body.options as RecordingOptions | undefined,
-    ctx,
   );
 
   if (!recordingId) {
@@ -90,8 +75,7 @@ async function handleStopRecording({ body }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = getBroadcastCtx();
-  const recordingId = handleRecordingStop(body.conversationId, ctx);
+  const recordingId = handleRecordingStop(body.conversationId);
 
   if (!recordingId) {
     log.debug(
@@ -114,8 +98,7 @@ async function handlePauseRecording({ body }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = getBroadcastCtx();
-  const recordingId = handleRecordingPause(body.conversationId, ctx);
+  const recordingId = handleRecordingPause(body.conversationId);
 
   if (!recordingId) {
     log.debug(
@@ -138,8 +121,7 @@ async function handleResumeRecording({ body }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = getBroadcastCtx();
-  const recordingId = handleRecordingResume(body.conversationId, ctx);
+  const recordingId = handleRecordingResume(body.conversationId);
 
   if (!recordingId) {
     log.debug(
@@ -198,10 +180,8 @@ async function handlePostRecordingStatus({ body }: RouteHandlerArgs) {
     type: "recording_status",
   };
 
-  const ctx = getBroadcastCtx();
-
   try {
-    await handleRecordingStatusCore(msg, ctx);
+    await handleRecordingStatusCore(msg);
   } catch (err) {
     log.error(
       { err, conversationId: body.conversationId, status: body.status },

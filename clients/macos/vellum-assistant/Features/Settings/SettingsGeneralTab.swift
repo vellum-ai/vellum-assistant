@@ -11,7 +11,9 @@ struct SettingsGeneralTab: View {
     var showToast: (String, ToastInfo.Style) -> Void
     var onSignIn: (() -> Void)?
 
-    @State private var showingPairingQR: Bool = false
+    @State private var showingDeleteAccountConfirm: Bool = false
+    @State private var showingRetireConfirmation: Bool = false
+    @State private var isRetiring: Bool = false
 
     // -- Software Update state --
     @State private var healthz: DaemonHealthz?
@@ -67,18 +69,20 @@ struct SettingsGeneralTab: View {
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
-               !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
+               !assistant.isRemote || assistant.isDocker || assistant.isManaged {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
-            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
-                mobilePairingCard
-            }
             SettingsAppearanceTab(store: store)
-            uninstallSection
+            OpenSourceSettingsCard()
+            if !lockfileAssistants.isEmpty {
+                retireAssistantSection
+            }
+            if Self.shouldShowDangerZone(isAuthenticated: authManager.currentUser != nil) {
+                dangerZoneSection
+            }
         }
         .onAppear {
             Task { await authManager.checkSession() }
-            store.refreshApprovedDevices()
             selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
@@ -107,12 +111,6 @@ struct SettingsGeneralTab: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
-        }
-        .sheet(isPresented: $showingPairingQR) {
-            PairingQRCodeSheet(
-                gatewayUrl: store.resolvedIosGatewayUrl,
-                connectionManager: connectionManager
-            )
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
@@ -158,6 +156,56 @@ struct SettingsGeneralTab: View {
                 dockerOperationTimedOut = false
             }
         }
+        .sheet(isPresented: $showingDeleteAccountConfirm) {
+            DeleteAccountConfirmView(
+                onDeleted: { _ in
+                    showingDeleteAccountConfirm = false
+                    // The server has destroyed the user; tear down the local
+                    // session via the standard logout path. Platform-assistant
+                    // state cached in this client may briefly throw stale
+                    // references — acceptable since the user can re-pair from
+                    // the bare-metal/local sign-in screen.
+                    AppDelegate.shared?.performLogout()
+                },
+                onCancel: {
+                    showingDeleteAccountConfirm = false
+                }
+            )
+        }
+        .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Retire", role: .destructive) {
+                isRetiring = true
+                Task {
+                    let completed = await AppDelegate.shared?.performRetireAsync() ?? false
+                    if !completed {
+                        isRetiring = false
+                    }
+                }
+            }
+        } message: {
+            if lockfileAssistants.count > 1 {
+                Text("This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed.")
+            } else {
+                Text("This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone.")
+            }
+        }
+        .sheet(isPresented: $isRetiring) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text("Retiring assistant...")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("Stopping the assistant and removing local data.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
+        }
     }
 
     // MARK: - Software Update
@@ -168,7 +216,7 @@ struct SettingsGeneralTab: View {
         defer { isRefreshingHealthz = false }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/healthz",
+                path: "healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
@@ -321,58 +369,44 @@ struct SettingsGeneralTab: View {
         return String(format: "%.0f MB", mb)
     }
 
-    // MARK: - Mobile Pairing
+    // MARK: - Retire Assistant
 
-    private var mobilePairingCard: some View {
-        SettingsCard(title: "Mobile (iOS)", subtitle: "Connect your phone to your assistant through the iOS app") {
-            if !store.approvedDevices.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Devices")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-
-                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(.smartphone, size: 12)
-                                .foregroundStyle(VColor.systemPositiveStrong)
-                            Text(device.deviceName)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentSecondary)
-                            VButton(label: "Remove \(device.deviceName)", iconOnly: VIcon.trash.rawValue, style: .danger) {
-                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
-                            }
-                        }
-                    }
-                }
-            }
-
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            if !hasGateway {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundStyle(VColor.systemNegativeHover)
-                    Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.systemNegativeHover)
-                }
-            } else {
-                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
-                    showingPairingQR = true
-                }
+    private var retireAssistantSection: some View {
+        SettingsCard(
+            title: "Retire Assistant",
+            subtitle: lockfileAssistants.count > 1
+                ? "Stops the current assistant and switches to another."
+                : "Stops the assistant, removes local data, and returns to initial setup."
+        ) {
+            VButton(label: "Retire", style: .danger) {
+                showingRetireConfirmation = true
             }
         }
     }
 
-    // MARK: - Uninstall
+    // MARK: - Danger Zone
 
-    private var uninstallSection: some View {
+    /// Whether to render the Danger Zone (account deletion) section. Gated on
+    /// both the client-side `account-deletion` feature flag (mirroring the
+    /// server-side LaunchDarkly flag in `vellum-assistant-platform`) and a
+    /// signed-in session — without a `currentUser`, the POST would fail with
+    /// notAuthenticated, so we don't expose the destructive button.
+    nonisolated static func shouldShowDangerZone(
+        flagManager: MacOSClientFeatureFlagManager = .shared,
+        isAuthenticated: Bool
+    ) -> Bool {
+        flagManager.isEnabled("account-deletion") && isAuthenticated
+    }
+
+    private var dangerZoneSection: some View {
         SettingsCard(
-            title: "Uninstall",
-            subtitle: "Stops all assistants, archives your data, and moves Vellum to the Trash"
+            title: "Danger Zone",
+            subtitle: "Permanently delete your Vellum account."
         ) {
-            VButton(label: "Uninstall Vellum", style: .danger) {
-                AppDelegate.shared?.performUninstall()
+            VButton(label: "Delete account", style: .danger) {
+                showingDeleteAccountConfirm = true
             }
+            .accessibilityLabel("Delete account")
         }
     }
 

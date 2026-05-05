@@ -242,7 +242,12 @@ describe("handleMigrationExportToGcs — happy path", () => {
         }),
       });
 
-      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
 
       const body = (await res.json()) as AcceptedResponse;
@@ -275,7 +280,7 @@ describe("handleMigrationExportToGcs — happy path", () => {
       const validation = validateVBundle(new Uint8Array(capturedBody!));
       expect(validation.is_valid).toBe(true);
       expect(validation.errors).toHaveLength(0);
-      expect(validation.manifest?.manifest_sha256).toBe(result.sha256);
+      expect(validation.manifest?.checksum).toBe(result.sha256);
     } finally {
       await fixture.close();
     }
@@ -319,7 +324,12 @@ describe("handleMigrationExportToGcs — concurrency", () => {
           }),
         },
       );
-      const firstRes = await callHandler(handleMigrationExportToGcs, firstReq, undefined, 202);
+      const firstRes = await callHandler(
+        handleMigrationExportToGcs,
+        firstReq,
+        undefined,
+        202,
+      );
       expect(firstRes.status).toBe(202);
       const firstBody = (await firstRes.json()) as AcceptedResponse;
 
@@ -338,7 +348,12 @@ describe("handleMigrationExportToGcs — concurrency", () => {
           }),
         },
       );
-      const secondRes = await callHandler(handleMigrationExportToGcs, secondReq, undefined, 202);
+      const secondRes = await callHandler(
+        handleMigrationExportToGcs,
+        secondReq,
+        undefined,
+        202,
+      );
       expect(secondRes.status).toBe(409);
       const secondBody = (await secondRes.json()) as ErrorEnvelope;
       expect(secondBody.error.code).toBe("export_in_progress");
@@ -375,7 +390,12 @@ describe("handleMigrationExportToGcs — upload failure", () => {
         }),
       });
 
-      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -419,7 +439,12 @@ describe("handleMigrationExportToGcs — redirect handling", () => {
         }),
       });
 
-      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -446,7 +471,12 @@ describe("handleMigrationExportToGcs — URL validation", () => {
           upload_url: "http://storage.googleapis.com/b/o?X-Goog-Signature=fake",
         }),
       });
-      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(400);
       const body = (await res.json()) as ErrorEnvelope;
       expect(body.error.code).toBe("invalid_upload_url");
@@ -466,7 +496,12 @@ describe("handleMigrationExportToGcs — URL validation", () => {
         upload_url: "https://evil.example.com/bucket/obj?X-Goog-Signature=fake",
       }),
     });
-    const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+    const res = await callHandler(
+      handleMigrationExportToGcs,
+      req,
+      undefined,
+      202,
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
     expect(body.error.code).toBe("invalid_upload_url");
@@ -482,7 +517,12 @@ describe("handleMigrationExportToGcs — URL validation", () => {
           "https://storage.googleapis.com/bucket/..%2Fother?X-Goog-Signature=fake",
       }),
     });
-    const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
+    const res = await callHandler(
+      handleMigrationExportToGcs,
+      req,
+      undefined,
+      202,
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
     expect(body.error.code).toBe("invalid_upload_url");

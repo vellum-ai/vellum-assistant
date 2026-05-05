@@ -19,6 +19,7 @@ import type {
   ContactType,
   ContactWithChannels,
 } from "../../contacts/types.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   createIngressInvite,
@@ -27,25 +28,77 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../../runtime/invite-service.js";
+import type { ContactPromptResult } from "../../runtime/routes/contact-prompt-routes.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
 // Human-readable formatters
 // ---------------------------------------------------------------------------
 
-function formatChannelSummary(ch: ContactChannel): string {
-  const parts = [ch.type, ch.address];
-  if (ch.status !== "active") parts.push(`(${ch.status})`);
-  if (ch.policy !== "allow") parts.push(`[${ch.policy}]`);
-  return parts.join(" ");
+function formatContactTable(contacts: ContactWithChannels[]): string {
+  const headers = ["ID", "NAME", "ROLE", "CHANNELS"];
+  const rows = contacts.map((c) => [
+    c.id,
+    c.displayName,
+    `${c.role}/${c.contactType}`,
+    String(c.channels.length),
+  ]);
+
+  // Pad all columns
+  const widths = headers.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)),
+  );
+
+  const pad = (s: string, w: number) => s.padEnd(w);
+  const headerLine = headers.map((h, i) => pad(h, widths[i])).join("  ");
+  const separator = widths.map((w) => "─".repeat(w)).join("  ");
+
+  const dataLines = rows.map((row) =>
+    row.map((cell, i) => pad(cell, widths[i])).join("  "),
+  );
+
+  return [headerLine, separator, ...dataLines].join("\n");
 }
 
-function formatContactRow(c: ContactWithChannels): string {
-  const channels =
-    c.channels.length > 0
-      ? c.channels.map(formatChannelSummary).join(", ")
-      : "(no channels)";
-  return `${c.id}  ${c.displayName}  ${c.role}/${c.contactType}  ${channels}`;
+function formatChannelTable(channels: ContactChannel[]): string {
+  const headers = ["ID", "TYPE", "ADDRESS", "FLAGS"];
+  const rows = channels.map((ch) => {
+    const flags = [
+      ch.isPrimary ? "primary" : null,
+      ch.status !== "active" ? ch.status : null,
+      ch.policy !== "allow" ? ch.policy : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return [ch.id, ch.type, ch.address, flags];
+  });
+
+  // Pad all columns except the last (FLAGS can be empty)
+  const fixedCols = headers.length - 1;
+  const widths = headers
+    .slice(0, fixedCols)
+    .map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)));
+
+  const pad = (s: string, w: number) => s.padEnd(w);
+  const headerLine = [
+    ...headers.slice(0, fixedCols).map((h, i) => pad(h, widths[i])),
+    headers[fixedCols],
+  ].join("  ");
+  const separator = [
+    ...widths.map((w) => "─".repeat(w)),
+    "─".repeat(headers[fixedCols].length),
+  ].join("  ");
+
+  const dataLines = rows.map((row) =>
+    [
+      ...row.slice(0, fixedCols).map((cell, i) => pad(cell, widths[i])),
+      row[fixedCols],
+    ].join("  "),
+  );
+
+  return [headerLine, separator, ...dataLines]
+    .map((l) => `  ${l}`)
+    .join("\n");
 }
 
 function formatContactDetail(
@@ -65,17 +118,7 @@ function formatContactDetail(
   if (c.channels.length > 0) {
     lines.push("");
     lines.push("Channels:");
-    for (const ch of c.channels) {
-      const flags = [
-        ch.isPrimary ? "primary" : null,
-        ch.status !== "active" ? ch.status : null,
-        ch.policy !== "allow" ? ch.policy : null,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      const suffix = flags ? `  (${flags})` : "";
-      lines.push(`  ${ch.id}  ${ch.type}  ${ch.address}${suffix}`);
-    }
+    lines.push(formatChannelTable(c.channels));
   }
   if (assistantMeta?.metadata && "assistantId" in assistantMeta.metadata) {
     lines.push("");
@@ -134,7 +177,7 @@ Examples:
   contacts
     .command("list")
     .description("List contacts")
-    .option("--role <role>", "Filter by role (default: contact)", "contact")
+    .option("--role <role>", "Filter by role (contact, guardian, or omit for all)")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
     .option(
@@ -149,7 +192,7 @@ Examples:
       "after",
       `
 Lists contacts with optional filtering. The --role flag accepts: contact
-or guardian (defaults to contact). The --limit flag sets
+or guardian (omit to show all). The --limit flag sets
 the maximum number of results (defaults to 50).
 
 When --query, --channel-address, or --channel-type is provided, a search
@@ -203,9 +246,7 @@ Examples:
           } else if (results.length === 0) {
             process.stdout.write("No contacts found.\n");
           } else {
-            for (const c of results) {
-              process.stdout.write(formatContactRow(c) + "\n");
-            }
+            process.stdout.write(formatContactTable(results) + "\n");
             process.stdout.write(`\n${results.length} contact(s)\n`);
           }
         } catch (err) {
@@ -398,6 +439,77 @@ Examples:
             writeOutput(cmd, { ok: true, contact: result });
           } else {
             process.stdout.write(formatContactDetail(result) + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeError(cmd, message);
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  contacts
+    .command("prompt")
+    .description("Prompt user to register a contact channel via the app UI")
+    .option("--channel <channel>", "Suggested channel type hint (e.g. phone, email, telegram)")
+    .option("--placeholder <placeholder>", "Placeholder text for the address input field")
+    .option("--role <role>", "Intended role: guardian, trusted-contact, or unknown (default: unknown)")
+    .option("--label <label>", "Display label shown in the prompt UI")
+    .option("--description <description>", "Longer description shown in the prompt UI")
+    .option("--timeout <ms>", "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.", String(310_000))
+    .addHelpText(
+      "after",
+      `
+Opens a contact address prompt in the user's app. The user enters a channel
+address (phone number, email, Telegram ID, etc.). The address is saved with
+status "unverified". Verification is a separate step.
+
+Run \`assistant contacts prompt --help\` for full option details.`,
+    )
+    .action(
+      async (
+        opts: {
+          channel?: string;
+          placeholder?: string;
+          role?: string;
+          label?: string;
+          description?: string;
+          timeout?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : 310_000;
+          const ipc = await cliIpcCall<ContactPromptResult>(
+            "contacts_prompt",
+            {
+              body: {
+                channel: opts.channel,
+                placeholder: opts.placeholder,
+                role: opts.role ?? "unknown",
+                label: opts.label,
+                description: opts.description,
+              },
+            },
+            { timeoutMs },
+          );
+
+          if (!ipc.ok || !ipc.result?.ok) {
+            writeError(cmd, ipc.error ?? ipc.result?.error ?? "Contact prompt failed");
+            process.exitCode = 1;
+            return;
+          }
+
+          const result = ipc.result;
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, result);
+          } else {
+            process.stdout.write(
+              `Registered ${result.channelType} channel: ${result.address}\n` +
+                `  Channel ID: ${result.channelId}\n` +
+                `  Contact ID: ${result.contactId}\n` +
+                `  Status:     unverified\n`,
+            );
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

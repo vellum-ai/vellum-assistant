@@ -197,26 +197,20 @@ describe("file_write tool PKB re-index hook", () => {
     });
   });
 
-  test("always uses PKB_WORKSPACE_SCOPE regardless of context.memoryScopeId", async () => {
+  test("always uses PKB_WORKSPACE_SCOPE", async () => {
     const workingDir = makeTempDir();
     setWorkspaceDir(workingDir);
     mkdirSync(join(workingDir, "pkb"), { recursive: true });
 
-    const ctx: ToolContext = {
-      ...makeContext(workingDir),
-      memoryScopeId: "subagent:abc123",
-    };
-
     const result = await fileWriteTool.execute(
       { path: "pkb/private.md", content: "secret\n" },
-      ctx,
+      makeContext(workingDir),
     );
 
     expect(result.isError).toBe(false);
     expect(enqueueCalls).toHaveLength(1);
-    // PKB files are workspace-level — the per-conversation scopeId is NOT
-    // threaded through so different conversations can't overwrite each
-    // other's Qdrant points via target_id upsert deduplication.
+    // PKB files are workspace-level — points are keyed by PKB_WORKSPACE_SCOPE
+    // so all conversations share one PKB index.
     expect(enqueueCalls[0]?.memoryScopeId).toBe(PKB_WORKSPACE_SCOPE);
   });
 

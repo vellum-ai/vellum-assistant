@@ -26,7 +26,7 @@ import { getLogger } from "../../util/logger.js";
 import type {
   ChannelInviteAdapter,
   InviteShareLink,
-} from "../channel-invite-transport.js";
+} from "../channel-invite-types.js";
 
 // ---------------------------------------------------------------------------
 // Bot username resolution

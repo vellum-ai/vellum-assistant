@@ -765,18 +765,50 @@ describe("unknown commands", () => {
     expect(result.matchType).toBe("registry");
   });
 
-  test("unknown command with --help → low risk", async () => {
+  test("unknown command with --help → unknown risk", async () => {
     const result = await classifier.classify({
       command: "mycustomtool --help",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("low");
-    expect(result.matchType).toBe("registry");
+    expect(result.riskLevel).toBe("unknown");
+    expect(result.matchType).toBe("unknown");
   });
 
   test("--help after -- is positional, not help mode", async () => {
     const result = await classifier.classify({
       command: "rm -- --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("value-taking flags do not trigger help shortcut", async () => {
+    const result = await classifier.classify({
+      command: "tar -f --help /etc/passwd",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("commands without arg schema do not use help shortcut", async () => {
+    const result = await classifier.classify({
+      command: "bash --rcfile --help -c 'rm -rf /'",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("bundled short flags with value flag do not trigger help shortcut", async () => {
+    const result = await classifier.classify({
+      command: "tar -xf --help /etc/passwd",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("known command without argSchema + --help uses base risk", async () => {
+    const result = await classifier.classify({
+      command: "kill --help",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
@@ -918,30 +950,6 @@ describe("assistant subcommand classification", () => {
   test("assistant keys set → high", async () => {
     const result = await classifier.classify({
       command: "assistant keys set",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
-  test("assistant trust remove → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust remove",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
-  test("assistant trust add → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust add",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
-  test("assistant trust update → high", async () => {
-    const result = await classifier.classify({
-      command: "assistant trust update",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");

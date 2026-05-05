@@ -32,7 +32,7 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
-import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-guard.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -115,8 +115,6 @@ export const messageMetadataSchema = z
   })
   .passthrough();
 
-export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
-
 function cloneForkMessageMetadata(
   metadata: string | null,
   sourceMessageId: string,
@@ -174,6 +172,8 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  slackContextCompactionWatermarkTs: string | null;
+  slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
   source: string;
   memoryScopeId: string;
@@ -202,6 +202,8 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
+  slackContextCompactionWatermarkTs: "slackContextCompactionWatermarkTs",
+  slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
   source: "source",
   memoryScopeId: "memoryScopeId",
@@ -225,10 +227,7 @@ export interface MessageRow {
   metadata: string | null;
 }
 
-const parseMessage = createRowMapper<
-  typeof messages.$inferSelect,
-  MessageRow
->({
+const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   id: "id",
   conversationId: "conversationId",
   role: "role",
@@ -295,6 +294,8 @@ export function createConversation(
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
+    slackContextCompactionWatermarkTs: null as string | null,
+    slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
     memoryScopeId,
@@ -441,11 +442,6 @@ export function getConversationSource(conversationId: string): string | null {
   return row?.source ?? null;
 }
 
-export function getConversationMemoryScopeId(conversationId: string): string {
-  const conv = getConversation(conversationId);
-  return conv?.memoryScopeId ?? "default";
-}
-
 /**
  * Fetch group_id for a conversation via raw SQL. group_id is NOT in the
  * Drizzle schema (raw-query-only pattern), so ConversationRow doesn't
@@ -541,6 +537,12 @@ export function forkConversation(params: {
           : 0,
         contextCompactedAt: preserveSourceCompactionState
           ? sourceConversation.contextCompactedAt
+          : null,
+        slackContextCompactionWatermarkTs: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkTs
+          : null,
+        slackContextCompactionWatermarkAt: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
       })
@@ -903,7 +905,6 @@ export async function addMessage(
   if (!opts?.skipIndexing) {
     try {
       const config = getConfig();
-      const scopeId = getConversationMemoryScopeId(conversationId);
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
@@ -918,7 +919,7 @@ export async function addMessage(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId,
+          scopeId: "default",
           provenanceTrustClass,
           automated,
         },
@@ -1018,7 +1019,7 @@ export function hasMessages(conversationId: string): boolean {
   return row !== undefined;
 }
 
-export interface PaginatedMessagesResult {
+interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
 }
@@ -1174,6 +1175,22 @@ export function updateConversationContextWindow(
       contextSummary,
       contextCompactedMessageCount,
       contextCompactedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function updateConversationSlackContextWatermark(
+  id: string,
+  watermarkTs: string,
+  compactedAt: number = Date.now(),
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      slackContextCompactionWatermarkTs: watermarkTs,
+      slackContextCompactionWatermarkAt: compactedAt,
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, id))
@@ -1416,12 +1433,12 @@ export function deleteLastExchange(conversationId: string): number {
  * Callers must delete these from the Qdrant collection after the
  * SQLite transaction commits.
  */
-export interface DeletedMemoryIds {
+interface DeletedMemoryIds {
   segmentIds: string[];
   deletedSummaryIds: string[];
 }
 
-export interface WipeConversationResult extends DeletedMemoryIds {
+interface WipeConversationResult extends DeletedMemoryIds {
   cancelledJobCount: number;
 }
 

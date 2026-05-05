@@ -29,15 +29,11 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // GET /v1/guardian-actions/pending?conversationId=...
 // ---------------------------------------------------------------------------
 
-function handleGuardianActionsPending({
-  queryParams = {},
-}: RouteHandlerArgs) {
+function handleGuardianActionsPending({ queryParams = {} }: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId;
 
   if (!conversationId) {
-    throw new BadRequestError(
-      "conversationId query parameter is required",
-    );
+    throw new BadRequestError("conversationId query parameter is required");
   }
 
   const prompts = listGuardianDecisionPrompts({
@@ -51,7 +47,7 @@ function handleGuardianActionsPending({
 // POST /v1/guardian-actions/decision
 // ---------------------------------------------------------------------------
 
-export async function handleGuardianActionDecision({
+async function handleGuardianActionDecision({
   body,
   headers = {},
 }: RouteHandlerArgs) {
@@ -231,8 +227,7 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "guardian-actions/pending",
     method: "GET",
     summary: "List pending guardian actions",
-    description:
-      "Return pending guardian decision prompts for a conversation.",
+    description: "Return pending guardian decision prompts for a conversation.",
     tags: ["guardian"],
     queryParams: [
       {

@@ -340,7 +340,7 @@ export async function rollback(): Promise<void> {
     const signingKey =
       capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
-    // Build extra env vars, excluding keys managed by serviceDockerRunArgs
+    // Build extra env vars, excluding keys managed by buildServiceRunArgs
     const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
     for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
       if (process.env[envVar]) {

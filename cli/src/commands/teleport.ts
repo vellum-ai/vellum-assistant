@@ -17,11 +17,11 @@ import {
   getPlatformUrl,
   hatchAssistant,
   checkExistingPlatformAssistant,
-  platformInitiateExport,
   platformPollJobStatus,
   platformImportBundleFromGcs,
   platformImportPreflightFromGcs,
   platformRequestSignedUrl,
+  VersionMismatchError,
   ensureSelfHostedLocalRegistration,
   readGatewayCredential,
   reprovisionAssistantApiKey,
@@ -31,6 +31,7 @@ import {
 } from "../lib/platform-client.js";
 import {
   localRuntimeExportToGcs,
+  localRuntimeIdentity,
   localRuntimeImportFromGcs,
   localRuntimePollJobStatus,
   MigrationInProgressError,
@@ -46,7 +47,10 @@ import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
-import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
+import {
+  fetchAssistantIngressUrl,
+  fetchCurrentVersion,
+} from "../lib/upgrade-lifecycle.js";
 import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
 
@@ -255,13 +259,17 @@ async function getAccessToken(
 
 /**
  * Detect a 401 Unauthorized raised by `localRuntimeExportToGcs` /
- * `localRuntimeImportFromGcs`. Both throw Error with a message of the form
- * `"Local runtime <op> failed (401): ..."` when the gateway rejects the
- * cached guardian token.
+ * `localRuntimeImportFromGcs` / `localRuntimeIdentity`. They throw Error
+ * with a message of the form `"Local runtime <op> failed (401): ..."` or
+ * `"Failed to fetch runtime identity: 401 ..."` when the gateway rejects
+ * the cached guardian token.
  */
 function isRuntime401(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /Local runtime [^(]*failed \(401\)/.test(msg);
+  return (
+    /Local runtime [^(]*failed \(401\)/.test(msg) ||
+    /Failed to fetch runtime identity: 401\b/.test(msg)
+  );
 }
 
 /**
@@ -368,13 +376,40 @@ async function exportFromAssistant(
   }
 
   if (cloud === "local" || cloud === "docker") {
+    // Ask the source runtime which version it's running before requesting
+    // the signed upload URL. The bundle is produced by the daemon (not the
+    // CLI), so the daemon's version is what defines the bundle's
+    // `min_runtime_version`. Stamping with `cliPkg.version` instead would
+    // record an inaccurate compatibility band whenever the CLI/daemon have
+    // drifted (a normal case in real usage — `vellum upgrade` swaps the
+    // daemon, the CLI is updated separately).
+    let sourceRuntimeVersion: string;
+    try {
+      const identity = await callRuntimeWithAuthRetry(
+        entry.runtimeUrl,
+        entry.assistantId,
+        async (token) => localRuntimeIdentity(entry, token),
+      );
+      sourceRuntimeVersion = identity.version;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not fetch runtime identity from '${entry.assistantId}': ${msg}`,
+      );
+      process.exit(1);
+    }
+
     // Request a signed upload URL from the platform instance that will
     // eventually own the bundle (i.e. the one the importer will read from).
     // Passing the target's runtime URL here keeps upload and download on
     // the same platform — otherwise a non-default/stale platform URL would
     // cause the import to look at an empty object.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
-      { operation: "upload" },
+      {
+        operation: "upload",
+        minRuntimeVersion: sourceRuntimeVersion,
+        maxRuntimeVersion: null,
+      },
       platformToken,
       bundlePlatformUrl,
     );
@@ -391,7 +426,7 @@ async function exportFromAssistant(
         entry.runtimeUrl,
         entry.assistantId,
         async (token) => {
-          const r = await localRuntimeExportToGcs(entry.runtimeUrl, token, {
+          const r = await localRuntimeExportToGcs(entry, token, {
             uploadUrl,
             description: "teleport export",
           });
@@ -418,8 +453,7 @@ async function exportFromAssistant(
 
     const terminal = await pollJobUntilDone({
       label: "local-runtime export",
-      poll: () =>
-        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      poll: () => localRuntimePollJobStatus(entry, accessToken, jobId),
       // Large exports can take longer than a guardian-token lease. If the
       // runtime returns 401 mid-poll, re-lease a fresh token and rebind the
       // closure variable so the next poll uses it.
@@ -442,22 +476,68 @@ async function exportFromAssistant(
   }
 
   if (cloud === "vellum") {
-    // Platform source — initiate a server-side export. The platform writes
-    // the bundle to its own `exports/<org>/<id>.vbundle` key; we discover
-    // that key via the unified job-status endpoint's `bundle_key` field.
-    const { jobId } = await platformInitiateExport(
+    // Ask the managed runtime which version it's running so the signed-URL
+    // request records the bundle's actual `min_runtime_version`. The
+    // platform-managed runtime is the exporter; the CLI version is
+    // unrelated. Routed via the wildcard proxy with platform-token auth
+    // (resolveRuntimeUrl + migrationRequestHeaders inside
+    // localRuntimeIdentity).
+    let sourceRuntimeVersion: string;
+    try {
+      const identity = await localRuntimeIdentity(entry, platformToken);
+      sourceRuntimeVersion = identity.version;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not fetch runtime identity from '${entry.assistantId}': ${msg}`,
+      );
+      process.exit(1);
+    }
+
+    // Platform source — request a signed upload URL on the same platform
+    // instance the bundle will eventually be imported from, then ask the
+    // managed runtime to export directly to GCS. The runtime endpoint is
+    // reached via the platform's wildcard runtime proxy at
+    // `/v1/assistants/<id>/migrations/export-to-gcs` — the
+    // `localRuntimeExportToGcs` helper uses `resolveRuntimeMigrationUrl` to
+    // pick that shape for `cloud === "vellum"` and `migrationRequestHeaders`
+    // to send platform-token auth (no guardian-token bootstrap).
+    const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+      {
+        operation: "upload",
+        minRuntimeVersion: sourceRuntimeVersion,
+        maxRuntimeVersion: null,
+      },
       platformToken,
-      "teleport export",
-      entry.runtimeUrl,
+      bundlePlatformUrl,
     );
+
+    let jobId: string;
+    let exportPlatformToken = platformToken;
+    try {
+      ({ jobId } = await localRuntimeExportToGcs(entry, exportPlatformToken, {
+        uploadUrl,
+        description: "teleport export",
+      }));
+    } catch (err) {
+      if (err instanceof MigrationInProgressError) {
+        console.error(
+          `Error: Another teleport export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish or check its status, then re-run.`,
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
 
     console.log(`Export started (job ${jobId})...`);
 
-    let exportPlatformToken = platformToken;
+    // Polling also goes through the wildcard proxy — `localRuntimePollJobStatus`
+    // builds `/v1/assistants/<id>/migrations/jobs/<jobId>` for `cloud === "vellum"`
+    // (the dedicated `/v1/migrations/jobs/{id}/` endpoint queries platform-side
+    // ImportJob records and 404s on runtime-created job IDs).
     const terminal = await pollJobUntilDone({
       label: "platform export",
-      poll: () =>
-        platformPollJobStatus(jobId, exportPlatformToken, entry.runtimeUrl),
+      poll: () => localRuntimePollJobStatus(entry, exportPlatformToken, jobId),
       // The platform token is normally static per-process, but re-reading the
       // on-disk credential covers the case where the user ran `vellum login`
       // in another terminal during a long migration. A persistent 401 after
@@ -478,14 +558,7 @@ async function exportFromAssistant(
       process.exit(1);
     }
 
-    if (!terminal.bundleKey) {
-      console.error(
-        "Export completed but the platform did not return a bundle_key. Is the platform up to date?",
-      );
-      process.exit(1);
-    }
-
-    return { bundleKey: terminal.bundleKey };
+    return { bundleKey };
   }
 
   console.error(
@@ -644,11 +717,56 @@ async function importToAssistant(
     // never touches the bytes. The URL must target the same platform the
     // bundle was uploaded to; otherwise the object won't exist on this
     // platform's GCS bucket.
-    const { url: bundleUrl } = await platformRequestSignedUrl(
-      { operation: "download", bundleKey },
-      platformToken,
-      bundlePlatformUrl,
-    );
+    //
+    // The platform's vbundle version gate compares the **target runtime's**
+    // version against the bundle's compatibility range. The CLI and the
+    // target assistant's daemon can diverge (assistants upgrade
+    // independently), so we MUST query the target runtime's `/v1/identity`
+    // for its version rather than sending `cliPkg.version`. Sending the CLI
+    // version here would falsely 422 a valid import (or pass a bundle the
+    // target can't actually load) whenever the two drift apart.
+    let targetRuntimeVersion: string;
+    try {
+      const identity = await callRuntimeWithAuthRetry(
+        entry.runtimeUrl,
+        entry.assistantId,
+        (token) => localRuntimeIdentity(entry, token),
+      );
+      targetRuntimeVersion = identity.version;
+    } catch (err) {
+      // Surface and abort — silently falling back to `cliPkg.version` would
+      // re-introduce the bug this code is fixing. If the runtime is
+      // unreachable, the import would fail downstream anyway.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `Error: Could not read target runtime version from '${entry.assistantId}': ${msg}`,
+      );
+      console.error(`Try: vellum wake ${entry.assistantId}`);
+      process.exit(1);
+    }
+
+    let bundleUrl: string;
+    try {
+      const result = await platformRequestSignedUrl(
+        {
+          operation: "download",
+          bundleKey,
+          targetRuntimeVersion,
+        },
+        platformToken,
+        bundlePlatformUrl,
+      );
+      bundleUrl = result.url;
+    } catch (err) {
+      if (err instanceof VersionMismatchError) {
+        // 422 version_mismatch is terminal — the bundle's runtime range and
+        // the target runtime's version don't overlap. Surface the
+        // platform-formatted message and exit; do NOT retry.
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+      throw err;
+    }
 
     console.log("Importing data...");
 
@@ -659,7 +777,7 @@ async function importToAssistant(
         entry.runtimeUrl,
         entry.assistantId,
         async (token) => {
-          const r = await localRuntimeImportFromGcs(entry.runtimeUrl, token, {
+          const r = await localRuntimeImportFromGcs(entry, token, {
             bundleUrl,
           });
           return { jobId: r.jobId, token };
@@ -682,8 +800,7 @@ async function importToAssistant(
 
     const terminal = await pollJobUntilDone({
       label: "local-runtime import",
-      poll: () =>
-        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      poll: () => localRuntimePollJobStatus(entry, accessToken, jobId),
       refreshOn401: async () => {
         accessToken = await getAccessToken(
           entry.runtimeUrl,
@@ -952,12 +1069,19 @@ async function tryInjectPlatformCredentials(
     const user = await fetchCurrentUser(token);
     const orgId = await fetchOrganizationId(token);
     const clientInstallationId = computeDeviceId();
+    const [assistantVersion, ingressUrl] = await Promise.all([
+      fetchCurrentVersion(entry.runtimeUrl),
+      fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
+    ]);
     const registration = await ensureSelfHostedLocalRegistration(
       token,
       orgId,
       clientInstallationId,
       entry.assistantId,
       "cli",
+      assistantVersion,
+      getPlatformUrl(),
+      ingressUrl,
     );
 
     // Resolve the API key: 1) fresh from registration, 2) existing from

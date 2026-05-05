@@ -7,9 +7,6 @@
 
 import { z } from "zod";
 
-import { broadcastToAllClients } from "../../acp/index.js";
-import { getConfigWatcher } from "../../daemon/config-watcher.js";
-import type { SkillOperationContext } from "../../daemon/handlers/skills.js";
 import {
   checkSkillUpdates,
   configureSkill,
@@ -31,18 +28,6 @@ import {
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-/** Build SkillOperationContext from module-level globals. */
-function ctx(): SkillOperationContext {
-  const cw = getConfigWatcher();
-  return {
-    debounceTimers: cw.timers,
-    setSuppressConfigReload: (v) => {
-      cw.suppressConfigReload = v;
-    },
-    updateConfigFingerprint: () => cw.updateFingerprint(),
-    broadcast: broadcastToAllClients ?? (() => {}),
-  };
-}
 
 const partnerAuditSchema = z.object({
   risk: z.enum(["safe", "low", "medium", "high", "critical", "unknown"]),
@@ -212,7 +197,6 @@ export const ROUTES: RouteDefinition[] = [
             ...(category ? { category } : {}),
             includeCatalog: include === "catalog",
           },
-          ctx(),
         );
         return {
           skills: result.skills,
@@ -221,7 +205,7 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
-      const skills = listSkills(ctx());
+      const skills = listSkills();
       return { skills };
     },
   },
@@ -256,7 +240,7 @@ export const ROUTES: RouteDefinition[] = [
       if (!path) {
         throw new BadRequestError("path query parameter is required");
       }
-      const result = await getSkillFileContent(pathParams!.id, path, ctx());
+      const result = await getSkillFileContent(pathParams!.id, path);
       if ("error" in result) {
         if (result.status === 400) throw new BadRequestError(result.error);
         if (result.status === 404) throw new NotFoundError(result.error);
@@ -275,7 +259,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Return skill metadata and directory contents.",
     tags: ["skills"],
     handler: async ({ pathParams }: RouteHandlerArgs) => {
-      const result = await getSkillFiles(pathParams!.id, ctx());
+      const result = await getSkillFiles(pathParams!.id);
       if ("error" in result) {
         if (result.status === 404) throw new NotFoundError(result.error);
         throw new InternalError(result.error);
@@ -294,7 +278,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["skills"],
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
-      const result = enableSkill(pathParams!.id, ctx());
+      const result = enableSkill(pathParams!.id);
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -310,7 +294,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["skills"],
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
-      const result = disableSkill(pathParams!.id, ctx());
+      const result = disableSkill(pathParams!.id);
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -338,7 +322,6 @@ export const ROUTES: RouteDefinition[] = [
           apiKey: body.apiKey as string | undefined,
           config: body.config as Record<string, unknown> | undefined,
         },
-        ctx(),
       );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
@@ -357,7 +340,7 @@ export const ROUTES: RouteDefinition[] = [
       data: z.object({}).passthrough().describe("Update availability info"),
     }),
     handler: async () => {
-      const result = await checkSkillUpdates(ctx());
+      const result = await checkSkillUpdates();
       if (!result.success) throw new InternalError(result.error);
       return { data: result.data };
     },
@@ -386,7 +369,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
       if (!query) throw new BadRequestError("q query parameter is required");
-      const result = await searchSkills(query, ctx());
+      const result = await searchSkills(query);
       if (!result.success) throw new InternalError(result.error);
       return { skills: result.skills };
     },
@@ -408,7 +391,7 @@ export const ROUTES: RouteDefinition[] = [
       if (!sourceText || typeof sourceText !== "string") {
         throw new BadRequestError("sourceText is required");
       }
-      const result = await draftSkill({ sourceText }, ctx());
+      const result = await draftSkill({ sourceText });
       if (!result.success) {
         throw new InternalError(result.error ?? "Draft failed");
       }
@@ -426,7 +409,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["skills"],
     responseBody: z.object({ ok: z.boolean() }),
     handler: async ({ pathParams }: RouteHandlerArgs) => {
-      const result = await updateSkill(pathParams!.id, ctx());
+      const result = await updateSkill(pathParams!.id);
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -441,7 +424,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Return detailed skill information.",
     tags: ["skills"],
     handler: async ({ pathParams }: RouteHandlerArgs) => {
-      const result = await inspectSkill(pathParams!.id, ctx());
+      const result = await inspectSkill(pathParams!.id);
       if (result.error && !result.data) {
         if (result.error.startsWith("Invalid skill slug:")) {
           throw new BadRequestError(result.error);
@@ -471,7 +454,7 @@ export const ROUTES: RouteDefinition[] = [
       skill: skillDetailSchema.describe("Skill detail object"),
     }),
     handler: async ({ pathParams }: RouteHandlerArgs) => {
-      const result = await getSkill(pathParams!.id, ctx());
+      const result = await getSkill(pathParams!.id);
       if ("error" in result) {
         if (result.status === 404) throw new NotFoundError(result.error);
         throw new InternalError(result.error);
@@ -490,7 +473,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["skills"],
     responseStatus: "204",
     handler: async ({ pathParams }: RouteHandlerArgs) => {
-      const result = await uninstallSkill(pathParams!.id, ctx());
+      const result = await uninstallSkill(pathParams!.id);
       if (!result.success) throw new InternalError(result.error);
       return null;
     },
@@ -534,7 +517,6 @@ export const ROUTES: RouteDefinition[] = [
           version: body.version as string | undefined,
           origin: body.origin as "clawhub" | "skillssh" | undefined,
         },
-        ctx(),
       );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true, skillId: result.skillId };
@@ -569,7 +551,6 @@ export const ROUTES: RouteDefinition[] = [
       }
       const result = await createSkill(
         { skillId, name, description, bodyMarkdown },
-        ctx(),
       );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };

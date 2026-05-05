@@ -1,12 +1,6 @@
-export type RemoteSkillProvider = "clawhub" | "skillssh";
+type RemoteSkillProvider = "clawhub" | "skillssh";
 
-export type SkillsShRisk =
-  | "safe"
-  | "low"
-  | "medium"
-  | "high"
-  | "critical"
-  | "unknown";
+type SkillsShRisk = "safe" | "low" | "medium" | "high" | "critical" | "unknown";
 export type SkillsShRiskThreshold = Exclude<SkillsShRisk, "unknown">;
 
 export interface RemoteSkillPolicy {
@@ -26,12 +20,12 @@ export interface RemoteSkillPolicy {
   maxSkillsShRisk: SkillsShRiskThreshold;
 }
 
-export interface ClawhubModerationState {
+interface ClawhubModerationState {
   isSuspicious?: boolean;
   isMalwareBlocked?: boolean;
 }
 
-export interface SkillsShAuditState {
+interface SkillsShAuditState {
   risk?: SkillsShRisk | null;
 }
 
@@ -40,27 +34,27 @@ interface RemoteSkillCandidateBase {
   slug: string;
 }
 
-export interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
+interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
   provider: "clawhub";
   moderation?: ClawhubModerationState | null;
 }
 
-export interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
+interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
   provider: "skillssh";
   audit?: SkillsShAuditState | null;
 }
 
-export type RemoteSkillCandidate =
+type RemoteSkillCandidate =
   | ClawhubRemoteSkillCandidate
   | SkillsShRemoteSkillCandidate;
 
-export type RemoteSkillDenyReason =
+type RemoteSkillDenyReason =
   | "clawhub_suspicious"
   | "clawhub_malware_blocked"
   | "clawhub_moderation_missing"
   | "skillssh_risk_exceeds_threshold";
 
-export type RemoteSkillInstallDecision =
+type RemoteSkillInstallDecision =
   | { ok: true }
   | { ok: false; reason: RemoteSkillDenyReason };
 

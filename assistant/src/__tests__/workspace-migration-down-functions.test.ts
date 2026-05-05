@@ -32,7 +32,7 @@ mock.module("../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join(":"),
 }));
 
-// Mock getRootDir for 016-extract-feature-flags-to-protected
+// Mutable root dir used by 016-extract-feature-flags-to-protected tests
 let mockRootDir: string = "/tmp/mock-root";
 // ---------------------------------------------------------------------------
 // Imports — after mocking
@@ -763,21 +763,21 @@ describe("014-migrate-to-workspace-volume down()", () => {
 // ---------------------------------------------------------------------------
 
 describe("016-extract-feature-flags-to-protected down()", () => {
-  let savedBaseDataDir: string | undefined;
+  let savedWorkspaceDir: string | undefined;
 
   beforeEach(() => {
-    // The migration has an inlined platform helpers that reads BASE_DATA_DIR,
-    // so we set that env var so the inlined function resolves to mockRootDir.
+    // getVellumRoot() resolves via dirname(VELLUM_WORKSPACE_DIR), so we set
+    // VELLUM_WORKSPACE_DIR to <mockRootDir>/workspace so dirname gives mockRootDir.
     const baseDir = freshWorkspace();
     mockRootDir = join(baseDir, ".vellum");
     mkdirSync(mockRootDir, { recursive: true });
-    savedBaseDataDir = process.env.BASE_DATA_DIR;
-    process.env.BASE_DATA_DIR = baseDir;
+    savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = join(mockRootDir, "workspace");
   });
 
   afterEach(() => {
-    if (savedBaseDataDir === undefined) delete process.env.BASE_DATA_DIR;
-    else process.env.BASE_DATA_DIR = savedBaseDataDir;
+    if (savedWorkspaceDir === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
+    else process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
   });
 
   test("moves feature flags from protected dir back to config.json", () => {

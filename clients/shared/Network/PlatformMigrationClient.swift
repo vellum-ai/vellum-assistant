@@ -13,21 +13,21 @@ public enum PlatformMigrationClient {
 
     // MARK: - Response Types
 
-    /// Response from the platform's upload URL endpoint.
-    public struct UploadUrlResponse: Decodable {
+    /// Response from the platform's unified signed-URL endpoint.
+    public struct SignedUrlResponse: Decodable {
         public let uploadUrl: String
         public let bundleKey: String
         public let expiresAt: String
 
         private enum CodingKeys: String, CodingKey {
-            case uploadUrl = "upload_url"
+            case uploadUrl = "url"
             case bundleKey = "bundle_key"
             case expiresAt = "expires_at"
         }
     }
 
-    /// Status of an asynchronous import job returned by the polling endpoint.
-    public struct ImportJobStatus {
+    /// Status of an asynchronous migration job (import or export) returned by the unified job-status endpoint.
+    public struct JobStatus {
         public let status: String
         public let jobId: String?
         public let error: String?
@@ -43,6 +43,7 @@ public enum PlatformMigrationClient {
         case signedUrlsNotAvailable
         case requestFailed(statusCode: Int, detail: String)
         case uploadFailed(statusCode: Int)
+        case versionMismatch(minVersion: String, maxVersion: String?, targetVersion: String)
 
         public var errorDescription: String? {
             switch self {
@@ -54,20 +55,31 @@ public enum PlatformMigrationClient {
                 return "Migration request failed (HTTP \(statusCode)): \(detail)"
             case .uploadFailed(let statusCode):
                 return "Bundle upload failed (HTTP \(statusCode))."
+            case .versionMismatch(let minVersion, let maxVersion, let targetVersion):
+                let range: String
+                if let maxVersion {
+                    range = "\(minVersion)–\(maxVersion)"
+                } else {
+                    range = "\(minVersion)+"
+                }
+                return "Cannot import: bundle requires runtime \(range), but this local runtime is \(targetVersion). Update your local runtime before importing."
             }
         }
     }
 
     // MARK: - Public API
 
-    /// Requests a signed upload URL from the platform for uploading a migration bundle.
+    /// Requests a signed upload URL from the platform's unified signed-URL endpoint.
     ///
-    /// - Returns: An `UploadUrlResponse` containing the signed URL, bundle key, and expiration.
+    /// POSTs to `/v1/migrations/signed-url/` with `{"operation": "upload"}`. The
+    /// returned signed URL is suitable for a direct GCS PUT of bundle bytes.
+    ///
+    /// - Returns: A `SignedUrlResponse` containing the signed URL, bundle key, and expiration.
     /// - Throws: `PlatformMigrationError` on auth or request failures.
-    public static func requestUploadUrl() async throws -> UploadUrlResponse {
+    public static func requestSignedUploadUrl() async throws -> SignedUrlResponse {
         let (baseURL, token, orgId) = try resolveAuthContext()
 
-        guard let url = URL(string: "\(baseURL)/v1/migrations/upload-url/") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/signed-url/") else {
             throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
         }
 
@@ -78,12 +90,12 @@ public enum PlatformMigrationClient {
         if let orgId {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["content_type": "application/octet-stream"])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["operation": "upload"])
 
         let (data, statusCode) = try await executeWithRetry(
             request: request,
-            label: "upload-url",
-            nonRetryableStatusCodes: [503, 404]
+            label: "signed-url",
+            nonRetryableStatusCodes: [404, 503]
         )
 
         if statusCode == 503 || statusCode == 404 {
@@ -96,13 +108,87 @@ public enum PlatformMigrationClient {
         }
 
         let decoder = JSONDecoder()
-        return try decoder.decode(UploadUrlResponse.self, from: data)
+        return try decoder.decode(SignedUrlResponse.self, from: data)
+    }
+
+    /// Requests a signed download URL from the platform's unified signed-URL endpoint.
+    ///
+    /// POSTs to `/v1/migrations/signed-url/` with
+    /// `{"operation": "download", "bundle_key": ..., "target_runtime_version": ...}`.
+    /// The platform validates the bundle's runtime-compat range against the
+    /// target runtime version and rejects with HTTP 422 + `reason: "version_mismatch"`
+    /// when there is no overlap.
+    ///
+    /// - Parameters:
+    ///   - bundleKey: The bundle key returned by `requestSignedUploadUrl()` (and
+    ///     filled by a prior `migrations/export-to-gcs` runtime export).
+    ///   - targetRuntimeVersion: The runtime version that will perform the import.
+    ///     Used by the platform to enforce the bundle's compat range.
+    /// - Returns: The signed download URL string.
+    /// - Throws: `PlatformMigrationError.versionMismatch` on 422 `version_mismatch`,
+    ///   or `PlatformMigrationError.requestFailed` on other non-2xx responses.
+    public static func requestSignedDownloadUrl(
+        bundleKey: String,
+        targetRuntimeVersion: String
+    ) async throws -> String {
+        let (baseURL, token, orgId) = try resolveAuthContext()
+
+        guard let url = URL(string: "\(baseURL)/v1/migrations/signed-url/") else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "operation": "download",
+            "bundle_key": bundleKey,
+            "target_runtime_version": targetRuntimeVersion,
+        ])
+
+        // 422 is a permanent semantic signal (version_mismatch), not a transient
+        // server error — mark it non-retryable so executeWithRetry doesn't burn
+        // attempts retrying a deterministic rejection.
+        let (data, statusCode) = try await executeWithRetry(
+            request: request,
+            label: "signed-url-download",
+            nonRetryableStatusCodes: [422]
+        )
+
+        if statusCode == 422 {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               (json["reason"] as? String) == "version_mismatch",
+               let compat = json["bundle_compat"] as? [String: Any],
+               let minVersion = compat["min_runtime_version"] as? String,
+               let targetVersion = json["target_runtime_version"] as? String {
+                let maxVersion = compat["max_runtime_version"] as? String
+                throw PlatformMigrationError.versionMismatch(
+                    minVersion: minVersion,
+                    maxVersion: maxVersion,
+                    targetVersion: targetVersion
+                )
+            }
+        }
+
+        guard statusCode == 200 || statusCode == 201 else {
+            let detail = String(data: data, encoding: .utf8) ?? "No response body"
+            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: detail)
+        }
+
+        struct DownloadUrlResponse: Decodable {
+            let url: String
+        }
+        return try JSONDecoder().decode(DownloadUrlResponse.self, from: data).url
     }
 
     /// Uploads binary bundle data to a GCS signed URL.
     ///
     /// - Parameters:
-    ///   - url: The signed upload URL from `requestUploadUrl()`.
+    ///   - url: The signed upload URL from `requestSignedUploadUrl()`.
     ///   - bundleData: The raw bundle data to upload.
     /// - Throws: `PlatformMigrationError.uploadFailed` if the upload returns a non-2xx status.
     public static func uploadToSignedUrl(_ url: String, bundleData: Data) async throws {
@@ -126,7 +212,7 @@ public enum PlatformMigrationClient {
     /// Uploads binary bundle data to a GCS signed URL with progress tracking.
     ///
     /// - Parameters:
-    ///   - url: The signed upload URL from `requestUploadUrl()`.
+    ///   - url: The signed upload URL from `requestSignedUploadUrl()`.
     ///   - bundleData: The raw bundle data to upload.
     ///   - onProgress: A closure called on the main actor with values from 0.0 to 1.0
     ///     representing the fraction of bytes uploaded.
@@ -180,9 +266,87 @@ public enum PlatformMigrationClient {
         throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
     }
 
+    /// Downloads bundle data from a GCS signed URL.
+    ///
+    /// Mirrors `uploadToSignedUrl(_:bundleData:onProgress:)` in reverse: the
+    /// caller passes a signed download URL (from `requestSignedDownloadUrl`)
+    /// and gets back the raw bundle bytes suitable for piping into
+    /// `migrations/import` on a local runtime.
+    ///
+    /// Retries on transient 5xx server errors (500/502/503/504) with the same
+    /// 1s/2s/4s exponential backoff used elsewhere in this client.
+    ///
+    /// - Parameters:
+    ///   - url: The signed download URL.
+    ///   - onProgress: Optional closure called on the main actor with values
+    ///     from 0.0 to 1.0 representing the fraction of bytes received.
+    /// - Returns: The full bundle data.
+    /// - Throws: `PlatformMigrationError.requestFailed` on a non-2xx status,
+    ///   or any error thrown by `URLSession`.
+    public static func downloadFromSignedUrl(
+        _ url: String,
+        onProgress: (@MainActor (Double) -> Void)? = nil
+    ) async throws -> Data {
+        guard let downloadURL = URL(string: url) else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: downloadURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3600
+
+        let delegate: DownloadProgressDelegate?
+        let session: URLSession
+        if let onProgress {
+            let d = DownloadProgressDelegate(onProgress: onProgress)
+            delegate = d
+            session = URLSession(configuration: .default, delegate: d, delegateQueue: nil)
+        } else {
+            delegate = nil
+            session = URLSession.shared
+        }
+        defer {
+            delegate?.reset()
+            if delegate != nil {
+                session.finishTasksAndInvalidate()
+            }
+        }
+
+        let urlPath = logPath(from: downloadURL)
+
+        for attempt in 0...maxRetries {
+            log.info("GET \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
+            let (data, response) = try await session.data(for: request, delegate: delegate)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            log.info("GET \(urlPath, privacy: .public) → \(statusCode)")
+
+            if attempt < maxRetries && retryableStatusCodes.contains(statusCode) {
+                let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
+                log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
+                try await Task.sleep(nanoseconds: delay)
+                delegate?.reset()
+                await onProgress?(0)
+                continue
+            }
+
+            guard (200..<300).contains(statusCode) else {
+                throw PlatformMigrationError.requestFailed(
+                    statusCode: statusCode,
+                    detail: "Bundle download failed"
+                )
+            }
+            // Ensure the progress reaches 1.0 even if the delegate's last
+            // didReceive event was throttled out by the 0.01-step gate.
+            await onProgress?(1.0)
+            return data
+        }
+
+        throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
+    }
+
     /// Triggers a GCS-based import on the platform after the bundle has been uploaded.
     ///
-    /// - Parameter bundleKey: The bundle key returned by `requestUploadUrl()`.
+    /// - Parameter bundleKey: The bundle key returned by `requestSignedUploadUrl()`.
     /// - Returns: A tuple of the HTTP status code and raw response data.
     /// - Throws: `PlatformMigrationError` on auth failures, or network errors from `URLSession`.
     public static func importFromGcs(bundleKey: String) async throws -> (statusCode: Int, data: Data) {
@@ -207,15 +371,15 @@ public enum PlatformMigrationClient {
         return (statusCode: statusCode, data: data)
     }
 
-    /// Polls the status of an asynchronous import job.
+    /// Polls the status of an asynchronous migration job.
     ///
-    /// - Parameter jobId: The job ID returned by `importFromGcs` when it responds with 202.
-    /// - Returns: An `ImportJobStatus` with the current status, optional error, and result data.
+    /// - Parameter jobId: The job ID returned by an async migration response (export or import).
+    /// - Returns: A `JobStatus` with the current status, optional error, and result data.
     /// - Throws: `PlatformMigrationError` on auth or request failures.
-    public static func pollImportStatus(jobId: String) async throws -> ImportJobStatus {
+    public static func pollJobStatus(jobId: String) async throws -> JobStatus {
         let (baseURL, token, orgId) = try resolveAuthContext()
 
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import/\(jobId)/status/") else {
+        guard let url = URL(string: "\(baseURL)/v1/migrations/jobs/\(jobId)/") else {
             throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
         }
 
@@ -227,10 +391,10 @@ public enum PlatformMigrationClient {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
 
-        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-status")
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "job-status")
 
         guard statusCode == 200 else {
-            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: "Import status check failed")
+            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: "Job status check failed")
         }
 
         // Parse status and error from top level, keep raw data for result
@@ -245,38 +409,7 @@ public enum PlatformMigrationClient {
             resultData = try? JSONSerialization.data(withJSONObject: result)
         }
 
-        return ImportJobStatus(status: status, jobId: jobIdValue, error: error, resultData: resultData)
-    }
-
-    /// Imports a migration bundle by sending the raw data directly to the platform.
-    ///
-    /// This is the fallback path when signed URL uploads are not available. It matches
-    /// the CLI's `platformImportBundle()` function: POST to `/v1/migrations/import/`
-    /// with the bundle data as an octet-stream body.
-    ///
-    /// - Parameter bundleData: The raw bundle data to import.
-    /// - Returns: A tuple of the HTTP status code and raw response data.
-    /// - Throws: `PlatformMigrationError` on auth failures, or network errors from `URLSession`.
-    public static func importInline(bundleData: Data) async throws -> (statusCode: Int, data: Data) {
-        let (baseURL, token, orgId) = try resolveAuthContext()
-
-        guard let url = URL(string: "\(baseURL)/v1/migrations/import/") else {
-            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 3600
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        request.httpBody = bundleData
-
-        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-inline")
-
-        return (statusCode: statusCode, data: data)
+        return JobStatus(status: status, jobId: jobIdValue, error: error, resultData: resultData)
     }
 
     // MARK: - Internals
@@ -371,6 +504,46 @@ public enum PlatformMigrationClient {
         /// in-flight callbacks from the previous attempt are discarded.
         func reset() {
             lastReportedFraction = 0.0
+            generation += 1
+        }
+    }
+
+    /// Tracks download progress and dispatches throttled updates to the main actor.
+    /// Mirrors `UploadProgressDelegate` but for response data instead of request body.
+    private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
+        private let onProgress: @MainActor (Double) -> Void
+        private var lastReportedFraction: Double = 0.0
+        private var generation: Int = 0
+        private var bytesReceived: Int64 = 0
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive data: Data
+        ) {
+            bytesReceived += Int64(data.count)
+            let total = dataTask.countOfBytesExpectedToReceive
+            guard total > 0 else { return }
+            let progress = Double(bytesReceived) / Double(total)
+            guard progress - lastReportedFraction >= 0.01 || progress >= 1.0 else { return }
+            lastReportedFraction = progress
+            let callback = self.onProgress
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(progress)
+            }
+        }
+
+        /// Resets throttle and increments the generation counter so any
+        /// in-flight callbacks from the previous attempt are discarded.
+        func reset() {
+            lastReportedFraction = 0.0
+            bytesReceived = 0
             generation += 1
         }
     }

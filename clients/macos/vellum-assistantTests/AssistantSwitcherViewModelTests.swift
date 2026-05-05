@@ -30,8 +30,14 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
         // properties, which are covered by LockfileAssistantManagedTests —
         // here we exercise the filter predicate on a mocked loader so the
         // test stays pure.
-        let managedCurrent = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
-        let managedOther = makeAssistant(id: "managed-b", runtimeUrl: "https://platform.example.com")
+        let managedCurrent = makeAssistant(
+            id: "managed-a",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
+        let managedOther = makeAssistant(
+            id: "managed-b",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
         let unmanaged = makeAssistant(id: "local-a", runtimeUrl: "", isLocal: true)
 
         let spy = SwitcherSpy()
@@ -50,8 +56,14 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
     // MARK: - Select
 
     func testSelectInvokesSwitchHandlerWithCorrectId() async throws {
-        let managedA = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
-        let managedB = makeAssistant(id: "managed-b", runtimeUrl: "https://platform.example.com")
+        let managedA = makeAssistant(
+            id: "managed-a",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
+        let managedB = makeAssistant(
+            id: "managed-b",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
 
         let spy = SwitcherSpy()
         var activeId = "managed-a"
@@ -75,7 +87,10 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
     }
 
     func testSelectIsNoOpWhenAlreadyActive() async throws {
-        let managedA = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
+        let managedA = makeAssistant(
+            id: "managed-a",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
         let spy = SwitcherSpy()
         let vm = AssistantSwitcherViewModel(
             switchHandler: spy.switchHandler,
@@ -94,8 +109,14 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
     // MARK: - Active change notification
 
     func testActiveAssistantDidChangeTriggersRefresh() {
-        let managedA = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
-        let managedB = makeAssistant(id: "managed-b", runtimeUrl: "https://platform.example.com")
+        let managedA = makeAssistant(
+            id: "managed-a",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
+        let managedB = makeAssistant(
+            id: "managed-b",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
 
         let spy = SwitcherSpy()
         var activeId: String? = "managed-a"
@@ -128,8 +149,14 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
     // MARK: - Retire
 
     func testRetireRemovesAssistantFromListAfterHandlerCompletes() async throws {
-        let managedA = makeAssistant(id: "managed-a", runtimeUrl: "https://platform.example.com")
-        let managedB = makeAssistant(id: "managed-b", runtimeUrl: "https://platform.example.com")
+        let managedA = makeAssistant(
+            id: "managed-a",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
+        let managedB = makeAssistant(
+            id: "managed-b",
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL
+        )
 
         var current: [LockfileAssistant] = [managedA, managedB]
         let spy = SwitcherSpy()
@@ -188,9 +215,13 @@ final class AssistantSwitcherViewModelTests: XCTestCase {
             let json: [String: Any] = [
                 "activeAssistant": id,
                 "assistants": [
-                    id: [
-                        "createdAt": "2024-01-01T00:00:00Z",
-                        "instanceDir": dir,
+                    [
+                        "assistantId": id,
+                        "cloud": "local",
+                        "hatchedAt": "2024-01-01T00:00:00Z",
+                        "resources": [
+                            "instanceDir": dir,
+                        ],
                     ]
                 ]
             ]

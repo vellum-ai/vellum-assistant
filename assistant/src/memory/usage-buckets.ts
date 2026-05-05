@@ -215,7 +215,10 @@ function formatHourLabel(epochMillis: number, tz: string): string {
     hour12: true,
   });
   // "3 PM" → "3pm"
-  return formatter.format(new Date(epochMillis)).replace(/\s/g, "").toLowerCase();
+  return formatter
+    .format(new Date(epochMillis))
+    .replace(/\s/g, "")
+    .toLowerCase();
 }
 
 /** Format a short human-readable day label in `tz`, e.g. "Apr 11". */
@@ -280,6 +283,42 @@ function finalize(buckets: Map<string, MutableBucket>): UsageDayBucket[] {
       totalEstimatedCostUsd: rest.totalEstimatedCostUsd,
       eventCount: rest.eventCount,
     }));
+}
+
+const HOURLY_BUCKET_ID_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):00\|(-?\d+)$/;
+const DAILY_BUCKET_ID_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function usageBucketSortKey(
+  bucket: Pick<UsageDayBucket, "bucketId">,
+): number | null {
+  const hourlyMatch = HOURLY_BUCKET_ID_RE.exec(bucket.bucketId);
+  if (hourlyMatch) {
+    const [, year, month, day, hour, offsetMinutes] = hourlyMatch;
+    return (
+      Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour)) -
+      Number(offsetMinutes) * 60_000
+    );
+  }
+
+  const dailyMatch = DAILY_BUCKET_ID_RE.exec(bucket.bucketId);
+  if (dailyMatch) {
+    const [, year, month, day] = dailyMatch;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day));
+  }
+
+  return null;
+}
+
+export function compareUsageBuckets(
+  a: Pick<UsageDayBucket, "bucketId">,
+  b: Pick<UsageDayBucket, "bucketId">,
+): number {
+  const aSortKey = usageBucketSortKey(a);
+  const bSortKey = usageBucketSortKey(b);
+  if (aSortKey !== null && bSortKey !== null && aSortKey !== bSortKey) {
+    return aSortKey - bSortKey;
+  }
+  return a.bucketId.localeCompare(b.bucketId);
 }
 
 /** Options for bucketing behavior. */

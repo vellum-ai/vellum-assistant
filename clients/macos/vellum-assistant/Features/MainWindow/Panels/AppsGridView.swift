@@ -34,6 +34,13 @@ struct AppsGridView: View {
     @State private var hasFetchedLocalApps = false
     @State private var localAppsTask: Task<Void, Never>?
 
+    // Documents fetched from daemon
+    @State private var documents: [DocumentListResponseDocument] = []
+    @State private var isLoadingDocuments = false
+    @State private var hasFetchedDocuments = false
+    @State private var documentsTask: Task<Void, Never>?
+    @State private var documentsTaskGeneration = 0
+
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
     @State private var previewCache: [String: String] = [:]
@@ -47,7 +54,7 @@ struct AppsGridView: View {
 
     var body: some View {
         VPageContainer(title: "Library") {
-            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty && documents.isEmpty && hasFetchedShared && hasFetchedLocalApps && hasFetchedDocuments {
                 noAppsEmptyState
             } else {
                 mainContent
@@ -56,14 +63,22 @@ struct AppsGridView: View {
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
             if !hasFetchedLocalApps { refreshLocalAppsFromDaemon() }
+            if !hasFetchedDocuments { refreshDocumentsFromDaemon() }
         }
         .onDisappear {
             sharedAppsTask?.cancel()
             sharedAppsTask = nil
             localAppsTask?.cancel()
             localAppsTask = nil
+            documentsTask?.cancel()
+            documentsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: .documentDidSave) {
+                refreshDocumentsFromDaemon()
+            }
         }
         .alert("Delete App?", isPresented: Binding(
             get: { appToDelete != nil },
@@ -103,6 +118,7 @@ struct AppsGridView: View {
 
                 let pinned = filteredPinnedApps
                 let recents = filteredRecentApps
+                let docs = filteredDocuments
                 let shared = filteredSharedApps
 
                 if !pinned.isEmpty {
@@ -111,6 +127,18 @@ struct AppsGridView: View {
 
                 if !recents.isEmpty {
                     appSection(title: "Recents", apps: recents)
+                }
+
+                if !docs.isEmpty {
+                    documentSection(title: "Documents", documents: docs)
+                } else if isLoadingDocuments {
+                    HStack {
+                        Spacer(minLength: 0)
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, VSpacing.lg)
                 }
 
                 if !shared.isEmpty {
@@ -122,10 +150,10 @@ struct AppsGridView: View {
                         .padding(.top, VSpacing.lg)
                 }
 
-                if pinned.isEmpty && recents.isEmpty && shared.isEmpty && !searchText.isEmpty {
+                if pinned.isEmpty && recents.isEmpty && docs.isEmpty && shared.isEmpty && !searchText.isEmpty {
                     VEmptyState(
-                        title: "No apps matched",
-                        subtitle: "No apps matched \"\(searchText)\"",
+                        title: "No library items matched",
+                        subtitle: "No apps or documents matched \"\(searchText)\"",
                         icon: VIcon.search.rawValue
                     )
                     .frame(maxWidth: .infinity)
@@ -384,6 +412,63 @@ struct AppsGridView: View {
         .pointerCursor()
     }
 
+    // MARK: - Document Card
+
+    private func documentCard(_ document: DocumentListResponseDocument) -> some View {
+        Button {
+            openDocument(document)
+        } label: {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ZStack {
+                    VColor.surfaceBase
+
+                    VStack(spacing: VSpacing.sm) {
+                        VIconView(.fileText, size: 34)
+                            .foregroundStyle(VColor.contentTertiary)
+
+                        Text(Self.formatWordCount(document.wordCount))
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
+                    }
+                }
+                .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(document.title)
+                        .font(VFont.bodyLargeEmphasised)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineLimit(1)
+
+                    Text(Self.formatTimestamp(document.updatedAt))
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            hoveredAppId = hovering ? document.surfaceId : nil
+        }
+        .pointerCursor()
+        .accessibilityLabel(document.title)
+    }
+
+    private func openDocument(_ document: DocumentListResponseDocument) {
+        NotificationCenter.default.post(
+            name: .openDocumentEditor,
+            object: nil,
+            userInfo: ["documentSurfaceId": document.surfaceId]
+        )
+    }
+
     private func openSharedApp(_ app: SharedAppItem) {
         let safeName = app.name
             .replacingOccurrences(of: "&", with: "&amp;")
@@ -499,6 +584,30 @@ struct AppsGridView: View {
         }
     }
 
+    private func refreshDocumentsFromDaemon() {
+        documentsTask?.cancel()
+        isLoadingDocuments = true
+        documentsTaskGeneration += 1
+        let generation = documentsTaskGeneration
+
+        let task = Task { @MainActor in
+            defer {
+                if documentsTaskGeneration == generation {
+                    documentsTask = nil
+                    isLoadingDocuments = false
+                    hasFetchedDocuments = true
+                }
+            }
+
+            guard let response = await DocumentClient().fetchList(conversationId: nil) else {
+                return
+            }
+            guard documentsTaskGeneration == generation else { return }
+            documents = response.documents
+        }
+        documentsTask = task
+    }
+
     // MARK: - Sections
 
     private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
@@ -511,6 +620,20 @@ struct AppsGridView: View {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
+                }
+            }
+        }
+    }
+
+    private func documentSection(title: String, documents: [DocumentListResponseDocument]) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(title)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(VColor.contentSecondary)
+
+            LazyVGrid(columns: columns, spacing: VSpacing.lg) {
+                ForEach(documents, id: \.surfaceId) { document in
+                    documentCard(document)
                 }
             }
         }
@@ -562,6 +685,14 @@ struct AppsGridView: View {
         }
     }
 
+    /// Documents filtered by search text.
+    private var filteredDocuments: [DocumentListResponseDocument] {
+        guard !searchText.isEmpty else { return documents }
+        return documents.filter {
+            $0.title.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
     private func matchesSearch(_ app: AppListManager.AppItem) -> Bool {
         app.name.localizedCaseInsensitiveContains(searchText) ||
         (app.description?.localizedCaseInsensitiveContains(searchText) ?? false)
@@ -579,9 +710,16 @@ struct AppsGridView: View {
         dateFormatter.string(from: date)
     }
 
+    private static func formatTimestamp(_ timestamp: Int) -> String {
+        dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000.0))
+    }
+
     private static func formatISO(_ isoString: String) -> String {
         guard let date = isoString.iso8601Date else { return isoString }
         return dateFormatter.string(from: date)
     }
-}
 
+    private static func formatWordCount(_ count: Int) -> String {
+        count == 1 ? "1 word" : "\(count) words"
+    }
+}

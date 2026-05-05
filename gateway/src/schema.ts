@@ -1,4 +1,11 @@
 import packageJson from "../package.json" with { type: "json" };
+import {
+  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
+  TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
+  TWILIO_RELAY_WEBHOOK_PATH,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  TWILIO_VOICE_WEBHOOK_PATH,
+} from "@vellumai/service-contracts/twilio-ingress";
 
 export function buildSchema(): Record<string, unknown> {
   return {
@@ -300,7 +307,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/voice": {
+      [TWILIO_VOICE_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio voice webhook",
           description:
@@ -358,7 +365,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/status": {
+      [TWILIO_STATUS_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio status webhook",
           description:
@@ -415,7 +422,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/connect-action": {
+      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
         post: {
           summary: "Twilio connect-action webhook",
           description:
@@ -463,6 +470,54 @@ export function buildSchema(): Record<string, unknown> {
             },
             "502": {
               description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/twilio/voice-verify": {
+        post: {
+          summary: "Twilio voice verification callback",
+          description:
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+          operationId: "twilioVoiceVerifyCallback",
+          security: [{ TwilioSignature: [] }],
+          parameters: [
+            {
+              name: "attempt",
+              in: "query",
+              required: false,
+              schema: { type: "integer", default: 0 },
+              description: "Zero-based attempt counter for retry tracking.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description:
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+              content: {
+                "text/xml": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "403": {
+              description: "Twilio signature validation failed",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -914,7 +969,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/relay": {
+      [TWILIO_RELAY_WEBHOOK_PATH]: {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
           description:
@@ -954,7 +1009,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/media-stream": {
+      [TWILIO_MEDIA_STREAM_WEBHOOK_PATH]: {
         get: {
           summary: "Twilio Media Stream WebSocket",
           description:
@@ -1192,68 +1247,6 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
-          },
-        },
-      },
-      "/pairing/register": {
-        post: {
-          summary: "Register pairing code",
-          description:
-            "Authenticated gateway endpoint that registers a new pairing code for device linking via the assistant runtime.",
-          operationId: "pairingRegister",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Pairing code registered" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "502": { description: "Failed to reach assistant runtime" },
-          },
-        },
-      },
-      "/pairing/request": {
-        post: {
-          summary: "Request pairing",
-          description:
-            "Initiates a pairing request using a pairing code. Auth failures are tracked for rate limiting.",
-          operationId: "pairingRequest",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Pairing request accepted" },
-            "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized" },
-            "403": { description: "Pairing code expired or invalid" },
-            "502": { description: "Failed to reach assistant runtime" },
-          },
-        },
-      },
-      "/pairing/status": {
-        get: {
-          summary: "Check pairing status",
-          description:
-            "Checks the current status of a pairing request. Auth failures are tracked for rate limiting.",
-          operationId: "pairingStatus",
-          responses: {
-            "200": { description: "Pairing status returned" },
-            "401": { description: "Unauthorized" },
-            "403": { description: "Pairing session not found" },
-            "502": { description: "Failed to reach assistant runtime" },
           },
         },
       },
@@ -1497,6 +1490,32 @@ export function buildSchema(): Record<string, unknown> {
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/prompt/submit": {
+        post: {
+          summary: "Submit a contact address in response to a prompt",
+          description:
+            "Authenticated gateway endpoint that accepts a contact address submitted by the user in response to a contacts/prompt IPC request. Writes the contact, notifies the daemon to unblock the waiting CLI call.",
+          operationId: "contactsPromptSubmitPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact created and prompt resolved" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "409": { description: "Channel already exists for this contact" },
+            "503": { description: "Bearer token not configured" },
           },
         },
       },
@@ -2880,6 +2899,7 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       interactive: { type: "string" },
                       autonomous: { type: "string" },
+                      headless: { type: "string" },
                     },
                   },
                 },
@@ -2901,6 +2921,7 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     interactive: { type: "string" },
                     autonomous: { type: "string" },
+                    headless: { type: "string" },
                   },
                 },
               },
@@ -2916,6 +2937,7 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       interactive: { type: "string" },
                       autonomous: { type: "string" },
+                      headless: { type: "string" },
                     },
                   },
                 },
@@ -2949,6 +2971,7 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       interactive: { type: "string" },
                       autonomous: { type: "string" },
+                      headless: { type: "string" },
                     },
                   },
                 },
@@ -2978,6 +3001,7 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     interactive: { type: "string" },
                     autonomous: { type: "string" },
+                    headless: { type: "string" },
                   },
                 },
               },
@@ -2993,6 +3017,7 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       interactive: { type: "string" },
                       autonomous: { type: "string" },
+                      headless: { type: "string" },
                     },
                   },
                 },
@@ -3253,6 +3278,71 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid edge JWT",
             },
             "500": { description: "Failed to create export archive" },
+          },
+        },
+      },
+      "/v1/logs/tail": {
+        get: {
+          summary: "Tail gateway log entries",
+          description:
+            "Returns the last N structured log entries from the gateway's pino log files, " +
+            "with optional filtering by minimum level and module name.",
+          operationId: "gatewayLogsTail",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "n",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
+              description: "Number of log entries to return (1–1000, default: 10)",
+            },
+            {
+              name: "level",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: ["trace", "debug", "info", "warn", "error", "fatal"],
+                default: "info",
+              },
+              description: "Minimum pino level name (default: info)",
+            },
+            {
+              name: "module",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Filter to exact pino module name",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Log entries and truncation flag",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["lines", "truncated"],
+                    properties: {
+                      lines: {
+                        type: "array",
+                        items: { type: "object" },
+                        description: "Matching log entries in chronological order",
+                      },
+                      truncated: {
+                        type: "boolean",
+                        description: "True if earlier matching entries exist beyond n",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid level parameter" },
+            "401": {
+              description: "Unauthorized — missing or invalid edge JWT",
+            },
           },
         },
       },
@@ -3689,7 +3779,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Kick off an async export-to-GCS job",
           description:
-            "Transparent proxy to the assistant daemon's `POST /v1/migrations/export-to-gcs` endpoint. The daemon schedules a background export job that streams the workspace backup to the supplied signed GCS upload URL and returns `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/export-to-gcs` endpoint. The daemon schedules a background export job that streams the workspace backup to the supplied signed GCS upload URL and returns `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationExportToGcs",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3728,7 +3818,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Kick off an async import-from-GCS job",
           description:
-            "Transparent proxy to the assistant daemon's `POST /v1/migrations/import-from-gcs` endpoint. The daemon schedules a background import job that fetches a `.vbundle` archive at the supplied `bundle_url` and streams it through the importer, returning `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/import-from-gcs` endpoint. The daemon schedules a background import job that fetches a `.vbundle` archive at the supplied `bundle_url` and streams it through the importer, returning `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationImportFromGcs",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3778,7 +3868,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Poll unified migration job status",
           description:
-            "Transparent proxy to the assistant daemon's `GET /v1/migrations/jobs/{job_id}` endpoint. Returns the current status of an async export-to-GCS or import-from-GCS job tracked by the daemon's migration job registry. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+            "Transparent proxy to the assistant daemon's `GET /v1/migrations/jobs/{job_id}` endpoint. Returns the current status of an async export-to-GCS or import-from-GCS job tracked by the daemon's migration job registry. Registered explicitly (not via the runtime-proxy catch-all) for dedicated auth and timeout handling.",
           operationId: "migrationJobStatus",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3967,11 +4057,111 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/backups": {
+        get: {
+          summary: "List backup snapshots",
+          description:
+            "Lists local and offsite backup snapshots. The gateway owns the backup encryption key and performs all encrypt/decrypt operations.",
+          operationId: "backupsList",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Backup snapshots listed",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["local", "offsite"],
+                    properties: {
+                      local: {
+                        type: "object",
+                        required: ["directory", "snapshots"],
+                        properties: {
+                          directory: { type: "string" },
+                          snapshots: {
+                            type: "array",
+                            items: {
+                              $ref: "#/components/schemas/BackupSnapshot",
+                            },
+                          },
+                        },
+                      },
+                      offsite: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["directory", "encrypted", "snapshots"],
+                          properties: {
+                            directory: { type: "string" },
+                            encrypted: { type: "boolean" },
+                            snapshots: {
+                              type: "array",
+                              items: {
+                                $ref: "#/components/schemas/BackupSnapshot",
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/backups/create": {
+        post: {
+          summary: "Create backup snapshot",
+          description:
+            "Triggers a manual backup snapshot. The gateway exports a plaintext vbundle from the daemon, writes it locally, and encrypts + mirrors to offsite destinations.",
+          operationId: "backupsCreate",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Backup snapshot created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["success", "local", "offsite", "duration_ms"],
+                    properties: {
+                      success: { type: "boolean" },
+                      local: {
+                        $ref: "#/components/schemas/BackupSnapshot",
+                      },
+                      offsite: {
+                        type: "array",
+                        items: { type: "object", additionalProperties: true },
+                      },
+                      duration_ms: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "409": {
+              description: "A backup snapshot is already in progress",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",
           description:
-            "Reverse-proxies requests to the assistant runtime when gateway.runtimeProxyEnabled is true in workspace config. Supports all HTTP methods. Returns 404 when the proxy is disabled.",
+            "Reverse-proxies requests to the assistant runtime. Supports all HTTP methods.",
           operationId: "runtimeProxyGet",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3996,7 +4186,7 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "404": {
-              description: "Runtime proxy not enabled",
+              description: "Route not found on upstream runtime",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -4032,8 +4222,7 @@ export function buildSchema(): Record<string, unknown> {
         },
         post: {
           summary: "Runtime proxy",
-          description:
-            "Reverse-proxies requests to the assistant runtime when gateway.runtimeProxyEnabled is true in workspace config.",
+          description: "Reverse-proxies requests to the assistant runtime.",
           operationId: "runtimeProxyPost",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -4087,6 +4276,17 @@ export function buildSchema(): Record<string, unknown> {
     },
     components: {
       schemas: {
+        BackupSnapshot: {
+          type: "object",
+          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          properties: {
+            path: { type: "string" },
+            filename: { type: "string" },
+            created_at: { type: "string", format: "date-time" },
+            size_bytes: { type: "integer" },
+            encrypted: { type: "boolean" },
+          },
+        },
         HealthResponse: {
           type: "object",
           required: ["status"],

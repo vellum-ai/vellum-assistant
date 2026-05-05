@@ -3,8 +3,8 @@ import { z } from "zod";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
-export const ServiceModeSchema = z.enum(["managed", "your-own"]);
-export type ServiceMode = z.infer<typeof ServiceModeSchema>;
+const ServiceModeSchema = z.enum(["managed", "your-own"]);
+type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [
   "anthropic",
@@ -15,9 +15,9 @@ export const VALID_INFERENCE_PROVIDERS = [
   "openrouter",
 ] as const;
 
-export const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
+const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 
-export const VALID_WEB_SEARCH_PROVIDERS = [
+const VALID_WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "brave",
   "inference-provider-native",
@@ -26,7 +26,6 @@ export const VALID_WEB_SEARCH_PROVIDERS = [
 const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type BaseService = z.infer<typeof BaseServiceSchema>;
 
 /**
  * Inference service entry. Carries only the routing `mode`
@@ -36,53 +35,70 @@ export type BaseService = z.infer<typeof BaseServiceSchema>;
  * legacy configs that still carry them have those keys stripped by
  * workspace migration `039-drop-legacy-llm-keys`.
  */
-export const InferenceServiceSchema = BaseServiceSchema;
-export type InferenceService = z.infer<typeof InferenceServiceSchema>;
+const InferenceServiceSchema = BaseServiceSchema;
 
-export const ImageGenerationServiceSchema = BaseServiceSchema.extend({
+const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default("gemini-3.1-flash-image-preview"),
 });
-export type ImageGenerationService = z.infer<
-  typeof ImageGenerationServiceSchema
->;
 
-export const WebSearchServiceSchema = BaseServiceSchema.extend({
+const WebSearchServiceSchema = BaseServiceSchema.extend({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
 });
-export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
 const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type OutlookOAuthService = z.infer<typeof OutlookOAuthServiceSchema>;
 
 const LinearOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
 
 const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
 
 const NotionOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
 
 const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
-export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
+
+const AsanaOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const TodoistOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const DropboxOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const DiscordOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const AirtableOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const SalesforceOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
 
 /**
  * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
@@ -106,7 +122,6 @@ const MeetHostConfigSchema = z
       ),
   })
   .describe("Daemon-side configuration for the external meet-join skill host");
-export type MeetHostConfig = z.infer<typeof MeetHostConfigSchema>;
 
 /**
  * Daemon-side `services.meet` block. Intentionally distinct from the
@@ -120,7 +135,6 @@ const MeetDaemonServiceSchema = z
     host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
   })
   .describe("meet-join skill daemon-side configuration");
-export type MeetDaemonService = z.infer<typeof MeetDaemonServiceSchema>;
 
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
@@ -153,6 +167,27 @@ export const ServicesSchema = z.object({
   ),
   "twitter-oauth": TwitterOAuthServiceSchema.default(
     TwitterOAuthServiceSchema.parse({}),
+  ),
+  "asana-oauth": AsanaOAuthServiceSchema.default(
+    AsanaOAuthServiceSchema.parse({}),
+  ),
+  "todoist-oauth": TodoistOAuthServiceSchema.default(
+    TodoistOAuthServiceSchema.parse({}),
+  ),
+  "dropbox-oauth": DropboxOAuthServiceSchema.default(
+    DropboxOAuthServiceSchema.parse({}),
+  ),
+  "discord-oauth": DiscordOAuthServiceSchema.default(
+    DiscordOAuthServiceSchema.parse({}),
+  ),
+  "airtable-oauth": AirtableOAuthServiceSchema.default(
+    AirtableOAuthServiceSchema.parse({}),
+  ),
+  "hubspot-oauth": HubspotOAuthServiceSchema.default(
+    HubspotOAuthServiceSchema.parse({}),
+  ),
+  "salesforce-oauth": SalesforceOAuthServiceSchema.default(
+    SalesforceOAuthServiceSchema.parse({}),
   ),
   meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });

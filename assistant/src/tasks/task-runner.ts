@@ -67,7 +67,6 @@ export async function runTask(
 
   updateTaskRun(run.id, {
     conversationId: conversation.id,
-    memoryScopeId: `task:${task.id}`,
   });
 
   try {

@@ -17,15 +17,10 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
 } from "../memory/attachments-store.js";
-import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-} from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
   getConversation,
@@ -34,27 +29,25 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { redactSecrets } from "../security/secret-scanner.js";
-import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import {
+  buildSlashContextForContent,
+  resolveSlash,
+} from "./conversation-slash.js";
 import {
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
 } from "./conversation-store.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
-import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { HostFileProxy } from "./host-file-proxy.js";
-import { HostTransferProxy } from "./host-transfer-proxy.js";
-import type { ServerMessage } from "./message-protocol.js";
+import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 
 const log = getLogger("process-message");
 
@@ -94,133 +87,11 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   return "web";
 }
 
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string | undefined,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") return "voice";
-  if (sourceChannel === "vellum") return "desktop";
-  return "channel";
-}
-
-// ---------------------------------------------------------------------------
-// Pending-interaction registrar
-// ---------------------------------------------------------------------------
-
-export function makePendingInteractionRegistrar(
-  conversation: Conversation,
-  conversationId: string,
-): (msg: ServerMessage) => void {
-  return (msg: ServerMessage) => {
-    if (msg.type === "confirmation_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: msg.toolName,
-          input: msg.input,
-          riskLevel: msg.riskLevel,
-          executionTarget: msg.executionTarget,
-          allowlistOptions: msg.allowlistOptions,
-          scopeOptions: msg.scopeOptions,
-          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-        },
-      });
-
-      try {
-        const trustContext = conversation.trustContext;
-        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-        const inputRecord = msg.input as Record<string, unknown>;
-        const activityRaw =
-          (typeof inputRecord.activity === "string"
-            ? inputRecord.activity
-            : undefined) ??
-          (typeof inputRecord.reason === "string"
-            ? inputRecord.reason
-            : undefined);
-        const canonicalRequest = createCanonicalGuardianRequest({
-          id: msg.requestId,
-          kind: "tool_approval",
-          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-          sourceChannel,
-          conversationId,
-          requesterExternalUserId: trustContext?.requesterExternalUserId,
-          requesterChatId: trustContext?.requesterChatId,
-          guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: msg.toolName,
-          commandPreview:
-            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-            undefined,
-          riskLevel: msg.riskLevel,
-          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-          executionTarget: msg.executionTarget,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
-
-        if (trustContext) {
-          bridgeConfirmationRequestToGuardian({
-            canonicalRequest,
-            trustContext,
-            conversationId,
-            toolName: msg.toolName,
-            assistantId:
-              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          });
-        }
-      } catch (err) {
-        log.debug(
-          { err, requestId: msg.requestId, conversationId },
-          "Failed to create canonical request from pending interaction registrar",
-        );
-      }
-    } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
-    } else if (msg.type === "host_bash_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (msg.type === "host_browser_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (msg.type === "host_file_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (msg.type === "host_cu_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_cu",
-      });
-    } else if (msg.type === "host_transfer_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_transfer",
-      });
-    }
-  };
-}
-
 // ---------------------------------------------------------------------------
 // prepareConversationForMessage
 // ---------------------------------------------------------------------------
 
-export async function prepareConversationForMessage(
+async function prepareConversationForMessage(
   conversationId: string,
   content: string,
   attachmentIds: string[] | undefined,
@@ -278,52 +149,34 @@ export async function prepareConversationForMessage(
     throw new Error(
       "prepareConversationForMessage does not yet support chrome-extension transport — " +
         "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
-        "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
+        "the assistant event hub. If you need chrome-extension here, factor out the " +
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
-  if (supportsHostProxy(resolvedInterface, "host_bash")) {
-    if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-      conversation.setHostBashProxy(
-        new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-  }
-  if (supportsHostProxy(resolvedInterface, "host_file")) {
-    if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-      conversation.setHostFileProxy(
-        new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
-    if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
-      conversation.setHostTransferProxy(
-        new HostTransferProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostFileProxy(undefined);
-    conversation.setHostTransferProxy(undefined);
-  }
+  // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (supportsHostProxy(resolvedInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(
-        new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
+      conversation.setHostCuProxy(new HostCuProxy());
     }
-    conversation.addPreactivatedSkillId("computer-use");
   } else if (!conversation.isProcessing()) {
     conversation.setHostCuProxy(undefined);
   }
+  // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
+  // unconditionally when the client supports the capability — feature-flag
+  // gating is enforced by the skill-projection layer via SKILL.md
+  // frontmatter, so an attached proxy is harmless when the flag is off.
+  if (supportsHostProxy(resolvedInterface, "host_app_control")) {
+    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+      conversation.setHostAppControlProxy(
+        new HostAppControlProxy(conversationId),
+      );
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostAppControlProxy(undefined);
+  }
+  // The early `isProcessing()` throw above guarantees the conversation is
+  // idle here, so preactivation is unconditional once the proxies are wired.
+  preactivateHostProxySkills(conversation, resolvedInterface);
   conversation.setCommandIntent(options?.commandIntent ?? null);
   conversation.setTurnChannelContext({
     userMessageChannel: resolvedChannel,
@@ -374,18 +227,15 @@ export async function processMessage(
     sourceInterface,
   );
 
-  const config = getConfig();
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
-  const slashContext: SlashContext = {
+  const slashContext = buildSlashContextForContent(content, {
+    conversationId,
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: serverInterfaceCtx?.userMessageInterface,
-  };
+  });
   const slashResult = await resolveSlash(content, slashContext);
 
   const slackMeta = buildSlackMetaForPersistence({
@@ -551,41 +401,96 @@ export async function processMessage(
     persistMetadata,
   );
 
-  const registrar = makePendingInteractionRegistrar(
-    conversation,
-    conversationId,
-  );
-  const onEvent = options?.onEvent
-    ? (msg: ServerMessage) => {
-        registrar(msg);
-        try {
-          options.onEvent!(msg);
-        } catch (err) {
-          log.error(
-            { err, conversationId },
-            "onEvent callback failed; continuing agent loop",
-          );
-        }
-      }
-    : registrar;
   if (options?.isInteractive === true) {
-    conversation.updateClient(onEvent, false);
+    conversation.updateClient(broadcastMessage, false);
   }
 
   try {
-    await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
-      isInteractive: options?.isInteractive ?? false,
-      isUserMessage: true,
-      ...(options?.callSite ? { callSite: options.callSite } : {}),
-    });
+    conversation.setSlackRuntimeContextNotice(
+      options?.slackRuntimeContextNotice,
+    );
+    await conversation.runAgentLoop(
+      resolvedContent,
+      messageId,
+      broadcastMessage,
+      {
+        isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
+      },
+    );
   } finally {
+    conversation.setSlackRuntimeContextNotice(undefined);
     if (
       options?.isInteractive === true &&
-      conversation.getCurrentSender() === onEvent
+      conversation.getCurrentSender() === broadcastMessage
     ) {
       conversation.updateClient(() => {}, true);
     }
   }
+
+  return { messageId };
+}
+
+/**
+ * Fire-and-forget variant of {@link processMessage}. Persists the user
+ * message and kicks off the agent loop in the background, returning the
+ * `messageId` immediately without waiting for completion.
+ *
+ * Used by signal handlers and the conversation-launcher where the caller
+ * does not await the full agent turn.
+ */
+export async function processMessageInBackground(
+  conversationId: string,
+  content: string,
+  attachmentIds?: string[],
+  options?: ConversationCreateOptions,
+  sourceChannel?: string,
+  sourceInterface?: string,
+): Promise<{ messageId: string }> {
+  const { conversation, attachments } = await prepareConversationForMessage(
+    conversationId,
+    content,
+    attachmentIds,
+    options,
+    sourceChannel,
+    sourceInterface,
+  );
+
+  const requestId = crypto.randomUUID();
+  const persistMetadata = options?.slackInbound
+    ? { slackInbound: options.slackInbound }
+    : undefined;
+  const messageId = await conversation.persistUserMessage(
+    content,
+    attachments,
+    requestId,
+    persistMetadata,
+  );
+
+  if (options?.isInteractive === true) {
+    conversation.updateClient(broadcastMessage, false);
+  }
+
+  conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
+  conversation
+    .runAgentLoop(content, messageId, broadcastMessage, {
+      isInteractive: options?.isInteractive ?? false,
+      isUserMessage: true,
+      ...(options?.callSite ? { callSite: options.callSite } : {}),
+    })
+    .finally(() => {
+      conversation.setSlackRuntimeContextNotice(undefined);
+      if (
+        options?.isInteractive === true &&
+        conversation.getCurrentSender() === broadcastMessage
+      ) {
+        conversation.updateClient(() => {}, true);
+      }
+    })
+    .catch((err) => {
+      log.error({ err, conversationId }, "Background agent loop failed");
+    });
 
   return { messageId };
 }

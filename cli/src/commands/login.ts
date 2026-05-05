@@ -3,14 +3,17 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 
 import {
-  findAssistantByName,
   getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
   loadAllAssistants,
   removeAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
+import {
+  fetchAssistantIngressUrl,
+  fetchCurrentVersion,
+} from "../lib/upgrade-lifecycle.js";
 import {
   clearPlatformToken,
   ensureSelfHostedLocalRegistration,
@@ -205,21 +208,25 @@ export async function login(): Promise<void> {
     // Register the local assistant with the platform (non-fatal).
     // Mirrors the desktop app's LocalAssistantBootstrapService flow.
     try {
-      const activeName = getActiveAssistant();
-      const entry = activeName
-        ? findAssistantByName(activeName)
-        : loadLatestAssistant();
+      const entry = resolveAssistant();
 
       // Skip managed ("vellum") assistants — they are handled by the platform.
       if (entry && entry.cloud !== "vellum") {
         const orgId = await fetchOrganizationId(token);
         const clientInstallationId = computeDeviceId();
+        const [assistantVersion, ingressUrl] = await Promise.all([
+          fetchCurrentVersion(entry.runtimeUrl),
+          fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
+        ]);
         const registration = await ensureSelfHostedLocalRegistration(
           token,
           orgId,
           clientInstallationId,
           entry.assistantId,
           "cli",
+          assistantVersion,
+          getPlatformUrl(),
+          ingressUrl,
         );
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
