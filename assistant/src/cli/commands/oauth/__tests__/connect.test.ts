@@ -1019,7 +1019,7 @@ describe("assistant oauth connect", () => {
       expect(orchestratorCalled).toBe(false);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Daemon returned unexpected response");
+      expect(parsed.error).toContain("assistant returned unexpected response");
     });
 
     test("IPC poll: transient ok:false with no statusCode does not abort the flow (continues to next poll)", async () => {
