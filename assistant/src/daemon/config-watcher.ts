@@ -46,8 +46,6 @@ const SKILL_WATCH_SKIPPED_DIRS = new Set([
   ".next",
   ".turbo",
   ".venv",
-  "dist",
-  "build",
   "coverage",
 ]);
 

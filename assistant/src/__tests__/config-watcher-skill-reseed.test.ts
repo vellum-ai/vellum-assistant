@@ -215,6 +215,32 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     expect(skillsChangedCalls).toBe(1);
   });
 
+  test("recursive watcher reloads skill memories for build output changes", async () => {
+    recursiveWatchAvailable = true;
+
+    watcher.start(
+      () => {
+        evictCalls++;
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        skillsChangedCalls++;
+      },
+    );
+
+    const skillsWatcher = findWatcher(SKILLS_DIR);
+    expect(skillsWatcher).toBeDefined();
+    skillsWatcher!.callback("change", "example-skill/dist/index.js");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(1);
+    expect(skillsChangedCalls).toBe(1);
+  });
+
   test("coalesces multiple skill file changes into one catalog refresh", async () => {
     watcher.start(
       () => {
@@ -319,6 +345,45 @@ describe("ConfigWatcher skills watcher reseeding", () => {
 
     expect(evictCalls).toBe(1);
     expect(skillsChangedCalls).toBe(1);
+  });
+
+  test("fallback watches skill build output directories", async () => {
+    const distDir = join(SKILLS_DIR, "example-skill", "dist");
+    const buildDir = join(SKILLS_DIR, "example-skill", "build");
+    mkdirSync(distDir, { recursive: true });
+    mkdirSync(buildDir, { recursive: true });
+
+    watcher.start(
+      () => {
+        evictCalls++;
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        skillsChangedCalls++;
+      },
+    );
+
+    const distWatcher = findWatcher(distDir);
+    const buildWatcher = findWatcher(buildDir);
+    expect(distWatcher).toBeDefined();
+    expect(buildWatcher).toBeDefined();
+
+    distWatcher!.callback("change", "index.js");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(1);
+    expect(skillsChangedCalls).toBe(1);
+
+    buildWatcher!.callback("change", "tool.js");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(2);
+    expect(skillsChangedCalls).toBe(2);
   });
 
   test("fallback adds watchers for new nested skill directories without duplicates", () => {
