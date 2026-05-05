@@ -571,6 +571,40 @@ export async function fetchPlatformAssistants(
   return (body.results ?? []).filter((a) => a.status === "active");
 }
 
+/**
+ * Fetch a single platform assistant by its UUID. Returns null on 404
+ * (not found or no access). Throws on auth errors or unexpected
+ * server errors.
+ */
+export async function fetchAssistantByIdFromPlatform(
+  token: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/${assistantId}/`;
+
+  const response = await fetch(url, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication failed. Run 'vellum login' to refresh.");
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch assistant ${assistantId}: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as HatchedAssistant;
+}
+
 export interface PlatformUser {
   id: string;
   email: string;
