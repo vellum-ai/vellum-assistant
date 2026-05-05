@@ -139,6 +139,8 @@ mock.module("../skills/catalog-cache.js", () => ({
 
 mock.module("../skills/catalog-install.js", () => ({
   assertInstalledSkillDiscoverable: () => {},
+  commitStagedSkillInstall: () => {},
+  createSkillInstallStagingDir: () => "/tmp/test-skills/.install-staging/test",
   discardSkillInstallBackup: () => {},
   installSkillDependenciesIfPresent: () => {},
   installSkillLocally: async () => {},

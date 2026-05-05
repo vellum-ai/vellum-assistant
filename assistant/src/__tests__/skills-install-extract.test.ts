@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { extractTarToDir } from "../skills/catalog-install.js";
+import {
+  extractTarToDir,
+  writeSkillFilesToDir,
+} from "../skills/catalog-install.js";
 
 let tempDir: string;
 
@@ -104,5 +107,34 @@ describe("extractTarToDir", () => {
     expect(readFileSync(join(tempDir, "nested", "SKILL.md"), "utf-8")).toBe(
       "# nested\n",
     );
+  });
+
+  test("normalizes safe relative segments before top-level SKILL.md detection", () => {
+    const tar = makeTar([{ name: "wrapper/../SKILL.md", content: "# demo\n" }]);
+
+    const foundSkillMd = extractTarToDir(tar, tempDir);
+
+    expect(foundSkillMd).toBe(true);
+    expect(readFileSync(join(tempDir, "SKILL.md"), "utf-8")).toBe("# demo\n");
+  });
+});
+
+describe("writeSkillFilesToDir", () => {
+  test("uses the same traversal rules as tar extraction", () => {
+    const foundSkillMd = writeSkillFilesToDir(
+      {
+        "./SKILL.md": "# demo\n",
+        "scripts/../notes.md": "ok\n",
+        "../../escape.txt": "nope\n",
+        "/absolute.txt": "nope\n",
+      },
+      tempDir,
+    );
+
+    expect(foundSkillMd).toBe(true);
+    expect(readFileSync(join(tempDir, "SKILL.md"), "utf-8")).toBe("# demo\n");
+    expect(readFileSync(join(tempDir, "notes.md"), "utf-8")).toBe("ok\n");
+    expect(existsSync(join(tempDir, "escape.txt"))).toBe(false);
+    expect(existsSync(join(tempDir, "absolute.txt"))).toBe(false);
   });
 });

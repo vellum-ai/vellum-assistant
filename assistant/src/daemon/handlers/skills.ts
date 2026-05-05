@@ -40,13 +40,11 @@ import {
   SKIP_DIRS,
 } from "../../skills/catalog-files.js";
 import {
-  assertInstalledSkillDiscoverable,
   type CatalogSkill,
-  discardSkillInstallBackup,
+  commitStagedSkillInstall,
+  createSkillInstallStagingDir,
   installSkillDependenciesIfPresent,
   installSkillLocally,
-  restoreOrRemoveFailedSkillInstall,
-  snapshotExistingSkillDir,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { inferCategory } from "../../skills/category-inference.js";
@@ -260,9 +258,9 @@ function saveConfigWithSuppression(raw: Record<string, unknown>): void {
  * seeding.
  *
  * Dependency installation is handled by the install path: catalog and
- * skills.sh installs handle it internally, while the clawhub path handles it
- * inline in `installSkill()` since `clawhubInstall` only runs the clawhub CLI
- * and writes metadata.
+ * skills.sh installs handle it internally, while the clawhub path stages the
+ * CLI output, installs dependencies, and commits the staged directory before
+ * this runs.
  *
  * Discoverability verification is handled by the install path before this runs.
  *
@@ -1106,30 +1104,26 @@ export async function installSkill(spec: {
     const expectedSkillId = spec.slug.includes("/")
       ? spec.slug.split("/").pop()!
       : spec.slug;
-    let backupDir: string | null = null;
     let skillId = expectedSkillId;
-    backupDir = snapshotExistingSkillDir(expectedSkillId);
+    const clawhubProjectRoot = createSkillInstallStagingDir();
     try {
       const result = await clawhubInstall(spec.slug, {
         version: spec.version,
         contactId: spec.contactId,
+        projectRoot: clawhubProjectRoot,
       });
       if (!result.success) {
-        restoreOrRemoveFailedSkillInstall(expectedSkillId, backupDir);
         return { success: false, error: result.error ?? "Unknown error" };
       }
       const rawId = result.skillName ?? spec.slug;
       skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
 
-      // clawhubInstall uses the clawhub CLI which doesn't handle bun install, so
-      // install dependencies here before post-install.
-      const skillDir = join(getWorkspaceSkillsDir(), skillId);
-      installSkillDependenciesIfPresent(skillDir);
-      assertInstalledSkillDiscoverable(skillId, skillDir);
-      discardSkillInstallBackup(backupDir);
-    } catch (err) {
-      restoreOrRemoveFailedSkillInstall(expectedSkillId, backupDir);
-      throw err;
+      const stagedSkillDir =
+        result.skillDir ?? join(clawhubProjectRoot, "skills", skillId);
+      installSkillDependenciesIfPresent(stagedSkillDir);
+      commitStagedSkillInstall(skillId, stagedSkillDir);
+    } finally {
+      rmSync(clawhubProjectRoot, { recursive: true, force: true });
     }
 
     postInstallSkill(skillId);
